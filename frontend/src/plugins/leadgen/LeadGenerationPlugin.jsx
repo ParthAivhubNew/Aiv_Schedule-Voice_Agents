@@ -36,6 +36,7 @@ import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./A
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
 import { CreditsChip } from "./CreditsChip";
+import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 
 
@@ -187,6 +188,7 @@ export default function LeadGenerationPlugin({
             return (
               <button
                 key={item.id}
+                title={tabLocked ? "Choose a plan or top up to unlock this" : `Open ${item.label}`}
                 onClick={() => {
                   if (tabLocked) {
                     showToast("Choose a plan or buy a top-up to unlock Leads.");
@@ -259,7 +261,7 @@ export default function LeadGenerationPlugin({
             </div>
           </div>
           {onLogout && (
-            <button
+            <button title="Sign out of Outreach"
               onClick={onLogout}
               style={{
                 marginTop: 10,
@@ -314,7 +316,7 @@ export default function LeadGenerationPlugin({
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {!isLocked || view === "subscription" ? <CreditsChip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} /> : null}
             {view === "lists" && (
-              <button
+              <button title="Type in one company yourself"
                 onClick={() => setShowAddModal(true)}
                 style={{
                   display: "flex",
@@ -392,6 +394,7 @@ export default function LeadGenerationPlugin({
       {showAddModal && <AddAccountForm store={store} onClose={() => setShowAddModal(false)} />}
 
       {/* Toast */}
+      <DialogHost />
       {toastMessage && (
         <div style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
           {toastMessage}

@@ -161,10 +161,10 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
             : job.status === "cancelled" ? `Cancelled after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : `Stopped after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}`}
         </div>
         {running ? (
-          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={job.pause ? check.resume : check.pause}>{job.pause ? "Resume" : "Pause"}</button>
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={job.pause ? "Carry on from where it stopped" : "Hold the check. Nothing more is spent until you resume"} onClick={job.pause ? check.resume : check.pause}>{job.pause ? "Resume" : "Pause"}</button>
         ) : null}
-        {running ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={check.cancel}>Cancel</button> : null}
-        {!running && pendingCount > 0 ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onRecheck}><RefreshCw size={13} /> Re-check {pendingCount} pending</button> : null}
+        {running ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Stop now. Companies already checked keep their results, and unused credits are given back" onClick={check.cancel}>Cancel</button> : null}
+        {!running && pendingCount > 0 ? <button title="Check the companies that are still waiting, again" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onRecheck}><RefreshCw size={13} /> Re-check {pendingCount} pending</button> : null}
         {!running ? <button type="button" className="ui-icon-btn" aria-label="Dismiss" onClick={check.dismiss}><X size={16} /></button> : null}
       </div>
       {running ? <div style={{ ...muted, fontSize: 12.5 }}>{job.pause ? "Paused. Nothing more is spent until you resume." : liveLine(job)}</div> : null}
@@ -278,8 +278,9 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
         </div>
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="ui-btn ui-btn--primary" disabled={!est || busy || est.companies === 0} onClick={go}>{busy ? "Starting…" : "Start"}</button>
+          <button type="button" className="ui-btn ui-btn--ghost" title="Put the choices back to how they were" onClick={() => { setEmail(false); setWeb(true); setPhone(true); setError(""); }}>Reset</button>
+          <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="ui-btn ui-btn--primary" title="Start now. You can pause or cancel any time, and unused credits are given back" disabled={!est || busy || est.companies === 0} onClick={go}>{busy ? "Starting…" : "Start"}</button>
         </div>
       </div>
     </div>

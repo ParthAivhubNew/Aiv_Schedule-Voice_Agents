@@ -122,3 +122,16 @@ async def test_every_member_sees_the_leads_credits_at_a_glance(db):
         assert r.status_code == 200, r.text
         out = r.json()
         assert out["balance"] == 37 and out["held"] == 0 and out["used_30d"] == 3 and out["used_today"] == 3 and not out["empty"]
+
+
+async def test_companies_in_no_list_are_gathered_into_unsorted_which_can_be_renamed(db):
+    _, token = await make_user(db, "ll3", "Admin", org_id="org_lists3")
+    async with _client(token) as c:
+        saved = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Old Co"}, {"name": "Older Co"}]})).json()["accounts"]
+        assert (await c.get("/api/leads/lists")).status_code == 200  # saved with no list at all (as before lists existed)
+        lists = (await c.get("/api/leads/lists")).json()["lists"]
+        loose = next(l for l in lists if l["name"] == "Unsorted")
+        assert sorted(loose["ids"]) == sorted(a["id"] for a in saved)
+        assert len([l for l in lists if l["name"] == "Unsorted"]) == 1  # asking again does not add another
+        r = await c.patch(f"/api/leads/lists/{loose['id']}", json={"name": "My old leads"})
+        assert r.json()["list"]["name"] == "My old leads"

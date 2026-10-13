@@ -222,7 +222,10 @@ async def clients(request: Request, include_aivhub: bool = True, include_archive
         async def detail(db):
             ver = await latest_verification(db)
             sub = (await db.execute(text("SELECT status FROM billing_subscriptions WHERE id = :i"), {"i": org_id})).scalar()
-            return {"wallets": {w["key"]: w["balance"] for w in await K.wallets(db)},
+            ws = await K.wallets(db)
+            return {"wallets": {w["key"]: w["balance"] for w in ws},
+                    "lowWallets": [w["label"] for w in ws if w["low"] and not w["empty"]],
+                    "emptyWallets": [w["label"] for w in ws if w["empty"]],
                     "enforce": (await K.org_settings(db, org_id))["enforce"],
                     "verification": ver.status if ver else None, "subscription": sub or "none"}
         out.append({"id": org_id, "name": name, "status": status or "active", "createdAt": created.isoformat() if created else None,

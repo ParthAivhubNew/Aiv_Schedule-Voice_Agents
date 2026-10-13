@@ -95,9 +95,32 @@ async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[
     return {"id": hit["id"], "name": hit["name"], "count": len(hit["ids"])}
 
 
+UNSORTED = "Unsorted"
+
+
+async def _adopt_loose(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Every saved company belongs to a list. Ones saved before lists existed, or taken out of their
+    last list, are gathered into "Unsorted" (made if needed) so they can be renamed, moved and used."""
+    placed = {i for l in lists for i in l["ids"]}
+    every = (await db.execute(select(LeadAccount.id).order_by(LeadAccount.created_at))).scalars().all()
+    loose = [i for i in every if i not in placed]
+    if not loose:
+        return lists
+    hit = next((l for l in lists if l["name"].lower() == UNSORTED.lower()), None)
+    if not hit:
+        if len(lists) >= MAX_LISTS:
+            return lists
+        hit = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": UNSORTED, "ids": [], "created_at": datetime.utcnow().isoformat() + "Z"}
+        lists = lists + [hit]
+    hit["ids"] = hit["ids"] + loose
+    await _save(db, lists)
+    return lists
+
+
 @router.get("")
 async def all_lists(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    return {"lists": await _clean(db, await _load(db))}
+    lists = await _clean(db, await _load(db))
+    return {"lists": await _adopt_loose(db, lists)}
 
 
 @router.post("")

@@ -517,6 +517,12 @@ function MainApp({ onSignedOut }) {
   const [teamInitialTab, setTeamInitialTab] = useState("users");
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
   const [calcomInitialTab, setCalcomInitialTab] = useState("accounts");
+  // Lets screens such as Calling -> Schedule open the Calendar & meetings window on a given tab.
+  useEffect(() => {
+    const open = (ev) => { setCalcomInitialTab((ev && ev.detail) || "accounts"); setShowCalcomAdminModal(true); };
+    window.addEventListener("aivhub:open-calendar-settings", open);
+    return () => window.removeEventListener("aivhub:open-calendar-settings", open);
+  }, []);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showDeveloperKeysModal, setShowDeveloperKeysModal] = useState(false);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");

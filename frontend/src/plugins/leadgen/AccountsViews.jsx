@@ -4,11 +4,13 @@ import * as XLSX from "xlsx";
 import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged } from "./CreditsChip";
+import { SearchStatus } from "./SearchStatus";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
 import { applyMapping } from "./importMapping";
 import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
+import { askConfirm, askText } from "./Dialogs";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -57,6 +59,26 @@ export function useLeadAccounts(onToast, onListsChanged) {
   }, [reload]);
 
   const replace = (a) => setAccounts((prev) => prev.map((x) => (x.id === a.id ? a : x)));
+  const stopped = useRef(new Set()); // account ids whose person stopped waiting for the lookup in flight
+  const lookup = async (id, kind, call, message, failure) => {
+    stopped.current.delete(id);
+    setResearching((b) => ({ ...b, [id]: kind }));
+    try {
+      const a = await call();
+      replace(a);
+      const note = message(a);
+      if (!stopped.current.has(id)) onToast(note);
+      return a;
+    } catch (e) {
+      if (!stopped.current.has(id)) onToast(e.message || failure);
+      return null;
+    } finally {
+      if (!stopped.current.has(id)) {
+        setResearching((b) => { const next = { ...b }; delete next[id]; return next; });
+      }
+      stopped.current.delete(id);
+    }
+  };
 
   return {
     accounts, loading, error, researching, reload, toast: onToast,
@@ -101,67 +123,31 @@ export function useLeadAccounts(onToast, onListsChanged) {
         return false;
       }
     },
-    research: async (id) => {
-      setResearching((b) => ({ ...b, [id]: true }));
-      try {
-        const a = await api.researchLeadAccount(id);
-        replace(a);
-        announceCreditsChanged();
-        onToast(hasFindings(a) ? `Researched ${a.name}.` : `Nothing public found for ${a.name}. No credit used.`);
-        return a;
-      } catch (e) {
-        onToast(e.message || "Research failed. Try again.");
-        return null;
-      } finally {
-        setResearching((b) => {
-          const next = { ...b };
-          delete next[id];
-          return next;
-        });
-      }
-    },
+    // The three lookups share one shape. "Stop waiting" lets the person move on: the server still finishes and
+    // saves what it found on the company, so the answer is applied quietly when it lands, never lost.
+    research: (id) => lookup(id, "research", () => api.researchLeadAccount(id), (a) => {
+      announceCreditsChanged();
+      return hasFindings(a) ? `Researched ${a.name}.` : `Nothing public found for ${a.name}. No credit used.`;
+    }, "Research failed. Try again."),
     // Deep web search: one structured lookup (Google Places under the hood -- never named to the
     // user), 2 Leads credits when it finds something.
-    deepSearch: async (id) => {
-      setResearching((b) => ({ ...b, [id]: true }));
-      try {
-        const before = accounts.find((x) => x.id === id);
-        const a = await api.deepSearchLeadAccount(id);
-        replace(a);
+    deepSearch: (id) => {
+      const before = accounts.find((x) => x.id === id);
+      return lookup(id, "deep", () => api.deepSearchLeadAccount(id), (a) => {
         announceCreditsChanged();
         const changed = before && (a.phone !== before.phone || a.website !== before.website || a.region !== before.region);
-        onToast(changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`);
-        return a;
-      } catch (e) {
-        onToast(e.message || "Deep web search failed. Try again.");
-        return null;
-      } finally {
-        setResearching((b) => {
-          const next = { ...b };
-          delete next[id];
-          return next;
-        });
-      }
+        return changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`;
+      }, "Deep web search failed. Try again.");
     },
     // Free: only checks our own shared company store, no live web search, no credit.
-    quickCheck: async (id) => {
-      setResearching((b) => ({ ...b, [id]: true }));
-      try {
-        const a = await api.quickCheckLeadAccount(id);
-        replace(a);
-        onToast(a.researched_at ? `Found a full research dossier for ${a.name} in our records -- already paid for by an earlier search.`
-          : a.registry ? `Found ${a.name} in our records.` : `Nothing of ours on ${a.name} yet. No credit used.`);
-        return a;
-      } catch (e) {
-        onToast(e.message || "Couldn't check right now.");
-        return null;
-      } finally {
-        setResearching((b) => {
-          const next = { ...b };
-          delete next[id];
-          return next;
-        });
-      }
+    quickCheck: (id) => lookup(id, "quick", () => api.quickCheckLeadAccount(id), (a) =>
+      a.researched_at ? `Found a full research dossier for ${a.name} in our records -- already paid for by an earlier search.`
+        : a.registry ? `Found ${a.name} in our records.` : `Nothing of ours on ${a.name} yet. No credit used.`,
+    "Couldn't check right now."),
+    stopWaiting: (id) => {
+      stopped.current.add(id);
+      setResearching((b) => { const next = { ...b }; delete next[id]; return next; });
+      onToast("Stopped waiting. If it finishes in the background, the result is saved on the company.");
     },
   };
 }
@@ -351,7 +337,7 @@ function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
   }, [open]);
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" title="Choose which columns to show" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Columns3 size={14} /> Columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
       </button>
       {open ? (
@@ -363,7 +349,7 @@ function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
             </label>
           ))}
           {hidden.length ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
+            <button title="Bring back every hidden column" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
           ) : null}
         </div>
       ) : null}
@@ -410,8 +396,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   if (!store.accounts.length) {
     return (
       <EmptyState icon={Building2} title="No saved accounts yet" body="Find companies with AI Lead Scout, import a spreadsheet, or add one by hand.">
-        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}><Search size={15} /> Find companies</button>
-        <button type="button" className="ui-btn ui-btn--ghost" onClick={onAdd}><Plus size={15} /> Add by hand</button>
+        <button title="Search the company register for new companies" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}><Search size={15} /> Find companies</button>
+        <button title="Type in one company yourself" type="button" className="ui-btn ui-btn--ghost" onClick={onAdd}><Plus size={15} /> Add by hand</button>
       </EmptyState>
     );
   }
@@ -451,7 +437,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   ];
   // Takes companies out of the list being looked at (one or many). They stay in your account and in any other list.
   const removeFromList = async (ids) => {
-    if (!window.confirm(`Remove ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from this list? ${ids.length === 1 ? "It stays" : "They stay"} in your account and in your other lists.`)) return;
+    if (!(await askConfirm({ title: `Remove ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from this list?`, body: `${ids.length === 1 ? "It stays" : "They stay"} in your account and in your other lists.`, confirm: "Remove", danger: true }))) return;
     try {
       await api.updateLeadList(listId, { remove: ids });
       await listsStore.reload();
@@ -497,7 +483,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
           <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to enrich or list them"}</span>
           {fixIds.length ? (
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Apply every suggested fix in this list. The value you had is kept in the company's check details"
-              onClick={() => { if (window.confirm(`Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes? The values you had stay noted in each company's check details.`)) acceptFixes(fixIds); }}>
+              onClick={async () => { if (await askConfirm({ title: `Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes?`, body: "The values you had stay noted in each company's check details.", confirm: "Apply fixes" })) acceptFixes(fixIds); }}>
               Accept all fixes ({fixIds.length.toLocaleString()})
             </button>
           ) : null}
@@ -521,7 +507,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
         {allShownPicked && shownIds.length < base.length ? (
           <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
             {shownIds.length.toLocaleString()} shown are selected.{" "}
-            <button type="button" onClick={() => setPicked(new Set(base.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
+            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(base.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
               Select all {base.length.toLocaleString()} companies
             </button>
           </div>
@@ -549,7 +535,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                 <tr key={a.id}>
                   <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
-                    <button type="button" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
+                    <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
                   {showing("phone") ? (
@@ -582,7 +568,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                       {openFixes(a).map((f) => (
                         <div key={f.field} style={{ fontSize: 12, marginTop: 3, color: C.textInk }} title={f.why}>
                           <span style={{ color: C.slate }}>{f.field}:</span> {f.from || "—"} → <strong>{f.to}</strong>{" "}
-                          <button type="button" className="ui-link" onClick={() => acceptFixes([a.id], [f.field])}>Accept</button>
+                          <button title="Use the suggested value in place of the one you entered. Your original is kept beside it" type="button" className="ui-link" onClick={() => acceptFixes([a.id], [f.field])}>Accept</button>
                         </div>
                       ))}
                     </td>
@@ -596,7 +582,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
                       <ResearchButton store={store} account={a} />
-                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>Open</button>
+                      <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>Open</button>
                       {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => removeFromList([a.id])} title="Remove from this list">Remove</button> : null}
                     </span>
                   </td>
@@ -623,7 +609,7 @@ function HistorySnapshot({ entry }) {
   const when = new Date(entry.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   return (
     <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-      <button type="button" onClick={() => setOpen((v) => !v)}
+      <button title="Show or hide what the last lookup found" type="button" onClick={() => setOpen((v) => !v)}
         style={{ ...text, fontSize: 12.5, color: C.slate, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
         {open ? "Hide" : "Show"} research from {when}
       </button>
@@ -884,6 +870,11 @@ export function AccountPanel({ account, store, onClose }) {
               {live.researched_at ? <DeepSearchButton store={store} account={live} /> : null}
               {live.researched_at ? <ResearchButton store={store} account={live} /> : null}
             </div>
+            {store.researching[live.id] ? (
+              <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
+                detail={store.researching[live.id] === "quick" ? "Looking only at our own records. This is free." : "Reading public pages for its people, phone numbers and sources. A credit is used only if something is found."}
+                cancelLabel="Stop waiting" onCancel={() => store.stopWaiting(live.id)} />
+            ) : null}
             <Dossier account={live} store={store} />
           </section>
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -894,7 +885,7 @@ export function AccountPanel({ account, store, onClose }) {
               <textarea className="ui-input" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} style={{ height: "auto", padding: "8px 10px", resize: "vertical", lineHeight: 1.5 }} />
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
+              <button title="Save the changes to this company" type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
                 onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
               <button type="button" className="ui-btn ui-btn--ghost" disabled={!changed} title="Put every field back to what is saved"
                 onClick={() => setForm(Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]))}>Reset</button>
@@ -902,11 +893,11 @@ export function AccountPanel({ account, store, onClose }) {
               {confirmRemove ? (
                 <>
                   <span style={{ ...muted, fontSize: 12.5 }}>Remove {live.name}?</span>
-                  <button type="button" className="ui-btn ui-btn--danger" onClick={async () => { if (await store.remove(live.id)) onClose(); }}>Remove</button>
-                  <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(false)}>Keep</button>
+                  <button title="Remove this company from all your lists for good" type="button" className="ui-btn ui-btn--danger" onClick={async () => { if (await store.remove(live.id)) onClose(); }}>Remove</button>
+                  <button title="Don't remove it" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(false)}>Keep</button>
                 </>
               ) : (
-                <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
+                <button title="Remove this company from your account. You will be asked to confirm" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
               )}
             </div>
           </section>
@@ -940,8 +931,8 @@ export function AddAccountForm({ store, onClose }) {
         <AccountFieldGrid fields={ACCOUNT_FIELDS.slice(0, 6)} form={form} setForm={setForm} autoFocusFirst />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
           <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setForm(BLANK_ACCOUNT)} title="Clear every field">Reset</button>
-          <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={!form.name.trim() || busy}>{busy ? "Saving…" : "Add account"}</button>
+          <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
+          <button title="Save this company" type="submit" className="ui-btn ui-btn--primary" disabled={!form.name.trim() || busy}>{busy ? "Saving…" : "Add account"}</button>
         </div>
       </form>
     </div>
@@ -1012,7 +1003,7 @@ function ImportReport({ done, onGo, onClose }) {
       ) : null}
       {done.custom?.length ? <div style={{ ...muted, fontSize: 12.5 }}>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onGo("lists")}>Open the list</button>
+        <button title="Go to this list" type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onGo("lists")}>Open the list</button>
       </div>
     </div>
   );
@@ -1114,7 +1105,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a file</div>
           <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here. Every sheet in a workbook is read, not just the first, and you can check which column is which before anything is saved. Every file becomes a list. A company you already saved is not copied: it is just added to the list.</div>
-          <button type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
+          <button title="Pick a CSV or Excel file of companies to import" type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
               <span key={ext} style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
@@ -1125,7 +1116,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           {onAskAi ? (
             <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
               Or
-              <button type="button" className="ui-link" onClick={onAskAi}>ask the AI to find companies instead</button>
+              <button title="Use the AI search to find companies instead of importing a file" type="button" className="ui-link" onClick={onAskAi}>ask the AI to find companies instead</button>
             </div>
           ) : null}
         </div>
@@ -1133,8 +1124,8 @@ export function ImportView({ store, onGo, onAskAi }) {
         <div className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {fields.length} {fields.length === 1 ? "row" : "rows"}</div>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setShowMapper(true)}>Edit column matches</button>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={resetFile}>Choose another file</button>
+            <button title="Change which of your columns goes into which field" type="button" className="ui-btn ui-btn--ghost" onClick={() => setShowMapper(true)}>Edit column matches</button>
+            <button title="Pick a different file" type="button" className="ui-btn ui-btn--ghost" onClick={resetFile}>Choose another file</button>
           </div>
           <div className="ui-scroll" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
             <table className="ui-table" style={{ minWidth: 640 }}>
@@ -1160,7 +1151,7 @@ export function ImportView({ store, onGo, onAskAi }) {
             <div style={{ ...muted, fontSize: 12.5 }}>Kept as your own columns: {customColumns(fields).join(", ")}</div>
           ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
+            <button title="Add these companies to the list" type="button" className="ui-btn ui-btn--primary" disabled={!usable.length || busy} onClick={importNow}>
               {busy ? (progress ? `Importing ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}…` : "Importing…") : `Import ${usable.length} ${usable.length === 1 ? "company" : "companies"}`}
             </button>
             {busy && progress ? (

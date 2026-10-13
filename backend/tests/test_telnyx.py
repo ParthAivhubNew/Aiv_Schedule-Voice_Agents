@@ -380,6 +380,7 @@ async def test_numbers_cost_the_customer_our_monthly_price(db, fake):
     assert found[0]["monthlyCredits"] == 60 and not any(k.startswith("telnyx") for k in found[0])
 
     with org_scope("org_acme"):
+        await K.add_credits(db, "voice", 500, source="plan", note="Plan: startervoice")
         await K.settle(db)  # first run only marks where charging starts
         db.add(OrgPhoneNumber(id="num_1", e164="+442071234567", provider="telnyx", provider_ref="pn_1", status="active"))
         await db.commit()

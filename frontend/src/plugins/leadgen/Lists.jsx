@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ListChecks, Megaphone, Plus, Trash2 } from "lucide-react";
+import { Check, ListChecks, Megaphone, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { AccountsView, emailFor } from "./AccountsViews";
+import { askConfirm, askText } from "./Dialogs";
 
 // Lists: a named group of saved companies. Build one in Saved Accounts, enrich it here, then run a
 // campaign on it. A list only remembers which companies are in it; the companies stay in Saved Accounts.
@@ -33,11 +34,52 @@ export function listReach(list, accounts) {
   return { members, withEmail: members.filter((a) => emailFor(a)?.text) };
 }
 
+// A list's name, editable in place: the pencil (or a click on the name) turns it into a box.
+function ListName({ list, editing, onEdit, onSave, onStop, size = 15 }) {
+  const [draft, setDraft] = useState(list.name);
+  useEffect(() => { if (editing) setDraft(list.name); }, [editing, list.name]);
+  if (!editing) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <span style={{ ...text, fontSize: size, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{list.name}</span>
+        {list.id !== "all" ? (
+          <span role="button" tabIndex={0} aria-label={`Rename ${list.name}`} title="Rename this list"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }} onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onEdit(); } }}
+            style={{ display: "inline-flex", cursor: "pointer", color: C.slate, padding: 2 }}><Pencil size={14} /></span>
+        ) : null}
+      </span>
+    );
+  }
+  const save = () => { const n = draft.trim(); if (n && n !== list.name) onSave(n); else onStop(); };
+  return (
+    <span onClick={(e) => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <input className="ui-input" autoFocus value={draft} maxLength={80} aria-label="List name" style={{ height: 30, width: 200 }}
+        onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onStop(); }} />
+      <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Save the new name" disabled={!draft.trim()} onClick={save}><Check size={14} /> Save</button>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Keep the old name" onClick={onStop}><X size={14} /></button>
+    </span>
+  );
+}
+
 export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }) {
   const { lists, loading, reload } = listsStore;
   const [openId, setOpenId] = useState(""); // a list id, "all" for every company, or "" for the overview
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
   const open = lists.find((l) => l.id === openId);
+  const rename = async (id, name) => {
+    setBusy(true);
+    try {
+      await api.updateLeadList(id, { name });
+      await reload();
+      store.toast("Renamed.");
+      setRenaming("");
+    } catch (e) {
+      store.toast(e.message || "Couldn't rename it.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading || store.loading) return <div style={muted}>Loading your lists…</div>;
   if (openId === "all" || open) {
@@ -58,8 +100,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId("")}>← All lists</button>
-          <div style={{ ...text, fontSize: 17, fontWeight: 600, color: C.ink }}>{open ? open.name : "All companies"}</div>
+          <button title="Back to all your lists" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId("")}>← All lists</button>
+          {open ? <ListName list={open} size={17} editing={renaming === open.id} onEdit={() => setRenaming(open.id)} onStop={() => setRenaming("")} onSave={(n) => rename(open.id, n)} />
+            : <div style={{ ...text, fontSize: 17, fontWeight: 600, color: C.ink }}>All companies</div>}
           <span style={muted}>{members.length.toLocaleString()} companies · {withEmail.length.toLocaleString()} with an email</span>
           <span style={{ flex: 1 }} />
           {open ? (
@@ -69,9 +112,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
                 <Megaphone size={14} /> Start a campaign
               </button>
               <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Change the name of this list"
-                onClick={() => { const n = window.prompt("Rename this list", open.name); if (n && n.trim()) act(() => api.updateLeadList(open.id, { name: n }), "Renamed."); }}>Rename</button>
+                onClick={() => setRenaming(open.id)}><Pencil size={14} /> Rename</button>
               <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Delete the list only. The companies stay in your account"
-                onClick={() => { if (window.confirm(`Delete the list ${open.name}? The companies stay in your account and in your other lists.`)) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); }}><Trash2 size={14} /> Delete</button>
+                onClick={async () => { if (await askConfirm({ title: `Delete the list ${open.name}?`, body: "The companies stay in your account and in your other lists.", confirm: "Delete list", danger: true })) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); }}><Trash2 size={14} /> Delete</button>
             </>
           ) : null}
         </div>
@@ -86,8 +129,8 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
         <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to get contact details, fix what is wrong, then start a campaign on it.</div>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {
-          const name = window.prompt("Name your new list", "");
-          if (!name || !name.trim()) return;
+          const name = await askText({ title: "Name your new list", label: "For example Leeds dentists", confirm: "Create list", maxLength: 80 });
+          if (!name) return;
           try {
             const r = await api.createLeadList(name.trim(), []);
             await reload();
@@ -103,15 +146,17 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           <ListChecks size={28} color="#8B5CF6" />
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No lists yet</div>
           <div style={{ ...muted, maxWidth: 420 }}>Search for companies or import your own file in Find Leads. What you save lands here as a list.</div>
-          <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}>Go to Find Leads</button>
+          <button title="Search for companies or import a file" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}>Go to Find Leads</button>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
           {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((l) => (
-            <button key={l.id} type="button" className="ui-card" onClick={() => setOpenId(l.id)} style={{ textAlign: "left", padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>{l.name}</div>
+            <div key={l.id} role="button" tabIndex={0} title={`Open ${l.name}`} className="ui-card" onClick={() => { if (renaming !== l.id) setOpenId(l.id); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && renaming !== l.id) setOpenId(l.id); }}
+              style={{ textAlign: "left", padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
+              <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} />
               <div style={muted}>{l.members.length.toLocaleString()} companies · {l.withEmail.length.toLocaleString()} with an email</div>
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -150,8 +195,9 @@ export function AddToListDialog({ ids, listsStore, onToast, onClose }) {
         {target === "new" ? <input className="ui-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, for example Leeds dentists" aria-label="New list name" /> : null}
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="ui-btn ui-btn--primary" disabled={busy || (target === "new" && !name.trim())} onClick={go}>{busy ? "Adding…" : "Add"}</button>
+          <button title="Back to the first list and clear the name" type="button" className="ui-btn ui-btn--ghost" onClick={() => { setTarget(listsStore.lists[0]?.id || "new"); setName(""); setError(""); }}>Reset</button>
+          <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
+          <button title="Add these companies to the list" type="button" className="ui-btn ui-btn--primary" disabled={busy || (target === "new" && !name.trim())} onClick={go}>{busy ? "Adding…" : "Add"}</button>
         </div>
       </div>
     </div>

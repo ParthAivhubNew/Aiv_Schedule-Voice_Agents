@@ -5,9 +5,11 @@ import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
-import { SearchStatus } from "./SearchStatus";
+import { SearchStatus, useHold } from "./SearchStatus";
+import { askConfirm, askText } from "./Dialogs";
 
 const FAVOURITES = "Favourites";
+const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Set filters above, or just tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters, so what I find and what you see always match. Say \"remove X\" to drop a company." };
 const CHECK_TIPS = {
   hasWebsite: "Only companies we already hold a website for",
   hasPhone: "Only companies we already hold a phone number for",
@@ -133,7 +135,7 @@ function ContactsPanel({ company }) {
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
                     : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No verified email found. Nothing charged.</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
-                    : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!domain || e.busy} onClick={() => findEmail(o)}>
+                    : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!domain || e.busy} onClick={() => findEmail(o)}>
                         {e.busy ? <RefreshCw size={13} className="ui-spin" /> : null} Find email · 1 credit if found
                       </button>}
                 </div>
@@ -158,7 +160,7 @@ function ContactsPanel({ company }) {
                 </div>
               )
             ) : (
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 4 }}>
+              <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 4 }}>
                 {busy ? <RefreshCw size={13} className="ui-spin" /> : <Globe size={13} />} Look for website &amp; phone on the web · 1 credit if found
               </button>
             )}
@@ -191,13 +193,13 @@ function CompanyRow({ c, saved, onSave, onRemove, last }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          <button title="Show the contacts found for this company" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             <Users size={14} /> Contacts <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
           </button>
           {saved ? (
             <span style={{ ...text, fontSize: 12.5, color: C.green, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><Check size={14} /> Saved</span>
           ) : (
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onSave(c)}><Plus size={14} /> Save</button>
+            <button title="Save this company to your Unsorted list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onSave(c)}><Plus size={14} /> Save</button>
           )}
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onRemove(c)} aria-label={`Remove ${c.name} from this list`} title="Remove from this list">×</button>
         </div>
@@ -249,7 +251,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   if (!state.rows.length) return <span style={{ ...muted, fontSize: 12 }}>No postcode areas found for {one}. Check the spelling, or type a postcode.</span>;
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" title="Show the people we hold for this company" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
         {ticked.length ? `${ticked.length} postcode area${ticked.length === 1 ? "" : "s"} chosen` : `Choose postcode areas in ${one} (${state.rows.length})`}
       </button>
@@ -257,8 +259,8 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
         <div role="listbox" aria-label={`Postcode areas in ${one}`} className="ui-card"
           style={{ position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 30, width: 280, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
           <div style={{ display: "flex", gap: 6, padding: "2px 4px 6px" }}>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => set(state.rows.map((r) => r.district))}>Select all</button>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!ticked.length} onClick={() => set([])}>Clear</button>
+            <button title="Tick every company shown" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => set(state.rows.map((r) => r.district))}>Select all</button>
+            <button title="Untick everything" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!ticked.length} onClick={() => set([])}>Clear</button>
           </div>
           {state.rows.map((r) => (
             <label key={r.district} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
@@ -311,9 +313,7 @@ function FindLeadsSearch({ store, listsStore }) {
 
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
-  const [chat, setChat] = useState([
-    { id: "m_init", role: "assistant", text: "Set filters above, or just tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters, so what I find and what you see always match. Say \"remove X\" to drop a company." },
-  ]);
+  const [chat, setChat] = useState(() => [CHAT_INTRO]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const chatRun = useRef(0);
@@ -346,6 +346,9 @@ function FindLeadsSearch({ store, listsStore }) {
     })();
   }, [view, companies]);
 
+  const searchHold = useHold();
+  const chatHold = useHold();
+  const webHold = useHold();
   const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
@@ -371,9 +374,17 @@ function FindLeadsSearch({ store, listsStore }) {
       setChips([]);
       setUnderstood([]);
     }
+    let r;
     try {
-      const r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
-      if (myRun !== runId.current) return; // cancelled while it was running
+      r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
+    } catch (err) {
+      if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
+      return;
+    }
+    if (myRun !== runId.current) return; // cancelled while it was running
+    // If the search was paused, its answer waits here until Resume.
+    searchHold.settle(() => {
+      if (myRun !== runId.current) return;
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
       setTotal(r.total);
@@ -382,21 +393,22 @@ function FindLeadsSearch({ store, listsStore }) {
       setChips(r.chips || []);
       setUnderstood(r.understood || []);
       setSearched(true);
-    } catch (err) {
-      if (myRun === runId.current) setError(err.message || "The search didn't finish. Try again.");
-    } finally {
-      if (myRun === runId.current) setBusy(false);
-    }
+      setBusy(false);
+    });
   };
 
   const cancelSearch = () => {
     runId.current += 1;
+    searchHold.clear();
     setBusy(false);
     setSearched(true); // what was already on screen stays; nothing claims "0 companies" for a search that was stopped
   };
   // Back to a clean start: empty filters, no area, no results, nothing running.
   const resetSearch = () => {
     runId.current += 1;
+    searchHold.clear();
+    chatHold.clear();
+    webHold.clear();
     stopArea.current = true;
     pausedRef.current = false;
     setPaused(false);
@@ -546,12 +558,12 @@ function FindLeadsSearch({ store, listsStore }) {
   const mapActions = {
     onSave: saveOne,
     onFavourite: (c) => store.save([asAccount(c)], FAVOURITES),
-    onAddToList: (c) => { const name = window.prompt(`Add ${c.name} to which list? Type a name to start a new one.`, "Unsorted"); if (name && name.trim()) store.save([asAccount(c)], name.trim()); },
+    onAddToList: async (c) => { const name = await askText({ title: `Add ${c.name} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) store.save([asAccount(c)], name); },
     onRemove: removeCompany,
     // A note goes on the saved company (it is saved to Unsorted first if it isn't yet).
     onNote: async (c) => {
-      const note = window.prompt(`Note on ${c.name}:`, "");
-      if (!note || !note.trim()) return;
+      const note = await askText({ title: `Note on ${c.name}`, label: "Your note", multiline: true, confirm: "Save note", maxLength: 1000 });
+      if (!note) return;
       const have = store.accounts.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
       if (have) await store.update(have.id, { notes: [have.notes, note.trim()].filter(Boolean).join("\n") });
       else await store.save([{ ...asAccount(c), notes: [asAccount(c).notes, note.trim()].filter(Boolean).join("\n") }]);
@@ -577,61 +589,69 @@ function FindLeadsSearch({ store, listsStore }) {
     setChat((prev) => [...prev, { id: "m_" + Date.now(), role: "user", text: message }]);
     setChatBusy(true);
     const mine = ++chatRun.current;
+    let res = null;
+    let failure = null;
     try {
-      const res = await api.copilotChat({
+      res = await api.copilotChat({
         message, history: chat.map((m) => ({ role: m.role, content: m.text })), plugin: "leadgen",
         filters: applied, exclude_ids: excluded,
       });
-      if (mine !== chatRun.current) return; // cancelled while the AI was working
-      if (res?.registry) {
-        stopArea.current = true;
-        setAreaStep(null);
-        setUnderstood([]);
-        setDropTerms([]);
-        setArea(null); // the chat runs its own search, so a drawn area no longer applies
-        setCompanies(res.registry.companies);
-        setTotal(res.registry.total);
-        setCapped(res.registry.total_capped);
-        setApplied(res.registry.filters);
-        setChips(res.registry.chips || []);
-        setForm(filtersToForm(res.registry.filters));
-        setSearched(true);
-      }
-      if (res?.removed_names?.length) {
-        const gone = res.removed_names.map((n) => n.toLowerCase());
-        const hit = companies.filter((c) => gone.some((n) => c.name.toLowerCase().includes(n)));
-        setExcluded((ex) => [...ex, ...hit.map((c) => c.id)]);
-        setCompanies((prev) => prev.filter((c) => !hit.includes(c)));
-        setTotal((t) => Math.max(0, t - hit.length));
-      }
-      setChat((prev) => [...prev, { id: "m_" + (Date.now() + 1), role: "assistant", text: res?.reply || "I processed your request. How else can I help?" }]);
-    } catch (err) {
+    } catch (err) { failure = err; }
+    if (mine !== chatRun.current) return; // cancelled while the AI was working
+    // If the chat was paused, the AI's answer waits until Resume.
+    chatHold.settle(() => {
       if (mine !== chatRun.current) return;
-      setChat((prev) => [...prev, {
-        id: "m_" + (Date.now() + 1), role: "assistant",
-        text: /credits/i.test(err.message || "") ? err.message : `Couldn't reach the AI: ${err.message || "no answer from the AI service."} Try again in a moment.`,
-      }]);
-    } finally {
-      if (mine === chatRun.current) setChatBusy(false);
+      if (failure) {
+        setChat((prev) => [...prev, {
+          id: "m_" + (Date.now() + 1), role: "assistant",
+          text: /credits/i.test(failure.message || "") ? failure.message : `Couldn't reach the AI: ${failure.message || "no answer from the AI service."} Try again in a moment.`,
+        }]);
+      } else {
+        if (res?.registry) {
+          stopArea.current = true;
+          setAreaStep(null);
+          setUnderstood([]);
+          setDropTerms([]);
+          setArea(null); // the chat runs its own search, so a drawn area no longer applies
+          setCompanies(res.registry.companies);
+          setTotal(res.registry.total);
+          setCapped(res.registry.total_capped);
+          setApplied(res.registry.filters);
+          setChips(res.registry.chips || []);
+          setForm(filtersToForm(res.registry.filters));
+          setSearched(true);
+        }
+        if (res?.removed_names?.length) {
+          const gone = res.removed_names.map((n) => n.toLowerCase());
+          const hit = companies.filter((c) => gone.some((n) => c.name.toLowerCase().includes(n)));
+          setExcluded((ex) => [...ex, ...hit.map((c) => c.id)]);
+          setCompanies((prev) => prev.filter((c) => !hit.includes(c)));
+          setTotal((t) => Math.max(0, t - hit.length));
+        }
+        setChat((prev) => [...prev, { id: "m_" + (Date.now() + 1), role: "assistant", text: res?.reply || "I processed your request. How else can I help?" }]);
+      }
+      setChatBusy(false);
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    }
+    });
   };
 
   const webRun = useRef(0);
-  const cancelWeb = () => { webRun.current += 1; setWeb((w) => ({ ...w, busy: false })); };
+  const cancelWeb = () => { webRun.current += 1; webHold.clear(); setWeb((w) => ({ ...w, busy: false })); };
   const runWeb = async (e) => {
     if (e) e.preventDefault();
     const q = web.query.trim();
     if (!q || web.busy) return;
     setWeb((w) => ({ ...w, busy: true, error: "" }));
     const mine = ++webRun.current;
-    try {
-      const r = await api.discoverAccounts({ query: q });
+    let r = null;
+    let failure = null;
+    try { r = await api.discoverAccounts({ query: q }); } catch (err) { failure = err; }
+    if (mine !== webRun.current) return;
+    webHold.settle(() => {
       if (mine !== webRun.current) return;
-      setWeb((w) => ({ ...w, busy: false, results: r.leads || [], error: (r.leads || []).length ? "" : `Nothing found on the web for "${q}". Nothing was charged.` }));
-    } catch (err) {
-      if (mine === webRun.current) setWeb((w) => ({ ...w, busy: false, error: err.message || "The web search didn't finish." }));
-    }
+      if (failure) setWeb((w) => ({ ...w, busy: false, error: failure.message || "The web search didn't finish." }));
+      else setWeb((w) => ({ ...w, busy: false, results: r.leads || [], error: (r.leads || []).length ? "" : `Nothing found on the web for "${q}". Nothing was charged.` }));
+    });
   };
 
   const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 180px", minWidth: 0 };
@@ -661,7 +681,7 @@ function FindLeadsSearch({ store, listsStore }) {
             <span style={label} title="From each company's filed accounts category. It is not a headcount.">Size (from filed accounts)</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {SIZE_OPTIONS.map(([id, name]) => (
-                <button key={id} type="button" className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
+                <button key={id} type="button" title="Only companies of this size" className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
                   style={form.sizes.includes(id) ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
               ))}
             </div>
@@ -688,7 +708,7 @@ function FindLeadsSearch({ store, listsStore }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
           {IDEAS.map(([name, patch]) => (
-            <button key={name} type="button" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
+            <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
           ))}
         </div>
         <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. You can also draw an area on the map to see the companies inside it. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
@@ -696,7 +716,7 @@ function FindLeadsSearch({ store, listsStore }) {
 
       {busy ? (
         <SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
-          detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." onCancel={cancelSearch} />
+          detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." paused={searchHold.paused} holding onPause={searchHold.pause} onResume={searchHold.resume} onCancel={cancelSearch} />
       ) : null}
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
 
@@ -723,14 +743,14 @@ function FindLeadsSearch({ store, listsStore }) {
             ) : null}
             <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
               {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}
+                <button key={id} type="button" title={id === "map" ? "See the results as pins on a map" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
                   className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
               ))}
             </div>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} onClick={exportCsv} title="Download these results as a CSV file">Export CSV</button>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} title="Put every company shown into your Favourites list"
               onClick={() => store.save(companies.map(asAccount), FAVOURITES)}>★ Favourite all</button>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={() => { const name = window.prompt(`Save these ${unsaved.length} companies into a list. Name the list:`, "Unsorted"); if (name && name.trim()) store.save(unsaved.map(asAccount), name.trim()); }}>
+            <button title="Save every company shown into your Unsorted list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={async () => { const name = await askText({ title: `Save these ${unsaved.length.toLocaleString()} companies into a list`, label: "Name the list", initial: "Unsorted", confirm: "Save", maxLength: 80 }); if (name) store.save(unsaved.map(asAccount), name); }}>
               <Plus size={14} /> {unsaved.length ? `Save all ${unsaved.length}` : "All saved"}
             </button>
           </div>
@@ -769,13 +789,14 @@ function FindLeadsSearch({ store, listsStore }) {
                           Up to <strong>{areaStep.candidates.toLocaleString()}{areaStep.capped ? "+" : ""}</strong> companies are in this area. How many do you want to see?
                         </span>
                         {amountChoices(areaStep.candidates).map((o) => (
-                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>{o.label}</button>
+                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Read this many companies from the area" onClick={() => pickAmount(o.value)}>{o.label}</button>
                         ))}
                         <form onSubmit={(e) => { e.preventDefault(); const n = typedAmount(custom, areaStep.candidates); if (n) pickAmount(n); }}
                           style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                           <input className="ui-input" inputMode="numeric" aria-label="Type how many to see" placeholder="Or type a number" value={custom}
                             onChange={(e) => setCustom(e.target.value)} style={{ width: 130, height: 30 }} />
-                          <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!typedAmount(custom, areaStep.candidates)}>Show</button>
+                          <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!typedAmount(custom, areaStep.candidates)} title="Show this many companies from the area">Show</button>
+                          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!custom} onClick={() => setCustom("")} title="Clear the number">Reset</button>
                         </form>
                       </>
                     ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area or fewer filters.</span>
@@ -797,11 +818,11 @@ function FindLeadsSearch({ store, listsStore }) {
                           : "No companies from our data are inside this exact shape."}
                       </span>
                       {areaStep.candidates ? amountChoices(areaStep.candidates).filter((o) => o.value > (areaStep.shown || 0)).slice(0, 3).map((o) => (
-                        <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>
+                        <button title="Read this many companies from the area" key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>
                           Show {o.label}
                         </button>
                       )) : null}
-                      {areaStep.candidates ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Choose a number…</button> : null}
+                      {areaStep.candidates ? <button title="Pick how many companies to read from the area" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Choose a number…</button> : null}
                     </>
                   ) : null}
                 </div>
@@ -819,7 +840,7 @@ function FindLeadsSearch({ store, listsStore }) {
           ) : null}
           {companies.length < total ? (
             <div style={{ padding: 12, textAlign: "center" }}>
-              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => search(null, form, companies.length)}>Show more</button>
+              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} title="Load the next page of results" onClick={() => search(null, form, companies.length)}>Show more</button>
             </div>
           ) : null}
         </div>
@@ -828,7 +849,9 @@ function FindLeadsSearch({ store, listsStore }) {
       <div className="ui-card" style={{ display: "flex", flexDirection: "column", height: 360, overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
           <Sparkles size={14} color="#8B5CF6" />
-          <span style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Ask the AI: it uses the same filters as the panel</span>
+          <span style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Ask the AI: it uses the same filters as the panel</span>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Clear the conversation and start again. Your results stay as they are"
+            onClick={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); setChat([CHAT_INTRO]); setChatInput(""); }}><RotateCcw size={13} /> New chat</button>
         </div>
         <div className="ui-scroll" style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px", display: "flex", flexDirection: "column", gap: 12 }}>
           {chat.map((m) => (
@@ -840,34 +863,34 @@ function FindLeadsSearch({ store, listsStore }) {
               )}
             </div>
           ))}
-          {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." onCancel={() => { chatRun.current += 1; setChatBusy(false); }} /> : null}
+          {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
           <div ref={scrollRef} />
         </div>
         <form onSubmit={sendChat} style={{ padding: 10, borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
           <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="e.g. only ones in Leeds, or remove Corner Cafe, or include closed ones"
-            aria-label="Message the AI" className="ui-input" style={{ flex: 1 }} />
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ width: 36, padding: 0 }} aria-label="Send">
+            aria-label="Message the AI" className="ui-input" style={{ flex: 1 }} title="Say who you are after, or what to change. Searching is free" />
+          <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ width: 36, padding: 0 }} aria-label="Send" title="Send to the AI">
             <ArrowUp size={15} />
           </button>
         </form>
       </div>
 
       <div className="ui-card" style={{ padding: 16 }}>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setWeb((w) => ({ ...w, open: !w.open }))} aria-expanded={web.open}>
+        <button title="Search the open web for businesses not in the register" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setWeb((w) => ({ ...w, open: !w.open }))} aria-expanded={web.open}>
           <Globe size={14} /> Not in the registry? Search the open web instead <ChevronDown size={13} style={{ transform: web.open ? "rotate(180deg)" : "none" }} />
         </button>
         {web.open ? (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
-              <button type="submit" className="ui-btn ui-btn--secondary" disabled={web.busy || !web.query.trim()}>
+              <input title="Describe the kind of business and the place. Each result found uses 1 Leads credit" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
+              <button type="submit" className="ui-btn ui-btn--secondary" disabled={web.busy || !web.query.trim()} title="Search public web pages and directories for businesses that are not in the register">
                 {web.busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
               </button>
               <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
                 <RotateCcw size={15} /> Reset
               </button>
             </form>
-            {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." onCancel={cancelWeb} /> : null}
+            {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." paused={webHold.paused} holding onPause={webHold.pause} onResume={webHold.resume} onCancel={cancelWeb} /> : null}
             <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified and each one found uses 1 Leads credit. Registry results above are the reliable ones.</div>
             {web.error ? <div role="alert" style={{ ...muted, color: C.red }}>{web.error}</div> : null}
             {web.results.map((r, i) => {
@@ -881,7 +904,7 @@ function FindLeadsSearch({ store, listsStore }) {
                     <div style={{ ...muted, fontSize: 12.5 }}>{d || "No website found"}{r.phone ? ` · ${r.phone}` : ""}</div>
                   </div>
                   {done ? <span style={{ ...text, fontSize: 12.5, color: C.green }}><Check size={14} /> Saved</span>
-                    : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => store.save([acct])}><Plus size={14} /> Save</button>}
+                    : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save this company to your Unsorted list" onClick={() => store.save([acct])}><Plus size={14} /> Save</button>}
                 </div>
               );
             })}
@@ -903,7 +926,7 @@ export function FindLeadsView({ store, listsStore, onGo }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {SUB_TABS.map(([id, label, Icon]) => (
-          <button key={id} type="button" onClick={() => setSub(id)}
+          <button key={id} type="button" title={`Go to ${label}`} onClick={() => setSub(id)}
             className={`ui-btn ui-btn--sm ${sub === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
             <Icon size={14} /> {label}
           </button>

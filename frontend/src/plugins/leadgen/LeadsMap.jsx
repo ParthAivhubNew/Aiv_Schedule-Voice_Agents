@@ -205,11 +205,11 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
       <div ref={el} style={{ height, width: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, zIndex: 0 }} aria-label="Map of the companies found" />
       <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6 }}>
         {drawing ? (
-          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { resetDraft(); setDrawing(false); }}><X size={14} /> Cancel</button>
+          <button title="Close without saving" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { resetDraft(); setDrawing(false); }}><X size={14} /> Cancel</button>
         ) : (
-          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><Pencil size={14} /> {area ? "Redraw area" : "Draw area"}</button>
+          <button type="button" title="Draw a shape on the map and search only inside it" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><Pencil size={14} /> {area ? "Redraw area" : "Draw area"}</button>
         )}
-        {area && !drawing ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
+        {area && !drawing ? <button title="Remove the drawn shape" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
       </div>
       {legendFor(companies.filter((c) => points[c.id]), hint).length > 1 || companies.some((c) => points[c.id]) ? (
         <div style={{ position: "absolute", left: 10, top: 10, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12, color: C.ink, maxHeight: 180, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>

@@ -50,7 +50,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
         {sheetNames && sheetNames.length > 1 && (
           <div style={{ padding: "0 22px 8px", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12.5, color: C.slate }}>Sheet</span>
-            <select value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240 }}>
+            <select title="Pick which sheet of the workbook to import" value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240 }}>
               {sheetNames.map((s) => <option key={s} value={s}>{s} ({(sheets[s] || []).length} rows)</option>)}
             </select>
           </div>
@@ -61,7 +61,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
             <thead>
               <tr style={{ textAlign: "left", color: C.slate }}>
                 <th style={{ padding: "6px 6px", width: "26%" }}>Column in your file</th>
-                <th style={{ padding: "6px 6px", width: "28%" }}>Import as</th>
+                <th style={{ padding: "6px 6px", width: "28%" }} title="Which field in your account each column goes into">Import as</th>
                 <th style={{ padding: "6px 6px" }}>First rows</th>
               </tr>
             </thead>
@@ -100,12 +100,13 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
           ))}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
             <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer", color: C.slate }}>
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <input title="Next time a file has these same columns, they are matched this way automatically" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
               Remember these matches for files with the same columns
             </label>
             <div style={{ flex: 1 }} />
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={onCancel}>Cancel</button>
-            <button type="button" className="ui-btn ui-btn--primary" onClick={confirm}>Use these matches</button>
+            <button type="button" className="ui-btn ui-btn--ghost" title="Go back to the starting matches for every column on this sheet" onClick={() => setMappings((m) => { const next = { ...m }; delete next[sheet]; return next; })}>Reset matches</button>
+            <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost" onClick={onCancel}>Cancel</button>
+            <button type="button" className="ui-btn ui-btn--primary" title="Import the file with these matches" onClick={confirm}>Use these matches</button>
           </div>
         </div>
       </div>

@@ -73,7 +73,12 @@ export function Clients({ canEdit, openId, open }) {
       <Table head={["Organisation", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
         {shown.map((o) => (
           <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
-            <td style={cell}><b>{o.name}</b><div style={{ ...mono, color: C.slateLight }}>{o.id}</div></td>
+            <td style={{ ...cell, ...((o.emptyWallets?.length || o.lowWallets?.length) ? { borderLeft: `4px solid ${o.emptyWallets?.length ? C.red : C.amber}` } : {}) }}>
+              <b style={{ color: o.emptyWallets?.length ? C.red : o.lowWallets?.length ? C.amber : undefined }}>{o.name}</b>
+              <div style={{ ...mono, color: C.slateLight }}>{o.id}</div>
+              {o.emptyWallets?.length > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Out of credits: {o.emptyWallets.join(", ")}</div>}
+              {o.lowWallets?.length > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: C.amber }}>Low credits: {o.lowWallets.join(", ")}</div>}
+            </td>
             <td style={cell}><Pill tone={statusTone(o.status)}>{o.status}</Pill></td>
             <td style={cell}>{o.users}</td>
             <td style={cell}>{o.numbers}</td>

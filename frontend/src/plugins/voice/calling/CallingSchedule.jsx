@@ -343,6 +343,9 @@ function eventTime(item) {
   return normTime(item.time || item.prospectTime || "");
 }
 
+// Stored platform value of our own meeting room (shown to clients as "Outreach Meet").
+const OWN_ROOM = "Jitsi";
+
 // Which connectable provider sits behind a platform label (null: our own room / Cal.com).
 function providerOf(platform) {
   const p = String(platform || "").toLowerCase();
@@ -396,34 +399,32 @@ export function CallingSchedule({
   const [meetLinks, setMeetLinks] = useState([]);
 
   const loadMeetLinks = () => api.getMeetingLinks().then((r) => setMeetLinks((r && r.providers) || [])).catch(() => {});
-  const connectMeetLink = async (provider) => {
-    try {
-      const r = await api.startMeetingLink(provider);
-      window.open(r.authUrl, "aivhub-meeting-connect", "width=520,height=700");
-    } catch (e) {
-      onToast(e.message || "Could not start the sign-in.");
-    }
-  };
-  const disconnectMeetLink = async (provider) => {
-    try {
-      await api.disconnectMeetingLink(provider);
-      await loadMeetLinks();
-    } catch (e) {
-      onToast(e.message || "Could not disconnect.");
-    }
-  };
+  const openVideoApps = () => window.dispatchEvent(new CustomEvent("aivhub:open-calendar-settings", { detail: "video" }));
 
+  // Apps are connected in Calendar & meetings -> Video meeting apps; refresh when that changes.
   useEffect(() => {
     loadMeetLinks();
     const onMsg = (ev) => {
       const d = ev && ev.data;
-      if (!d || d.type !== "aivhub-meeting-oauth") return;
-      loadMeetLinks();
-      onToast(d.ok ? `Connected${d.account ? ` · ${d.account}` : ""}.` : (d.error || "Could not connect."));
+      if (d && d.type === "aivhub-meeting-oauth") loadMeetLinks();
     };
     window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
+    window.addEventListener("focus", loadMeetLinks);
+    return () => {
+      window.removeEventListener("message", onMsg);
+      window.removeEventListener("focus", loadMeetLinks);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A fresh form starts on a platform the user can actually use.
+  useEffect(() => {
+    if (!meetLinks.length || plan.prospect) return;
+    const p = providerOf(plan.platform);
+    if (p && !meetLinks.some((m) => m.provider === p && m.connected)) {
+      const first = meetLinks.find((m) => m.connected);
+      setPlan((cur) => ({ ...cur, platform: first ? first.label : OWN_ROOM }));
+    }
+  }, [meetLinks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const kinds = useMemo(() => kindsFromPolicy(bookingPolicy), [bookingPolicy]);
   const notifyChannels = useMemo(() => notifyFromPolicy(bookingPolicy), [bookingPolicy]);
@@ -725,40 +726,27 @@ export function CallingSchedule({
         {plan.kind === "video" && (
           <div style={{ background: C.paper || C.paperSoft, borderRadius: 12, padding: 12, marginBottom: 12, border: `1px solid ${C.border}` }}>
             <Label>Video platform</Label>
-            <select value={plan.platform} onChange={(e) => patch("platform", e.target.value)} style={{ ...fieldStyle(), marginBottom: 10 }}>
-              <option>Google Meet</option>
-              <option>Zoom</option>
-              <option>Microsoft Teams</option>
-              <option value="Jitsi (auto room)">Outreach Meet (auto room)</option>
-              <option>Cal.com</option>
-            </select>
             {(() => {
-              const provider = providerOf(plan.platform);
-              if (!provider) return null;
-              const info = meetLinks.find((m) => m.provider === provider);
-              if (!info) return null;
-              const box = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: C.slate, marginBottom: 10 };
-              const btn = { height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" };
-              if (info.connected) {
-                return (
-                  <div style={box}>
-                    <span>✓ {info.label} connected{info.account ? ` · ${info.account}` : ""}. The link is created when you save.</span>
-                    <button type="button" onClick={() => disconnectMeetLink(provider)} style={btn}>Disconnect</button>
-                  </div>
-                );
-              }
-              if (!info.configured) {
-                return <div style={box}>{info.label} auto-links are not enabled on this platform yet. Paste a link below.</div>;
-              }
+              const connected = meetLinks.filter((m) => m.connected);
+              const current = plan.platform;
+              const ownRoom = /jitsi/i.test(current) ? current : OWN_ROOM;
+              const listed = new Set([ownRoom, ...connected.map((m) => m.label)]);
               return (
-                <div style={box}>
-                  <span>{info.error || `Connect ${info.label} to create the meeting link automatically.`}</span>
-                  <button type="button" onClick={() => connectMeetLink(provider)} style={{ ...btn, background: C.ink, color: "#fff", border: "none" }}>
-                    Connect {info.label}
-                  </button>
-                </div>
+                <select
+                  value={current}
+                  onChange={(e) => (e.target.value === "__add__" ? openVideoApps() : patch("platform", e.target.value))}
+                  style={{ ...fieldStyle(), marginBottom: 10 }}
+                >
+                  {connected.map((m) => <option key={m.provider} value={m.label}>{m.label}{m.account ? ` · ${m.account}` : ""}</option>)}
+                  <option value={ownRoom}>Outreach Meet (auto room)</option>
+                  {!listed.has(current) && <option value={current}>{current}</option>}
+                  <option value="__add__">+ Add more apps…</option>
+                </select>
               );
             })()}
+            {providerOf(plan.platform) && meetLinks.some((m) => m.connected && m.label === plan.platform) && (
+              <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>✓ The link is created in your account when you save.</div>
+            )}
             <Label>Meeting join URL</Label>
             <input
               value={plan.videoLink}

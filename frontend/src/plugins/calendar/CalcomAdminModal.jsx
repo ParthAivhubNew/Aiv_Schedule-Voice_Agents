@@ -44,6 +44,7 @@ import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, meetingTimeLabel } from "../../t
 import { api } from "../../api/apiClient";
 import { MeetingInvitePreview } from "../../components/MeetingInvitePreview";
 import { withToken } from "../../api/authStore";
+import { VideoMeetingApps } from "./VideoMeetingApps";
 
 export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "accounts" }) {
   const [activeTab, setActiveTab] = useState(initialTab || "accounts");
@@ -157,7 +158,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   });
 
   useEffect(() => {
-    const allowed = new Set(["accounts", "embeds", "webConsole", "settings"]);
+    const allowed = new Set(["accounts", "video", "embeds", "webConsole", "settings"]);
     const next = allowed.has(initialTab) ? initialTab : "accounts";
     setActiveTab(next);
   }, [initialTab, isOpen]);
@@ -715,6 +716,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         }}>
           {[
             { id: "accounts", label: `Invite mail (${accounts.filter(a => a.status === "connected").length})`, icon: Mail, highlight: true },
+            { id: "video", label: "Video meeting apps", icon: Video },
             { id: "embeds", label: "Embeds & Sharing", icon: Code2 },
             { id: "webConsole", label: "Live Cal.com Web App", icon: Globe },
             { id: "settings", label: "Host Sync & Engine", icon: Settings }
@@ -944,6 +946,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
             </div>
           )}
+
+          {activeTab === "video" && <VideoMeetingApps />}
 
           {/* TAB 2: COMMUNICATION ACCOUNTS (GMAIL, OUTLOOK, SMTP - MULTIPLE ACCOUNTS SUPPORTED) */}
           {activeTab === "accounts" && (

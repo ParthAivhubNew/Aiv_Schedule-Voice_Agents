@@ -758,32 +758,7 @@ async def settle(db, now: Optional[datetime] = None) -> int:
         if not done.get(f"wa:{m.id}"):
             total += await charge(db, "whatsapp_message", 1, f"wa:{m.id}", "WhatsApp message")
 
-    # Numbers bought through us: once per calendar month each, from the month they became active.
-    from app.models.models import OrgPhoneNumber
-
-    numbers = (await db.execute(select(OrgPhoneNumber).where(
-        OrgPhoneNumber.status == "active", OrgPhoneNumber.provider == "telnyx", OrgPhoneNumber.provider_ref != ""))).scalars().all()
-    month = now.strftime("%Y-%m")
-    done = await _charged(db, [f"num:{n.id}:{month}" for n in numbers])
-    for n in numbers:
-        if not done.get(f"num:{n.id}:{month}"):
-            total += await charge(db, "phone_number_month", 1, f"num:{n.id}:{month}", f"Number {n.e164}, {now:%B %Y}")
-
-    # Rental unpaid: release every one of this org's numbers immediately, same "stop at zero, no
-    # grace" rule calls already follow. No separate billing loop for this on purpose: this reuses
-    # the monthly charge above (ref-deduped per calendar month) instead of charging twice.
-    if numbers and await wallet_balance(db, "voice") < 0:
-        from app.api.telnyx_numbers import _release_number
-
-        for n in numbers:
-            try:
-                await _release_number(db, n)
-            except Exception as rel_err:
-                logger.warning(f"[settle] could not release {n.e164} for unpaid rental: {rel_err}")
-        from app.core.notify import notify
-
-        await notify("numbers", "Numbers released for unpaid rental",
-                     ["Your phone numbers were released: monthly rental couldn't be paid from your balance."])
+    total += await settle_number_rent(db, now)
 
     if total:
         await _warn_low(db)
@@ -791,6 +766,110 @@ async def settle(db, now: Optional[datetime] = None) -> int:
     from app.services import voice_access
 
     await voice_access.sync(db)  # at zero minutes the numbers stop taking calls; back on after a top-up
+    return total
+
+
+# ── Number rent ─────────────────────────────────────────────────────────────
+# A number's rent for a calendar month is paid from the credits in the Voice wallet. Next month's
+# rent is taken in the last RENT_WINDOW_DAYS days of this month, as soon as the balance covers it
+# (so a top-up pays it within minutes). If it still can't be paid, admins are emailed 7, 5, 3 and
+# 1 days before the month closes; the number keeps working until then. A number whose rent for the
+# new month is still unpaid when the month turns is released.
+RENT_WINDOW_DAYS = 10
+RENT_REMINDER_DAYS = (7, 5, 3, 1)
+
+
+def month_close(now: datetime) -> datetime:
+    return datetime(now.year + (now.month == 12), now.month % 12 + 1, 1)
+
+
+def days_until_close(now: datetime) -> int:
+    return max(0, int(math.ceil((month_close(now) - now).total_seconds() / 86400)))
+
+
+def rent_reminder_due(days_left: int, sent: List[int]) -> Optional[int]:
+    """The reminder to send now (the nearest day mark that has been reached and not yet sent)."""
+    reached = [d for d in RENT_REMINDER_DAYS if days_left <= d and d not in (sent or [])]
+    return min(reached) if reached else None
+
+
+async def settle_number_rent(db, now: datetime) -> int:
+    """Pay rent for numbers bought through us, warn before a month closes, release unpaid ones.
+    Returns credits charged. Caller commits."""
+    from app.models.models import OrgPhoneNumber
+
+    numbers = (await db.execute(select(OrgPhoneNumber).where(
+        OrgPhoneNumber.status == "active", OrgPhoneNumber.provider == "telnyx", OrgPhoneNumber.provider_ref != ""))).scalars().all()
+    if not numbers:
+        return 0
+    rate = (await rates(db)).get("phone_number_month")
+    per = int(math.ceil(rate["credits"])) if rate else 0
+    if per <= 0:
+        return 0
+    wallet = wallet_of("phone_number_month")
+    enforce = (await org_settings(db))["enforce"]
+    cur = now.strftime("%Y-%m")
+    nxt_dt = month_close(now)
+    nxt = nxt_dt.strftime("%Y-%m")
+    total = 0
+
+    async def pay(n, month: str, label: str) -> bool:
+        nonlocal total
+        if enforce and await wallet_balance(db, wallet) < per:
+            return False
+        total += await _charge_cost(db, "phone_number_month", 1, per, f"num:{n.id}:{month}", f"Number {n.e164}, {label}")
+        return True
+
+    # This month: anything still unpaid is paid if the balance allows, otherwise the number closes.
+    paid = await _charged(db, [f"num:{n.id}:{cur}" for n in numbers])
+    closing = []
+    for n in numbers:
+        if not paid.get(f"num:{n.id}:{cur}") and not await pay(n, cur, f"{now:%B %Y}"):
+            closing.append(n)
+    if closing:
+        from app.api.telnyx_numbers import _release_number
+        from app.core.notify import notify
+
+        gone = []
+        for n in closing:
+            try:
+                await _release_number(db, n)
+                gone.append(n.e164)
+            except Exception as rel_err:
+                logger.warning(f"[settle] could not release {n.e164} for unpaid rental: {rel_err}")
+        if gone:
+            await notify("numbers", "Numbers closed: rental not paid",
+                         [f"These numbers were closed because this month's rental ({per} credits each) could not be paid "
+                          f"from your Voice credits: <b>{', '.join(gone)}</b>.",
+                          "A closed number goes back to the pool and may not be available again; you can buy a new one after topping up."])
+    live = [n for n in numbers if n not in closing]
+
+    # Next month: reserve it from this month's balance once the last days begin.
+    days_left = days_until_close(now)
+    doc = await _get_doc(db, _settings_id())
+    notified = dict(doc.get("rent_notified") or {})
+    if live and days_left <= RENT_WINDOW_DAYS:
+        paid_next = await _charged(db, [f"num:{n.id}:{nxt}" for n in live])
+        short = []
+        for n in live:
+            if not paid_next.get(f"num:{n.id}:{nxt}") and not await pay(n, nxt, f"{nxt_dt:%B %Y}"):
+                short.append(n)
+        if short:
+            due = rent_reminder_due(days_left, notified.get(nxt) or [])
+            if due is not None:
+                from app.core.notify import notify
+
+                balance = max(await wallet_balance(db, wallet), 0)
+                need = per * len(short)
+                await notify("numbers", f"Your numbers close in {days_left} day{'s' if days_left != 1 else ''} unless you top up",
+                             [f"Keeping <b>{', '.join(n.e164 for n in short)}</b> next month needs <b>{need}</b> Voice credits; "
+                              f"you have <b>{balance}</b>.",
+                              f"They close on {nxt_dt:%d %B}. Top up in Plans &amp; credits and the rental is taken automatically; "
+                              "your numbers keep working until then."])
+                notified[nxt] = sorted(set((notified.get(nxt) or []) + [d for d in RENT_REMINDER_DAYS if d >= days_left]))
+                await _patch_doc(db, {"rent_notified": {k: v for k, v in notified.items() if k >= cur}})
+        elif notified.get(nxt):
+            await _patch_doc(db, {"rent_notified": {k: v for k, v in notified.items() if k != nxt}})
     return total
 
 
