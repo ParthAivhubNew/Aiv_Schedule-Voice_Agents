@@ -79,7 +79,7 @@ def _sending_blockers(mb: EmailMailbox) -> List[str]:
     out: List[str] = []
     if not mb.spf_verified:
         out.append("SPF is missing")
-    if not mb.dkim_verified:
+    if not mb.dkim_verified and not getattr(mb, "dkim_override", False):
         out.append("DKIM is missing")
     if mb.status in ("connected", "paused", "error"):
         out.append({"connected": "warm-up has not been started", "paused": "it is paused", "error": "its login is failing"}[mb.status])
@@ -137,7 +137,7 @@ def _mailbox_out(mb: EmailMailbox, log: Optional[EmailSendLog]) -> Dict[str, Any
         "warmup_quota": mb.warmup_quota or 0, "campaign_quota": mb.campaign_quota or 0,
         "consecutive_healthy_days": mb.consecutive_healthy_days, "bounce_rate_7d": mb.bounce_rate_7d,
         "warmup_started_at": _iso(mb.warmup_started_at), "graduated_at": _iso(mb.graduated_at),
-        "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified,
+        "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified, "dkim_override": bool(mb.dkim_override),
         "dmarc_verified": mb.dmarc_verified, "mx_verified": mb.mx_verified,
         "aliases": mb.aliases or [],
         "dns": mb.dns_check_details or {}, "last_sync_at": _iso(mb.last_sync_at),
@@ -306,6 +306,24 @@ async def audit_mailbox_dns(mailbox_id: str, request: Request, body: Optional[Dn
     return {"mailbox": _mailbox_out(mb, None)}
 
 
+class DkimOverrideBody(BaseModel):
+    allow: bool
+
+
+@router.post("/mailboxes/{mailbox_id}/dkim-override")
+async def set_dkim_override(mailbox_id: str, body: DkimOverrideBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Lets a mailbox send without a DKIM record, at the user's own risk (mail may be junked and the domain's
+    reputation can suffer). SPF is still required: without it many receivers reject the mail outright.
+    Bounces over 2% and the warm-up limits still protect the mailbox."""
+    current(request)
+    mb = await _mailbox(db, mailbox_id)
+    if body.allow and not mb.spf_verified:
+        raise HTTPException(status_code=400, detail="SPF is still missing, and mail without it is usually rejected outright. Add the SPF record first, then you can choose to send without DKIM.")
+    mb.dkim_override = body.allow
+    await db.commit()
+    return {"mailbox": _mailbox_out(mb, None)}
+
+
 class WarmupBody(BaseModel):
     action: str  # start | pause | skip (already warm: send at full volume)
 
@@ -318,15 +336,15 @@ async def set_warmup(mailbox_id: str, body: WarmupBody, request: Request, db: As
         mb.status = "paused"
         mb.pause_reason = "Paused by you."
     elif body.action in ("start", "skip"):
-        if not (mb.spf_verified and mb.dkim_verified):
+        if not (mb.spf_verified and (mb.dkim_verified or mb.dkim_override)):
             pref = (mb.dns_check_details or {}).get("dkim_selector_pref")
             fresh = await verify_domain_dns(mb.email.split("@")[-1], pref)
             if pref:
                 fresh["dkim_selector_pref"] = pref
             _dns_fields(mb, fresh)
-            if not (mb.spf_verified and mb.dkim_verified):
+            if not (mb.spf_verified and (mb.dkim_verified or mb.dkim_override)):
                 await db.commit()
-                missing = " and ".join(n for n, ok in (("SPF", mb.spf_verified), ("DKIM", mb.dkim_verified)) if not ok)
+                missing = " and ".join(n for n, ok in (("SPF", mb.spf_verified), ("DKIM", mb.dkim_verified or mb.dkim_override)) if not ok)
                 raise HTTPException(status_code=400, detail=f"Can't start yet: {missing} not found for {mb.email.split('@')[-1]}. "
                                                             "Add the record shown on this mailbox, wait a few minutes, then press Check DNS.")
         if body.action == "skip":

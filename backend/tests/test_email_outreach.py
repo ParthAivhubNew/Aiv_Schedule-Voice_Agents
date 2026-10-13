@@ -403,3 +403,29 @@ async def test_warming_mailboxes_warm_each_other_and_skip_campaigns_in_week_one(
     assert len(sent) == 2 and all(w for _, _, w in sent)
     assert {s[1] for s in sent} == {"a@acme-sales.com", "b@acme-sales.com"}
     assert all("List-Unsubscribe" not in m for _, m in mail.sent)
+
+
+async def test_a_mailbox_can_be_cleared_to_send_without_dkim_but_never_without_spf(client, mail, monkeypatch):
+    from app.api import email_outreach
+
+    state = {"spf": True, "dkim": False}
+
+    async def dns(domain, dkim_selector=None):
+        return {"domain": domain, "spf_verified": state["spf"], "dkim_verified": state["dkim"], "dmarc_verified": False,
+                "mx_verified": True, "all_passed": False, "recommendations": []}
+
+    monkeypatch.setattr(email_outreach, "verify_domain_dns", dns)
+    mb = await _mailbox(client)
+    assert (await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "start"})).status_code == 400  # DKIM missing
+    r = await client.post(f"/api/email/mailboxes/{mb['id']}/dkim-override", json={"allow": True})
+    assert r.status_code == 200 and r.json()["mailbox"]["dkim_override"] is True
+    assert (await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "start"})).status_code == 200
+    box = r.json()["mailbox"]
+    assert "DKIM is missing" not in box["blockers"]
+    # switching it off puts the requirement back
+    r = await client.post(f"/api/email/mailboxes/{mb['id']}/dkim-override", json={"allow": False})
+    assert r.json()["mailbox"]["dkim_override"] is False and "DKIM is missing" in r.json()["mailbox"]["blockers"]
+    # without SPF it is refused
+    state["spf"] = False
+    await client.post(f"/api/email/mailboxes/{mb['id']}/dns-check")
+    assert (await client.post(f"/api/email/mailboxes/{mb['id']}/dkim-override", json={"allow": True})).status_code == 400

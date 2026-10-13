@@ -1185,6 +1185,8 @@ class EmailMailbox(Base):
     # DNS Verification State
     spf_verified = Column(Boolean, default=False)
     dkim_verified = Column(Boolean, default=False)
+    # The user chose to send without DKIM, knowing mail may be junked. SPF is still required.
+    dkim_override = Column(Boolean, default=False)
     dmarc_verified = Column(Boolean, default=False)
     mx_verified = Column(Boolean, default=False)
     last_dns_check_at = Column(DateTime, nullable=True)

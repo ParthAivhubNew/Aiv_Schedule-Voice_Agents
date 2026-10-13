@@ -200,10 +200,20 @@ export function MailboxesView({ outreach }) {
               <Check ok={m.mx_verified} tip="MX: the domain can receive mail, so replies reach you">MX</Check>
               <span style={small}>Bounces (7 days): {(m.bounce_rate_7d * 100).toFixed(1)}%</span>
             </div>
+            {m.dkim_override && !m.dkim_verified && (
+              <div style={{ fontSize: 12, color: C.amber, background: "#fffbeb", borderRadius: 8, padding: "8px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 240px" }}><strong>Sending without DKIM.</strong> Many emails may land in spam and your domain's reputation can suffer. Bounces over 2% still pause this mailbox.</span>
+                <button type="button" style={btn(false)} title="Go back to requiring DKIM before this mailbox sends" onClick={() => run(() => api.emailDkimOverride(m.id, false), "DKIM is required again.")}>Require DKIM again</button>
+              </div>
+            )}
             {!m.can_send && (m.blockers || []).length > 0 && (
               <div style={{ fontSize: 12, fontWeight: 600, color: C.red, background: "#fef2f2", borderRadius: 8, padding: "8px 10px" }}>
                 Nothing will send from this mailbox yet: {m.blockers.join(", ")}.
               </div>
+            )}
+            {m.spf_verified && !m.dkim_verified && !m.dkim_override && (
+              <div><button type="button" style={btn(false)} title="Send without a DKIM record. Mail is more likely to be junked"
+                onClick={async () => { if (await askConfirm({ title: "Send without DKIM?", body: "Without DKIM, Gmail, Outlook and others are much more likely to put your emails in spam, and your domain's reputation can suffer, including for your normal email. You can turn this off at any time. Bounces over 2% still pause the mailbox, and warm-up limits still apply.", confirm: "Send without DKIM", danger: true })) run(() => api.emailDkimOverride(m.id, true), "This mailbox can now send without DKIM."); }}>Send without DKIM…</button></div>
             )}
             <SetupGuide mailbox={m} onCheck={(sel) => run(() => api.emailCheckDns(m.id, sel), "DNS checked.")}
               onAuto={(sel) => api.emailCheckDns(m.id, sel).then(outreach.reloadMailboxes).catch(() => {})} />

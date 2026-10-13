@@ -23,3 +23,10 @@ def test_blockers_say_why_a_mailbox_cannot_send():
     assert _sending_blockers(box) == ["DKIM is missing", "warm-up has not been started"]
     ready = SimpleNamespace(spf_verified=True, dkim_verified=True, status="warming")
     assert _sending_blockers(ready) == []
+
+
+def test_a_chosen_dkim_override_lifts_only_the_dkim_blocker():
+    box = SimpleNamespace(spf_verified=True, dkim_verified=False, dkim_override=True, status="warming")
+    assert _sending_blockers(box) == []
+    no_spf = SimpleNamespace(spf_verified=False, dkim_verified=False, dkim_override=True, status="warming")
+    assert _sending_blockers(no_spf) == ["SPF is missing"]

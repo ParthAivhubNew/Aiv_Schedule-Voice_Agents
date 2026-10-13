@@ -480,6 +480,7 @@ export const api = {
   emailDeleteMailbox: (id) => apiRequest(`/email/mailboxes/${id}`, { method: 'DELETE' }),
   emailTestMailbox: (id) => apiRequest(`/email/mailboxes/${id}/test`, { method: 'POST', timeoutMs: 60000 }),
   emailCheckDns: (id, dkimSelector) => apiRequest(`/email/mailboxes/${id}/dns-check`, { method: 'POST', body: dkimSelector ? { dkim_selector: dkimSelector } : {}, timeoutMs: 30000 }),
+  emailDkimOverride: (id, allow) => apiRequest(`/email/mailboxes/${id}/dkim-override`, { method: 'POST', body: { allow } }),
   emailWarmup: (id, action) => apiRequest(`/email/mailboxes/${id}/warmup`, { method: 'POST', body: { action }, timeoutMs: 30000 }),
   emailCampaigns: () => apiRequest('/email/campaigns'),
   emailCampaign: (id) => apiRequest(`/email/campaigns/${id}`),
