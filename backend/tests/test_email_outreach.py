@@ -474,3 +474,39 @@ def test_a_campaign_says_when_its_next_sending_window_opens():
     assert next_window(camp, datetime(2026, 10, 13, 7, 30)) == (False, "today at 09:00")
     assert next_window(camp, datetime(2026, 10, 16, 18, 0)) == (False, "Monday at 09:00")  # Friday evening waits for Monday
     assert next_window(camp, datetime(2026, 10, 17, 11, 0)) == (False, "Monday at 09:00")  # a Saturday
+
+
+async def test_a_campaign_that_has_not_sent_says_exactly_why(client, db, mail, monkeypatch):
+    from datetime import date
+
+    from app.models.models import EmailMailbox
+    from app.services import email_worker
+
+    monkeypatch.setattr(email_worker, "local_now", lambda tz, now=None: MONDAY_10)  # inside the sending hours
+    mb = await _mailbox(client)
+    camp = (await client.post("/api/email/campaigns", json={"name": "Why", "mailbox_ids": [mb["id"]], "steps": [{"subject": "Hi", "body": "Hello"}]})).json()["campaign"]
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "ann@client.com", "first_name": "Ann"}]})
+
+    async def why():
+        got = (await client.get(f"/api/email/campaigns/{camp['id']}")).json()["campaign"]["why"]
+        return " | ".join(w["text"] for w in got), {w["level"] for w in got}
+
+    text, _ = await why()
+    assert "not running" in text  # a draft sends nothing
+    box = await db.get(EmailMailbox, mb["id"])
+    box.status = "active"  # skip warm-up, as the person would
+    box.plan_date = ""
+    await db.commit()
+    await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
+    text, levels = await why()
+    assert "not been planned for today" in text and "amber" in levels  # the sender has not run for it yet today
+    box = await db.get(EmailMailbox, mb["id"])
+    box.plan_date, box.campaign_quota = date.today().isoformat(), 0
+    await db.commit()
+    text, levels = await why()
+    assert "allowance is used up (0 of 0)" in text and "Skip warm-up" in text and "red" in levels  # the stuck-at-zero case
+    box = await db.get(EmailMailbox, mb["id"])
+    box.campaign_quota = 5
+    await db.commit()
+    text, _ = await why()
+    assert "allowance" not in text

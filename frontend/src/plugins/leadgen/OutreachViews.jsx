@@ -215,8 +215,8 @@ export function MailboxesView({ outreach, onViewSent }) {
             <div style={row}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>{m.email}</span>
               <Pill tone={STATUS_TONE[m.status]}>{STATUS_TEXT[m.status] || m.status}</Pill>
-              <span style={{ ...small, marginLeft: "auto" }} title="What this mailbox has done so far today">
-                Today: {m.today_campaign_sent} campaign and {m.today_warmup_sent} warm-up sent · {m.today_replies} {m.today_replies === 1 ? "reply" : "replies"} · {m.today_bounced} {m.today_bounced === 1 ? "bounce" : "bounces"}
+              <span style={{ ...small, marginLeft: "auto" }} title="What this mailbox has sent so far today, out of what it is allowed today. When campaign emails reach their allowance, the rest wait until tomorrow">
+                Today: {m.today_campaign_sent} of {m.campaign_quota} campaign emails · {m.today_warmup_sent} of {m.warmup_quota} warm-up · {m.today_replies} {m.today_replies === 1 ? "reply" : "replies"} · {m.today_bounced} {m.today_bounced === 1 ? "bounce" : "bounces"}
               </span>
             </div>
             {m.last_error && <div style={{ fontSize: 12, color: C.red }}>{m.last_error}</div>}
@@ -395,10 +395,15 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
         </span>
       </div>
       <Note error={msg.error}>{msg.text}</Note>
-      {c.status === "running" && c.send_window && !c.send_window.open && (c.lead_status?.active || 0) > 0 ? (
-        <div role="status" style={{ fontSize: 12.5, color: "#92400e", background: "#fffbeb", borderRadius: 8, padding: "9px 12px" }}>
-          <strong>Waiting for sending hours.</strong> This campaign sends {c.days_of_week.map((d) => (DAYS.find((x) => x[0] === d) || [])[1]).filter(Boolean).join(", ")} between {c.sending_window_start} and {c.sending_window_end} ({c.send_window.timezone}).
-          {c.send_window.opens ? ` The next window opens ${c.send_window.opens}.` : ""} Use Edit to change the hours.
+      {c.status === "running" && (c.lead_status?.active || 0) > 0 && (c.why || []).length ? (
+        <div role="status" style={{ ...card, display: "grid", gap: 6 }}>
+          <div style={row}>
+            <strong style={{ fontSize: 13.5 }}>Why hasn't it sent yet?</strong>
+            <button type="button" style={{ ...btn(false), marginLeft: "auto" }} title="Look again at everything the sender checks" onClick={reload}>Check again</button>
+          </div>
+          {c.why.map((w, i) => (
+            <div key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: TONES[w.level === "green" ? "green" : w.level === "red" ? "red" : "amber"].ink, background: TONES[w.level === "green" ? "green" : w.level === "red" ? "red" : "amber"].bg, borderRadius: 8, padding: "8px 11px" }}>{w.text}</div>
+          ))}
         </div>
       ) : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>

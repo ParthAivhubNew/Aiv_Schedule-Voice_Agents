@@ -425,6 +425,76 @@ async def _clean_aliases(db: AsyncSession, ids: List[str], wanted: Dict[str, str
     return out
 
 
+async def why_not_sending(db: AsyncSession, camp: EmailCampaign) -> List[Dict[str, str]]:
+    """Every reason, in plain words, that this campaign has not sent yet. Mirrors the checks the sender makes, in order,
+    so a person can see what is holding it back instead of guessing. `level`: red = must be fixed, amber = it will clear
+    by itself or by a setting, green = nothing is wrong."""
+    from datetime import date
+
+    from app.services import credits as credit
+    from app.services import email_worker as EW
+    from app.services.org_settings import org_timezone
+
+    now = datetime.utcnow()
+    tz = await org_timezone(db)
+    local = EW.local_now(tz, now)
+    out: List[Dict[str, str]] = []
+
+    def add(level: str, text: str) -> None:
+        out.append({"level": level, "text": text})
+
+    if camp.status != "running":
+        add("amber", f"The campaign is {camp.status}, not running, so nothing sends. Press Start.")
+        return out
+    active = (await db.execute(select(func.count(EmailEnrollment.id)).where(
+        EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active"))).scalar() or 0
+    if not active:
+        add("amber", "No one is waiting for an email. Everyone has already been sent to, or has replied, bounced, unsubscribed or been blocked.")
+        return out
+    due = (await db.execute(select(func.count(EmailEnrollment.id)).where(
+        EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.next_action_at <= now))).scalar() or 0
+    if not due:
+        nxt = (await db.execute(select(func.min(EmailEnrollment.next_action_at)).where(
+            EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active"))).scalar()
+        add("amber", f"No one is due an email yet. The next one is due {nxt.strftime('%d %b %H:%M')} UTC." if nxt else "No one is due an email yet.")
+    is_open, opens = EW.next_window(camp, local)
+    if not is_open:
+        days = ", ".join(n for d, n in [(1, "Mon"), (2, "Tue"), (3, "Wed"), (4, "Thu"), (5, "Fri"), (6, "Sat"), (7, "Sun")] if d in (camp.days_of_week or [1, 2, 3, 4, 5]))
+        add("amber", f"It is outside the campaign's sending hours ({days}, {camp.sending_window_start}-{camp.sending_window_end}, {tz} time). "
+                     f"The next window opens {opens}. Change the hours with Edit.")
+    boxes = [m for m in (await db.execute(select(EmailMailbox))).scalars().all() if m.id in (camp.mailbox_ids or [])]
+    if not boxes:
+        add("red", "No mailbox is chosen for this campaign, or the chosen one was disconnected. Press Edit and tick a mailbox.")
+    today = date.today().isoformat()
+    for mb in boxes:
+        if mb.last_error:
+            add("red", f"{mb.email}: the mailbox reported an error: {mb.last_error}")
+        if mb.status not in EW.SENDING:
+            why = ", ".join(_sending_blockers(mb)) or mb.status
+            add("red", f"{mb.email} can't send: {why}.")
+            continue
+        log = (await db.execute(select(EmailSendLog).where(EmailSendLog.mailbox_id == mb.id, EmailSendLog.date == today))).scalars().first()
+        sent = (log.campaign_sent_count or 0) if log else 0
+        quota = mb.campaign_quota or 0
+        if mb.plan_date != today:
+            add("amber", f"{mb.email} has not been planned for today yet, so it has no allowance. The sender plans each mailbox the first time it runs each day. "
+                         "If this stays like this for more than a few minutes, the background sender is not running.")
+        elif sent >= quota:
+            add("red", f"{mb.email}: today's campaign allowance is used up ({sent} of {quota}). " + (
+                "It is 0 because the mailbox is still in its first days of warm-up, or was planned before the day-one rule. Press Skip warm-up… on the mailbox to work it out again."
+                if quota == 0 else "The rest will go out tomorrow. Press Skip warm-up… on the mailbox to raise the allowance."))
+        elif mb.last_sent_at and (now - mb.last_sent_at).total_seconds() < (camp.min_delay_seconds or 60):
+            add("amber", f"{mb.email} sent an email a moment ago and is waiting the {camp.min_delay_seconds or 60}-second gap before the next.")
+    ok, why = await credit.can_start(db, "email_send")
+    if not ok:
+        add("red", f"Not enough Leads credits to send. {why}")
+    if boxes and all((not m.last_sync_at) or (now - m.last_sync_at).total_seconds() > 900 for m in boxes):
+        add("amber", "The background sender hasn't touched these mailboxes in the last 15 minutes. If this keeps showing, it is not running on the server.")
+    if not out:
+        add("green", "Nothing is holding it back. The next email goes out within a minute or two.")
+    return out
+
+
 async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = False) -> Dict[str, Any]:
     counts = dict((await db.execute(select(EmailEnrollment.status, func.count(EmailEnrollment.id))
                                     .where(EmailEnrollment.campaign_id == camp.id).group_by(EmailEnrollment.status))).all())
@@ -451,6 +521,7 @@ async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = Fals
         tz = await org_timezone(db)
         is_open, opens = next_window(camp, local_now(tz))
         out["send_window"] = {"open": is_open, "opens": opens, "timezone": tz}
+        out["why"] = await why_not_sending(db, camp)
         rows = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id)
                                  .order_by(EmailEnrollment.created_at.desc()).limit(500))).scalars().all()
         out["lead_list"] = [{"id": e.id, "email": e.email, "first_name": e.first_name, "last_name": e.last_name,

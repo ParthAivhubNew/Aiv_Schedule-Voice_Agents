@@ -251,6 +251,12 @@ async def _enrollment_vars(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE email_enrollments ADD COLUMN IF NOT EXISTS vars JSON"))
 
 
+async def _replan_warming_mailboxes(conn: AsyncConnection) -> None:
+    """Warming mailboxes planned earlier today under the old rule (no real emails in week one) keep a campaign
+    allowance of 0 until tomorrow. Plan them again so the new rule applies straight away."""
+    await conn.execute(text("UPDATE email_mailboxes SET plan_date = '' WHERE status = 'warming' AND COALESCE(campaign_quota, 0) = 0"))
+
+
 async def _phone_rental_due(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE org_phone_numbers ADD COLUMN IF NOT EXISTS rent_due_at TIMESTAMP"))
     await conn.execute(text("UPDATE org_phone_numbers SET rent_due_at = created_at + interval '30 days' WHERE rent_due_at IS NULL AND status = 'active'"))
@@ -737,6 +743,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_02_mailbox_aliases", _mailbox_aliases),
     ("2026_11_03_mailbox_dkim_override", _mailbox_dkim_override),
     ("2026_11_04_enrollment_vars", _enrollment_vars),
+    ("2026_11_05_replan_warming_mailboxes", _replan_warming_mailboxes),
 ]
 
 
