@@ -47,6 +47,9 @@ class LeadIn(BaseModel):
     first_name: str = ""
     last_name: str = ""
     company: str = ""
+    facts: List[str] = Field(default_factory=list, max_length=8, description="What you know about this company, one short sentence each. The opening line is written only from these and the company register")
+    company_number: str = Field("", max_length=40, description="The company registration number, so we can match the company register exactly")
+    website: str = Field("", max_length=200, description="The company website, used to match the company register when it belongs to exactly one registered company")
 
 
 class ScheduleIn(BaseModel):
@@ -61,6 +64,7 @@ class CreateIn(BaseModel):
     goal: Optional[str] = Field(None, max_length=2000, description="What the emails should achieve; the AI writes them. Leave out if you send your own `steps`.")
     audience: Optional[str] = Field(None, max_length=500, description="Who they go to, e.g. practice managers")
     emails: int = Field(3, ge=1, le=5, description="How many emails in the sequence (AI-written)")
+    personalise: bool = Field(False, description="Write an opening line for each person from their `facts` and the company register. 1 Leads credit per 5 lines written; a line the facts don't back up is dropped and not charged")
     sender_name: Optional[str] = Field(None, max_length=80)
     steps: Optional[List[StepIn]] = Field(None, max_length=8, description="Your own emails instead of AI-written ones")
     leads: Optional[List[LeadIn]] = Field(None, max_length=MAX_LEADS)
@@ -119,6 +123,9 @@ async def view(db: AsyncSession, camp: EmailCampaign, org: str) -> Dict[str, Any
     out = await _campaign_out(db, camp, False)
     boxes = (await db.execute(select(EmailMailbox).where(EmailMailbox.id.in_(camp.mailbox_ids or [])))).scalars().all() if camp.mailbox_ids else []
     active = (out.get("lead_status") or {}).get("active", 0)
+    lines = [{"email": e.email, "company": e.company, "line": (e.vars or {}).get("personal_line", ""), "based_on": (e.vars or {}).get("line_facts") or []}
+             for e in (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id).order_by(EmailEnrollment.created_at))).scalars().all()
+             if (e.vars or {}).get("personal_line")]
     return {
         "id": camp.id, "name": camp.name, "status": public_status(camp, appr),
         "steps": [{"step": s["step"], "subject": s["subject"], "body": s["body"], "delay_days": s["delay_days"]} for s in out["steps"]],
@@ -129,6 +136,8 @@ async def view(db: AsyncSession, camp: EmailCampaign, org: str) -> Dict[str, Any
         "stats": {"sent": out["sent"], "replied": out["replied"], "bounced": out["bounced"], "reply_rate": out["reply_rate"]},
         "estimated_credits": active * len(out["steps"]),
         "approved_by": d.get("approved_by"), "note": d.get("note"), "error": d.get("error"),
+        "warnings": d.get("warnings") or [],  # anything in the AI-written emails the facts you gave do not back up: check before approving
+        "personal_lines": lines[:200],  # the opening line written for each person, with the facts it came from
         "preview_url": links.preview_url("campaign", camp.id, org), "created_at": out["created_at"],
     }
 
@@ -142,33 +151,30 @@ async def _campaign(db: AsyncSession, campaign_id: str) -> EmailCampaign:
 
 # ── Writing the emails (the app's own AI drafter) ────────────────────────────
 async def draft_steps(db: AsyncSession, ctx: Dict[str, Any], goal: str, audience: str, count: int, sender: str,
-                      current: Optional[List[Dict[str, str]]] = None, instruction: str = "") -> List[Dict[str, Any]]:
+                      current: Optional[List[Dict[str, str]]] = None, instruction: str = "", personalise: bool = False) -> List[Dict[str, Any]]:
     """Write (or rewrite) the sequence. Raises ApiError when the writing AI is unavailable: never invented copy."""
-    from app.api.email_outreach import AiDraftRequest, generate_or_refine_email_draft
+    from app.api.email_outreach import _profile
+    from app.services import email_writer as W
 
-    shim = SimpleNamespace(state=SimpleNamespace(auth=ctx))
-    steps: List[Dict[str, Any]] = []
-    prev_subject, prev_body = "", ""
-    for n in range(1, count + 1):
-        have = (current or [])[n - 1] if current and n <= len(current) else None
-        if instruction and have:
-            req = AiDraftRequest(action_type="custom", custom_prompt=instruction + ". Keep the {{firstName}} and {{company}} placeholders exactly as they are and use no others.",
-                                 current_subject=have["subject"], current_body=have["body"], sender_name=sender)
-        elif n == 1:
-            req = AiDraftRequest(action_type="generate", topic=goal, objective=goal, target_audience=audience, recipient_name="{{firstName}}",
-                                 company_name="{{company}}", sender_name=sender)
-        else:
-            req = AiDraftRequest(action_type="custom", sender_name=sender, current_subject=prev_subject, current_body=prev_body,
-                                 custom_prompt=f"Write follow-up email number {n} to the email below. Under 70 words, light reference to the earlier note, one new useful "
-                                               "angle, a low-pressure question at the end. Keep the {{firstName}} and {{company}} placeholders as written and use no "
-                                               "other placeholders. Sign off with the sender's name.")
-        res = await generate_or_refine_email_draft(req, shim, db)
-        if not res.get("ok") or not (res.get("body") or "").strip():
-            fail(502, "ai_unavailable", "The writing AI is not available right now, so nothing was written. Try again in a minute, or send your own `steps`.")
-        prev_subject, prev_body = res["subject"], res["body"]
-        steps.append({"subject": res["subject"].strip()[:300] or f"Following up ({n})", "body": res["body"].strip(),
-                      "delay_days": 0 if n == 1 else (3 if n == 2 else 4)})
-    return steps
+    # The writer may use only: the organisation's company profile, and what this request says (goal, audience,
+    # sender). Anything else it adds, such as a figure or a customer name, is caught and reported as a warning.
+    profile = await _profile(db, ctx, need=False)
+    profile["sender_name"] = sender or profile.get("sender_name") or ""
+    profile["sells"] = profile.get("sells") or goal
+    profile["audience"] = audience or profile.get("audience") or ""
+    try:
+        if current and instruction:
+            out = []
+            for i, have in enumerate(current):
+                r = await W.refine(db, profile, have["subject"], have["body"], "custom", instruction)
+                out.append({"subject": r["subject"] if i == 0 or have["subject"] else "", "body": r["body"], "delay_days": 0 if i == 0 else (3 if i == 1 else 4),
+                            "warnings": r["warnings"]})
+            return out
+        steps = await W.draft_sequence(db, profile, f"Audience: {audience}" if audience else "", count=count, personalise=personalise, goal=goal)
+    except W.WriterUnavailable:
+        fail(502, "ai_unavailable", "The writing AI is not available right now, so nothing was written. Try again in a minute, or send your own `steps`.")
+    return [{"subject": (s["subject"] or f"Following up ({i})")[:300], "body": s["body"], "delay_days": s["delay_days"], "warnings": s["warnings"]}
+            for i, s in enumerate(steps, 1)]
 
 
 async def _store_steps(db: AsyncSession, camp: EmailCampaign, steps: List[Dict[str, Any]]) -> None:
@@ -188,21 +194,27 @@ async def _set_approval(db: AsyncSession, campaign_id: str, **fields: Any) -> Pu
 
 
 async def _background_draft(org: str, ctx: Dict[str, Any], campaign_id: str, goal: str, audience: str, count: int, sender: str,
-                            current: Optional[List[Dict[str, str]]] = None, instruction: str = "") -> None:
+                            current: Optional[List[Dict[str, str]]] = None, instruction: str = "", personalise: bool = False,
+                            write_emails: bool = True) -> None:
     from app.public_api.core import ApiError
 
     try:
         with org_scope(org):
             async with AsyncSessionLocal() as db:
                 camp = await _campaign(db, campaign_id)
-                try:
-                    steps = await draft_steps(db, ctx, goal, audience, count, sender, current, instruction)
-                except ApiError as err:
-                    await _set_approval(db, campaign_id, status="failed", error=err.message)
-                    await db.commit()
-                    return
-                await _store_steps(db, camp, steps)
-                await _set_approval(db, campaign_id, status="needs_approval", error=None)
+                warnings: List[str] = []
+                if write_emails:
+                    try:
+                        steps = await draft_steps(db, ctx, goal, audience, count, sender, current, instruction, personalise)
+                    except ApiError as err:
+                        await _set_approval(db, campaign_id, status="failed", error=err.message)
+                        await db.commit()
+                        return
+                    await _store_steps(db, camp, steps)
+                    warnings = [f"Email {i}: {w}" for i, s in enumerate(steps, 1) for w in s.get("warnings", [])]
+                if personalise:
+                    warnings += await _write_lines(db, ctx, camp, sender, goal, audience)
+                await _set_approval(db, campaign_id, status="needs_approval", error=None, warnings=warnings)
                 await db.commit()
     except Exception:
         logger.exception(f"[public-api] drafting campaign {campaign_id} failed")
@@ -213,6 +225,56 @@ async def _background_draft(org: str, ctx: Dict[str, Any], campaign_id: str, goa
                     await db.commit()
         except Exception:
             pass
+
+
+async def _write_lines(db: AsyncSession, ctx: Dict[str, Any], camp: EmailCampaign, sender: str, goal: str, audience: str) -> List[str]:
+    """An opening line for each person, from their own facts and the company register. Returns notes for the approver.
+    Charged only for lines actually written; nothing is written for someone we hold no facts about."""
+    from types import SimpleNamespace as NS
+
+    from app.api.email_outreach import _profile
+    from app.models.models import EmailSequenceStep
+    from app.services import credits as credit
+    from app.services import email_writer as W
+
+    await db.flush()  # the emails just saved must be visible to the query below
+    steps = (await db.execute(select(EmailSequenceStep).where(EmailSequenceStep.campaign_id == camp.id))).scalars().all()
+    if not any(re.search(r"\{\{\s*personal_?line\s*\}\}", f"{s.subject}\n{s.body_template}", re.I) for s in steps):
+        return ["Opening lines were skipped: none of the emails uses {{personal_line}}."]
+    profile = await _profile(db, ctx, need=False)
+    profile["sender_name"] = sender or profile.get("sender_name") or ""
+    profile["sells"] = profile.get("sells") or goal
+    profile["audience"] = audience or profile.get("audience") or ""
+    enrolled = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id))).scalars().all()
+    todo, owners = [], []
+    for e in enrolled:
+        extra = dict(e.vars or {})
+        biz = await W.register_match(db, extra.get("company_number", ""), extra.get("website", ""), e.email)
+        acct = NS(name=e.company or "", contact_name=f"{e.first_name} {e.last_name}".strip(), contact_title="", region="", industry="", research=None)
+        facts = W.recipient_facts(acct, biz, extra.get("facts"))
+        if facts:
+            todo.append((acct, facts))
+            owners.append(e)
+    if not todo:
+        return ["No opening lines were written: none of your leads has facts, and none matched the company register."]
+    ref = f"email_write:{camp.id}"
+    ok, _why = await credit.hold(db, [{"item": "lead_email_write", "quantity": len(todo) / W.PER_CREDIT, "ref": ref, "note": "Opening lines for a campaign (held)"}])
+    if not ok:
+        await db.commit()
+        return ["Opening lines were skipped: not enough Leads credits. Top up and ask for a rewrite to try again."]
+    results = await W.personalise_many(db, profile, todo)
+    made = 0
+    for e, r in zip(owners, results):
+        if r["line"]:
+            e.vars = {**(e.vars or {}), "personal_line": r["line"], "line_facts": r["facts"]}
+            made += 1
+    await credit.release(db, [ref])
+    await credit.charge(db, "lead_email_write", made / W.PER_CREDIT, ref, f"Opening lines for a campaign: {made}")
+    await db.commit()
+    notes = []
+    if made < len(enrolled):
+        notes.append(f"{made} of {len(enrolled)} people got an opening line. The others had nothing solid to write from, so their emails open without one.")
+    return notes
 
 
 def _spawn(coro) -> None:
@@ -270,15 +332,17 @@ async def create_campaign(db: AsyncSession, request: Request, ctx: Dict[str, Any
     prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
     sender = (body.sender_name or (prof.name if prof and prof.name else "") or ctx.get("name") or "The team").strip()
     base = {"sent": [], "approvers": approvers, "skipped": added["skipped"], "goal": body.goal or "", "audience": body.audience or "", "sender": sender,
-            "count": body.emails}
+            "count": body.emails, "personalise": body.personalise}
     if body.steps:
         await _store_steps(db, camp, [s.model_dump() for s in body.steps])
-        await _set_approval(db, camp.id, status="needs_approval", **base)
+        await _set_approval(db, camp.id, status="drafting" if body.personalise else "needs_approval", **base)
     else:
         await _set_approval(db, camp.id, status="drafting", **base)
     await db.commit()
     if not body.steps:
-        _spawn(_background_draft(org, ctx, camp.id, body.goal or "", body.audience or "", body.emails, sender))
+        _spawn(_background_draft(org, ctx, camp.id, body.goal or "", body.audience or "", body.emails, sender, personalise=body.personalise))
+    elif body.personalise:  # their own emails, with opening lines written for the people on the list
+        _spawn(_background_draft(org, ctx, camp.id, body.goal or "", body.audience or "", len(body.steps), sender, personalise=True, write_emails=False))
     return await view(db, camp, org)
 
 
@@ -315,7 +379,7 @@ async def edit_campaign(db: AsyncSession, ctx: Dict[str, Any], camp: EmailCampai
         camp.status = "draft" if camp.status != "running" else "paused"
         await db.commit()
         _spawn(_background_draft(ctx["org_id"], ctx, camp.id, d.get("goal", ""), d.get("audience", ""), max(1, len(current)), d.get("sender", "The team"),
-                                 current, body.regenerate.instruction))
+                                 current, body.regenerate.instruction, personalise=bool(d.get("personalise")), write_emails=True))
         return
     if changed:  # approval covers what was reviewed: a change sends it back, and sending stops until it is approved again
         if camp.status == "running":

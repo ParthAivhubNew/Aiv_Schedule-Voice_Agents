@@ -66,17 +66,17 @@ export const ENDPOINTS = [
   // ── Email ──
   {
     group: "email", method: "POST", path: "/v1/email/campaigns", scope: "email:write", title: "Draft an email campaign",
-    summary: "The AI writes the sequence from your goal (or send your own steps). Nothing is sent until it is approved. Use {{firstName}}, {{lastName}} and {{company}} to personalise.",
+    summary: "The AI writes the sequence from your goal, your audience and your company profile (or send your own steps). It uses only those facts and invents no figures, customers or claims; anything it could not back up comes back in warnings. Nothing is sent until it is approved. Use {{firstName}}, {{lastName}} and {{company}} to personalise. Set personalise to true to add an opening line about each company, written only from the facts you send for it and the company register (match it with company_number or website). A company we know nothing about gets no line and is not charged.",
     body: {
-      name: "Dentists in Leeds", goal: "Book a demo of our booking software", audience: "practice managers", emails: 3,
-      leads: [{ email: "jo@bloggs.example", first_name: "Jo", company: "Bloggs Dental" }],
+      name: "Dentists in Leeds", goal: "Book a demo of our booking software", audience: "practice managers", emails: 3, personalise: true,
+      leads: [{ email: "jo@bloggs.example", first_name: "Jo", company: "Bloggs Dental", company_number: "01234567", facts: ["Opened a second surgery in 2025"] }],
     },
   },
-  { group: "email", method: "GET", path: "/v1/email/campaigns/{id}", scope: "email:write", title: "See a campaign", summary: "The emails, how many went out, replies, and where it is in the approval.", pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" } },
+  { group: "email", method: "GET", path: "/v1/email/campaigns/{id}", scope: "email:write", title: "See a campaign", summary: "The emails, any warnings about the AI-written text, the opening line written for each person and the facts it came from, how many went out, replies, and where it is in the approval.", pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" } },
   { group: "email", method: "GET", path: "/v1/email/campaigns", scope: "email:write", title: "List campaigns", summary: "Campaigns made through the API." },
   {
     group: "email", method: "PATCH", path: "/v1/email/campaigns/{id}", scope: "email:write", title: "Change a campaign",
-    summary: "Edit the emails or schedule, ask the AI to rewrite them, or pause and resume. A change sends it back for approval.",
+    summary: "Edit the emails or schedule, ask the AI to rewrite them (it adds no new facts), or pause and resume. A change sends it back for approval.",
     pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" }, body: { regenerate: { instruction: "Make them shorter and less formal" } },
   },
   {

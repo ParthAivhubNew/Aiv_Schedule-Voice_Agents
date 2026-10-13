@@ -1328,6 +1328,7 @@ class EmailEnrollment(Base):
     mailbox_id = Column(String, default="")  # the mailbox that sent step 1; follow-ups stay on it
     last_message_id = Column(String, default="")  # threads follow-ups under the previous email
     last_subject = Column(Text, default="")
+    vars = Column(JSON, nullable=True)  # per-person merge values, such as the AI-written {{personal_line}}
     current_step = Column(Integer, default=1)
     status = Column(String, default="active")  # active, paused, completed, replied, bounced, unsubscribed
     last_action_at = Column(DateTime, nullable=True)

@@ -500,6 +500,11 @@ export const api = {
   emailCreateTemplate: (body) => apiRequest('/email/templates', { method: 'POST', body }),
   emailUpdateTemplate: (id, body) => apiRequest(`/email/templates/${id}`, { method: 'PUT', body }),
   emailDeleteTemplate: (id) => apiRequest(`/email/templates/${id}`, { method: 'DELETE' }),
+  emailGetWritingProfile: () => apiRequest('/email/ai/profile'),
+  emailSaveWritingProfile: (body) => apiRequest('/email/ai/profile', { method: 'PUT', body }),
+  emailAiSequence: (body) => apiRequest('/email/ai/sequence', { method: 'POST', body, timeoutMs: 90000 }),
+  emailAiRefine: (body) => apiRequest('/email/ai/refine', { method: 'POST', body, timeoutMs: 60000 }),
+  emailAiPersonalise: (account_ids) => apiRequest('/email/ai/personalise', { method: 'POST', body: { account_ids }, timeoutMs: 180000 }),
   emailAiDraft: (body) => apiRequest('/email/ai/draft', { method: 'POST', body, timeoutMs: 45000 }),
 
   // Developer API Keys

@@ -552,10 +552,29 @@ class LeadBody(BaseModel):
     last_name: str = ""
     company: str = ""
     prospect_id: str = ""
+    personal_line: str = ""  # the opening sentence written for this person, if any (see /ai/personalise)
+    facts: List[str] = []  # what the sender knows about this company, for writing its opening line
+    company_number: str = ""  # lets us match the company register exactly
+    website: str = ""
 
 
 class LeadsBody(BaseModel):
     leads: List[LeadBody]
+
+
+def _lead_vars(lead: "LeadBody") -> Optional[Dict[str, Any]]:
+    """Per-person extras kept with the enrolment: the opening line, and the facts it can be written from."""
+    out: Dict[str, Any] = {}
+    if lead.personal_line.strip():
+        out["personal_line"] = " ".join(lead.personal_line.split())[:400]
+    facts = [" ".join(f.split())[:300] for f in lead.facts if f.strip()][:8]
+    if facts:
+        out["facts"] = facts
+    if lead.company_number.strip():
+        out["company_number"] = lead.company_number.strip()[:40]
+    if lead.website.strip():
+        out["website"] = lead.website.strip()[:200]
+    return out or None
 
 
 @router.post("/campaigns/{campaign_id}/leads")
@@ -584,7 +603,8 @@ async def add_leads(campaign_id: str, body: LeadsBody, request: Request, db: Asy
         have.add(addr)
         db.add(EmailEnrollment(id=f"en_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, prospect_id=lead.prospect_id or None,
                                email=addr, first_name=lead.first_name.strip()[:80], last_name=lead.last_name.strip()[:80],
-                               company=lead.company.strip()[:160], current_step=1, status="active", next_action_at=now))
+                               company=lead.company.strip()[:160], current_step=1, status="active", next_action_at=now,
+                               vars=_lead_vars(lead)))
         added += 1
     await db.commit()
     return {"added": added, "skipped": skipped}
@@ -930,7 +950,8 @@ async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request,
 
     system_prompt = (
         "You are an expert enterprise B2B cold email copywriter with deep expertise in cold email deliverability. "
-        "Rules: Keep emails under 120 words, punchy, consultative, no spam trigger words (e.g. no 'guaranteed', '100% free', 'miracle'). "
+        "Rules: Never invent a statistic, customer, result or claim: use only facts the user gave you. "
+        "Keep emails under 120 words, punchy, consultative, no spam trigger words (e.g. no 'guaranteed', '100% free', 'miracle'). "
         "Use natural tone, clear value proposition, and low-friction calls to action. "
         "Always respond in JSON format with two keys: 'subject' (concise subject line) and 'body' (the email text with greeting and sign-off)."
     )
@@ -959,14 +980,6 @@ async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request,
             f"Sender Name: {sender}\n"
             "Output JSON with 'subject' and 'body'."
         )
-    elif body.action_type == "metric":
-        user_prompt = (
-            f"Enhance the following email by weaving in compelling quantitative proof and ROI metrics (e.g. latency cut by 60%, hours saved, revenue uplift):\n\n"
-            f"Current Subject: {body.current_subject}\n"
-            f"Current Body:\n{body.current_body}\n\n"
-            f"Sender Name: {sender}\n"
-            "Output JSON with 'subject' and 'body'."
-        )
     elif body.action_type == "custom" and body.custom_prompt:
         user_prompt = (
             f"Modify the following email according to this specific instruction: '{body.custom_prompt}'\n\n"
@@ -979,9 +992,9 @@ async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request,
         # Default fresh generation
         user_prompt = (
             f"Draft a high-converting cold email for B2B outreach.\n"
-            f"Target Audience: {body.target_audience or 'VP of Operations / Decision Makers'}\n"
-            f"Topic / Value Prop: {body.topic or 'Automated operational updates and voice/email coordination'}\n"
-            f"Key Objective: {body.objective or 'Book a 10-minute introductory discovery briefing'}\n"
+            f"Target Audience: {body.target_audience or 'the people who run small businesses'}\n"
+            f"Topic / Value Prop: {body.topic or 'not given'}\n"
+            f"Key Objective: {body.objective or 'start a conversation'}\n"
             f"Recipient: {recipient} at {company}\n"
             f"Sender: {sender}\n\n"
             "Output JSON with 'subject' and 'body'."
@@ -1035,16 +1048,245 @@ async def generate_or_refine_email_draft(body: AiDraftRequest, request: Request,
         }
     except Exception as err:
         logger.warning(f"AI Email Draft generation error: {err}")
-        # Reassuring fallback if no API key configured yet
-        return {
-            "ok": False,
-            "error": str(err),
-            "subject": body.current_subject or f"Operational efficiency at {company}",
-            "body": (
-                f"Hi {recipient},\n\n"
-                f"I noticed {company} is expanding operations. As client volume grows, manual follow-up overhead creates operational friction.\n\n"
-                f"We deployed autonomous orchestration to help teams eliminate repetitive status calls while increasing reply rates.\n\n"
-                f"Are you open to a brief 7-minute briefing next Tuesday?\n\n"
-                f"Best,\n{sender}"
-            )
-        }
+        # Never an invented email: the caller is told the AI could not write it and nothing is filled in.
+        return {"ok": False, "error": str(err), "subject": body.current_subject, "body": body.current_body}
+
+
+# ── Smart writing: knows the sender's business and each receiver's facts ────
+class ProfileBody(BaseModel):
+    company: str = ""
+    website: str = ""
+    sells: str = ""
+    audience: str = ""
+    offer: str = ""
+    tone: str = ""
+    sender_name: str = ""
+    sender_title: str = ""
+    proof: List[str] = []
+
+
+def _profile_key(ctx: Dict[str, Any]) -> str:
+    return f"leadprofile:{ctx['org_id']}"
+
+
+# What a company profile holds before anyone has filled it in. These are not facts about the business, so the
+# writer never treats them as such (otherwise a new account would get emails about someone else's product).
+_UNFILLED = {
+    "name": {"", "your company"},
+    "pitch": {"", "ai-powered business intelligence dashboards for mid-market operations teams"},
+    "website": {"", "https://aivhub.io"},
+}
+
+
+def _filled(key: str, value: Any) -> str:
+    v = " ".join(str(value or "").split())
+    return "" if v.lower() in _UNFILLED[key] else v
+
+
+async def _company_profile(db: AsyncSession):
+    from app.models.models import CompanyProfile
+
+    return (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
+
+
+async def _profile(db: AsyncSession, ctx: Dict[str, Any], need: bool = True) -> Dict[str, Any]:
+    """What the writer may say about the sender: the organisation's shared company profile (the same one the
+    other tools use) and its services, plus what only email needs (proof, offer, sign-off)."""
+    from app.models.models import Service
+    from app.services import credits as credit
+    from app.services import email_writer as W
+
+    cp = await _company_profile(db)
+    services = list((await db.execute(select(Service))).scalars().all())
+    extra = await credit._get_doc(db, _profile_key(ctx))
+    sells = _filled("pitch", getattr(cp, "pitch", ""))
+    if services:
+        sells = (sells + " " if sells else "") + "Services: " + "; ".join(f"{s.name}: {s.desc}" for s in services[:6])
+    ideal = "; ".join(dict.fromkeys(s.ideal for s in services if s.ideal))[:400]
+    p = W.clean_profile({
+        "company": _filled("name", getattr(cp, "name", "")), "website": _filled("website", getattr(cp, "website", "")),
+        "sells": sells[:700], "audience": extra.get("audience") or ideal, "offer": extra.get("offer", ""),
+        "tone": getattr(cp, "tone", "") or "", "sender_name": extra.get("sender_name") or ctx.get("name") or "",
+        "sender_title": extra.get("sender_title", ""), "proof": extra.get("proof") or [],
+    })
+    missing = W.profile_missing(p)
+    if need and missing:
+        raise HTTPException(status_code=400, detail="Tell us about your business first. Still needed: " + ", ".join(missing) + ".")
+    return p
+
+
+def _can_edit_company(ctx: Dict[str, Any]) -> bool:
+    from app.core import permissions as P
+
+    return bool(ctx.get("is_admin") or P.allows(ctx.get("perms") or {}, "company", P.FULL))
+
+
+@router.get("/ai/profile")
+async def get_writing_profile(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.models import Service
+    from app.services import email_writer as W
+
+    from app.services import credits as credit
+
+    ctx = current(request)
+    p = await _profile(db, ctx, need=False)
+    cp = await _company_profile(db)
+    extra = await credit._get_doc(db, _profile_key(ctx))
+    n = len((await db.execute(select(Service))).scalars().all())
+    # `edit` is what the form shows and saves back; `profile` is what the writer reads (it also folds in services).
+    edit = {"company": _filled("name", getattr(cp, "name", "")), "website": _filled("website", getattr(cp, "website", "")),
+            "sells": _filled("pitch", getattr(cp, "pitch", "")), "tone": getattr(cp, "tone", "") or "",
+            "audience": extra.get("audience", ""), "offer": extra.get("offer", ""), "sender_name": extra.get("sender_name") or ctx.get("name") or "",
+            "sender_title": extra.get("sender_title", ""), "proof": extra.get("proof") or []}
+    return {"profile": p, "edit": edit, "missing": W.profile_missing(p), "services": n, "can_edit": _can_edit_company(ctx)}
+
+
+@router.put("/ai/profile")
+async def save_writing_profile(body: ProfileBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Saves into the shared company profile (name, what you do, website, tone) so every tool reads the same
+    facts, and keeps the email-only extras (proof, offer, sign-off, who it is for) beside it."""
+    from app.models.models import CompanyProfile
+    from app.services import credits as credit
+    from app.services import email_writer as W
+
+    ctx = current(request)
+    if not _can_edit_company(ctx):
+        raise HTTPException(status_code=403, detail="Only an admin can change the company profile, because every tool reads it. Ask an admin to update it.")
+    p = W.clean_profile(body.model_dump())
+    cp = await _company_profile(db)
+    if not cp:
+        cp = CompanyProfile(id="default")
+        db.add(cp)
+    cp.name = p["company"] or cp.name
+    cp.website = p["website"] or cp.website
+    cp.tone = p["tone"] or cp.tone
+    if p["sells"]:
+        cp.pitch = p["sells"]
+    await credit._put_doc(db, _profile_key(ctx), {k: p[k] for k in ("audience", "offer", "sender_name", "sender_title", "proof")})
+    await db.commit()
+    return await get_writing_profile(request, db)
+
+
+async def _accounts_and_records(db: AsyncSession, ids: List[str]):
+    from app.models.models import BusinessRecord, LeadAccount
+
+    accounts = list((await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids[:2000])))).scalars().all()) if ids else []
+    rec_ids = [a.business_record_id for a in accounts if a.business_record_id]
+    records = {r.id: r for r in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(rec_ids)))).scalars().all()} if rec_ids else {}
+    return accounts, records
+
+
+def _list_context(accounts: List[Any], records: Dict[str, Any]) -> str:
+    """What the receivers have in common, in plain words, from the list itself."""
+    if not accounts:
+        return ""
+    acts: Dict[str, int] = {}
+    towns: Dict[str, int] = {}
+    for a in accounts:
+        rec = records.get(a.business_record_id)
+        act = ((getattr(rec, "sic_text", "") or "").split("|")[0] or a.industry or "").strip()
+        town = (getattr(rec, "region", "") or a.region or "").strip()
+        if act:
+            acts[act[:80]] = acts.get(act[:80], 0) + 1
+        if town:
+            towns[town[:40]] = towns.get(town[:40], 0) + 1
+
+    def top(d: Dict[str, int], n: int) -> str:
+        return ", ".join(k for k, _ in sorted(d.items(), key=lambda kv: -kv[1])[:n])
+
+    out = [f"A list of {len(accounts):,} UK businesses."]
+    if acts:
+        out.append(f"Their most common activities: {top(acts, 4)}.")
+    if towns:
+        out.append(f"Mostly in: {top(towns, 5)}.")
+    return " ".join(out)
+
+
+class SequenceBody(BaseModel):
+    account_ids: List[str] = []
+    steps: int = 3
+    personalise: bool = True
+    instruction: str = ""
+
+
+@router.post("/ai/sequence")
+async def write_sequence(body: SequenceBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """A whole email sequence written from the sender's profile and what the list has in common. Free; every
+    email comes back checked, with `warnings` for anything the facts do not back up."""
+    from app.services import email_writer as W
+
+    ctx = current(request)
+    profile = await _profile(db, ctx)
+    accounts, records = await _accounts_and_records(db, body.account_ids)
+    await W.spend_allowance(db, ctx["org_id"])
+    await db.commit()
+    context = _list_context(accounts, records)
+    try:
+        steps = await W.draft_sequence(db, profile, context, count=max(1, min(5, body.steps)), personalise=body.personalise,
+                                       instruction=body.instruction.strip()[:400])
+    except W.WriterUnavailable as err:
+        raise HTTPException(status_code=502, detail="The writing AI isn't available right now, so nothing was written. Try again in a minute.") from err
+    return {"steps": steps, "context": context}
+
+
+class RefineBody(BaseModel):
+    subject: str = ""
+    body: str
+    action: str = "custom"  # shorter | softer | formal | clearer | custom
+    instruction: str = ""
+
+
+@router.post("/ai/refine")
+async def refine_email(body: RefineBody, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.services import email_writer as W
+
+    ctx = current(request)
+    profile = await _profile(db, ctx)
+    await W.spend_allowance(db, ctx["org_id"])
+    await db.commit()
+    try:
+        return await W.refine(db, profile, body.subject, body.body, body.action, body.instruction[:400])
+    except W.WriterUnavailable as err:
+        raise HTTPException(status_code=502, detail="The writing AI isn't available right now, so nothing was changed.") from err
+
+
+class PersonaliseBody(BaseModel):
+    account_ids: List[str]
+
+
+@router.post("/ai/personalise")
+async def personalise_lines(body: PersonaliseBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """One opening sentence per company, written only from what we hold about it and shown with the facts it
+    used. A line that fails the fact check is dropped, and only lines actually written are charged."""
+    from app.services import credits as credit
+    from app.services import email_writer as W
+
+    ctx = current(request)
+    profile = await _profile(db, ctx)
+    if len(body.account_ids) > 300:
+        raise HTTPException(status_code=400, detail="Write up to 300 opening lines at a time.")
+    accounts, records = await _accounts_and_records(db, body.account_ids)
+    rows = [(a, W.recipient_facts(a, records.get(a.business_record_id))) for a in accounts]
+    todo = [(a, f) for a, f in rows if f]
+    ref = f"email_write:{uuid.uuid4().hex[:12]}"
+    if todo:
+        ok, why = await credit.hold(db, [{"item": "lead_email_write", "quantity": len(todo) / W.PER_CREDIT, "ref": ref,
+                                          "note": "Personalised email lines (held)"}])
+        if not ok:
+            await db.commit()
+            raise HTTPException(status_code=402, detail=why)
+        await W.spend_allowance(db, ctx["org_id"], len(todo))
+        await db.commit()
+    written = await W.personalise_many(db, profile, todo) if todo else []
+    by_id = {a.id: r for (a, _), r in zip(todo, written)}
+    made = sum(1 for r in written if r["line"])
+    charged = 0
+    if todo:
+        await credit.release(db, [ref])
+        charged = await credit.charge(db, "lead_email_write", made / W.PER_CREDIT, ref, f"Personalised email lines: {made}")
+        await db.commit()
+    lines = []
+    for a, _ in rows:
+        r = by_id.get(a.id) or {"line": "", "facts": [], "reason": "We hold no facts about this company to write from."}
+        lines.append({"account_id": a.id, "name": a.name, "line": r["line"], "facts": r["facts"], "reason": r["reason"]})
+    return {"lines": lines, "written": made, "charged": charged}

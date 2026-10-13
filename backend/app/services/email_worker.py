@@ -82,14 +82,16 @@ def in_window(camp: EmailCampaign, local: datetime) -> bool:
 
 def render(template: str, enr: EmailEnrollment) -> str:
     values = {"first_name": enr.first_name, "firstname": enr.first_name, "last_name": enr.last_name,
-              "lastname": enr.last_name, "company": enr.company, "email": enr.email}
+              "lastname": enr.last_name, "company": enr.company, "email": enr.email,
+              "personalline": str((getattr(enr, "vars", None) or {}).get("personal_line") or "").strip()}
 
     def sub(m: "re.Match[str]") -> str:
         key = re.sub(r"[^a-z]", "", m.group(1).lower().replace("_", ""))
         key = {"firstname": "first_name", "lastname": "last_name"}.get(key, key)
         return values.get(key, "") or ""
     out = re.sub(r"\{\{\s*([A-Za-z_]+)\s*\}\}", sub, template or "")
-    return re.sub(r"[ \t]+([,.!?])", r"\1", out)
+    out = re.sub(r"[ \t]+([,.!?])", r"\1", out)
+    return re.sub(r"\n{3,}", "\n\n", out)  # an empty {{personal_line}} leaves no gap
 
 
 # ── Daily plan ──────────────────────────────────────────────────────────────

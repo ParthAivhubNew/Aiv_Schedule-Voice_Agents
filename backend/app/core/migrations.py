@@ -247,6 +247,10 @@ async def _mailbox_dkim_override(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE email_mailboxes ADD COLUMN IF NOT EXISTS dkim_override BOOLEAN DEFAULT FALSE"))
 
 
+async def _enrollment_vars(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE email_enrollments ADD COLUMN IF NOT EXISTS vars JSON"))
+
+
 async def _phone_rental_due(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE org_phone_numbers ADD COLUMN IF NOT EXISTS rent_due_at TIMESTAMP"))
     await conn.execute(text("UPDATE org_phone_numbers SET rent_due_at = created_at + interval '30 days' WHERE rent_due_at IS NULL AND status = 'active'"))
@@ -732,6 +736,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_01_business_record_sic_text_trigram_index", _business_record_sic_text_trigram_index),
     ("2026_11_02_mailbox_aliases", _mailbox_aliases),
     ("2026_11_03_mailbox_dkim_override", _mailbox_dkim_override),
+    ("2026_11_04_enrollment_vars", _enrollment_vars),
 ]
 
 

@@ -7,11 +7,27 @@ import { askConfirm, askText } from "./Dialogs";
 const DAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]];
 const PRESETS = [["one.com", "one.com"], ["gmail", "Google Workspace / Gmail"], ["outlook", "Microsoft 365 / Outlook"], ["zoho", "Zoho Mail"], ["", "Other (enter servers)"]];
 const STATUS_TONE = { active: "green", graduated: "green", warming: "blue", paused: "amber", error: "red", connected: "slate", running: "green", draft: "slate", completed: "blue" };
-const STATUS_TEXT = { active: "Sending", graduated: "Sending", warming: "Warming up", paused: "Paused", error: "Needs attention", connected: "Not started", running: "Running", draft: "Draft", completed: "Finished" };
+const STATUS_TEXT = { active: "Sending", graduated: "Sending", warming: "Warming up", paused: "Paused", error: "Needs attention", connected: "Warm-up not started", running: "Running", draft: "Draft", completed: "Finished" };
 const CATEGORY = { interested: ["Interested", "green"], question: ["Question", "blue"], not_interested: ["Not interested", "slate"], ooo: ["Out of office", "slate"], unsubscribe: ["Unsubscribe", "red"] };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const label = { fontSize: 12, fontWeight: 600, color: C.slate, display: "grid", gap: 4 };
 const small = { fontSize: 12, color: C.slate };
+
+// The one thing a person needs to know about a mailbox right now, with its colour and any action.
+const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", ink: "#92400e" }, blue: { bg: "#eff6ff", ink: "#1e40af" }, green: { bg: "#f0fdf4", ink: "#166534" } };
+export function readiness(m) {
+  if (m.status === "error") return { tone: "red", title: "Connection problem.", body: "The mailbox login is failing, so nothing can send. Check the password in Settings, then use Test connection." };
+  if (!m.spf_verified) return { tone: "red", title: "SPF record missing.", body: "Add it below. Without it most receivers reject the mail, so this mailbox can't send yet." };
+  if (!m.dkim_verified && !m.dkim_override) return { tone: "amber", title: "DKIM record missing.", body: "Add it below to start sending, or choose to send without it at the risk of more mail going to spam.", action: "skip" };
+  if (!m.dkim_verified && m.dkim_override) {
+    const next = m.status === "connected" ? " Next step: start warm-up." : "";
+    return { tone: "amber", title: "Sending without DKIM.", body: `More of your emails may land in spam and your domain's reputation can suffer. Bounces over 2% still pause this mailbox.${next}`, action: "require" };
+  }
+  if (m.status === "connected") return { tone: "blue", title: "Ready to warm up.", body: "Your DNS records are in place. Start warm-up to begin building this mailbox's sending reputation." };
+  if (m.status === "paused") return { tone: "amber", title: "Sending is paused.", body: m.pause_reason || "Start it again when you are ready." };
+  if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. Campaigns send automatically at a gentle pace until it graduates.` };
+  return null;
+}
 
 function Check({ ok, children, tip }) {
   return <span title={tip} style={{ fontSize: 12, color: ok ? C.green : C.red, fontWeight: 600, cursor: tip ? "help" : undefined }}>{ok ? "✓" : "✗"} {children}</span>;
@@ -33,7 +49,8 @@ function CopyBox({ text }) {
 // What is still missing for a mailbox's domain, with the exact record to add. Re-checks by itself
 // every 90 seconds while the page is open so the ticks turn green without pressing anything.
 function SetupGuide({ mailbox: m, onCheck, onAuto }) {
-  const steps = m.setup || [];
+  // A DKIM step the person chose to skip is not shown as outstanding.
+  const steps = (m.setup || []).filter((x) => !(x.key === "dkim" && m.dkim_override));
   const [selector, setSelector] = useState(m.dkim_selector || "");
   const missing = steps.length > 0;
   useEffect(() => {
@@ -42,10 +59,11 @@ function SetupGuide({ mailbox: m, onCheck, onAuto }) {
     return () => clearInterval(id);
   }, [missing, selector]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!missing) return null;
+  const required = steps.some((x) => x.key === "spf" || x.key === "dkim");
   return (
     <div style={{ display: "grid", gap: 10, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>Set up your domain ({m.email.split("@")[1]})</div>
-      <div style={small}>Add these in the place you manage your domain's DNS (your domain registrar or host). Changes can take a few minutes to an hour; this page re-checks by itself.</div>
+      <div style={{ fontSize: 13, fontWeight: 700 }}>DNS records to add for {m.email.split("@")[1]}</div>
+      <div style={small}>Add {steps.length === 1 ? "this record" : "these records"} where you manage your domain's DNS (your domain registrar or hosting provider). Changes can take a few minutes to an hour, and this page re-checks automatically.</div>
       {steps.map((s) => (
         <div key={s.key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
           <div style={{ fontWeight: 700 }}>{s.title} <span style={{ fontWeight: 400, color: C.slate }}>· {s.why}</span></div>
@@ -53,14 +71,17 @@ function SetupGuide({ mailbox: m, onCheck, onAuto }) {
           {s.value ? <div style={row}><span style={small}>Value</span><CopyBox text={s.value} /></div> : null}
           {s.howto ? <div style={small}>{s.howto}</div> : null}
           {s.key === "dkim" && (
-            <div style={row}>
+            <label style={{ ...row, fontSize: 12 }}>
               <span style={small}>{s.note}</span>
-              <input style={{ ...input, width: 140 }} placeholder="selector e.g. google" value={selector} onChange={(e) => setSelector(e.target.value)} />
-            </div>
+              <input style={{ ...input, width: 200 }} placeholder="DKIM selector, for example google" aria-label="DKIM selector" title="The name your mail provider gave the DKIM record" value={selector} onChange={(e) => setSelector(e.target.value)} />
+            </label>
           )}
         </div>
       ))}
-      <div><button title="Check the DNS records again now that you've added them" type="button" style={btn(true)} onClick={() => onCheck(selector.trim() || undefined)}>I've added them, check now</button></div>
+      <div style={row}>
+        <button title="Look up the records now and update this mailbox" type="button" style={btn(true)} onClick={() => onCheck(selector.trim() || undefined)}>Verify DNS records</button>
+        {!required ? <span style={small}>Optional. It improves how receivers treat your mail.</span> : null}
+      </div>
     </div>
   );
 }
@@ -93,7 +114,7 @@ function AliasBox({ mailbox: m, run }) {
   const domain = m.email.split("@")[1];
   const aliases = m.aliases || [];
   if (!open && !aliases.length) {
-    return <div><button type="button" style={btn(false)} title="Let this mailbox send as another address on your domain, like sales@" onClick={() => setOpen(true)}>Add an alias</button></div>;
+    return <div><button type="button" style={btn(false)} title="Let this mailbox send as another address on your domain, like sales@" onClick={() => setOpen(true)}>Add sender alias</button></div>;
   }
   return (
     <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
@@ -131,7 +152,7 @@ export function MailboxesView({ outreach }) {
     await api.emailConnectMailbox(body);
     setAdding(false);
     setForm(blankBox);
-  }, "Mailbox connected. Start warmup when its DNS checks pass.");
+  }, "Mailbox connected. Start warm-up once its DNS records are verified.");
 
   const boxes = outreach.mailboxes;
   return (
@@ -139,7 +160,7 @@ export function MailboxesView({ outreach }) {
       <Note error>{outreach.error}</Note>
       <Note error={msg.error}>{msg.text}</Note>
       {overview && !overview.warmupPartnerReady && (
-        <Note>Warmup will use your own mailboxes only until the Outreach team adds the platform mailbox. Connect two or more mailboxes so they warm each other.</Note>
+        <Note>Warm-up uses your own mailboxes until the Outreach team adds the platform mailbox. Connect two or more mailboxes so they warm each other up.</Note>
       )}
       <div style={row}>
         <div style={small}>Each mailbox warms up for about 3–4 weeks (5 a day rising to your daily target), then sends campaigns. Bounces over 2% pause it automatically.</div>
@@ -183,51 +204,53 @@ export function MailboxesView({ outreach }) {
       {boxes.map((m) => {
         const dns = m.dns || {};
         const sending = ["warming", "active", "graduated"].includes(m.status);
+        const note = readiness(m);
+        const skipDkim = async () => {
+          if (await askConfirm({ title: "Send without DKIM?", body: "Without DKIM, Gmail, Outlook and others are much more likely to put your emails in spam, and your domain's reputation can suffer, including for your normal email. You can turn this off at any time. Bounces over 2% still pause the mailbox, and warm-up limits still apply.", confirm: "Send without DKIM", danger: true })) run(() => api.emailDkimOverride(m.id, true), "This mailbox can now send without DKIM.");
+        };
         return (
-          <div key={m.id} style={{ ...card, display: "grid", gap: 8 }}>
+          <div key={m.id} style={{ ...card, display: "grid", gap: 12 }}>
             <div style={row}>
-              <span style={{ fontWeight: 700 }}>{m.email}</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{m.email}</span>
               <Pill tone={STATUS_TONE[m.status]}>{STATUS_TEXT[m.status] || m.status}</Pill>
-              {m.status === "warming" && <span style={small}>Day {m.consecutive_healthy_days} of ~21</span>}
-              <span style={{ ...small, marginLeft: "auto" }}>Today: {m.today_campaign_sent}/{m.campaign_quota} campaign · {m.today_warmup_sent}/{m.warmup_quota} warmup · {m.today_replies} replies · {m.today_bounced} bounced</span>
+              <span style={{ ...small, marginLeft: "auto" }} title="What this mailbox has done so far today">
+                Today: {m.today_campaign_sent} campaign and {m.today_warmup_sent} warm-up sent · {m.today_replies} {m.today_replies === 1 ? "reply" : "replies"} · {m.today_bounced} {m.today_bounced === 1 ? "bounce" : "bounces"}
+              </span>
             </div>
-            {m.pause_reason && <div style={{ fontSize: 12, color: C.amber }}>{m.pause_reason}</div>}
             {m.last_error && <div style={{ fontSize: 12, color: C.red }}>{m.last_error}</div>}
-            <div style={row}>
-              <Check ok={m.spf_verified} tip="SPF: a DNS record listing which servers may send mail for your domain">SPF</Check>
-              <Check ok={m.dkim_verified} tip="DKIM: a signature that proves your email wasn't changed on the way">DKIM</Check>
-              <Check ok={m.dmarc_verified} tip="DMARC: tells receiving servers what to do with mail that fails SPF or DKIM">DMARC</Check>
-              <Check ok={m.mx_verified} tip="MX: the domain can receive mail, so replies reach you">MX</Check>
-              <span style={small}>Bounces (7 days): {(m.bounce_rate_7d * 100).toFixed(1)}%</span>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ ...row, gap: 14 }}>
+                <Check ok={m.spf_verified} tip="SPF: a DNS record listing which servers may send mail for your domain">SPF</Check>
+                <Check ok={m.dkim_verified || m.dkim_override} tip={m.dkim_override && !m.dkim_verified ? "DKIM is skipped: you chose to send without it" : "DKIM: a signature that proves your email wasn't changed on the way"}>{m.dkim_override && !m.dkim_verified ? "DKIM (skipped)" : "DKIM"}</Check>
+                <Check ok={m.dmarc_verified} tip="DMARC: tells receiving servers what to do with mail that fails SPF or DKIM. Recommended, not required">DMARC</Check>
+                <Check ok={m.mx_verified} tip="MX: the domain can receive mail, so replies reach you">MX</Check>
+                <span style={small}>Bounce rate, last 7 days: {(m.bounce_rate_7d * 100).toFixed(1)}%</span>
+                <button type="button" style={{ ...btn(false), marginLeft: "auto" }} title="Look up this domain's SPF, DKIM, DMARC and MX records now" onClick={() => run(() => api.emailCheckDns(m.id), "DNS records re-checked.")}>Re-check DNS</button>
+              </div>
+              {note && (
+                <div role="status" style={{ fontSize: 12.5, color: TONES[note.tone].ink, background: TONES[note.tone].bg, borderRadius: 8, padding: "9px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ flex: "1 1 260px", lineHeight: 1.5 }}><strong>{note.title}</strong> {note.body}</span>
+                  {note.action === "skip" && <button type="button" style={btn(false)} title="Send without a DKIM record. Mail is more likely to be junked" onClick={skipDkim}>Send without DKIM…</button>}
+                  {note.action === "require" && <button type="button" style={btn(false)} title="Go back to requiring DKIM before this mailbox sends" onClick={() => run(() => api.emailDkimOverride(m.id, false), "DKIM is required again.")}>Require DKIM</button>}
+                </div>
+              )}
             </div>
-            {m.dkim_override && !m.dkim_verified && (
-              <div style={{ fontSize: 12, color: C.amber, background: "#fffbeb", borderRadius: 8, padding: "8px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ flex: "1 1 240px" }}><strong>Sending without DKIM.</strong> Many emails may land in spam and your domain's reputation can suffer. Bounces over 2% still pause this mailbox.</span>
-                <button type="button" style={btn(false)} title="Go back to requiring DKIM before this mailbox sends" onClick={() => run(() => api.emailDkimOverride(m.id, false), "DKIM is required again.")}>Require DKIM again</button>
-              </div>
-            )}
-            {!m.can_send && (m.blockers || []).length > 0 && (
-              <div style={{ fontSize: 12, fontWeight: 600, color: C.red, background: "#fef2f2", borderRadius: 8, padding: "8px 10px" }}>
-                Nothing will send from this mailbox yet: {m.blockers.join(", ")}.
-              </div>
-            )}
-            {m.spf_verified && !m.dkim_verified && !m.dkim_override && (
-              <div><button type="button" style={btn(false)} title="Send without a DKIM record. Mail is more likely to be junked"
-                onClick={async () => { if (await askConfirm({ title: "Send without DKIM?", body: "Without DKIM, Gmail, Outlook and others are much more likely to put your emails in spam, and your domain's reputation can suffer, including for your normal email. You can turn this off at any time. Bounces over 2% still pause the mailbox, and warm-up limits still apply.", confirm: "Send without DKIM", danger: true })) run(() => api.emailDkimOverride(m.id, true), "This mailbox can now send without DKIM."); }}>Send without DKIM…</button></div>
-            )}
-            <SetupGuide mailbox={m} onCheck={(sel) => run(() => api.emailCheckDns(m.id, sel), "DNS checked.")}
+
+            <SetupGuide mailbox={m} onCheck={(sel) => run(() => api.emailCheckDns(m.id, sel), "DNS records checked.")}
               onAuto={(sel) => api.emailCheckDns(m.id, sel).then(outreach.reloadMailboxes).catch(() => {})} />
             {(dns.recommendations || []).filter((r) => /unavailable|No DKIM record found/.test(r)).map((r) => <div key={r} style={small}>{r}</div>)}
+
             <div style={row}>
-              {!sending && <button type="button" style={btn(true)} title="Begin the gradual ramp-up that builds your sending reputation" onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warmup started.")}>Start warmup</button>}
-              {!sending && <button type="button" style={btn(false)} title="For a mailbox that has sent normal email for months" onClick={async () => {
-                if (await askConfirm({ title: "Skip warmup?", body: "Only do this for a mailbox that already sends email every day. It will send up to its daily target straight away.", confirm: "Skip warmup" })) run(() => api.emailWarmup(m.id, "skip"), "Sending at full volume.");
-              }}>Already warm</button>}
-              {sending && <button type="button" style={btn(false)} title="Stop sending from this mailbox until you start it again" onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Paused.")}>Pause</button>}
-              <button type="button" style={btn(false)} title="Look up your domain's SPF, DKIM, DMARC and MX records now" onClick={() => run(() => api.emailCheckDns(m.id), "DNS checked.")}>Check DNS</button>
-              <button type="button" style={btn(false)} title="Check the mailbox password and servers work" onClick={() => run(() => api.emailTestMailbox(m.id), "Login works.")}>Test login</button>
-              <button type="button" style={btn(false)} title="Change the name, daily target, password or signature" onClick={() => { setEditing(editing === m.id ? "" : m.id); setPatch({ display_name: m.display_name, max_daily_target: m.max_daily_target, signature: m.signature, password: "" }); }}>Edit</button>
-              <button type="button" style={btn(false)} title="Disconnect this mailbox. Campaigns stop using it" onClick={async () => { if (await askConfirm({ title: `Remove ${m.email}?`, body: "Campaigns stop using it.", confirm: "Remove", danger: true })) run(() => api.emailDeleteMailbox(m.id), "Removed."); }}>Remove</button>
+              {!sending && <button type="button" style={btn(true, !m.spf_verified || !(m.dkim_verified || m.dkim_override))} disabled={!m.spf_verified || !(m.dkim_verified || m.dkim_override)} title={m.spf_verified && (m.dkim_verified || m.dkim_override) ? "Begin the gradual ramp-up that builds your sending reputation" : "Add the DNS records above first"} onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warm-up started.")}>Start warm-up</button>}
+              {sending && <button type="button" style={btn(false)} title="Stop sending from this mailbox until you start it again" onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Sending paused.")}>Pause sending</button>}
+              {!sending && <button type="button" style={btn(false)} title="For a mailbox that already sends normal email every day" onClick={async () => {
+                if (await askConfirm({ title: "Skip warm-up?", body: "Only do this for a mailbox that already sends email every day. It will send up to its daily target straight away.", confirm: "Skip warm-up" })) run(() => api.emailWarmup(m.id, "skip"), "Sending at full volume.");
+              }}>Skip warm-up…</button>}
+              <button type="button" style={btn(false)} title="Check the mailbox login and servers work" onClick={() => run(() => api.emailTestMailbox(m.id), "Connection works.")}>Test connection</button>
+              <button type="button" style={btn(false)} title="Change the name, daily target, password or signature" onClick={() => { setEditing(editing === m.id ? "" : m.id); setPatch({ display_name: m.display_name, max_daily_target: m.max_daily_target, signature: m.signature, password: "" }); }}>Settings</button>
+              <span style={{ flex: 1 }} />
+              <button type="button" style={btn(false)} title="Disconnect this mailbox. Campaigns stop using it" onClick={async () => { if (await askConfirm({ title: `Disconnect ${m.email}?`, body: "Campaigns stop using it. Nothing is deleted from your email account.", confirm: "Disconnect", danger: true })) run(() => api.emailDeleteMailbox(m.id), "Mailbox disconnected."); }}>Disconnect</button>
             </div>
             <AliasBox mailbox={m} run={run} />
             {editing === m.id && (

@@ -4,7 +4,8 @@ import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { contactFor, emailFor } from "./AccountsViews";
 import { listReach } from "./Lists";
-import { askConfirm, askText } from "./Dialogs";
+import { askConfirm } from "./Dialogs";
+import { CheckNote, PersonalLines, ProfileBox, RefineBar, SequenceWriter, unknownFields } from "./EmailWriter";
 
 // New campaign, one step at a time: who to email (a list) -> what to send -> from which mailboxes ->
 // when -> review and launch. Everything a campaign needs is asked here, in this order, and nowhere else.
@@ -22,11 +23,11 @@ export function leadsFromList(members) {
     const email = emailFor(a)?.text;
     if (!email) return null;
     const parts = String(contactFor(a)?.text || "").trim().split(/\s+/).filter(Boolean);
-    return { email, first_name: parts[0] || "", last_name: parts.slice(1).join(" "), company: a.name };
+    return { email, first_name: parts[0] || "", last_name: parts.slice(1).join(" "), company: a.name, account_id: a.id };
   }).filter(Boolean);
 }
 
-export function CampaignWizard({ store, listsStore, outreach, initialListId = "", onDone, onCancel }) {
+export function CampaignWizard({ store, listsStore, outreach, initialListId = "", onDone, onCancel, onOpenBusiness }) {
   const [step, setStep] = useState(0);
   const [listId, setListId] = useState(initialListId);
   const [name, setName] = useState("");
@@ -34,6 +35,9 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   const [mailboxIds, setMailboxIds] = useState(() => outreach.mailboxes.filter((m) => !_blocked(m)).map((m) => m.id));
   const [sched, setSched] = useState({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 });
   const [aliasMap, setAliasMap] = useState({}); // {mailbox id: alias address it sends as}
+  const [profileReady, setProfileReady] = useState(false); // "About your business" is filled in, so the AI may write
+  const [personalise, setPersonalise] = useState(true);
+  const [lines, setLines] = useState({}); // account id -> the opening line for that company
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,12 +50,16 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
 
   const problem = [
     !list ? "Pick a list to email." : !leads.length ? "None of the companies in this list has an email yet. Enrich the list first." : "",
-    !emails[0].subject.trim() || emails.some((e) => !e.body.trim()) ? "Every email needs text, and the first one a subject." : "",
+    !emails[0].subject.trim() || emails.some((e) => !e.body.trim()) ? "Every email needs text, and the first one a subject."
+      : emails.some((e) => unknownFields(e.subject, e.body).length) ? "An email uses a field that can't be filled in. Fix it before going on."
+      : emails.some((e) => e.ai && (e.warnings || []).length) ? "The AI wrote something the facts don't back up. Edit or remove it, or ask the AI to change it." : "",
     !chosen.length ? "Pick at least one mailbox to send from." : "",
     !sched.days.length ? "Pick at least one sending day." : "",
   ];
   const canNext = !problem[step] || step === 4;
-  const setEmail = (i, k, v) => setEmails(emails.map((e, j) => (j === i ? { ...e, [k]: v } : e)));
+  // Typing in an AI-written email makes it the person's own words: the AI's fact warnings no longer apply.
+  const setEmail = (i, k, v) => setEmails(emails.map((e, j) => (j === i ? { ...e, [k]: v, ...(k === "subject" || k === "body" ? { ai: false, warnings: [] } : null) } : e)));
+  const usesLine = emails.some((e) => /\{\{\s*personal_?line\s*\}\}/i.test(`${e.subject}\n${e.body}`));
 
   const launch = async (start) => {
     setBusy(true);
@@ -61,9 +69,9 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
       made = (await api.emailCreateCampaign({
         name: name.trim() || `${list.name} campaign`, mailbox_ids: mailboxIds, sending_window_start: sched.start, sending_window_end: sched.end,
         days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120, aliases: aliasMap,
-        steps: emails.map((e) => ({ ...e, delay_days: Number(e.delay_days) || 0 })),
+        steps: emails.map((e) => ({ subject: e.subject, body: e.body, delay_days: Number(e.delay_days) || 0 })),
       })).campaign;
-      const out = await api.emailAddLeads(made.id, leads);
+      const out = await api.emailAddLeads(made.id, leads.map(({ account_id, ...lead }) => ({ ...lead, personal_line: (lines[account_id] || "").trim() })));
       if (start) await api.emailCampaignStatus(made.id, "running");
       store.toast(start ? `Campaign started: ${out.added} leads added.` : `Campaign saved as a draft: ${out.added} leads added.`);
       onDone(made.id);
@@ -96,7 +104,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             if (!(await askConfirm({ title: "Start over?", body: "What you've typed in these steps will be cleared.", confirm: "Start over", danger: true }))) return;
             setStep(0); setListId(initialListId); setName(""); setEmails([blankEmail(0), blankEmail(3)]);
             setMailboxIds(outreach.mailboxes.filter((m) => !_blocked(m)).map((m) => m.id));
-            setSched({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 }); setAliasMap({}); setError("");
+            setSched({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 }); setAliasMap({}); setLines({}); setPersonalise(true); setError("");
           }}>Start over</button>
         <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
       </div>
@@ -128,7 +136,10 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         {step === 1 ? (
           <>
             <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>What should the emails say?</div>
-            <div style={muted}>Use {"{{first_name}}"}, {"{{last_name}}"} and {"{{company}}"}. A follow-up with no subject goes as a reply in the same thread. Someone who replies, bounces or unsubscribes gets no more emails.</div>
+            <div style={muted}>Write them yourself, or let the AI write them from what you tell us about your business and what this list has in common. Use {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"} and {"{{personal_line}}"} (an opening line about each company). A follow-up with no subject goes as a reply in the same thread. Someone who replies, bounces or unsubscribes gets no more emails.</div>
+            <ProfileBox onReady={setProfileReady} onManage={onOpenBusiness} />
+            <SequenceWriter accountIds={members.map((a) => a.id)} personalise={personalise} setPersonalise={setPersonalise} ready={profileReady}
+              onWritten={(steps) => { if (steps.length) setEmails(steps.map((s, i) => ({ subject: s.subject || "", body: s.body, delay_days: s.delay_days ?? (i ? 3 : 0), ai: true, warnings: s.warnings || [] }))); }} />
             {emails.map((e, i) => (
               <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -142,6 +153,8 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
                 </div>
                 <input className="ui-input" placeholder={i === 0 ? "Subject" : "Subject (empty = reply in the same thread)"} value={e.subject} onChange={(ev) => setEmail(i, "subject", ev.target.value)} />
                 <textarea className="ui-input" style={{ minHeight: 110 }} value={e.body} onChange={(ev) => setEmail(i, "body", ev.target.value)} />
+                <CheckNote email={e} aiWritten={Boolean(e.ai)} />
+                <RefineBar email={e} ready={profileReady} onChange={(r) => setEmails(emails.map((x, j) => (j === i ? { ...x, subject: i === 0 || x.subject ? r.subject : x.subject, body: r.body, ai: true, warnings: r.warnings || [] } : x)))} />
               </div>
             ))}
             {emails.length < 6 ? <div><button title="Add another email that is sent if there is no reply" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setEmails([...emails, blankEmail(3)])}>Add a follow-up</button></div> : null}
@@ -197,6 +210,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         {step === 4 ? (
           <>
             <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Review and launch</div>
+            {usesLine ? <PersonalLines leads={leads} lines={lines} setLines={setLines} ready={profileReady} /> : null}
             <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4, ...text, fontSize: 13.5, color: C.textInk }}>
               <li><strong>{leads.length.toLocaleString()}</strong> people at companies in <strong>{list?.name}</strong>{members.length > leads.length ? ` (${(members.length - leads.length).toLocaleString()} skipped: no email yet)` : ""}</li>
               <li><strong>{emails.length}</strong> email{emails.length === 1 ? "" : "s"}, the first starting "{emails[0].subject || "…"}"</li>
@@ -204,6 +218,13 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
               <li>{sched.days.map((d) => DAYS.find((x) => x[0] === d)[1]).join(", ")}, {sched.start} to {sched.end}, one email every {sched.gap}s at most</li>
               <li>Every email gets an unsubscribe link, and anyone on your do-not-email list is skipped.</li>
             </ul>
+            {leads.length ? (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, display: "grid", gap: 4 }}>
+                <div style={{ ...muted, fontSize: 12 }}>What the first person gets ({leads[0].first_name || "there"} at {leads[0].company}):</div>
+                <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>{fill(emails[0].subject, leads[0], lines[leads[0].account_id])}</div>
+                <div style={{ ...text, fontSize: 13.5, color: C.textInk, whiteSpace: "pre-wrap" }}>{fill(emails[0].body, leads[0], lines[leads[0].account_id])}</div>
+              </div>
+            ) : null}
             {notReady.length ? (
               <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>
                 {notReady.map((m) => `${m.email} can't send yet (${_blocked(m)})`).join("; ")}. You can save this as a draft and start it once the mailbox is ready.
@@ -227,6 +248,15 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
       </div>
     </div>
   );
+}
+
+// An email as one person will see it, so the sender can check it before anything goes out.
+export function fill(template, lead, line) {
+  const values = { first_name: lead.first_name, firstname: lead.first_name, last_name: lead.last_name, lastname: lead.last_name, company: lead.company, personal_line: (line || "").trim(), personalline: (line || "").trim() };
+  return String(template || "")
+    .replace(/\{\{\s*([A-Za-z_]+)\s*\}\}/g, (_, k) => values[k.toLowerCase()] || "")
+    .replace(/[ \t]+([,.!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 // Why a mailbox can't send right now, in a few words ("" when it can).

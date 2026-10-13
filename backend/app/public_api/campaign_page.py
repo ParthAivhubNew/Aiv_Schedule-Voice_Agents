@@ -46,6 +46,15 @@ def render(v: Dict[str, Any], company: str, notice: str = "") -> str:
         else:
             emails += (f'<div class="card"><div class="meta">Email {s["step"]}{wait}</div><div class="head">{_esc(s["subject"])}</div>'
                        f'<div class="cap">{_esc(s["body"])}</div></div>')
+    if v.get("warnings"):
+        emails = ('<div class="card" style="border-color:#B45309"><strong>Check before approving</strong>'
+                  + "".join(f'<div class="meta">{_esc(w)}</div>' for w in v["warnings"]) + "</div>") + emails
+    if v.get("personal_lines"):
+        rows = "".join(f'<div class="meta" style="margin-top:6px"><strong>{_esc(p["company"] or p["email"])}</strong>: {_esc(p["line"])}'
+                       + (f' <span class="cap">(from: {_esc("; ".join(f["text"] for f in p["based_on"]))})</span>' if p["based_on"] else "") + "</div>"
+                       for p in v["personal_lines"][:20])
+        more = f'<div class="meta">…and {len(v["personal_lines"]) - 20} more</div>' if len(v["personal_lines"]) > 20 else ""
+        emails += f'<div class="card"><div class="head">Opening lines</div><div class="meta">Each is built only from the facts shown.</div>{rows}{more}</div>'
     if not emails:
         emails = '<div class="card">No emails yet.</div>'
     actions = ""

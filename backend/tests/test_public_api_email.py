@@ -1,5 +1,6 @@
 """Phase 5: email campaigns through the public API: the AI drafts, someone approves, only then does it send."""
 import asyncio
+import re
 from datetime import datetime
 
 import httpx
@@ -17,21 +18,32 @@ def _http(token):
 
 @pytest.fixture(autouse=True)
 def drafter(monkeypatch):
-    """The writing AI is a stand-in; `drafter.fail` makes it unavailable."""
-    from app.api import email_outreach
+    """The writing AI is a stand-in; `drafter.fail` makes it unavailable, `drafter.invent` makes it quote a made-up figure."""
     from app.public_api import core
+    from app.services import email_writer as W
 
     core._WINDOWS.clear()
-    state = {"calls": [], "fail": False}
+    state = {"calls": [], "fail": False, "invent": False}
+    words = ["zero", "one", "two", "three", "four", "five"]
 
-    async def fake(req, request, db):
-        state["calls"].append((req.action_type, req.custom_prompt, req.current_body))
+    async def fake(db, system, user, **kwargs):
         if state["fail"]:
-            return {"ok": False, "error": "no key", "subject": "FAKE", "body": "Hi {{firstName}}, this is invented filler."}
-        n = len(state["calls"])
-        return {"ok": True, "subject": f"Subject {n}", "body": f"Hi {{{{firstName}}}},\n\nEmail {n} about {req.topic or req.custom_prompt[:30]}.\n\n{req.sender_name}"}
+            raise W.WriterUnavailable("no key")
+        if "FACTS about the receiver" in user:
+            state["calls"].append(("line", user, ""))
+            return {"line": re.search(r"f1: (.*?) \(source", user).group(1), "fact_ids": ["f1"]}
+        if "Rewrite this email." in user:
+            body = user[user.index("Subject:"):]
+            state["calls"].append(("refine", user, body))
+            return {"subject": "Shorter", "body": "Hi {{firstName}},\n\nShorter note.\n\nThanks"}
+        count = int(re.search(r"Write (\d) emails", user).group(1))
+        state["calls"].append(("sequence", user, ""))
+        extra = " We cut costs by 80%." if state["invent"] else ""
+        token = "{{personal_line}}\n\n" if "single line {{personal_line}}" in user else ""
+        return {"steps": [{"subject": "Subject " + words[n] if n == 1 else "", "body": f"Hi {{{{firstName}}}},\n\n{token if n == 1 else ''}Email {words[n]} about the booking demo.{extra}\n\nThanks"}
+                          for n in range(1, count + 1)]}
 
-    monkeypatch.setattr(email_outreach, "generate_or_refine_email_draft", fake)
+    monkeypatch.setattr(W, "_ask", fake)
     yield state
     core._WINDOWS.clear()
 
@@ -90,7 +102,9 @@ async def test_the_ai_drafts_a_sequence_and_nothing_sends_until_approved(db, adm
     assert camp.status == "draft"  # not running: nothing is sent
     assert len((await db.execute(select(EmailSequenceStep))).scalars().all()) == 3
     assert {e.email for e in (await db.execute(select(EmailEnrollment))).scalars().all()} == {"jo@bloggs.test", "sam@acme2.test"}
-    assert drafter["calls"][0][0] == "generate" and drafter["calls"][1][0] == "custom"  # then follow-ups to the one before
+    assert [c[0] for c in drafter["calls"]] == ["sequence"]  # one grounded writing call for the whole sequence
+    assert "Book a demo of our booking software" in drafter["calls"][0][1] and "practice managers" in drafter["calls"][0][1]
+    assert done["warnings"] == []
 
 
 async def test_your_own_emails_skip_the_ai(db, admin_token, drafter):
@@ -313,3 +327,73 @@ async def test_test_keys_get_a_full_pretend_campaign(db, admin_token, monkeypatc
     assert [e for e, t in sent] == ["campaign.ready", "campaign.approved", "campaign.completed"] and all(t for _, t in sent)
     db.expire_all()
     assert (await db.execute(select(EmailCampaign))).scalars().all() == []
+
+
+async def test_a_figure_the_ai_invents_is_reported_to_whoever_approves(db, admin_token, drafter):
+    await _company(db)
+    drafter["invent"] = True
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        made = (await c.post("/v1/email/campaigns", json={"name": "Dentists", "goal": "Book a demo", "emails": 2, "leads": LEADS[:1]})).json()
+        done = await _wait(c, made["id"])
+    assert done["status"] == "needs_approval"  # a person still decides, but is told what to check
+    assert any("80%" in w and w.startswith("Email 1") for w in done["warnings"])
+    assert len([c for c in drafter["calls"] if c[0] == "sequence"]) == 2  # it was asked once more before giving up
+
+
+async def test_opening_lines_come_from_the_callers_facts_and_the_register_and_are_paid_per_five(db, admin_token, drafter):
+    from app.models.models import BusinessRecord, EmailEnrollment
+    from app.services import credits as K
+
+    await _company(db, credits=100)
+    db.add(BusinessRecord(id="br_1", identity_hash="h1", name="Kirkgate Dental Ltd", registration_number="01234567", domain="kirkgate.test",
+                          region="Leeds", status="active"))
+    await db.commit()
+    key = await _key(admin_token)
+    leads = [{"email": "a@x.test", "first_name": "Ann", "company": "Alpha", "facts": ["Their new contract covers door entry systems"]},
+             {"email": "b@kirkgate.test", "first_name": "Bo", "company": "Kirkgate Dental", "company_number": "01234567"},
+             {"email": "c@none.test", "first_name": "Cy", "company": "Nothing Known"}]
+    async with _http(key) as c:
+        made = (await c.post("/v1/email/campaigns", json={"name": "Lines", "goal": "Book a demo", "emails": 2, "personalise": True, "leads": leads})).json()
+        done = await _wait(c, made["id"])
+    assert done["status"] == "needs_approval" and "{{personal_line}}" in done["steps"][0]["body"]
+    by = {p["email"]: p for p in done["personal_lines"]}
+    assert set(by) == {"a@x.test", "b@kirkgate.test"}, done["warnings"]  # nothing is written for someone we know nothing about
+    assert by["a@x.test"]["line"] == "Their new contract covers door entry systems" and by["a@x.test"]["based_on"][0]["source"] == "supplied by the sender"
+    assert by["b@kirkgate.test"]["based_on"][0]["source"] == "company register"  # matched by company number, not by name
+    assert any("2 of 3" in w for w in done["warnings"])
+    db.expire_all()
+    assert await K.wallet_balance(db, "leadgen") == 99  # two lines written = one credit
+    stored = {e.email: e.vars for e in (await db.execute(select(EmailEnrollment))).scalars().all()}
+    assert stored["a@x.test"]["personal_line"] and "personal_line" not in (stored["c@none.test"] or {})
+
+
+async def test_a_company_is_matched_to_the_register_only_when_it_is_certain(db):
+    from app.models.models import BusinessRecord
+    from app.services import email_writer as W
+
+    db.add_all([BusinessRecord(id="br_a", identity_hash="ha", name="Alpha Ltd", registration_number="111", domain="alpha.test"),
+                BusinessRecord(id="br_b", identity_hash="hb", name="Beta One Ltd", registration_number="222", domain="shared.test"),
+                BusinessRecord(id="br_c", identity_hash="hc", name="Beta Two Ltd", registration_number="333", domain="shared.test")])
+    await db.commit()
+    assert (await W.register_match(db, number="111")).id == "br_a"
+    assert (await W.register_match(db, website="https://www.alpha.test/about")).id == "br_a"
+    assert (await W.register_match(db, email="jo@alpha.test")).id == "br_a"
+    assert await W.register_match(db, website="shared.test") is None  # two companies share it: never guess
+    assert await W.register_match(db, email="jo@gmail.com") is None  # free mail says nothing about the company
+    assert await W.register_match(db, number="999") is None
+
+
+async def test_your_own_emails_can_still_get_opening_lines_but_only_if_they_use_the_field(db, admin_token, drafter):
+    await _company(db)
+    key = await _key(admin_token)
+    lead = [{"email": "a@x.test", "first_name": "Ann", "company": "Alpha", "facts": ["Based in Leeds"]}]
+    async with _http(key) as c:
+        used = (await c.post("/v1/email/campaigns", json={"name": "A", "personalise": True, "leads": lead,
+                                                          "steps": [{"subject": "Hi", "body": "Hi {{firstName}},\n\n{{personal_line}}\n\nQuick question."}]})).json()
+        done = await _wait(c, used["id"])
+        assert [p["line"] for p in done["personal_lines"]] == ["Based in Leeds"]
+        unused = (await c.post("/v1/email/campaigns", json={"name": "B", "personalise": True, "leads": [{**lead[0], "email": "b@x.test"}],
+                                                            "steps": [{"subject": "Hi", "body": "Hi {{firstName}}, quick question."}]})).json()
+        done = await _wait(c, unused["id"])
+        assert done["personal_lines"] == [] and any("none of the emails uses" in w for w in done["warnings"])

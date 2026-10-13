@@ -41,20 +41,20 @@ def setup_guide(domain: str, provider: str, dns: Dict[str, Any]) -> List[Dict[st
     if not dns.get("spf_verified"):
         steps.append({"key": "spf", "title": "SPF", "type": "TXT", "host": domain or "@",
                       "value": _SPF_BY_PROVIDER.get(provider, "v=spf1 include:YOUR-MAIL-PROVIDER ~all"),
-                      "why": "Tells inboxes which servers may send for your domain."})
+                      "why": "Lists which servers may send email for your domain."})
     if not dns.get("dkim_verified"):
         steps.append({"key": "dkim", "title": "DKIM", "type": "TXT", "host": f"(selector)._domainkey.{domain}",
-                      "value": "", "why": "Signs your mail so it is not marked as forged. Sending cannot start without it.",
+                      "value": "", "why": "Signs each email so receivers can tell it really came from you. Needed for reliable delivery.",
                       "howto": _DKIM_HOWTO.get(provider, "Your mail provider generates this record: find DKIM in its admin settings, "
                                                           "copy the record it shows into your DNS."),
-                      "note": "Already added it under a custom name? Type that name in the selector box and press Check DNS."})
+                      "note": "Added it under a custom name? Enter that name here, then verify."})
     if not dns.get("dmarc_verified"):
         steps.append({"key": "dmarc", "title": "DMARC", "type": "TXT", "host": f"_dmarc.{domain}",
                       "value": "v=DMARC1; p=none;",
-                      "why": "Tells inboxes what to do with mail that fails the checks. p=none only watches, it blocks nothing."})
+                      "why": "Tells receivers what to do with mail that fails the checks. Recommended. The value shown only monitors and blocks nothing."})
     if not dns.get("mx_verified"):
         steps.append({"key": "mx", "title": "MX", "type": "MX", "host": domain, "value": "",
-                      "why": "Where your mail is received. Your provider shows the values to use."})
+                      "why": "Where your domain receives mail, so replies reach you. Your provider shows the values to use."})
     return steps
 
 
