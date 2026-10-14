@@ -50,8 +50,12 @@ async def leads_credits(request: Request, db: AsyncSession = Depends(get_db)):
         CreditEntry.kind == "usage", CreditEntry.wallet == "leadgen", CreditEntry.created_at >= day_ago))).scalar() or 0
     month = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(
         CreditEntry.kind == "usage", CreditEntry.wallet == "leadgen", CreditEntry.created_at >= datetime.utcnow() - timedelta(days=30)))).scalar() or 0
+    # What each Leads action costs, as this organisation is charged (the rate card can be edited), so the app can
+    # show people the price before they press the button.
+    prices = {k: {"label": v["label"], "unit": v["unit"], "credits": v["credits"]}
+              for k, v in (await K.rates(db)).items() if v.get("wallet") == "leadgen" and v.get("charged")}
     return {"balance": wallet["balance"], "held": wallet["held"], "low": wallet["low"], "empty": wallet["empty"],
-            "used_today": -int(today), "used_30d": -int(month)}
+            "used_today": -int(today), "used_30d": -int(month), "rates": prices}
 
 
 @router.get("")

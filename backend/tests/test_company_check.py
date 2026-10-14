@@ -374,3 +374,14 @@ async def test_the_live_search_settings_are_added_without_touching_staff_edits()
     assert got["ds_companies_house"]["search_field_map"] == {"name": "custom"}  # staff's own mapping is kept
     assert got["ds_food_hygiene"]["search_endpoint"] == "/Establishments" and got["ds_food_hygiene"]["headers"] == {"x-api-version": "2"}
     assert got["ds_food_hygiene"]["search_defaults"] == {"status": "Active"}
+
+
+def test_a_number_is_matched_to_what_the_company_publishes():
+    html = '<a href="tel:+44 7702 167658">Call</a> <p>Office: 01865 123456</p> <p>Ref 12345678901234</p>'
+    nums = cc.page_phones(html)
+    assert "7702167658" in nums and "1865123456" in nums
+    assert cc.phone_ownership("07702167658", site=nums)["match"] == "website"
+    assert cc.phone_ownership("7702167658", site=nums)["match"] == "website"  # Excel dropped the 0
+    assert cc.phone_ownership("0113 496 0412", site=nums)["match"] == "differs"
+    assert cc.phone_ownership("0113 496 0412", site=[], place="+44 113 496 0412")["match"] == "Google listing"
+    assert cc.phone_ownership("0113 496 0412", site=[]) == {}

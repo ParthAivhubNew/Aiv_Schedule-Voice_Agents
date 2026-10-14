@@ -6,6 +6,7 @@ import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
+import { creditWord, useLeadCredits } from "./CreditsChip";
 import { askConfirm, askText } from "./Dialogs";
 
 const FAVOURITES = "Favourites";
@@ -311,6 +312,9 @@ function FindLeadsSearch({ store, listsStore }) {
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
 
+  const [source, setSource] = useState("register"); // where this search looks: the company register, or the open web
+  const credits = useLeadCredits();
+  const webRate = credits?.rates?.lead_lookup?.credits;
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
   const [chat, setChat] = useState(() => [CHAT_INTRO]);
@@ -664,6 +668,23 @@ function FindLeadsSearch({ store, listsStore }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", alignSelf: "flex-start", background: C.bgSoft || "#F4F5F9", border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3, flexWrap: "wrap" }}>
+          {[["register", "Company register", "Free"], ["web", "Open web", webRate == null ? "" : `${creditWord(webRate)} per company found`]].map(([id, name, price]) => (
+            <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
+              title={id === "register" ? "Search the official company register. Free" : "Search public web pages and directories for businesses that are not in the register"}
+              style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, background: source === id ? "#fff" : "transparent", color: source === id ? C.ink : C.slate, boxShadow: source === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
+              {name}{price ? <span style={{ fontWeight: 500, color: price === "Free" ? "#15803D" : C.slate }}> · {price}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div style={{ ...muted, fontSize: 12.5 }}>
+          {source === "register"
+            ? "The official register: reliable names, addresses, status and sector. Contact details are often missing, and you can fill them in later from Lists. Searching is free."
+            : "Public web pages and directories: slower and unverified, but results usually come with a website and phone number. You only pay for companies that are found."}
+        </div>
+      </div>
+      {source === "register" ? (<>
       <form onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Industry or company name</span>
@@ -875,24 +896,41 @@ function FindLeadsSearch({ store, listsStore }) {
         </form>
       </div>
 
+      </>) : (
       <div className="ui-card" style={{ padding: 16 }}>
-        <button title="Search the open web for businesses not in the register" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setWeb((w) => ({ ...w, open: !w.open }))} aria-expanded={web.open}>
-          <Globe size={14} /> Not in the registry? Search the open web instead <ChevronDown size={13} style={{ transform: web.open ? "rotate(180deg)" : "none" }} />
-        </button>
-        {web.open ? (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-            <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input title="Describe the kind of business and the place. Each result found uses 1 Leads credit" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
-              <button type="submit" className="ui-btn ui-btn--secondary" disabled={web.busy || !web.query.trim()} title="Search public web pages and directories for businesses that are not in the register">
-                {web.busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
-              </button>
-              <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
-                <RotateCcw size={15} /> Reset
-              </button>
-            </form>
-            {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." paused={webHold.paused} holding onPause={webHold.pause} onResume={webHold.resume} onCancel={cancelWeb} /> : null}
-            <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified and each one found uses 1 Leads credit. Registry results above are the reliable ones.</div>
-            {web.error ? <div role="alert" style={{ ...muted, color: C.red }}>{web.error}</div> : null}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input title="Describe the kind of business and the place" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
+            <button type="submit" className="ui-btn ui-btn--primary" disabled={web.busy || !web.query.trim()} title="Search public web pages and directories for businesses that are not in the register">
+              {web.busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
+            </button>
+            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
+              <RotateCcw size={15} /> Reset
+            </button>
+          </form>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", background: "var(--ui-accent-soft)", borderRadius: 10, padding: "9px 13px", ...text, fontSize: 12.5, color: C.textInk }}>
+            <span>You get: <strong>name, usually a website and phone, sometimes more</strong></span>
+            <span>Cost: <strong>{webRate == null ? "1 credit" : creditWord(webRate)} per company found</strong>, nothing if none</span>
+            {credits ? <span>You have: <strong>{credits.balance.toLocaleString()} credits</strong></span> : null}
+          </div>
+          {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." paused={webHold.paused} holding onPause={webHold.pause} onResume={webHold.resume} onCancel={cancelWeb} /> : null}
+          <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified. Registry results are the reliable ones.</div>
+          {web.error ? <div role="alert" style={{ ...muted, color: C.red }}>{web.error}</div> : null}
+          {web.results.length ? (() => {
+            const n = web.results.length;
+            const withSite = web.results.filter((r) => r.site || r.website || r.domain).length;
+            const withPhone = web.results.filter((r) => r.phone).length;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+                {[["Companies found", n], ["With a website", withSite], ["With a phone", withPhone], ["Credits (at most)", webRate == null ? n : webRate * n]].map(([l, v]) => (
+                  <div key={l} style={{ background: "#F4F5F9", borderRadius: 10, padding: "9px 12px" }}>
+                    <div style={{ ...text, fontSize: 19, fontWeight: 700, color: C.ink }}>{v}</div>
+                    <div style={{ ...muted, fontSize: 12 }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })() : null}
             {web.results.map((r, i) => {
               const d = domainOf(r.site || r.website || r.domain || "");
               const acct = { name: r.name, website: r.site || r.website || "", phone: r.phone || "", notes: r.snippet || "", source: "scout", source_url: r.sourceUrl || r.source_url || "" };
@@ -908,9 +946,9 @@ function FindLeadsSearch({ store, listsStore }) {
                 </div>
               );
             })}
-          </div>
-        ) : null}
+        </div>
       </div>
+      )}
     </div>
   );
 }

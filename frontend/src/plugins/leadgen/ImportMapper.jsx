@@ -19,8 +19,8 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
 
   const mapping = useMemo(() => {
     if (mappings[sheet]) return mappings[sheet];
-    return savedMappingFor(headers) || guessMapping(headers);
-  }, [mappings, sheet, headers]);
+    return savedMappingFor(headers) || guessMapping(headers, records);
+  }, [mappings, sheet, headers, records]);
   const fromMemory = !mappings[sheet] && Boolean(savedMappingFor(headers));
 
   const setField = (col, value) => setMappings((m) => ({ ...m, [sheet]: { ...mapping, [col]: value } }));

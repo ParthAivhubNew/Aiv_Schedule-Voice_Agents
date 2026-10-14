@@ -3,7 +3,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
-import { announceCreditsChanged } from "./CreditsChip";
+import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
@@ -17,6 +17,9 @@ import { askConfirm, askText } from "./Dialogs";
 // add-account form. Nothing here is made up: a field nobody found stays empty.
 
 const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand" };
+// Where a company came from, in a sentence a person understands.
+const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand" };
+const sourceWords = (src) => SOURCE_WORDS[src] || SOURCE_WORDS.manual;
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
@@ -42,6 +45,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [researching, setResearching] = useState({}); // account id -> true while its research runs
+  const [improving, setImproving] = useState({}); // account id -> { steps, done, result } for the Improve button
 
   const reload = useCallback(async () => {
     try {
@@ -80,8 +84,58 @@ export function useLeadAccounts(onToast, onListsChanged) {
     }
   };
 
+  // One button, every source, cheapest first: our own records (free), then the web, then a deep web search only if a phone or
+  // website is still missing. Each step reports for itself so the person watches it work, and a step that can't run
+  // (such as no credits left) stops the rest instead of failing quietly.
+  const improve = async (id, { again = false } = {}) => {
+    const before = accounts.find((x) => x.id === id);
+    if (!before) return null;
+    const MISSING = ["website", "phone", "email", "contact_name"];
+    const missing = (a) => MISSING.filter((k) => !String(a[k] || "").trim());
+    const plan = [
+      { key: "records", label: "Check our own records", run: () => api.quickCheckLeadAccount(id), skip: () => "" },
+      { key: "web", label: "Search the web for details, people and sources", run: () => api.researchLeadAccount(id),
+        skip: (a) => (a.researched_at && !again ? "Already looked up before" : "") },
+      { key: "deep", label: "Deep web search for a phone or website", run: () => api.deepSearchLeadAccount(id),
+        skip: (a) => (a.phone && a.website ? "Not needed, both are filled in" : "") },
+    ];
+    stopped.current.delete(id);
+    setResearching((b) => ({ ...b, [id]: "improve" }));
+    const mark = (key, patch) => setImproving((m) => ({ ...m, [id]: { ...m[id], steps: m[id].steps.map((st) => (st.key === key ? { ...st, ...patch } : st)) } }));
+    setImproving((m) => ({ ...m, [id]: { done: false, steps: plan.map(({ key, label }) => ({ key, label, state: "wait", note: "" })) } }));
+    let cur = before;
+    let stoppedEarly = "";
+    for (const st of plan) {
+      if (stopped.current.has(id)) break;
+      const why = st.skip(cur);
+      if (why) { mark(st.key, { state: "skip", note: why }); continue; }
+      mark(st.key, { state: "run", note: "" });
+      try {
+        const a = await st.run();
+        replace(a);
+        const gained = missing(cur).filter((k) => !missing(a).includes(k)).length;
+        mark(st.key, { state: "done", note: gained ? `Added ${gained} detail${gained === 1 ? "" : "s"}` : "Nothing new" });
+        cur = a;
+      } catch (e) {
+        const msg = e.message || "Couldn't finish this step.";
+        mark(st.key, { state: "fail", note: msg });
+        stoppedEarly = msg;
+        if (/credit|top up|plan/i.test(msg)) break;
+      }
+    }
+    announceCreditsChanged();
+    const added = missing(before).filter((k) => !missing(cur).includes(k));
+    setImproving((m) => ({ ...m, [id]: { ...m[id], done: true, result: { added, after: cur.found?.after_pct ?? 0, extra: cur.found?.extra || {}, problem: stoppedEarly } } }));
+    if (!stopped.current.has(id)) {
+      setResearching((b) => { const next = { ...b }; delete next[id]; return next; });
+      onToast(added.length ? `Added ${added.length} detail${added.length === 1 ? "" : "s"} to ${cur.name}.` : stoppedEarly ? `Stopped: ${stoppedEarly}` : `Nothing more found for ${cur.name}.`);
+    }
+    stopped.current.delete(id);
+    return cur;
+  };
+
   return {
-    accounts, loading, error, researching, reload, toast: onToast,
+    accounts, loading, error, researching, improving, improve, clearImprove: (id) => setImproving((m) => { const n = { ...m }; delete n[id]; return n; }), reload, toast: onToast,
     // Saves new accounts; ones already saved are skipped by the server.
     // Every save lands in a list (Unsorted unless a name is given); a company already saved is not copied,
     // it is just added to that list too.
@@ -142,7 +196,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
     // Free: only checks our own shared company store, no live web search, no credit.
     quickCheck: (id) => lookup(id, "quick", () => api.quickCheckLeadAccount(id), (a) =>
       a.researched_at ? `Found a full research dossier for ${a.name} in our records -- already paid for by an earlier search.`
-        : a.registry ? `Found ${a.name} in our records.` : `Nothing of ours on ${a.name} yet. No credit used.`,
+        : a.registry ? `Found ${a.name} in our records.` : `Our records have no match for ${a.name} yet, so nothing was added. Use Look up to search the web. No credit used for this check.`,
     "Couldn't check right now."),
     stopWaiting: (id) => {
       stopped.current.add(id);
@@ -152,40 +206,55 @@ export function useLeadAccounts(onToast, onListsChanged) {
   };
 }
 
-// ---------------------------------------------------------------- small pieces
-function ResearchButton({ store, account, size = "sm" }) {
+// The one button that finds what is missing about a company, with the steps and the most it can cost shown first.
+const FIELD_NAMES = { website: "website", phone: "phone", email: "email", contact_name: "contact" };
+function ImproveCard({ store, account }) {
+  const credits = useLeadCredits();
+  const state = store.improving[account.id];
   const busy = Boolean(store.researching[account.id]);
+  const rates = credits?.rates || {};
+  const webCost = rates.lead_lookup?.credits, deepCost = rates.google_deep_search?.credits;
+  const most = (webCost || 0) + (deepCost || 0);
+  const missing = ["website", "phone", "email", "contact_name"].filter((k) => !String(account[k] || "").trim());
+  const dot = (st) => st === "done" ? ["#15803D", "✓"] : st === "fail" ? ["#B91C1C", "!"] : st === "skip" ? [C.slateLight, "–"] : st === "run" ? [C.ink, ""] : [C.border, ""];
+  const steps = state?.steps || [
+    { key: "records", label: "Check our own records", state: "idle", note: "Free" },
+    { key: "web", label: "Search the web for details, people and sources", state: "idle", note: webCost == null ? "" : `${creditWord(webCost)}, only if something is found` },
+    { key: "deep", label: "Deep web search for a phone or website", state: "idle", note: deepCost == null ? "Only if still missing" : `${creditWord(deepCost)}, only if still missing and found` },
+  ];
+  const r = state?.done ? state.result : null;
   return (
-    <button type="button" className={`ui-btn ui-btn--secondary${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
-      onClick={() => store.research(account.id)} title="Search the web for this company's details, people and sources. 1 Leads credit if anything is found.">
-      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />}
-      {busy ? "Looking up…" : account.researched_at ? "Look up again" : "Look up"}
-    </button>
-  );
-}
-
-// Free: looks only at our own shared company store, no live web search -- never costs a credit.
-function QuickCheckButton({ store, account, size = "sm" }) {
-  const busy = Boolean(store.researching[account.id]);
-  return (
-    <button type="button" className={`ui-btn ui-btn--ghost${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
-      onClick={() => store.quickCheck(account.id)} title="Check our own company records for this account. Always free.">
-      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
-      Check our records (free)
-    </button>
-  );
-}
-
-// One structured lookup beyond our own records -- shown to the user only as "Deep web search",
-// never by the vendor behind it.
-function DeepSearchButton({ store, account, size = "sm" }) {
-  const busy = Boolean(store.researching[account.id]);
-  return (
-    <button type="button" className={`ui-btn ui-btn--secondary${size === "sm" ? " ui-btn--sm" : ""}`} disabled={busy}
-      onClick={() => store.deepSearch(account.id)} title="A deeper structured lookup for this company's phone, address and website. 2 Leads credits if anything new is found.">
-      {busy ? <RefreshCw size={14} className="ui-spin" /> : <Search size={14} />}
-      Deep web search
-    </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ ...muted, fontSize: 12.5 }}>
+        {r ? (r.added.length ? `Added ${r.added.map((k) => FIELD_NAMES[k]).join(", ")}. New details are tagged above. Nothing you already had was changed.`
+          : r.problem ? `It stopped: ${r.problem}` : "We searched our records and the web and found nothing more. Nothing was charged.")
+          : missing.length ? `${missing.length} detail${missing.length === 1 ? " is" : "s are"} missing (${missing.map((k) => FIELD_NAMES[k]).join(", ")}). One button tries every source, cheapest first.`
+            : "Every contact detail is filled in. You can still look for more people, emails and sources."}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {steps.map((st) => {
+          const [color, mark] = dot(st.state);
+          return (
+            <div key={st.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", ...text, fontSize: 13, color: st.state === "skip" ? C.slateLight : C.textInk }}>
+              <span aria-hidden style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${color}`, background: st.state === "done" || st.state === "fail" ? color : "transparent", color: "#fff", fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>
+                {st.state === "run" ? <RefreshCw size={11} className="ui-spin" color={C.ink} /> : mark}
+              </span>
+              <span style={{ flex: 1 }}>{st.label}</span>
+              <span style={{ fontSize: 12, color: st.state === "fail" ? C.red : C.slate }}>{st.note}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button type="button" className="ui-btn ui-btn--primary" disabled={busy} onClick={() => store.improve(account.id, { again: Boolean(state?.done) })}
+          title="Tries our records first (free), then the web, then a deep web search if a phone or website is still missing. You are charged only for what is found.">
+          {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {busy ? "Working…" : state?.done || account.researched_at ? "Improve again" : "Improve this company"}
+        </button>
+        <span style={{ ...muted, fontSize: 12 }}>
+          {most ? `Most it can cost: ${creditWord(most)}. ` : ""}Charged only when something new is found.{credits ? ` You have ${credits.balance.toLocaleString()}.` : ""}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -268,29 +337,55 @@ export function QualityBar({ found, wide = false }) {
   );
 }
 
-// "What we found": what was already there, what is new, and the extras research turned up, with how complete it is now.
+// A name from the user's own file columns (e.g. "Contact forename" + "Contact surname"), when it was not saved as the contact.
+function fileContact(a) {
+  const c = a.custom || {};
+  const pick = (re) => Object.entries(c).find(([k, v]) => re.test(k) && String(v || "").trim());
+  const first = pick(/fore?name|first/i), last = pick(/surname|last/i);
+  return [first?.[1], last?.[1]].filter(Boolean).join(" ").trim();
+}
+
+// "What we found": every contact detail with where it came from -- yours, found by us, or still missing -- and how complete it is now.
 function FoundSummary({ account }) {
-  const f = account.found;
-  if (!f || !wasLookedUp(account)) return null;
+  const f = account.found || { filled: [], extra: {}, had: [], before_pct: 0, after_pct: 0 };
+  const looked = wasLookedUp(account);
   const extra = [["people", "people"], ["emails", "emails"], ["phones", "phone numbers"], ["socials", "social profiles"], ["offices", "other offices"]]
     .filter(([k]) => f.extra?.[k]).map(([k, label]) => `${f.extra[k]} ${label}`);
-  const sec = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.6 };
+  const rows = [["website", "Website"], ["phone", "Phone"], ["email", "Email"], ["contact_name", "Contact"]].map(([k, label]) => {
+    const made = (f.filled || []).find((x) => x.field === k);
+    const value = (account[k] || "").trim();
+    if (made && value) return { k, label, value, tone: "new", badge: `Found by us · ${HOW_WORD[made.how] || made.how}` };
+    if (value) return { k, label, value, tone: "yours", badge: account.source === "import" ? "From your file" : account.source === "manual" ? "You added" : "From the search" };
+    const hint = k === "contact_name" ? fileContact(account) : "";
+    if (hint) return { k, label, value: hint, tone: "hint", badge: "In your file, not saved as the contact yet" };
+    return { k, label, value: "", tone: "missing", badge: looked ? "Not found" : "Not checked yet" };
+  });
+  const tone = { new: ["#15803D", "#DCFCE7"], yours: [C.slate, "#F1F5F9"], hint: ["#92400E", "#FFFBEB"], missing: [C.slateLight, "#F8FAFC"] };
+  const tried = [account.verification?.checked_at && `company check ${new Date(account.verification.checked_at).toLocaleDateString()}`,
+    account.researched_at && `web look-up ${new Date(account.researched_at).toLocaleDateString()}`, account.registry && "our records"].filter(Boolean);
+  const missing = rows.filter((r) => r.tone === "missing");
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>What we found</div>
+        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Contact details</div>
         <QualityBar found={f} wide />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", ...sec }}>
-        <span style={{ color: C.slate }}>Already had</span>
-        <span>{f.had?.length ? f.had.map((k) => FIELD_WORD[k] || k).join(", ") : "None of the contact details"}</span>
-        <span style={{ color: C.slate }}>New</span>
-        <span>
-          {f.filled?.length
-            ? f.filled.map((x) => <div key={x.field}><strong>{FIELD_WORD[x.field] || x.field}:</strong> {x.value} <span style={{ color: C.slateLight }}>· from {HOW_WORD[x.how] || x.how}</span></div>)
-            : "Nothing was missing that we could fill in"}
-        </span>
-        {extra.length ? <><span style={{ color: C.slate }}>Also found</span><span>{extra.join(", ")}. See the research below.</span></> : null}
+      <div style={{ ...text, fontSize: 12.5, color: C.slate }}>
+        {sourceWords(account.source)}. {f.filled?.length ? `We have added ${f.filled.length} detail${f.filled.length === 1 ? "" : "s"} since.` : "We have not added anything yet."}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "90px minmax(0, 1fr) auto", gap: "6px 12px", alignItems: "center", ...text, fontSize: 13, color: C.textInk }}>
+        {rows.map((r) => (
+          <React.Fragment key={r.k}>
+            <span style={{ color: C.slate }}>{r.label}</span>
+            <span style={{ overflowWrap: "anywhere", color: r.value ? C.textInk : C.slateLight }}>{r.value || "—"}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: tone[r.tone][0], background: tone[r.tone][1], borderRadius: 4, padding: "2px 7px", whiteSpace: "nowrap" }}>{r.badge}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      {extra.length ? <div style={{ ...text, fontSize: 12.5, color: C.textInk }}>Also found: {extra.join(", ")}. See the research below.</div> : null}
+      <div style={{ ...text, fontSize: 12, color: C.slateLight }}>
+        {tried.length ? `Checked: ${tried.join(", ")}.` : "Not checked yet."}
+        {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Look up below to search for them"}.` : ""}
       </div>
     </section>
   );
@@ -501,7 +596,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!pickedIds.length || check.job?.status === "running"}
             title="Correct and complete these companies: our records, the company registers, the web, and missing emails"
             onClick={() => setChecking({ ids: pickedIds, pendingOnly: false })}>
-            <ShieldCheck size={14} /> Get contact details
+            <ShieldCheck size={14} /> Check & improve
           </button>
         </div>
         {allShownPicked && shownIds.length < base.length ? (
@@ -581,7 +676,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
-                      <ResearchButton store={store} account={a} />
+                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={Boolean(store.researching[a.id])} onClick={() => onOpen(a)}
+                        title="Open this company to see what is missing and improve it. The cost is shown first">
+                        {store.researching[a.id] ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {store.researching[a.id] ? "Working…" : "Improve"}
+                      </button>
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>Open</button>
                       {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => removeFromList([a.id])} title="Remove from this list">Remove</button> : null}
                     </span>
@@ -646,10 +744,7 @@ function Dossier({ account, store }) {
   if (!account.researched_at) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ ...muted, flex: "1 1 220px" }}>Not looked up yet. Looking up searches the web for its details, people and sources.</span>
-        <QuickCheckButton store={store} account={account} />
-        <DeepSearchButton store={store} account={account} />
-        <ResearchButton store={store} account={account} />
+        <span style={{ ...muted, flex: "1 1 220px" }}>Nothing researched yet. Use Improve above and what is found appears here: people, phones, emails and sources.</span>
       </div>
     );
   }
@@ -657,9 +752,6 @@ function Dossier({ account, store }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <span style={{ ...muted, flex: "1 1 220px" }}>The last research found nothing public about this company.</span>
-        <QuickCheckButton store={store} account={account} />
-        <DeepSearchButton store={store} account={account} />
-        <ResearchButton store={store} account={account} />
       </div>
     );
   }
@@ -843,7 +935,7 @@ export function AccountPanel({ account, store, onClose }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>{live.name}</div>
             <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <SiteLink account={live} /><span>{SOURCE_LABEL[live.source] || "Added by hand"}</span>
+              <SiteLink account={live} /><span title="How this company got into your account">{sourceWords(live.source)}</span>
             </div>
           </div>
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
@@ -865,16 +957,14 @@ export function AccountPanel({ account, store, onClose }) {
             </section>
           ) : null}
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Research</div>
-              {live.researched_at ? <DeepSearchButton store={store} account={live} /> : null}
-              {live.researched_at ? <ResearchButton store={store} account={live} /> : null}
-            </div>
-            {store.researching[live.id] ? (
+            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Improve this company</div>
+            <ImproveCard store={store} account={live} />
+            {store.researching[live.id] && store.researching[live.id] !== "improve" ? (
               <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
                 detail={store.researching[live.id] === "quick" ? "Looking only at our own records. This is free." : "Reading public pages for its people, phone numbers and sources. A credit is used only if something is found."}
                 cancelLabel="Stop waiting" onCancel={() => store.stopWaiting(live.id)} />
             ) : null}
+            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginTop: 6 }}>Research</div>
             <Dossier account={live} store={store} />
           </section>
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -998,7 +1088,7 @@ function ImportReport({ done, onGo, onClose }) {
       </div>
       {gaps.length ? (
         <div style={{ ...muted, fontSize: 12.5 }}>
-          Still missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. "Get contact details" can fill these and fix what looks wrong.
+          Still missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. "Check & improve" can fill these and fix what looks wrong.
         </div>
       ) : null}
       {done.custom?.length ? <div style={{ ...muted, fontSize: 12.5 }}>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
@@ -1059,7 +1149,7 @@ export function ImportView({ store, onGo, onAskAi }) {
   };
 
   const usable = fields.filter((r) => r.name || r.website);
-  // The blanks in what is about to be imported, so the report can say what "Get contact details" will have to fill.
+  // The blanks in what is about to be imported, so the report can say what "Check & improve" will have to fill.
   const blanks = (rows) => ({ phone: rows.filter((r) => !r.phone).length, email: rows.filter((r) => !r.email).length, website: rows.filter((r) => !r.website).length });
   const importNow = async () => {
     setBusy(true);

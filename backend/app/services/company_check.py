@@ -245,6 +245,41 @@ async def email_domain_state(domain: str) -> str:
     return state
 
 
+_PHONE_IN_TEXT = re.compile(r"(?<![\d])(?:\+?44[\s().-]*(?:\(0\)[\s.-]*)?|0)(?:\d[\s().-]*){9,10}(?![\d])")
+
+
+def last10(raw: str) -> str:
+    """A number reduced to its last 10 digits, so +44 7702 167658, 07702167658 and 7702167658 compare equal."""
+    return re.sub(r"\D", "", raw or "")[-10:]
+
+
+def page_phones(html: str) -> List[str]:
+    """UK phone numbers a page shows (tel: links first, then numbers in its text), as last-10-digit keys, at most 10."""
+    found: List[str] = []
+    text = (html or "")[:300000]
+    for chunk in re.findall(r'href=["\']tel:([^"\']+)', text, flags=re.I) + [m.group(0) for m in _PHONE_IN_TEXT.finditer(re.sub(r"<[^>]+>", " ", text))]:
+        key = last10(chunk)
+        if len(key) == 10 and key not in found:
+            found.append(key)
+        if len(found) >= 10:
+            break
+    return found
+
+
+def phone_ownership(phone: str, *, site: List[str], place: str = "", record: str = "") -> Dict[str, Any]:
+    """Does the number belong to this company? A number the company itself publishes (its website, its Google listing,
+    a record we hold) is the best sign available; a phone network cannot name the owner of a UK line."""
+    mine = last10(phone)
+    if not mine:
+        return {}
+    for label, nums in (("website", site), ("Google listing", [last10(place)]), ("our records", [last10(record)])):
+        if mine in nums:
+            return {"match": label, "match_note": f"Matches the number on the company's {label}" if label != "our records" else "Matches the number in our records"}
+    if site:
+        return {"match": "differs", "match_note": "The company's website lists a different number"}
+    return {}
+
+
 async def website_state(url: str, name: str) -> Dict[str, Any]:
     """Does the site load, is it a parked page, does it show the company's name?"""
     if not (url or "").strip():
@@ -270,7 +305,7 @@ async def website_state(url: str, name: str) -> Dict[str, Any]:
     html = resp.text or ""
     if is_parked(html):
         return {"state": "parked"}
-    return {"state": "live", "name_seen": name_on_page(name, html)}
+    return {"state": "live", "name_seen": name_on_page(name, html), "phones": page_phones(html)}
 
 
 class Pace:
@@ -372,7 +407,7 @@ async def store_check(db, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     when = rec.last_verified_at or rec.fetched_at or rec.updated_at
     fresh = bool(when and when >= datetime.utcnow() - timedelta(days=FRESH_DAYS))
     return {"id": rec.id, "name": rec.name, "status": rec.status or "", "tier": rec.confidence_tier or "",
-            "strong": strong, "fresh": fresh, "ago": _ago(when), "registration_number": rec.registration_number or ""}
+            "strong": strong, "fresh": fresh, "ago": _ago(when), "registration_number": rec.registration_number or "", "phone": rec.phone or ""}
 
 
 async def save_register_answer(db, reg: Dict[str, Any], store: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -451,6 +486,11 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
         spent["phone"] = asked
         if free["phone"].get("verified") is not None:
             stages.append("phone_lookup")
+    site_phones = free["website"].pop("phones", None) or []
+    if free["phone"].get("state") == "ok":
+        own = phone_ownership(row.get("phone") or "", site=site_phones, place=(ev.get("deep") or {}).get("phone", ""), record=(store or {}).get("phone", ""))
+        if own:
+            free["phone"] = {**free["phone"], **own}
     ev["website"] = free["website"]
     stages.extend(s for s in ("website", "email", "phone") if free.get(s) and free[s].get("state") not in (None, "none", "unchecked"))
 

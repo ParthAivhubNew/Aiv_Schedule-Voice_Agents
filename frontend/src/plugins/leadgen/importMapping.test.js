@@ -40,7 +40,7 @@ describe("default matches", () => {
     const map = guessMapping(["Business Name", "URN", "Postcode District", "UK 03 Sic Desc."]);
     expect(map["Business Name"]).toBe("name");
     expect(map.URN).toBe(`${CUSTOM}URN`);
-    expect(map["Postcode District"]).toBe("region");
+    expect(map["Postcode District"]).toBe(`${CUSTOM}Postcode District`);
     expect(map["UK 03 Sic Desc."]).toBe("industry");
   });
 
@@ -51,5 +51,46 @@ describe("default matches", () => {
     expect(map.id).toBe(`${CUSTOM}id`);
     expect(map.ID).toBe("__skip__");
     expect(map[""]).toBe("__skip__");
+  });
+});
+
+describe("a real client file", () => {
+  const cols = ["Company", "Phone", "Email", "Contact", "Complete Check", "Found by", "URN", "Address Line 1", "Address Line 2", "Locality", "Town", "Postcode", "Postcode District",
+    "Contact title", "Contact forename", "Contact surname", "UK 03 Sic Desc.", "Easy Sector Code", "Easy Sector Desc.", "Employees", "Tps", "Ctps"];
+  const rec = { Company: "Hawes Construction Ltd", Phone: "7702167658", "Address Line 1": "138-144 London Road", Locality: "Wheatley", Town: "Oxford", Postcode: "OX33 1JH",
+    "Contact title": "Mr", "Contact forename": "Matthew", "Contact surname": "Hawes", "UK 03 Sic Desc.": "Construction of domestic buildings", "Easy Sector Code": "196", "Easy Sector Desc.": "Builders" };
+  const map = guessMapping(cols, [rec]);
+
+  it("puts each column where it belongs", () => {
+    expect(map.Company).toBe("name");
+    expect(map.Phone).toBe("phone");
+    expect(map.Contact).toBe("contact_name");
+    expect(map["Contact forename"]).toBe("contact_first");
+    expect(map["Contact surname"]).toBe("contact_last");
+    expect(map.Town).toBe("region");
+    expect(map["UK 03 Sic Desc."]).toBe("industry");
+  });
+
+  it("keeps salutations, codes, addresses and postcodes as the user's own columns instead of mis-filing them", () => {
+    expect(map["Contact title"]).toBe(`${CUSTOM}Contact title`);
+    expect(map["Easy Sector Code"]).toBe(`${CUSTOM}Easy Sector Code`);
+    expect(map["Address Line 1"]).toBe(`${CUSTOM}Address Line 1`);
+    expect(map.Postcode).toBe(`${CUSTOM}Postcode`);
+    expect(map.Locality).toBe(`${CUSTOM}Locality`);
+  });
+
+  it("builds the contact from first and last name, and restores a UK number's leading zero", () => {
+    const [row] = applyMapping(cols, [rec], map);
+    expect(row.contact_name).toBe("Matthew Hawes");
+    expect(row.phone).toBe("07702167658");
+    expect(row.region).toBe("Oxford");
+    expect(row.industry).toBe("Construction of domestic buildings");
+    expect(row.contact_first).toBeUndefined();
+  });
+
+  it("still treats a real job title as a job title", () => {
+    const m = guessMapping(["Name", "Title"], [{ Name: "A", Title: "Managing Director" }]);
+    expect(m.Title).toBe("contact_title");
+    expect(guessMapping(["Name", "Job Title"])["Job Title"]).toBe("contact_title");
   });
 });

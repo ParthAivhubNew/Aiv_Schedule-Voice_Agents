@@ -35,7 +35,7 @@ import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./Ou
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
-import { CreditsChip } from "./CreditsChip";
+import { CreditsChip, PlanStrip } from "./CreditsChip";
 import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
@@ -318,7 +318,7 @@ export default function LeadGenerationPlugin({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {!isLocked || view === "subscription" ? <CreditsChip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} /> : null}
+            {(!isLocked || view === "subscription") && view !== "find_leads" && view !== "lists" ? <CreditsChip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} /> : null}
             {view === "lists" && (
               <button title="Type in one company yourself"
                 onClick={() => setShowAddModal(true)}
@@ -371,6 +371,7 @@ export default function LeadGenerationPlugin({
             </div>
           ) : (
             <>
+          {(view === "find_leads" || view === "lists") && <PlanStrip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} />}
           {(findOpened || view === "find_leads") && (
             <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
           )}

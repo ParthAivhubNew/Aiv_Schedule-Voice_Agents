@@ -58,6 +58,11 @@ export function CheckDetails({ account }) {
               <span style={{ color: C.slate }}>{label}</span>
               <span style={{ color: s.state === "invalid" || s.state === "dead" || s.state === "parked" ? C.red : C.textInk }}>
                 {STATE_WORDS[key]?.[s.state] || s.state}{s.note && (key === "phone" ? s.note !== STATE_WORDS.phone[s.state] : s.state !== "ok" && s.state !== "live") ? ` · ${s.note}` : ""}
+                {key === "phone" && s.match ? (
+                  <span title={s.match_note} style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 600, borderRadius: 4, padding: "2px 7px", color: s.match === "differs" ? "#92400E" : "#15803D", background: s.match === "differs" ? "#FFFBEB" : "#DCFCE7" }}>
+                    {s.match === "differs" ? "Website shows a different number" : `Matches company ${s.match}`}
+                  </span>
+                ) : null}
               </span>
             </React.Fragment>
           ))}
@@ -227,11 +232,11 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   const li = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div role="dialog" aria-label="Get contact details" onClick={(e) => e.stopPropagation()} className="ui-card"
+      <div role="dialog" aria-label="Check & improve" onClick={(e) => e.stopPropagation()} className="ui-card"
         style={{ width: "min(100%, 520px)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-            Get contact details for {est ? est.companies.toLocaleString() : ids.length.toLocaleString()} {(est ? est.companies : ids.length) === 1 ? "company" : "companies"}
+            Check & improve {est ? est.companies.toLocaleString() : ids.length.toLocaleString()} {(est ? est.companies : ids.length) === 1 ? "company" : "companies"}
           </div>
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
