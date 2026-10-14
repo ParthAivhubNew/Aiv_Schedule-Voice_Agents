@@ -29,47 +29,67 @@ export function useLeadCredits() {
 // "1 credit", "2.5 credits", "Free".
 export const creditWord = (n) => (!n ? "Free" : `${n} credit${n === 1 ? "" : "s"}`);
 
-// What the main things cost, in words a person reads before pressing a button. Missing prices are left out.
+// What the main things cost, as price tiles: [what, price, what you get]. Missing prices are left out.
 export function priceLines(rates) {
   const r = rates || {};
-  const line = (key, label, per) => (r[key] ? [label, `${creditWord(r[key].credits)}${per}`] : null);
+  const tile = (key, label, per, note) => (r[key] ? [label, creditWord(r[key].credits), per, note] : null);
   return [
-    ["Search the company register", "Free"],
-    line("lead_lookup", "Web search or look-up", " per company found"),
-    line("google_deep_search", "Deep web search", " if it finds something"),
-    line("lead_phone_check", "Check phone numbers", r.lead_phone_check ? ` per ${r.lead_phone_check.unit}` : ""),
-    line("lead_email_write", "Write personal email lines", r.lead_email_write ? ` per ${r.lead_email_write.unit}` : ""),
-    line("email_send", "Send an email", " each"),
+    ["Company register", "Free", "", "Search every registered company"],
+    tile("lead_lookup", "Web search", " per company found", "Companies from the open web"),
+    tile("google_deep_search", "Deep web search", " if it finds something", "Finds a missing phone or website"),
+    r.lead_phone_check ? ["Phone check", creditWord(r.lead_phone_check.credits), ` per ${r.lead_phone_check.unit}`, "Is the number real and live"] : null,
+    r.lead_email_write ? ["Personal email lines", creditWord(r.lead_email_write.credits), ` per ${r.lead_email_write.unit}`, "Written for each lead"] : null,
+    tile("email_send", "Send an email", " each", "Charged when it is sent"),
   ].filter(Boolean);
 }
 
-// Shown at the top of Find Leads and Lists: what is left, and what things cost, before anything is pressed.
+// Shown at the top of Find Leads and Lists: one slim line with what is left, and the price list one click away.
 export function PlanStrip({ onOpen }) {
   const c = useLeadCredits();
+  const [open, setOpen] = useState(false);
   if (!c) return null;
   const tone = c.empty ? C.red : c.low ? "#B45309" : C.ink;
-  const lines = priceLines(c.rates);
+  const tiles = priceLines(c.rates);
+  const webCost = c.rates?.lead_lookup?.credits;
+  const canBuy = webCost ? Math.floor(c.balance / webCost) : 0;
+  const pct = Math.min(100, Math.round((c.balance / Math.max(c.balance + c.used_30d, 1)) * 100));
+  const small = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
   return (
-    <div className="ui-card" style={{ display: "flex", flexWrap: "wrap", marginBottom: 16, padding: 0, overflow: "hidden" }}>
-      <div style={{ padding: "12px 18px", borderRight: `1px solid ${C.border}`, minWidth: 190, flex: "0 0 auto" }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight }}>Credits left</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 24, fontWeight: 700, color: tone, fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
+    <div className="ui-card" style={{ marginBottom: 16, padding: "10px 16px", display: "grid", gap: open ? 12 : 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+          <Coins size={15} color={tone} style={{ alignSelf: "center" }} />
+          <strong style={{ fontFamily: FONT_BODY, fontSize: 20, color: tone, fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
+          <span style={small}>credits left</span>
+        </span>
+        <span aria-hidden style={{ width: 90, height: 5, borderRadius: 3, background: C.border, overflow: "hidden" }}>
+          <span style={{ display: "block", width: `${pct}%`, height: "100%", background: tone }} />
+        </span>
+        <span style={small}>
           {c.used_30d.toLocaleString()} used in 30 days{c.held ? ` · ${c.held.toLocaleString()} on hold` : ""}
-        </div>
-        {c.empty ? <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.red, fontWeight: 600 }}>Out of credits</div> : c.low ? <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: "#B45309", fontWeight: 600 }}>Running low</div> : null}
-        {onOpen ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 6 }} title="See your plan, what it includes and top up" onClick={onOpen}>Plan &amp; top up</button> : null}
+          {canBuy ? ` · enough for about ${canBuy.toLocaleString()} web-found companies` : ""}
+        </span>
+        {c.empty ? <strong style={{ ...small, color: C.red }}>Out of credits</strong> : c.low ? <strong style={{ ...small, color: "#B45309" }}>Running low</strong> : null}
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6 }}>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide prices" : "See prices"}
+          </button>
+          {onOpen ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="See your plan and top up" onClick={onOpen}>Plan &amp; top up</button> : null}
+        </span>
       </div>
-      <div style={{ padding: "12px 18px", flex: "1 1 320px", minWidth: 0 }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight }}>What things cost</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "4px 20px", marginTop: 6, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
-          {lines.map(([what, price]) => (
-            <div key={what} style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
-              <span>{what}</span><strong style={{ color: price === "Free" ? "#15803D" : C.ink, whiteSpace: "nowrap" }}>{price}</strong>
+      {open ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 10 }}>
+          {tiles.map(([what, price, per, note]) => (
+            <div key={what} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 12px" }}>
+              <div style={{ ...small, fontWeight: 600, color: C.ink }}>{what}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: price === "Free" ? "#15803D" : C.ink }}>
+                {price}<span style={{ ...small, fontSize: 11.5, fontWeight: 400 }}>{per}</span>
+              </div>
+              <div style={{ ...small, fontSize: 11.5 }}>{note}</div>
             </div>
           ))}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
