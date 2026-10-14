@@ -123,15 +123,15 @@ async def _request_human(db, brief, args) -> Dict[str, Any]:
         await call_hub.broadcast("call_updated", {"callId": brief.id, "state": "human_review", "flag": reason})
     except Exception:
         pass
-    try:
-        from app.core.notify import notify
+    try:  # the summary and the email follow in the background: the assistant must not wait on them
+        import asyncio
+
+        from app.services.call_summary import alert_person_needed
 
         who = rec.prospect if rec else brief.phone
-        await notify("call_needs_review", "A call needs a person now",
-                     [f"The assistant on the call with {who} asked for someone to take over.", f"Reason: {reason}"],
-                     only_user_ids=[brief.operator_id] if brief.operator_id else None)
+        asyncio.get_running_loop().create_task(alert_person_needed(brief.id, who, reason, brief.operator_id or ""))
     except Exception as err:
-        logger.debug(f"[voice-tools] notify skipped: {err}")
+        logger.debug(f"[voice-tools] alert skipped: {err}")
     try:  # customers' software hears about it too (webhook call.needs_human)
         from app.core.tenancy import current_org
         from app.public_api import voice_events

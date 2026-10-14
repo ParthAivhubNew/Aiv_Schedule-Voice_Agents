@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Calendar, CheckCircle2, ChevronDown, ChevronUp, Headphones, PhoneOff, Sparkles } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
+import { api } from "../../../api/apiClient";
+import { CallSummary } from "./CallSummary";
 
 const STATE_META = {
   calling: { label: "Ringing", fg: C.amber, bg: C.amberSoft, pulse: true },
@@ -168,6 +170,20 @@ export function LiveCallCard({
         {onLine ? <span style={{ color: C.red, fontWeight: 800, fontSize: 11, whiteSpace: "nowrap" }}>{taken ? "YOU'RE ON THE LINE" : "A PERSON HAS TAKEN OVER"}</span> : null}
       </div>
 
+      {call.needsPerson ? (
+        <div role="alert" style={{ marginTop: 12, padding: "9px 12px", borderRadius: 10, background: C.redSoft, color: C.red, fontSize: 13, fontWeight: 700 }}>
+          The assistant needs a person on this call{call.flag ? `: ${call.flag}` : "."} Read the summary, then take over.
+        </div>
+      ) : null}
+      {isAssistant && !pending && (call.summary || call.needsPerson || call.taken || lines.length > 6) ? (
+        <CallSummary
+          summary={call.summary}
+          urgent={Boolean(call.needsPerson)}
+          label={call.taken ? "What happened before you joined" : "AI summary so far"}
+          onWrite={() => api.summarizeLiveCall(id)}
+          onEmail={() => api.emailLiveCallSummary(id)}
+        />
+      ) : null}
       <Transcript lines={lines} live tall={tall} />
       {lines.length > 6 ? (
         <button type="button" onClick={() => setTall((t) => !t)} style={{ marginTop: 6, background: "none", border: "none", color: C.slate, fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}>
@@ -197,8 +213,8 @@ export function LiveCallCard({
           ) : call.takeoverByPhone && onPhoneTakeover ? (
             call.taken ? (
               <>
-                <input aria-label="Note for the assistant" placeholder="Note for the AI (optional)" value={handNote} onChange={(e) => setHandNote(e.target.value)}
-                  style={{ height: 34, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontSize: 12.5, minWidth: 200 }} />
+                <input aria-label="Note for the assistant" placeholder="What did you agree? The AI continues from this" value={handNote} onChange={(e) => setHandNote(e.target.value)}
+                  style={{ height: 34, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontSize: 12.5, minWidth: 260 }} />
                 <button type="button" disabled={busy === "handback"} onClick={() => run("handback", () => onHandBack(handNote))} style={btn({ background: C.redSoft })}>
                   {busy === "handback" ? "Handing back…" : "Hand back to AI"}
                 </button>

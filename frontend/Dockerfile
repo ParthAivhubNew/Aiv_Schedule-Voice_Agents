@@ -5,7 +5,8 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 
-RUN npm install
+# The lockfile is made on Windows and lacks the Linux native build of vite's bundler (npm bug 4828), so install fresh.
+RUN rm -f package-lock.json && npm install
 
 COPY . .
 

@@ -279,6 +279,23 @@ function MainApp({ onSignedOut }) {
     } catch (_) {}
   };
 
+  // The assistant asked for a person: chime and a desktop notification, and the banner comes back
+  // even if the call's earlier banner was dismissed.
+  const needsPersonAlertedRef = useRef(new Set());
+  const alertNeedsPerson = (call) => {
+    const id = call.id || call.call_sid;
+    setDismissedCallIds((prev) => prev.filter((x) => x !== id));
+    try {
+      playIncomingChime();
+      const body = `${call.prospect || "A caller"}${call.flag ? `: ${call.flag}` : ""}. Open the call to take over.`;
+      if ("Notification" in window) {
+        const show = () => new Notification("A call needs you now", { body, icon: "/favicon.png", requireInteraction: true });
+        if (Notification.permission === "granted") show();
+        else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); });
+      }
+    } catch (_) {}
+  };
+
   const refreshLiveCalls = async () => {
     try {
       const lc = await api.getLiveCalls();
@@ -307,6 +324,10 @@ function MainApp({ onSignedOut }) {
           if (cid && !prevLiveCallIdsRef.current.has(cid)) {
             prevLiveCallIdsRef.current.add(cid);
             triggerCallNotification(c);
+          }
+          if (cid && c.needsPerson && !needsPersonAlertedRef.current.has(cid)) {
+            needsPersonAlertedRef.current.add(cid);
+            alertNeedsPerson(c);
           }
         });
       }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -109,7 +109,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
       if (stopped.current.has(id)) break;
       const why = st.skip(cur);
       if (why) { mark(st.key, { state: "skip", note: why }); continue; }
-      mark(st.key, { state: "run", note: "" });
+      mark(st.key, { state: "run", note: "Checking…" });
       try {
         const a = await st.run();
         replace(a);
@@ -206,6 +206,38 @@ export function useLeadAccounts(onToast, onListsChanged) {
   };
 }
 
+// What happens next for a company that still isn't complete or verified. Finding data is our job, so every point is something
+// we do or something the person already knows, never a pointer to another service. When we have searched everything, we say so.
+function tipsFor(a) {
+  const has = (k) => Boolean(String(a[k] || "").trim());
+  const v = a.verification || {};
+  const searched = Boolean(a.researched_at);
+  const gaps = ["website", "phone", "email", "contact_name"].filter((k) => !has(k));
+  const tips = [];
+  if (gaps.length && !searched) tips.push(["Not searched yet", "Press Improve this company. We check our records, then the web, and fill in what we find."]);
+  if (gaps.length && searched) tips.push(["We have searched", "Our records and the web were checked and these details were not published anywhere we can reach. Improve again re-runs the search with a deeper web pass, and new details appear here when we find them."]);
+  if (!has("website") && gaps.length) tips.push(["Know the website?", "If you already have it from your own file or a conversation, type it under Details. We then search that site for the phone, email and contact."]);
+  if (!has("contact_name") && has("website")) tips.push(["Contact", "We look for the owner or director on the company's own pages. If none is published, you can still send to the general address."]);
+  if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Check & improve from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
+  if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Check & improve from the list. We test the address before you send, so it doesn't bounce."]);
+  if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something, so repeated searches that find nothing cost nothing. You can also leave this company out of a campaign."]);
+  return tips;
+}
+function TipsCard({ account }) {
+  const tips = tipsFor(account);
+  if (!tips.length) return null;
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 8, background: "rgba(245, 158, 11, .05)" }}>
+      <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+        <Lightbulb size={14} color="#B45309" /> How to get this to 100%
+      </div>
+      {tips.map(([title, body]) => (
+        <div key={title} style={{ ...muted, fontSize: 12.5 }}><strong style={{ color: C.textInk }}>{title}.</strong> {body}</div>
+      ))}
+    </div>
+  );
+}
+
 // The one button that finds what is missing about a company, with the steps and the most it can cost shown first.
 const FIELD_NAMES = { website: "website", phone: "phone", email: "email", contact_name: "contact" };
 function ImproveCard({ store, account }) {
@@ -223,8 +255,21 @@ function ImproveCard({ store, account }) {
     { key: "deep", label: "Deep web search for a phone or website", state: "idle", note: deepCost == null ? "Only if still missing" : `${creditWord(deepCost)}, only if still missing and found` },
   ];
   const r = state?.done ? state.result : null;
+  const finished = steps.filter((st) => st.state === "done" || st.state === "skip" || st.state === "fail").length;
+  const live = busy && state && !state.done;
+  const running = steps.find((st) => st.state === "run");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {state ? (
+        <div>
+          <div className={`imp-bar${live ? " imp-bar--live" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={finished}>
+            <span style={{ width: `${Math.max(live ? 8 : 0, Math.round((finished / steps.length) * 100))}%` }} />
+          </div>
+          <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
+            {live ? <span className="imp-dots">{running ? `${running.label}` : "Starting"}</span> : `Step ${finished} of ${steps.length} finished`}
+          </div>
+        </div>
+      ) : null}
       <div style={{ ...muted, fontSize: 12.5 }}>
         {r ? (r.added.length ? `Added ${r.added.map((k) => FIELD_NAMES[k]).join(", ")}. New details are tagged above. Nothing you already had was changed.`
           : r.problem ? `It stopped: ${r.problem}` : "We searched our records and the web and found nothing more. Nothing was charged.")
@@ -235,12 +280,12 @@ function ImproveCard({ store, account }) {
         {steps.map((st) => {
           const [color, mark] = dot(st.state);
           return (
-            <div key={st.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", ...text, fontSize: 13, color: st.state === "skip" ? C.slateLight : C.textInk }}>
-              <span aria-hidden style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${color}`, background: st.state === "done" || st.state === "fail" ? color : "transparent", color: "#fff", fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>
+            <div key={st.key} className={`imp-step imp-step--${st.state}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 6px", ...text, fontSize: 13, color: st.state === "skip" ? C.slateLight : C.textInk }}>
+              <span aria-hidden className={st.state === "done" || st.state === "fail" ? "imp-pop" : ""} style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${color}`, background: st.state === "done" || st.state === "fail" ? color : "transparent", color: "#fff", fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>
                 {st.state === "run" ? <RefreshCw size={11} className="ui-spin" color={C.ink} /> : mark}
               </span>
               <span style={{ flex: 1 }}>{st.label}</span>
-              <span style={{ fontSize: 12, color: st.state === "fail" ? C.red : C.slate }}>{st.note}</span>
+              <span key={st.note} className="imp-note" style={{ fontSize: 12, color: st.state === "fail" ? C.red : st.state === "done" && st.note.startsWith("Added") ? "#15803D" : C.slate }}>{st.note}</span>
             </div>
           );
         })}
@@ -385,7 +430,7 @@ function FoundSummary({ account }) {
       {extra.length ? <div style={{ ...text, fontSize: 12.5, color: C.textInk }}>Also found: {extra.join(", ")}. See the research below.</div> : null}
       <div style={{ ...text, fontSize: 12, color: C.slateLight }}>
         {tried.length ? `Checked: ${tried.join(", ")}.` : "Not checked yet."}
-        {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Look up below to search for them"}.` : ""}
+        {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Improve this company below to search for them"}.` : ""}
       </div>
     </section>
   );
@@ -959,6 +1004,7 @@ export function AccountPanel({ account, store, onClose }) {
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Improve this company</div>
             <ImproveCard store={store} account={live} />
+            <TipsCard account={live} />
             {store.researching[live.id] && store.researching[live.id] !== "improve" ? (
               <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
                 detail={store.researching[live.id] === "quick" ? "Looking only at our own records. This is free." : "Reading public pages for its people, phone numbers and sources. A credit is used only if something is found."}

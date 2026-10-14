@@ -74,6 +74,7 @@ import { LiveKitBrowserCallModal } from "../../../components/LiveKitBrowserCallM
 import { VoicePicker } from "../VoicePicker";
 import { ConversationTemplatesView } from "../ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
+import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
 
 // `section` = which permission section must be at least "view" to see the page.
@@ -3739,6 +3740,16 @@ export function CallingWorkspace({
                         <div style={{ fontSize: 12, color: C.slateLight }}>{l.mission}</div>
                       ) : null}
                     </div>
+                    {l.summary || open ? (
+                      <div style={{ padding: "0 18px 12px" }}>
+                        <CallSummary
+                          summary={l.summary}
+                          label="AI summary of this call"
+                          onWrite={() => api.summarizeLoggedCall(l.id)}
+                          onEmail={() => api.emailLoggedCallSummary(l.id)}
+                        />
+                      </div>
+                    ) : null}
                     <div style={{
                       borderTop: `1px solid ${C.border}`,
                       background: open ? "linear-gradient(180deg, #FAFAF8 0%, #F6F5F1 100%)" : "#FAFAF8",

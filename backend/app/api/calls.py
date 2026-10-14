@@ -91,6 +91,8 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             # transcript updates live instead, and taking over rings the user's phone.
             "supportsListen": (c.carrier or "") != "telnyx_assistant",
             "takeoverByPhone": (c.carrier or "") == "telnyx_assistant",
+            "summary": c.summary or "",
+            "needsPerson": c.state == "human_review" and not c.taken and not c.ended,
             "transcript": c.transcript or [],
         })
     return out_calls
@@ -364,6 +366,66 @@ async def _managed_call(db: AsyncSession, call: LiveCall) -> bool:
     return (await VA.brief(db, call.id)) is not None
 
 
+@router.post("/live/{call_id}/summary")
+async def summarize_live_call(call_id: str, db: AsyncSession = Depends(get_db)):
+    """Write (or refresh) the AI summary of this call so far and return it."""
+    from app.services.call_summary import refresh_live
+
+    call = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    text = await refresh_live(call_id)
+    return {"summary": text or call.summary or ""}
+
+
+async def _send_summary_to_me(request: Request, db: AsyncSession, title: str, summary: str) -> dict:
+    from app.models.models import Operator
+    from app.services.call_summary import email_summary
+
+    auth = getattr(request.state, "auth", None) or {}
+    op = (await db.execute(select(Operator).where(Operator.id == auth.get("operator_id", "")))).scalars().first()
+    if op is None or not (op.email or "").strip():
+        raise HTTPException(status_code=400, detail="Add an email to your profile first.")
+    if not summary.strip():
+        raise HTTPException(status_code=400, detail="This call has no summary yet.")
+    res = await email_summary(op.email.strip(), title, summary)
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail=res.get("error") or "The email could not be sent.")
+    return {"status": "sent", "to": op.email.strip()}
+
+
+@router.post("/live/{call_id}/email-summary")
+async def email_live_summary(call_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Email the summary of a call in progress to the person asking."""
+    call = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    return await _send_summary_to_me(request, db, call.prospect or "call", call.summary or "")
+
+
+@router.post("/logs/{log_id}/summary")
+async def summarize_logged_call(log_id: str, db: AsyncSession = Depends(get_db)):
+    """Write the AI summary of a finished call in Call history (when it has none yet)."""
+    from app.services.call_summary import summarize
+
+    log = (await db.execute(select(CallLog).where(CallLog.id == log_id))).scalars().first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Call not found")
+    if not (log.summary or "").strip():
+        log.summary = await summarize(db, log.transcript or [], final=True)
+        await db.commit()
+    return {"summary": log.summary or ""}
+
+
+@router.post("/logs/{log_id}/email-summary")
+async def email_logged_summary(log_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Email the summary of a finished call to the person asking."""
+    log = (await db.execute(select(CallLog).where(CallLog.id == log_id))).scalars().first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Call not found")
+    return await _send_summary_to_me(request, db, log.listed_as or "call", log.summary or "")
+
+
 @router.post("/live/{call_id}/handback")
 async def hand_back_call(call_id: str, body: HandBackBody, db: AsyncSession = Depends(get_db)):
     """Give a call you took over back to its assistant, with a note it continues from."""
@@ -411,12 +473,14 @@ async def toggle_takeover(call_id: str, request: Request, db: AsyncSession = Dep
             "System: ⚠️ SUPERVISOR TAKEOVER ACTIVE. Microphone live — AI voice rep muted."
         ]
         await notify_xai_takeover_state(call_id, taken=True)
+        from app.services.call_summary import refresh_live
+        asyncio.get_running_loop().create_task(refresh_live(call_id, sync=False))
     else:
         media_stream_hub.active_takeovers.discard(call_id)
         call.transcript = (call.transcript or []) + [
             "System: Supervisor relinquished control. AI voice rep re-enabled with full context."
         ]
-        await notify_xai_takeover_state(call_id, taken=False, recent_transcript=call.transcript)
+        await notify_xai_takeover_state(call_id, taken=False, recent_transcript=call.transcript, summary=call.summary or "")
 
     await db.commit()
     await call_hub.broadcast("call_updated", {"callId": call_id, "taken": call.taken})
@@ -692,6 +756,7 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
             "outcome": l.outcome,
             "requestedFollowUp": l.requested_follow_up,
             "wordsLocked": l.words_locked,
+            "summary": l.summary or "",
             "creditsUsed": -int(used.get(f"call:{l.id}") or 0),
             "transcript": l.transcript or []
         })

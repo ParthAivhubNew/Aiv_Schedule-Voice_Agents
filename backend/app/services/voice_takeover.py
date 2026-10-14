@@ -41,6 +41,21 @@ def decode_leg(raw: Any) -> Optional[Tuple[str, str]]:
     return (call_id, org_id) if call_id and org_id else None
 
 
+def _in_background(coro) -> None:
+    import asyncio
+
+    try:
+        asyncio.get_running_loop().create_task(coro)
+    except Exception:
+        coro.close()
+
+
+async def refresh_summary(call_id: str, sync: bool = True) -> None:
+    from app.services.call_summary import refresh_live
+
+    await refresh_live(call_id, sync=sync)
+
+
 async def _route(db, from_number: str) -> Tuple[str, str]:
     """(API key, Call Control app) to ring the user from the call's number."""
     from app.services import voice_assistants as VA
@@ -116,6 +131,7 @@ async def take_over(db, rec, operator) -> Dict[str, Any]:
     brief.supervisor_id = operator.id
     await _note(db, rec, f"{operator.name or 'A colleague'} is taking over: ringing their phone. The assistant is paused.",
                 taken=True, state="human_review")
+    _in_background(refresh_summary(rec.id))  # so the person has the whole story on screen while it rings
     return {"status": "ringing", "taken": True}
 
 
@@ -182,8 +198,17 @@ async def hand_back(db, rec, note: str, already_hung_up: bool = False) -> Dict[s
         rec.taken = False
         await db.commit()
         return {"status": "ended", "taken": False}
-    await _restart(db, rec, brief, key, note)
+    from app.services.call_summary import restart_context
+
+    # The assistant starts a fresh conversation, so it is told the whole story so far (the summary)
+    # and what the person said (their note); the person's own talk is not transcribed.
+    lead = (restart_context(getattr(rec, "summary", ""), rec.transcript or [])
+            + "A colleague from the team then spoke with this person directly and has handed the call back to you. "
+            + (f"Their note on what was said and agreed: {note}. " if note else "")
+            + "Carry on from here. Do not introduce yourself again.\n\n")
+    await _restart(db, rec, brief, key, note, lead=lead)
     await _note(db, rec, "Handed back to the assistant" + (f" with a note: {note}" if note else "."), taken=False, state="pitching")
+    _in_background(refresh_summary(rec.id, sync=False))  # now includes the note
     return {"status": "handed_back", "taken": False}
 
 

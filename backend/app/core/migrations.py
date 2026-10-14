@@ -127,6 +127,8 @@ async def _agent_studio(conn: AsyncConnection) -> None:
 async def _call_takeover(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE call_briefs ADD COLUMN IF NOT EXISTS supervisor_leg VARCHAR DEFAULT ''"))
     await conn.execute(text("ALTER TABLE call_briefs ADD COLUMN IF NOT EXISTS supervisor_id VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT ''"))
 
 
 async def _platform_split(conn: AsyncConnection) -> None:

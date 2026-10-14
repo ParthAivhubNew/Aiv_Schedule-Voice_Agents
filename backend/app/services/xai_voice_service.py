@@ -435,7 +435,7 @@ def get_bridged_session(*ids: Optional[str]) -> Optional[BridgedVoiceSession]:
         return next(iter(bridged_sessions.values()))
     return None
 
-async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript: List[str] = None):
+async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript: List[str] = None, summary: str = ""):
     """
     Informs xAI Realtime session when a human supervisor takes over or hands back.
     On hand back, injects the conversation context so the AI resumes seamlessly.
@@ -465,6 +465,8 @@ async def notify_xai_takeover_state(call_id: str, taken: bool, recent_transcript
             # Build smart briefing of what happened during human takeover
             summary_lines = [str(l) for l in (recent_transcript or [])[-4:] if not str(l).startswith("System:")]
             summary_text = " // ".join(summary_lines) if summary_lines else "The supervisor spoke with the prospect and answered their initial questions."
+            if (summary or "").strip():  # the AI summary of the whole call, not just the last turns
+                summary_text = f"Whole call so far: {summary.strip()} // Latest turns: {summary_text}"
             handoff_msg = (
                 f"[SYSTEM NOTICE: The human supervisor has just handed the call back to you. "
                 f"Points discussed during the takeover: '{summary_text}'. "

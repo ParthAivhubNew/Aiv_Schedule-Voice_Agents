@@ -383,13 +383,16 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
   const isAlreadyOnLiveView = currentPlugin === "voice" && (routeHash() || "").includes("/live");
   if (isAlreadyOnLiveView) return null;
 
-  const primaryCall = activeCalls[0];
+  // A call the assistant needs a person for always comes first.
+  const primaryCall = activeCalls.find((c) => c.needsPerson) || activeCalls[0];
+  const needsPerson = Boolean(primaryCall.needsPerson);
   const callerLabel = primaryCall.prospect || primaryCall.caller || primaryCall.phone || "Inbound Caller";
   const duration = primaryCall.duration || "00:01";
   const isOtherPlugin = currentPlugin !== "voice";
 
   return (
     <div
+      role={needsPerson ? "alert" : undefined}
       style={{
         position: "fixed",
         top: 20,
@@ -397,10 +400,10 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
         zIndex: 999999,
         maxWidth: 420,
         minWidth: 340,
-        background: "linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%)",
-        border: "2px solid #6366F1",
+        background: needsPerson ? "linear-gradient(135deg, #3B0A0A 0%, #1E1B4B 100%)" : "linear-gradient(135deg, #0F172A 0%, #1E1B4B 100%)",
+        border: needsPerson ? "2px solid #F87171" : "2px solid #6366F1",
         borderRadius: 14,
-        boxShadow: "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(99, 102, 241, 0.4)",
+        boxShadow: needsPerson ? "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(248, 113, 113, 0.5)" : "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(99, 102, 241, 0.4)",
         color: "#fff",
         padding: "16px 18px",
         fontFamily: "Inter, system-ui, sans-serif",
@@ -420,7 +423,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
             }}
           />
           <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A5B4FC" }}>
-            {isOtherPlugin ? "Live Call in Progress" : "Inbound Call Ringing"}
+            {needsPerson ? "A call needs you now" : isOtherPlugin ? "Live Call in Progress" : "Inbound Call Ringing"}
           </span>
           <span
             style={{
@@ -460,10 +463,20 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
           <span>{callerLabel}</span>
         </div>
         <div style={{ fontSize: 12, color: "#CBD5E1", lineHeight: 1.4 }}>
-          {isOtherPlugin
-            ? "AI Operator is speaking live with caller. Take over or listen now!"
-            : "Caller is connected live. Switch to the live monitor to take over or listen."}
+          {needsPerson
+            ? `The assistant asked for a person${primaryCall.flag ? `: ${primaryCall.flag}` : "."}`
+            : isOtherPlugin
+              ? "AI Operator is speaking live with caller. Take over or listen now!"
+              : "Caller is connected live. Switch to the live monitor to take over or listen."}
         </div>
+        {needsPerson && primaryCall.summary ? (
+          <div style={{ fontSize: 12, color: "#E2E8F0", lineHeight: 1.5, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.07)", whiteSpace: "pre-wrap", maxHeight: 150, overflowY: "auto" }}>
+            {primaryCall.summary}
+          </div>
+        ) : null}
+        {needsPerson && !primaryCall.summary ? (
+          <div style={{ fontSize: 11.5, color: "#FCA5A5", marginTop: 6 }}>Writing a summary of the call for you…</div>
+        ) : null}
         {isOtherPlugin && (
           <div style={{ fontSize: 11, color: "#A5B4FC", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}>
             <span>💾</span>
@@ -493,7 +506,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
             boxShadow: "0 4px 12px rgba(16, 185, 129, 0.35)",
           }}
         >
-          ⚡ {isOtherPlugin ? "Jump to Call & Take Over" : "Switch to Live Monitor"} &rarr;
+          ⚡ {needsPerson ? "Open the call & take over" : isOtherPlugin ? "Jump to Call & Take Over" : "Switch to Live Monitor"} &rarr;
         </button>
         <button
           onClick={() => onDismissCall(primaryCall.id || primaryCall.call_sid)}

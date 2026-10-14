@@ -326,6 +326,7 @@ class LiveCall(Base):
     ended = Column(Boolean, default=False)
     booked = Column(Boolean, default=False)
     transcript = Column(JSON, default=list)
+    summary = Column(Text, default="")  # AI summary of the call so far (final once it ends)
     prospect_timezone = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -349,6 +350,7 @@ class CallLog(Base):
     requested_follow_up = Column(JSON, nullable=True)
     words_locked = Column(Boolean, default=True)
     transcript = Column(JSON, default=list)
+    summary = Column(Text, default="")  # AI summary of the finished call
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Meeting(Base):

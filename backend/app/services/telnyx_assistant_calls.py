@@ -493,6 +493,11 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         await _broadcast("call_ended", {"callId": call_id, "endedBy": "remote", "state": rec.state})
         await _broadcast("call_updated", {"callId": call_id, "ended": True, "state": rec.state, "duration": rec.duration})
 
+    if answered and not already_ended:
+        from app.services.call_summary import summarize_finished
+
+        # The call's AI summary is written once the last turns are in (kept on the call, not mailed).
+        asyncio.create_task(summarize_finished(call_id, delay=10.0))
     if answered and not summary and not already_ended:
         # Telnyx can finish writing the last turns a moment after hangup.
         asyncio.create_task(_late_transcript_refresh(call_control_id, call_id))

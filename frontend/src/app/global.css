@@ -575,3 +575,20 @@ button, input, select, textarea {
     min-width: 640px;
   }
 }
+
+/* Improve this company: live progress while checks run */
+.imp-step { transition: background .25s, opacity .25s; border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+.imp-step--run { background: rgba(37, 99, 235, .07); animation: imp-glow 1.6s ease-in-out infinite; }
+.imp-step--wait { opacity: .55; }
+.imp-pop { animation: imp-pop .35s cubic-bezier(.3, 1.6, .5, 1); }
+.imp-note { animation: imp-fade .35s ease-out; }
+.imp-bar { height: 5px; border-radius: 3px; background: rgba(0, 0, 0, .08); overflow: hidden; position: relative; }
+.imp-bar > span { display: block; height: 100%; border-radius: 3px; background: #2563eb; transition: width .5s ease; }
+.imp-bar--live > span { background-image: linear-gradient(90deg, #2563eb, #60a5fa, #2563eb); background-size: 200% 100%; animation: imp-slide 1.2s linear infinite; }
+.imp-dots::after { content: ""; animation: imp-dots 1.2s steps(4, end) infinite; }
+@keyframes imp-glow { 0%, 100% { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .15); } 50% { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .45); } }
+@keyframes imp-pop { 0% { transform: scale(.4); } 100% { transform: scale(1); } }
+@keyframes imp-fade { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@keyframes imp-slide { to { background-position: -200% 0; } }
+@keyframes imp-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+@media (prefers-reduced-motion: reduce) { .imp-step--run, .imp-pop, .imp-note, .imp-bar--live > span, .imp-dots::after { animation: none; } }
