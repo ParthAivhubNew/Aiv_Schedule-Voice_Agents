@@ -72,6 +72,13 @@ def _clean(value: Any, limit: int = 300) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+def _phone(value: Any) -> str:
+    """A phone with any web-link encoding undone ("%2002033717939" becomes "02033717939")."""
+    from app.services.enrichment_service import clean_tel
+
+    return _clean(clean_tel(value), 60)
+
+
 MAX_CUSTOM_COLUMNS = 30
 _RESERVED_COLUMNS = {"name", "website", "phone", "email", "contact", "contact_name", "contact_title", "industry", "region", "notes"}
 
@@ -131,7 +138,7 @@ def _found(a: LeadAccount) -> Dict[str, Any]:
 
 def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]:
     return {"found": _found(a),
-        "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": a.phone or "",
+        "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": _phone(a.phone),
         "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
@@ -435,7 +442,7 @@ async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[B
         row.business_record_id = shared.id
         row.industry = row.industry or _clean(shared.industry, 120)
         row.region = row.region or _clean(shared.region, 120)
-        row.phone = row.phone or _clean(shared.phone, 60)
+        row.phone = _phone(row.phone) or _phone(shared.phone)
         row.email = row.email or _clean(shared.email, 200).lower()
         if shared.shared_research and not row.research:
             row.research = shared.shared_research
@@ -466,13 +473,15 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     name). Checks our own shared store first, same as /research; whatever it finds is saved
     back to that store so the next lookup for this company is free."""
     row = await _account(db, account_id)
+    if (row.verification or {}).get("verdict") == "problem":
+        return _out(row, await _registry_for(db, account_id))  # the company has ended: nothing found would be about it
     await _apply_shared_record(db, row)
     await _can_deep_search(db)
     place = await search_google_places(f"{row.name} {row.region}".strip())
     if not place:
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
-    row.phone = row.phone or _clean(place.get("phone"), 60)
+    row.phone = _phone(row.phone) or _phone(place.get("phone"))
     row.website = row.website or _clean(place.get("website"), 300)
     row.region = row.region or _clean(place.get("address"), 120)
     if not row.domain and row.website:
@@ -515,17 +524,43 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     return _out(row, biz)
 
 
+_UK_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b", re.I)
+# Sites that list many businesses: their pages and contacts are never this company's own.
+_LISTING_SITES = ("booking.com", "tripadvisor.", "facebook.com", "yell.com", "trustpilot.", "linkedin.com", "yelp.", "opentable.",
+                  "checkatrade.com", "companieshouse.gov.uk", "endole.co.uk", "opencorporates.com", "dnb.com", "google.com", "instagram.com")
+
+
+def _is_uk(row: LeadAccount) -> bool:
+    vals = [row.region or "", row.website or ""] + [str(v) for v in (row.custom or {}).values()]
+    return any(_UK_POSTCODE.search(v) or re.search(r"\b(uk|united kingdom|england|scotland|wales)\b", v, re.I) or v.lower().rstrip("/").endswith(".uk") for v in vals)
+
+
+def _wrong_business(row: LeadAccount, data: Dict[str, Any]) -> bool:
+    """A UK company whose web result is a listing site or a number from another country is a different business."""
+    if not _is_uk(row):
+        return False
+    host = _domain(str(data.get("domain") or ""))
+    if host and any(site in host for site in _LISTING_SITES):
+        return True
+    digits = re.sub(r"\D", "", str(data.get("primaryPhone") or ""))
+    return bool(digits) and not digits.startswith(("0", "44"))
+
+
 async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     """The live web search itself: fills the account's empty fields and its research dossier. Returns
     whether anything was found (the only case that is charged). Does not commit or charge; the caller does.
     Raises HTTPException 502 when the search can't run. Used by Research and by the bulk Enrich run."""
     before = {f: (getattr(row, f, "") or "").strip() for f in QUALITY_FIELDS}
+    if (row.verification or {}).get("verdict") == "problem":
+        return False  # the company has ended: whatever the web shows would be about a different business
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
                                                   place=row.region or None, page_url=row.source_url or None, db=db)
     except Exception:
         raise HTTPException(status_code=502, detail=f"Couldn't research {row.name} right now. Nothing was charged; try again in a minute.")
+    if _wrong_business(row, data):
+        return False  # a UK company matched to a foreign listing or a booking site: use none of it
     people = [{"name": _clean(p.get("name"), 120), "role": _clean(p.get("roleHint"), 120), "source": p.get("source") or ""}
               for p in (data.get("keyPeople") or []) if p.get("name")]
     # Each entry here is one real person with whatever was actually found right next to their name
@@ -561,7 +596,7 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     if not row.domain and data.get("domain"):
         row.domain = _domain(data["domain"])
         row.website = row.website or (data["domain"] if "://" in data["domain"] else f"https://{row.domain}")
-    row.phone = row.phone or _clean(data.get("primaryPhone"), 60)
+    row.phone = _phone(row.phone) or _phone(data.get("primaryPhone"))
     row.email = row.email or _clean(data.get("primaryEmail"), 200).lower()
     if people and not row.contact_name:
         row.contact_name, row.contact_title = people[0]["name"], row.contact_title or people[0]["role"]

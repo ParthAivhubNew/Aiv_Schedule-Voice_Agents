@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, CheckCircle2, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -9,7 +9,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
 import { applyMapping } from "./importMapping";
-import { CheckDetails, CheckDialog, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
+import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
@@ -87,6 +87,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
   // One button, every source, cheapest first: our own records (free), then the web, then a deep web search only if a phone or
   // website is still missing. Each step reports for itself so the person watches it work, and a step that can't run
   // (such as no credits left) stops the rest instead of failing quietly.
+  const dissolved = (a) => a.verification?.verdict === "problem";
   const improve = async (id, { again = false } = {}) => {
     const before = accounts.find((x) => x.id === id);
     if (!before) return null;
@@ -95,9 +96,9 @@ export function useLeadAccounts(onToast, onListsChanged) {
     const plan = [
       { key: "records", label: "Check our own records", run: () => api.quickCheckLeadAccount(id), skip: () => "" },
       { key: "web", label: "Search the web for details, people and sources", run: () => api.researchLeadAccount(id),
-        skip: (a) => (a.researched_at && !again ? "Already looked up before" : "") },
+        skip: (a) => (dissolved(a) ? "Skipped: this company has ended" : a.researched_at && !again ? "Already looked up before" : "") },
       { key: "deep", label: "Deep web search for a phone or website", run: () => api.deepSearchLeadAccount(id),
-        skip: (a) => (a.phone && a.website ? "Not needed, both are filled in" : "") },
+        skip: (a) => (dissolved(a) ? "Skipped: this company has ended" : a.phone && a.website ? "Not needed, both are filled in" : "") },
     ];
     stopped.current.delete(id);
     setResearching((b) => ({ ...b, [id]: "improve" }));
@@ -208,19 +209,30 @@ export function useLeadAccounts(onToast, onListsChanged) {
 
 // What happens next for a company that still isn't complete or verified. Finding data is our job, so every point is something
 // we do or something the person already knows, never a pointer to another service. When we have searched everything, we say so.
+const SHARED_INBOX = /^(info|hello|contact|enquiries|enquiry|office|admin|sales|support|accounts|mail|team|reception)@/i;
+const NAMES = { website: "website", phone: "phone", email: "email", contact_name: "contact" };
+// What to do next, chosen from this company's own state. Each tip names what is actually wrong here, and nothing shows when nothing is.
 function tipsFor(a) {
   const has = (k) => Boolean(String(a[k] || "").trim());
   const v = a.verification || {};
   const searched = Boolean(a.researched_at);
   const gaps = ["website", "phone", "email", "contact_name"].filter((k) => !has(k));
   const tips = [];
-  if (gaps.length && !searched) tips.push(["Not searched yet", "Press Improve this company. We check our records, then the web, and fill in what we find."]);
-  if (gaps.length && searched) tips.push(["We have searched", "Our records and the web were checked and these details were not published anywhere we can reach. Improve again re-runs the search with a deeper web pass, and new details appear here when we find them."]);
-  if (!has("website") && gaps.length) tips.push(["Know the website?", "If you already have it from your own file or a conversation, type it under Details. We then search that site for the phone, email and contact."]);
-  if (!has("contact_name") && has("website")) tips.push(["Contact", "We look for the owner or director on the company's own pages. If none is published, you can still send to the general address."]);
-  if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Check & improve from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
-  if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Check & improve from the list. We test the address before you send, so it doesn't bounce."]);
-  if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something, so repeated searches that find nothing cost nothing. You can also leave this company out of a campaign."]);
+  if (gaps.length) {
+    const list = gaps.map((k) => NAMES[k]).join(", ");
+    tips.push(searched
+      ? ["Still missing: " + list, "Our records and the web were searched and these are not published anywhere we can reach. Improve again re-runs the search. New details appear here as we find them."]
+      : ["Missing: " + list, "Press Improve this company. We check our records, then the web, and fill in what we find."]);
+  }
+  if (!has("website") && gaps.length) tips.push(["Know the website?", "If you have it from your own file or a conversation, type it under Details. We then read that site for the phone, email and contact."]);
+  if (has("website") && !has("phone") && searched) tips.push(["No phone on their site", "We read the company's own pages and found no number. A deep web search looks beyond the site and runs as part of Improve."]);
+  if (has("website") && !has("contact_name")) tips.push(["No named contact", has("email") && SHARED_INBOX.test(a.email) ? "Only a shared inbox was found. An email to it reaches the firm, not a person. Improve looks for the owner or director on their pages." : "We look for the owner or director on the company's own pages."]);
+  if (has("email") && SHARED_INBOX.test(a.email) && has("contact_name")) tips.push(["Shared inbox", "The email is a shared address. It works, but a message to a named person usually gets more replies. Check the email lines for this lead."]);
+  if (v.phone?.state === "invalid") tips.push(["This number isn't usable", (v.phone.note ? v.phone.note + " " : "") + "Correct it under Details, or Improve to find another."]);
+  else if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Check & improve from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
+  if (v.email?.state === "invalid") tips.push(["This email will bounce", "The address failed our test. Correct it under Details, or Improve to find another."]);
+  else if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Check & improve from the list. We test the address before you send, so it doesn't bounce."]);
+  if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something. You can also leave this company out of a campaign."]);
   return tips;
 }
 function TipsCard({ account }) {
@@ -255,6 +267,7 @@ function ImproveCard({ store, account }) {
     { key: "deep", label: "Deep web search for a phone or website", state: "idle", note: deepCost == null ? "Only if still missing" : `${creditWord(deepCost)}, only if still missing and found` },
   ];
   const r = state?.done ? state.result : null;
+  const ended = account.verification?.verdict === "problem";
   const finished = steps.filter((st) => st.state === "done" || st.state === "skip" || st.state === "fail").length;
   const live = busy && state && !state.done;
   const running = steps.find((st) => st.state === "run");
@@ -268,6 +281,11 @@ function ImproveCard({ store, account }) {
           <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
             {live ? <span className="imp-dots">{running ? `${running.label}` : "Starting"}</span> : `Step ${finished} of ${steps.length} finished`}
           </div>
+        </div>
+      ) : null}
+      {ended ? (
+        <div role="note" style={{ ...text, fontSize: 12.5, color: C.red, background: C.redSoft, borderRadius: 8, padding: "8px 11px", lineHeight: 1.45 }}>
+          This company has ended, so we don't search for its contact details. Anything found online would belong to a different business.
         </div>
       ) : null}
       <div style={{ ...muted, fontSize: 12.5 }}>
@@ -291,7 +309,7 @@ function ImproveCard({ store, account }) {
         })}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" className="ui-btn ui-btn--primary" disabled={busy} onClick={() => store.improve(account.id, { again: Boolean(state?.done) })}
+        <button type="button" className="ui-btn ui-btn--primary" disabled={busy || ended} onClick={() => store.improve(account.id, { again: Boolean(state?.done) })}
           title="Tries our records first (free), then the web, then a deep web search if a phone or website is still missing. You are charged only for what is found.">
           {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {busy ? "Working…" : state?.done || account.researched_at ? "Improve again" : "Improve this company"}
         </button>
@@ -431,6 +449,7 @@ function FoundSummary({ account }) {
       <div style={{ ...text, fontSize: 12, color: C.slateLight }}>
         {tried.length ? `Checked: ${tried.join(", ")}.` : "Not checked yet."}
         {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Improve this company below to search for them"}.` : ""}
+        {` The ${f.after_pct}% counts four details: website, phone, email and contact, 25% each.`}
       </div>
     </section>
   );
@@ -672,7 +691,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
             </thead>
             <tbody>
               {shown.map((a) => (
-                <tr key={a.id}>
+                <tr key={a.id} style={a.verification?.verdict === "problem" ? { background: C.redSoft } : undefined}>
                   <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
@@ -691,8 +710,14 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                       ) : <Empty a={a} />}
                     </td>
                   ) : null}
-                  {showing("email") ? <td style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
-                    {emailFor(a) ? <>{emailFor(a).text}{emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}{isNew(a, "email") ? <NewTag /> : null}</> : <Empty a={a} />}</td> : null}
+                  {showing("email") ? <td style={{ maxWidth: 240, whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
+                    {emailFor(a) ? (
+                      <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{emailFor(a).text}</span>
+                        {emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5, flex: "none" }}>&nbsp;· from research</span> : null}
+                        {isNew(a, "email") ? <span style={{ flex: "none" }}><NewTag /></span> : null}
+                      </div>
+                    ) : <Empty a={a} />}</td> : null}
                   {showing("contact") ? (
                     <td>
                       {contactFor(a)
@@ -704,7 +729,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   {showing("quality") ? <td>{wasLookedUp(a) ? <QualityBar found={a.found} /> : <span style={{ color: C.slateLight }}>—</span>}</td> : null}
                   {showing("check") ? (
                     <td>
-                      <VerdictBadge verification={a.verification} />
+                      <VerdictBadge verification={a.verification} withWhy />
                       {openFixes(a).map((f) => (
                         <div key={f.field} style={{ fontSize: 12, marginTop: 3, color: C.textInk }} title={f.why}>
                           <span style={{ color: C.slate }}>{f.field}:</span> {f.from || "—"} → <strong>{f.to}</strong>{" "}
@@ -723,7 +748,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                     <span style={{ display: "inline-flex", gap: 6 }}>
                       <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={Boolean(store.researching[a.id])} onClick={() => onOpen(a)}
                         title="Open this company to see what is missing and improve it. The cost is shown first">
-                        {store.researching[a.id] ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {store.researching[a.id] ? "Working…" : "Improve"}
+                        {store.researching[a.id] ? <RefreshCw size={14} className="ui-spin" /> : a.researched_at ? <CheckCircle2 size={14} color="#15803D" /> : <Sparkles size={14} />} {store.researching[a.id] ? "Working…" : a.researched_at ? "Improved" : "Improve"}
                       </button>
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>Open</button>
                       {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => removeFromList([a.id])} title="Remove from this list">Remove</button> : null}
@@ -986,8 +1011,11 @@ export function AccountPanel({ account, store, onClose }) {
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+          <EndedBanner account={live} />
+          {["problem", "not_found"].includes(live.verification?.verdict) ? <CheckDetails account={live} /> : null}
           <FoundSummary account={live} />
-          <CheckDetails account={live} />
+          <DetailChecks account={live} />
+          {["problem", "not_found"].includes(live.verification?.verdict) ? null : <CheckDetails account={live} />}
           {Object.keys(live.custom || {}).length ? (
             <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>From your file</div>

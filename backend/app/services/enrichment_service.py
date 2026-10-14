@@ -565,8 +565,15 @@ _NON_NAME_WORDS = {
 }
 
 
+def clean_tel(raw: str) -> str:
+    """A phone as written in a link or page: "%2002033717939" is a space plus the number, so decode it first."""
+    from urllib.parse import unquote
+
+    return unquote(str(raw or "")).split(";")[0].strip()
+
+
 def _is_real_phone(raw: str) -> bool:
-    if not raw:
+    if not raw or "%" in raw:
         return False
     if "555-0" in raw or "inferred" in raw.lower() or "reg" in raw.lower() or "company" in raw.lower():
         return False
@@ -927,9 +934,9 @@ def _harvest_soup(soup: BeautifulSoup, phones: set, emails: set, socials: dict) 
         href = _clean_href(tag.get("href") or tag.get("data-href") or tag.get("data-url") or "")
         low = href.lower()
         if low.startswith("tel:"):
-            cand = href.split(":", 1)[-1]
+            cand = clean_tel(href.split(":", 1)[-1])
             if _is_real_phone(cand):
-                phones.add(cand.strip())
+                phones.add(cand)
             continue
         if low.startswith("mailto:"):
             cand = href.split(":", 1)[-1].split("?")[0]

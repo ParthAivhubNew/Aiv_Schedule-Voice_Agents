@@ -258,7 +258,9 @@ def page_phones(html: str) -> List[str]:
     found: List[str] = []
     text = (html or "")[:300000]
     for chunk in re.findall(r'href=["\']tel:([^"\']+)', text, flags=re.I) + [m.group(0) for m in _PHONE_IN_TEXT.finditer(re.sub(r"<[^>]+>", " ", text))]:
-        key = last10(chunk)
+        from urllib.parse import unquote
+
+        key = last10(unquote(chunk))
         if len(key) == 10 and key not in found:
             found.append(key)
         if len(found) >= 10:
