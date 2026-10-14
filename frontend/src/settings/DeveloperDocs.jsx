@@ -376,6 +376,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
             >
               <div style={{ color: "#94A3B8", fontSize: 11, marginBottom: 4 }}>AUTHENTICATION HEADER</div>
               <div style={{ color: "#38BDF8" }}>Authorization: Bearer sk_...</div>
+              <div style={{ color: "#64748B", fontSize: 10.5, marginTop: 4 }}>Required in headers (URL query tokens not accepted)</div>
             </div>
           </div>
 

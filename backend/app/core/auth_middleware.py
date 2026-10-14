@@ -56,6 +56,12 @@ if os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes"):
 
 PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 
+# Query-string tokens (?access_token=) are permitted ONLY for browser contexts that cannot
+# attach custom Authorization headers (<audio src>, file downloads, and WebSockets).
+QUERY_TOKEN_ALLOWED = re.compile(
+    _OPT_API + r"(?:calls/[^/]+/recording(?:/download)?|calcom/bookings/[^/]+/ics|scheduler/media/[^/]+|media/.*)"
+)
+
 # Developer API keys reach the public /v1 API only, never the app's own endpoints (team,
 # billing, key management ...). Set API_KEY_V1_ONLY=false to lift this while investigating.
 API_KEY_V1_ONLY = os.getenv("API_KEY_V1_ONLY", "true").lower() in ("1", "true", "yes")
@@ -245,9 +251,12 @@ class AuthMiddleware:
                 return await _carrier_webhook_in_org(self.app, scope, receive, send)
             return await self.app(scope, receive, send)
 
+        has_auth_header = _has_bearer(scope)
         token = _token_from(scope)
-        if not websocket and method != "GET" and not _has_bearer(scope):
-            token = ""  # query-string tokens only for reads (links, audio, downloads)
+        if not has_auth_header:
+            # Query-string tokens are accepted ONLY for WebSockets and specific media/download endpoints
+            if not websocket and not QUERY_TOKEN_ALLOWED.match(path):
+                token = ""
 
         # Developer API Key Authentication (sk_live_... or sk_test_...)
         if token and (token.startswith("sk_live_") or token.startswith("sk_test_")):
@@ -376,7 +385,10 @@ def forget_api_keys() -> None:
 
 
 def _has_bearer(scope) -> bool:
-    return any(n in (b"authorization", b"x-api-key", b"api-key") for n, _ in (scope.get("headers") or []))
+    for n, v in (scope.get("headers") or []):
+        if n in (b"authorization", b"x-api-key", b"api-key") and v.strip():
+            return True
+    return False
 
 
 def _ws_need(path: str) -> Optional[Tuple[str, str]]:

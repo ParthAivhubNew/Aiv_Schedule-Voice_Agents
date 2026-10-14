@@ -1614,7 +1614,7 @@ func main() {
 
             {selectedAction.read && (
               <div style={{ marginTop: 10, fontSize: 11.5, color: C.slate }}>
-                💡 Because this step only reads, it can also be requested via direct link:{" "}
+                💡 Because this step only reads, it can also be requested via GET (with your <code style={{ color: C.cobalt, fontFamily: FONT_MONO }}>Authorization: Bearer</code> header):{" "}
                 <code style={{ color: C.cobalt, fontFamily: FONT_MONO }}>
                   {API_BASE}/v1/run?plugin={selectedAction.p}&amp;action={selectedAction.a}{selectedAction.id ? "&id=<id>" : ""}
                 </code>

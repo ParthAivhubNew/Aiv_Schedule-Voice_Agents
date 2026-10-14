@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
+import os
 import asyncio
 import logging
 import uuid
@@ -668,13 +669,48 @@ async def lifespan(app: FastAPI):
     social_token_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
+expose_docs = os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url="/docs" if expose_docs else None,
+    redoc_url="/redoc" if expose_docs else None,
+    openapi_url="/openapi.json" if expose_docs else None,
 )
+
+class SecurityHeadersMiddleware:
+    """Injects essential security hardening headers on all HTTP responses."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                existing_names = {h[0].lower() for h in headers}
+
+                hardening = [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (b"x-xss-protection", b"0"),
+                    (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+                ]
+                for name, val in hardening:
+                    if name not in existing_names:
+                        headers.append((name, val))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
+
+# Response security headers (outermost response wrapper)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Sign-in and permission check for every request (innermost, so CORS headers still apply to 401/403).
 from app.core.auth_middleware import AuthMiddleware, install_log_redaction
@@ -691,7 +727,11 @@ app.add_middleware(
 
 try:
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+    # In production, set TRUSTED_PROXIES="127.0.0.1,10.0.0.1" (or specific reverse proxy IPs).
+    # Defaults to localhost/loopback to prevent remote clients from spoofing IPs via X-Forwarded-For.
+    trusted_raw = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1")
+    trusted_hosts = [h.strip() for h in trusted_raw.split(",") if h.strip()]
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted_hosts)
 except Exception:
     pass
 
