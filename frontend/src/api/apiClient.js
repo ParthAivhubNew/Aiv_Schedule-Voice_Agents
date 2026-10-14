@@ -353,6 +353,7 @@ export const api = {
   quickCheckLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/quick-check`, { method: 'POST' }),
   // Check companies (Saved Accounts): validate a list against our records, the registers and the web
   estimateCompanyCheck: (body) => apiRequest('/leads/checks/estimate', { method: 'POST', body, timeoutMs: 30000 }),
+  checkLeadAccount: (id) => apiRequest(`/leads/checks/account/${encodeURIComponent(id)}`, { method: 'POST', timeoutMs: 120000 }),
   startCompanyCheck: (body) => apiRequest('/leads/checks', { method: 'POST', body, timeoutMs: 30000 }),
   latestCompanyCheck: () => apiRequest('/leads/checks/latest'),
   getCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}`),

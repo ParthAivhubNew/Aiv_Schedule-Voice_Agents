@@ -23,6 +23,13 @@ export function WalletCard({ w }) {
   const size = w.batches.reduce((a, b) => a + b.amount, 0) || 1;
   const pct = Math.max(0, Math.min(100, Math.round((Math.max(w.balance, 0) / size) * 100)));
   const colour = w.empty ? C.red : w.low ? "#D97706" : WALLET_COLOUR[w.key];
+  // When credits end, in plain words, the same on every app: what expires and when, and what never does.
+  const expiring = w.batches.filter((b) => b.expiresAt).reduce((a, b) => a + b.remaining, 0);
+  const never = Math.max(0, w.balance - expiring);
+  const soon = w.nextExpiry && (new Date(w.nextExpiry.at + (w.nextExpiry.at.endsWith("Z") ? "" : "Z")) - Date.now()) / 86400000 <= 7;
+  const expiryText = w.nextExpiry
+    ? `${fmt(w.nextExpiry.amount)} expire ${day(w.nextExpiry.at)}${never > 0 ? ` · ${fmt(never)} never expire` : ""}`
+    : "None of these credits expire";
   return (
     <div style={{ border: `1px solid ${w.empty ? "#F0C4B8" : C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.slate, fontWeight: 600 }}>
@@ -33,7 +40,11 @@ export function WalletCard({ w }) {
         <div style={{ width: `${pct}%`, height: "100%", background: colour, transition: "width .4s" }} />
       </div>
       <div style={{ fontSize: 11.5, color: w.empty ? C.red : C.slate, marginTop: 6, minHeight: 16 }}>
-        {w.empty ? "Paused: out of credits" : w.low ? "Running low (20% or less)" : w.nextExpiry ? `${fmt(w.nextExpiry.amount)} expire ${day(w.nextExpiry.at)}` : "No expiry"}
+        {w.empty ? "Paused: out of credits" : w.low ? "Running low (20% or less)" : null}
+      </div>
+      <div title="Plan credits expire when the plan renews. Top-up credits never expire."
+        style={{ fontSize: 11.5, marginTop: 2, color: soon ? "#B45309" : C.slate, fontWeight: soon ? 700 : 400 }}>
+        {expiryText}
       </div>
     </div>
   );

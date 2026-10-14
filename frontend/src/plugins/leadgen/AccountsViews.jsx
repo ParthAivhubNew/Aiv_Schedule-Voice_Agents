@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, CheckCircle2, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -88,6 +88,15 @@ export function useLeadAccounts(onToast, onListsChanged) {
   // website is still missing. Each step reports for itself so the person watches it work, and a step that can't run
   // (such as no credits left) stops the rest instead of failing quietly.
   const dissolved = (a) => a.verification?.verdict === "problem";
+  // What the last step learned, in a few words: "Phone confirmed, email looks right".
+  const verifiedNote = (a) => {
+    const v = a.verification || {};
+    const bits = [];
+    if (a.phone) bits.push(v.phone?.verified === true ? "phone confirmed" : v.phone?.state === "invalid" ? "phone not usable" : v.phone?.state === "unconfirmed" ? "phone not a normal line" : "phone format ok");
+    if (a.email) bits.push(["ok", "verified", "found"].includes(v.email?.state) ? "email looks right" : v.email?.state === "invalid" ? "email will bounce" : "email couldn't be checked");
+    const text = bits.join(", ");
+    return text ? text[0].toUpperCase() + text.slice(1) : "Checked";
+  };
   const improve = async (id, { again = false } = {}) => {
     const before = accounts.find((x) => x.id === id);
     if (!before) return null;
@@ -99,6 +108,9 @@ export function useLeadAccounts(onToast, onListsChanged) {
         skip: (a) => (dissolved(a) ? "Skipped: this company has ended" : a.researched_at && !again ? "Already looked up before" : "") },
       { key: "deep", label: "Deep web search for a phone or website", run: () => api.deepSearchLeadAccount(id),
         skip: (a) => (dissolved(a) ? "Skipped: this company has ended" : a.phone && a.website ? "Not needed, both are filled in" : "") },
+      // Last, so it checks what the steps above just found: the company register, the website, every email and every phone number.
+      { key: "verify", label: "Check the phone, email and website", run: () => api.checkLeadAccount(id),
+        skip: (a) => (!a.phone && !a.email && !a.website ? "Nothing to check yet" : "") },
     ];
     stopped.current.delete(id);
     setResearching((b) => ({ ...b, [id]: "improve" }));
@@ -115,7 +127,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
         const a = await st.run();
         replace(a);
         const gained = missing(cur).filter((k) => !missing(a).includes(k)).length;
-        mark(st.key, { state: "done", note: gained ? `Added ${gained} detail${gained === 1 ? "" : "s"}` : "Nothing new" });
+        mark(st.key, { state: "done", note: st.key === "verify" ? verifiedNote(a) : gained ? `Added ${gained} detail${gained === 1 ? "" : "s"}` : "Nothing new" });
         cur = a;
       } catch (e) {
         const msg = e.message || "Couldn't finish this step.";
@@ -144,6 +156,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
       try {
         const r = await api.saveLeadAccounts(list, listName);
         if (r.accounts?.length) setAccounts((prev) => [...r.accounts, ...prev]);
+        (r.updated || []).forEach(replace); // companies already saved that the file filled in
         if (onListsChanged) onListsChanged();
         if (quiet) return r; // the caller reports once, after the last batch
         const where = r.list ? ` in the list ${r.list.name}` : "";
@@ -265,6 +278,7 @@ function ImproveCard({ store, account }) {
     { key: "records", label: "Check our own records", state: "idle", note: "Free" },
     { key: "web", label: "Search the web for details, people and sources", state: "idle", note: webCost == null ? "" : `${creditWord(webCost)}, only if something is found` },
     { key: "deep", label: "Deep web search for a phone or website", state: "idle", note: deepCost == null ? "Only if still missing" : `${creditWord(deepCost)}, only if still missing and found` },
+    { key: "verify", label: "Check the phone, email and website", state: "idle", note: rates.lead_phone_check ? `${creditWord(rates.lead_phone_check.credits)} per ${rates.lead_phone_check.unit} checked` : "" },
   ];
   const r = state?.done ? state.result : null;
   const ended = account.verification?.verdict === "problem";
@@ -746,11 +760,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
-                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={Boolean(store.researching[a.id])} onClick={() => onOpen(a)}
-                        title="Open this company to see what is missing and improve it. The cost is shown first">
-                        {store.researching[a.id] ? <RefreshCw size={14} className="ui-spin" /> : a.researched_at ? <CheckCircle2 size={14} color="#15803D" /> : <Sparkles size={14} />} {store.researching[a.id] ? "Working…" : a.researched_at ? "Improved" : "Improve"}
+                      <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>
+                        {store.researching[a.id] ? <><RefreshCw size={13} className="ui-spin" /> Working…</> : "Open"}
                       </button>
-                      <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>Open</button>
                       {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => removeFromList([a.id])} title="Remove from this list">Remove</button> : null}
                     </span>
                   </td>

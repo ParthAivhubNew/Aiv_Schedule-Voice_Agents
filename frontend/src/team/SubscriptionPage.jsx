@@ -188,7 +188,7 @@ export function SubscriptionPage({ wallet, back }) {
                 <div key={p.id} style={{ ...card, borderWidth: 2, borderColor: isMine ? WALLET_COLOUR[wallet] : C.border }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> /month{vat}</span></div>
-                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} every month{about(p)}</div>
+                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} every month{about(p)}<div style={{ marginTop: 3 }}>Unused credits don't carry over. They are replaced when the plan renews.</div></div>
                   <div style={{ marginTop: 10 }}>
                     {isMine ? (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 700, color: WALLET_COLOUR[wallet] }}><Check size={14} /> Your plan</span>
@@ -216,7 +216,7 @@ export function SubscriptionPage({ wallet, back }) {
                 <div key={p.id} style={{ ...card, borderStyle: "dashed" }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, marginTop: 2 }}>{money(p.priceUsdCents, p.currency)}<span style={{ fontSize: 12, color: C.slate, fontWeight: 500 }}> each{vat}</span></div>
-                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} each, never expire{about(p)}</div>
+                  <div style={{ fontSize: 12.5, color: C.slate, minHeight: 34 }}>{worth(p.credits)} each, never expire{about(p)}<div style={{ marginTop: 3 }}>Used after your plan credits, so they carry over.</div></div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden" }}>
                       <button type="button" aria-label={`One fewer ${p.name}`} style={stepBtn} disabled={n <= 1} onClick={() => setN(n - 1)}>−</button>

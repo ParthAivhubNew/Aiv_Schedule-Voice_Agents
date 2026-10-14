@@ -345,7 +345,9 @@ def _place(region: str) -> str:
 @router.post("/accounts")
 async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     """Save one or many accounts. A company already saved (same website, or same name when there
-    is no website) is skipped, so saving a search twice or re-importing a file adds no copies."""
+    is no website) is skipped, so saving a search twice or re-importing a file adds no copies. When the
+    match comes from an import, what the file holds fills the saved company's blanks and its file columns,
+    and a company that was only found by a search is now marked as imported, because it is in the user's file."""
     if len(body.accounts) > MAX_PER_REQUEST:
         raise HTTPException(status_code=400, detail=f"Save at most {MAX_PER_REQUEST} accounts at a time.")
     existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region))).all()
@@ -355,6 +357,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     by_name = {((n or "").strip().lower(), _place(r)): i for i, _, n, r in existing}
     added: List[LeadAccount] = []
     matched: List[str] = []  # companies that were already saved: not copied, but still go in the list
+    from_file: List[tuple] = []  # (saved company id, the imported row) to fill from the file
     skipped = 0
     unnamed = 0  # rows with no name or website: nothing to save
     repeats = 0  # the same company twice in what was sent (e.g. a file listing it on two rows)
@@ -377,6 +380,8 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
                 repeats += 1
             else:
                 matched.append(hit)
+                if item.source == "import":
+                    from_file.append((hit, item))
             continue
         row = LeadAccount(
             id=f"acc_{uuid.uuid4().hex[:16]}", name=name, domain=domain,
@@ -393,8 +398,27 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         if domain:
             by_domain[domain] = row.id
         by_name[key] = row.id
+    updated: List[LeadAccount] = []
+    for hit_id, item in from_file:
+        row = await db.get(LeadAccount, hit_id)
+        if not row:
+            continue
+        for field, limit in (("phone", 60), ("email", 200), ("contact_name", 120), ("contact_title", 120), ("industry", 120), ("region", 120)):
+            value = _clean(getattr(item, field), limit)
+            if value and not (getattr(row, field) or "").strip():
+                setattr(row, field, value.lower() if field == "email" else value)
+        site = _clean(item.website)
+        if site and not (row.website or "").strip():
+            row.domain = _domain(site)
+            row.website = site if "://" in site else f"https://{site}"
+        row.custom = {**(clean_custom(item.custom) or {}), **(row.custom or {})} or None
+        if row.source == "scout":
+            row.source = "import"
+        row.updated_at = datetime.utcnow()
+        updated.append(row)
     await db.commit()
-    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "accounts": [_out(a) for a in added]}
+    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "accounts": [_out(a) for a in added],
+                           "updated": [_out(a) for a in updated]}
     if body.list_id or body.list_name.strip():
         from app.api.lead_lists import put_in_list
 

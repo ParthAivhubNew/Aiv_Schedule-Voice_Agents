@@ -52,10 +52,34 @@ async def estimate(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[st
 
 @router.post("")
 async def start_check(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    started = await job.start(db, await _accounts(db, body), body.include_email, body.include_web)
+    started = await job.start(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone)
     if started.get("error"):
         raise HTTPException(status_code=402 if "credits" in started["error"].lower() else 409, detail=started["error"])
     return started
+
+
+@router.post("/account/{account_id}")
+async def check_one(account_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Check one company and wait for the answer: its register status, website, email and phone (each number is
+    asked of the phone network). Used by Improve this company, so one button leaves the company fully checked."""
+    import asyncio
+
+    from app.api.lead_accounts import _out, _registry_for
+
+    row = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="That account is not in your saved accounts.")
+    started = await job.start(db, [row], True, False, True)
+    if started.get("error"):
+        raise HTTPException(status_code=402 if "credits" in started["error"].lower() else 409, detail=started["error"])
+    task = job._TASKS.get(started["job"]["job_id"])
+    if task:
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=90)
+        except asyncio.TimeoutError:
+            pass  # still running: the list picks up the result when it lands
+    await db.refresh(row)
+    return _out(row, await _registry_for(db, account_id))
 
 
 class AcceptIn(BaseModel):
