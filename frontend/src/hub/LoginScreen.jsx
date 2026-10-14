@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, ArrowRight, ArrowLeft } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
@@ -87,6 +87,10 @@ export function LoginScreen({ onLogin }) {
   const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Google runs on its own flag, so a Google window that was closed (and never reports back) can't lock the email form.
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const googleRun = useRef(0);
+  const dropGoogle = () => { googleRun.current += 1; setGoogleBusy(false); };
 
   const setMode = (m, keep = false) => {
     setModeRaw(m);
@@ -122,19 +126,23 @@ export function LoginScreen({ onLogin }) {
   };
 
   // Google through Firebase: a Google popup, then our server checks the token and signs in.
+  // Pressing the button again while waiting cancels it, and so does using the email form; a late answer is then ignored.
   const signInWithGoogle = async () => {
+    if (googleBusy) return dropGoogle();
+    const mine = ++googleRun.current;
     setError(null);
-    setLoading(true);
+    setGoogleBusy(true);
     try {
       const res = await api.firebaseSignIn(await googleIdToken(config.firebase));
-      if (res?.operator) finish(res.operator);
+      if (mine === googleRun.current && res?.operator) finish(res.operator);
     } catch (err) {
-      setError({ text: googleErrorText(err) });
+      if (mine === googleRun.current) setError({ text: googleErrorText(err) });
     }
-    setLoading(false);
+    if (mine === googleRun.current) setGoogleBusy(false);
   };
 
   const run = async (fn) => {
+    dropGoogle();
     setLoading(true);
     setError(null);
     try {
@@ -262,7 +270,7 @@ export function LoginScreen({ onLogin }) {
             <form onSubmit={onSubmit} className="auth-stack" noValidate>
               {config?.google && config.firebase && (mode === "signin" || mode === "signup") && (
                 <>
-                  <GoogleButton label={mode === "signup" ? "Sign up with Google" : "Continue with Google"} onClick={signInWithGoogle} disabled={loading} />
+                  <GoogleButton label={googleBusy ? "Waiting for Google… (click to cancel)" : mode === "signup" ? "Sign up with Google" : "Continue with Google"} onClick={signInWithGoogle} disabled={loading} />
                   <div className="auth-or"><span>or with email</span></div>
                 </>
               )}
@@ -288,12 +296,16 @@ export function LoginScreen({ onLogin }) {
               {mode !== "forgot" && (
                 <div>
                   <Field id="login-password" label={mode === "reset" ? "New password" : "Password"}
-                    aside={mode === "signin" ? <button type="button" className="auth-link" onClick={() => setMode("forgot")}>Forgot password?</button> : null}
                     type={showPassword ? "text" : "password"} value={password} right={pwToggle}
                     autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     placeholder={mode === "signin" ? "Your password" : "At least 8 characters"} autoFocus={mode === "reset"} />
                   {mode !== "signin" && password && <StrengthBar password={password} />}
+                  {mode === "signin" && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                      <button type="button" className="auth-link" onClick={() => setMode("forgot")}>Forgot password?</button>
+                    </div>
+                  )}
                 </div>
               )}
 
