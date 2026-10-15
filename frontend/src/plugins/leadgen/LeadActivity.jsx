@@ -56,6 +56,12 @@ export function LeadActivity({ account, store }) {
   const [pick, setPick] = useState({ date: "", time: "" });
   const call = useCallDialog(store.toast);
   const booking = useConnection("booking_in_email");
+  const [score, setScore] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.getConnectionLeads().then((r) => { if (live) setScore(r.leads?.[account.id]?.score ?? null); }).catch(() => {});
+    return () => { live = false; };
+  }, [account.id, data]);
 
   const load = useCallback(async () => {
     try {
@@ -100,6 +106,11 @@ export function LeadActivity({ account, store }) {
     <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={heading}>Journey</div>
       <Journey stage={stage} />
+      {score != null ? (
+        <div style={muted} title="Adds up: a checked email and phone, a named contact, how far along they are, call results, email opens and post engagement.">
+          Worth a call: <b style={{ color: C.ink }}>{score}</b> out of 100 ({score >= 60 ? "strong" : score >= 30 ? "fair" : "low"}). Higher means easier to reach and more interested.
+        </div>
+      ) : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <CallButton label="Call" lockedLabel="Call · add Voice" onClick={() => call.open({ kind: "one", id: account.id, name: account.name })}
           onLocked={() => call.open({ kind: "one", id: account.id, name: account.name }, true)} />

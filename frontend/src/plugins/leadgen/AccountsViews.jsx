@@ -765,7 +765,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                     <td style={{ whiteSpace: "nowrap" }}>
                       <StageBadge stage={a.connection?.stage || "new"} />
                       {extra[a.id]?.warm ? <span title="Opened your emails or engaged with your posts" style={{ ...text, fontSize: 11.5, color: C.amber, marginLeft: 6 }}>Warm</span> : null}
-                      {extra[a.id] ? <div title="How reachable and how engaged they look" style={{ ...muted, fontSize: 11.5, marginTop: 2 }}>Score {extra[a.id].score}</div> : null}
                       {a.connection?.last_call_outcome ? <div style={{ ...muted, fontSize: 11.5 }}>Last call: {String(a.connection.last_call_outcome).replace(/_/g, " ")}</div> : null}
                     </td>
                   ) : null}
