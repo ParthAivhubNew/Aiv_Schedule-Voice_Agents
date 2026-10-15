@@ -19,6 +19,7 @@ import { CallingWorkspace } from "./plugins/voice/calling/CallingWorkspace";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
 import { DeveloperApiKeysModal } from "./settings/DeveloperApiKeysModal";
 import { ConnectionsSettingsModal } from "./connections/ConnectionsSettings";
+import { InstallPrompt } from "./components/InstallPrompt";
 import { ProviderConfigView } from "./settings/ProviderConfigView";
 import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
@@ -846,6 +847,8 @@ function MainApp({ onSignedOut }) {
       />
 
       <ConnectionsSettingsModal isOpen={showConnections} onClose={() => setShowConnections(false)} initialTab={connectionsTab} />
+
+      <InstallPrompt />
     </OrgSettingsProvider>
   );
 }
