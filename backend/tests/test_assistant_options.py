@@ -17,7 +17,7 @@ def test_defaults_leave_telnyx_to_choose_and_choices_reach_the_payload():
     assert "voice_settings" not in base and "transcription" not in base and "model" not in base
     assert base["telephony_settings"] == {"recording_settings": {"enabled": False}, "user_idle_reply_secs": 10}
     assert base["interruption_settings"] == {"enable": True, "disable_greeting_interruption": False}
-    assert [t["type"] for t in base["tools"]] == ["webhook"] * 6
+    assert [t["type"] for t in base["tools"]] == ["webhook"] * 7
 
     mine = {"voiceSpeed": 1.2, "expressive": True, "background": "office", "backgroundVolume": 0.3,
             "sttModel": "deepgram/nova-3", "language": "en"}

@@ -134,6 +134,9 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
     camp_data = links.read_token(token, "campaign")
     if camp_data:
         return await _handle_campaign(camp_data["o"], camp_data["i"], form)
+    book_data = links.read_token(token, "book")
+    if book_data:
+        return await _handle_book(book_data["o"], book_data["i"], form)
     data = links.read_token(token, "post")
     if not data:
         return HTMLResponse(_GONE, status_code=404)
@@ -181,6 +184,33 @@ async def _handle_campaign(org: str, campaign_id: str, form: Optional[Dict[str, 
                                     status_code=err.status)
             company = await _company_name(db)
     return HTMLResponse(campaign_page.render(v, company, notice))
+
+
+async def _handle_book(org: str, ref_raw: str, form: Optional[Dict[str, str]]) -> HTMLResponse:
+    from app.public_api import book_page
+    from app.services.approval_mail import _company_name
+
+    ref = book_page.decode(ref_raw)
+    notice, done = "", None
+    with org_scope(org):
+        async with AsyncSessionLocal() as db:
+            try:
+                week, lead, tz = await book_page.view(db, ref)
+                if form:
+                    res = await book_page.act(db, org, ref, form, lead, tz)
+                    if res.get("error"):
+                        notice = res["error"]
+                        await db.rollback()
+                        week, lead, tz = await book_page.view(db, ref)
+                    else:
+                        done = res
+            except Exception as err:
+                logger.warning(f"booking page failed: {err}")
+                return HTMLResponse(_page("Book a time", "<h1>Booking is not available right now</h1><div class='sub'>Please try again later or reply to the message you received.</div>"), status_code=503)
+            company = await _company_name(db)
+    name = (form or {}).get("name") or getattr(lead, "contact_name", "") or ""
+    email = (form or {}).get("email") or getattr(lead, "email", "") or ""
+    return HTMLResponse(book_page.render(week, company, tz, name, email, notice, done))
 
 
 async def _handle_call(org: str, call_id: str, form: Optional[Dict[str, str]]) -> HTMLResponse:

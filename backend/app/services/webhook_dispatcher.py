@@ -240,6 +240,13 @@ def dispatch_event(org_id: str, event_type: str, data: Dict[str, Any], test: boo
     """Non-blocking fire-and-forget dispatch of a webhook event."""
     if not org_id:
         return
+    if not test:  # other plugins in this app hear about it too (see services/connections.py)
+        try:
+            from app.services import connections
+
+            connections.emit(org_id, event_type, data, str(data.get("id") or data.get("call_id") or ""))
+        except Exception:
+            pass
     try:
         loop = asyncio.get_running_loop()
         task = loop.create_task(_async_dispatch(org_id, event_type, data, test))

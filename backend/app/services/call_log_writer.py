@@ -223,6 +223,13 @@ async def upsert_call_log_from_live(
             )
             result_obj = await db.merge(entry)
 
+        try:  # the result goes back to the Lead Gen company this call was to
+            from app.services.connection_handlers import on_call_finished
+
+            await on_call_finished(db, call, result_obj, prospect_row, final_outcome, formatted)
+        except Exception as link_err:
+            logger.debug(f"[lead link skipped] {link_err}")
+
         try:
             from app.public_api import voice_events
             target_org = getattr(call, "org_id", None) or getattr(result_obj, "org_id", None) or "org_default"

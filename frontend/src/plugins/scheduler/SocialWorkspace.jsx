@@ -25,6 +25,7 @@ import {
   Trash2,
   BookOpen,
   Globe,
+  Users,
   X,
 } from "lucide-react";
 import { AppChrome } from "../../components/AppChrome";
@@ -45,6 +46,7 @@ import { MobileNavBackdrop, MobileTopBar, useMobileNav } from "../../components/
 import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
+import { SocialConnect } from "./SocialConnect";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -3828,6 +3830,31 @@ export function SocialWorkspace({
           <Plug size={15} />
           <span>Accounts</span>
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
+            setApprovalOpen(false); setPage("audience");
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            margin: "0 4px",
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "none",
+            background: page === "audience" && !approvalOpen ? "#1E2230" : "transparent",
+            color: "#fff",
+            ...NAV_TEXT,
+            cursor: pluginLocked ? "not-allowed" : "pointer",
+            opacity: pluginLocked ? 0.4 : 1,
+            textAlign: "left",
+          }}
+        >
+          <Users size={15} />
+          <span>Audience & ideas</span>
+        </button>
         {operator?.is_admin && (
           <button
             type="button"
@@ -3906,6 +3933,8 @@ export function SocialWorkspace({
             setKnowledgeSources={setKnowledgeSources}
             operator={operator}
           />
+        ) : page === "audience" ? (
+          <SocialConnect showToast={showToast} />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>

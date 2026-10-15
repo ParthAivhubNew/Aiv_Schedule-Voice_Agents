@@ -95,7 +95,7 @@ async def test_the_ai_drafts_a_sequence_and_nothing_sends_until_approved(db, adm
         done = await _wait(c, made["id"])
         assert done["status"] == "needs_approval" and [s["step"] for s in done["steps"]] == [1, 2, 3]
         assert "{{firstName}}" in done["steps"][0]["body"] and done["steps"][2]["delay_days"] == 4
-        assert done["estimated_credits"] == 6 and done["mailboxes"] == [{"email": "sales@acme.test", "status": "active"}]
+        assert done["estimated_credits"] == 6 and done["mailboxes"] == [{"id": "mb_1", "email": "sales@acme.test", "status": "active"}] and done["mailbox_ids"] == ["mb_1"]
         assert "/api/p/" in done["preview_url"]
     db.expire_all()
     camp = (await db.execute(select(EmailCampaign))).scalars().one()
@@ -463,7 +463,7 @@ async def test_nothing_sends_without_a_mailbox_that_passes_spf(db, admin_token, 
     key = await _key(admin_token)
     async with _http(key) as c:
         r = await c.post("/v1/email/send", json={"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"})
-    assert r.status_code == 422 and r.json()["error"]["code"] == "no_mailbox" and outbox == []
+    assert r.status_code == 422 and r.json()["error"]["code"] == "no_mailbox_can_send" and outbox == []
 
 
 async def test_a_test_key_pretends_to_send(db, admin_token, outbox):
@@ -498,3 +498,205 @@ async def test_sent_emails_can_be_listed_and_read_through_the_api(db, admin_toke
     test = await _key(admin_token, live=False)
     async with _http(test) as c:
         assert (await c.get("/v1/email/messages")).json()["data"] == []  # a test key never sees real mail
+
+
+# ── choosing which mailbox sends ────────────────────────────────────────────
+async def _second_box(db, **kw):
+    from app.models.models import EmailMailbox
+
+    fields = {"status": "active", "spf_verified": True, "dkim_override": True, **kw}
+    db.add(EmailMailbox(id="mb_2", email="Hello@Acme.test", **fields))
+    await db.commit()
+
+
+def _mail(**extra):
+    return {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello", **extra}
+
+
+async def test_the_mailbox_list_gives_ids_and_why_one_cannot_send(db, admin_token):
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    await _second_box(db, spf_verified=False)
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        rows = (await c.get("/v1/email/mailboxes")).json()["data"]
+    first, second = {r["id"]: r for r in rows}["mb_1"], {r["id"]: r for r in rows}["mb_2"]
+    assert first["email"] == "sales@acme.test" and first["status"] == "sending" and first["can_send"] is True and first["reason"] is None
+    assert first["spf"] == "ok" and first["dkim"] == "skipped" and first["daily_cap"] >= 40 and first["sent_today"] == 0
+    assert second["status"] == "needs_attention" and second["can_send"] is False and second["spf"] == "missing" and "SPF" in second["reason"]
+    assert set(first) == {"id", "email", "status", "can_send", "reason", "reason_code", "daily_cap", "sent_today", "spf", "dkim"}  # nothing else leaks
+    weak = await _key(admin_token, scopes=("voice:calls",))
+    async with _http(weak) as c:
+        assert (await c.get("/v1/email/mailboxes")).status_code == 403
+    test = await _key(admin_token, live=False)
+    async with _http(test) as c:
+        assert (await c.get("/v1/email/mailboxes")).json()["data"][0]["id"] == "mb_test"
+
+
+async def test_a_mailbox_can_be_chosen_by_id_or_by_address(db, admin_token, outbox):
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    await _second_box(db)
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        by_id = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_2"))
+        assert by_id.status_code == 201 and by_id.json()["mailbox_id"] == "mb_2" and by_id.json()["from"] == "Hello@Acme.test"
+        by_address = await c.post("/v1/email/send", json=_mail(**{"from": "SALES@acme.TEST"}, to="sam@bloggs.test"))
+        assert by_address.status_code == 201 and by_address.json()["mailbox_id"] == "mb_1"
+        same = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_1", **{"from": "sales@acme.test"}, to="al@bloggs.test"))
+        assert same.status_code == 201
+        listed = (await c.get("/v1/email/messages")).json()["data"]
+        assert {m["mailbox_id"] for m in listed} == {"mb_1", "mb_2"} and all(m["mailbox"] for m in listed)
+        one = (await c.get(f"/v1/email/messages/{by_id.json()['id']}")).json()
+        assert one["mailbox_id"] == "mb_2" and one["mailbox"] == "Hello@Acme.test"
+    assert len(outbox) == 3
+
+
+async def test_an_unknown_or_foreign_mailbox_is_refused_with_the_valid_ones_listed(db, admin_token, outbox):
+    from app.core.tenancy import org_scope
+    from app.models.models import EmailMailbox, Organization
+
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    db.add(Organization(id="org_other", name="Other", slug="other"))
+    await db.commit()
+    with org_scope("org_other"):
+        db.add(EmailMailbox(id="mb_foreign", email="them@other.test", status="active", spf_verified=True, dkim_override=True))
+        await db.commit()
+    await db.rollback()
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        for bad in ({"mailbox_id": "sales@acme.test"}, {"mailbox_id": "mb_nope"}, {"from": "nobody@acme.test"}, {"mailbox_id": "mb_foreign"}, {"from": "them@other.test"}):
+            r = await c.post("/v1/email/send", json=_mail(**bad))
+            err = r.json()["error"]
+            assert r.status_code == 422 and err["code"] == "mailbox_not_found", (bad, r.text)
+            assert err["message"] == "No mailbox with that id or address is connected."
+            assert err["details"]["valid"] == [{"id": "mb_1", "email": "sales@acme.test"}]  # never the other company's
+    assert outbox == []
+
+
+async def test_a_chosen_mailbox_that_cannot_send_says_why(db, admin_token, outbox):
+    from app.models.models import EmailMailbox, EmailSendLog
+
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    cases = {
+        "spf_missing": dict(spf_verified=False),
+        "dkim_missing": dict(dkim_override=False, dkim_verified=False),
+        "paused": dict(status="paused"),
+        "connection_failed": dict(status="error"),
+    }
+    key = await _key(admin_token)
+    for reason, change in cases.items():
+        await _second_box(db, **change)
+        async with _http(key) as c:
+            r = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_2"))
+        err = r.json()["error"]
+        assert r.status_code == 422 and err["code"] == "mailbox_cannot_send" and err["details"]["reason"] == reason, (reason, r.text)
+        assert err["message"].startswith("Hello@Acme.test cannot send right now: ") and err["details"]["fix_url"].endswith("/leadgen/mailboxes")
+        await db.delete(await db.get(EmailMailbox, "mb_2"))
+        await db.commit()
+    # the daily limit of the mailbox itself
+    await _second_box(db)
+    db.add(EmailSendLog(id="log1", mailbox_id="mb_2", date=datetime.utcnow().date().isoformat(), sent_count=40))
+    await db.commit()
+    async with _http(key) as c:
+        full = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_2"))
+        assert full.status_code == 422 and full.json()["error"]["code"] == "mailbox_cannot_send" and full.json()["error"]["details"]["reason"] == "daily_cap_reached"
+        # not choosing one: the other mailbox is used, and nothing was refused
+        assert (await c.post("/v1/email/send", json=_mail())).json()["mailbox_id"] == "mb_1"
+    assert len(outbox) == 1
+
+
+async def test_two_names_for_different_mailboxes_are_refused(db, admin_token, outbox):
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    await _second_box(db)
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        r = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_1", **{"from": "hello@acme.test"}))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "mailbox_mismatch" and outbox == []
+
+
+async def test_leaving_the_field_out_keeps_todays_behaviour_and_the_old_error_is_precise(db, admin_token, outbox):
+    from app.models.models import EmailMailbox
+
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        r = await c.post("/v1/email/send", json=_mail())
+        assert r.status_code == 201 and r.json()["from"] == "sales@acme.test" and r.json()["mailbox_id"] == "mb_1"
+    (await db.get(EmailMailbox, "mb_1")).spf_verified = False
+    await db.commit()
+    async with _http(key) as c:
+        none = await c.post("/v1/email/send", json=_mail(to="sam@bloggs.test"))
+    err = none.json()["error"]
+    assert none.status_code == 422 and err["code"] == "no_mailbox_can_send"
+    assert err["details"]["mailboxes"] == [{"id": "mb_1", "email": "sales@acme.test", "reason": "spf_missing"}]
+
+
+async def test_a_campaign_can_choose_its_mailboxes(db, admin_token, drafter):
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    await _second_box(db)
+    key = await _key(admin_token)
+    body = {"name": "Pick", "steps": [{"subject": "Hi", "body": "Hello {{firstName}}"}], "leads": LEADS[:1]}
+    async with _http(key) as c:
+        one = await c.post("/v1/email/campaigns", json={**body, "mailbox_id": "mb_2"})
+        assert one.status_code == 202, one.text
+        got = (await c.get(f"/v1/email/campaigns/{one.json()['id']}")).json()
+        assert got["mailbox_ids"] == ["mb_2"] and got["mailboxes"][0]["id"] == "mb_2"
+        both = await c.post("/v1/email/campaigns", json={**body, "name": "Both", "mailbox_ids": ["mb_1", "mb_2"]})
+        assert (await c.get(f"/v1/email/campaigns/{both.json()['id']}")).json()["mailbox_ids"] == ["mb_1", "mb_2"]
+        default = await c.post("/v1/email/campaigns", json={**body, "name": "Default"})
+        assert sorted((await c.get(f"/v1/email/campaigns/{default.json()['id']}")).json()["mailbox_ids"]) == ["mb_1", "mb_2"]  # unchanged
+        bad = await c.post("/v1/email/campaigns", json={**body, "mailbox_ids": ["mb_1", "mb_nope"]})
+        assert bad.status_code == 422 and bad.json()["error"]["code"] == "mailbox_not_found"
+        assert {v["id"] for v in bad.json()["error"]["details"]["valid"]} == {"mb_1", "mb_2"}
+
+
+async def test_the_wallet_report_includes_mailbox_ids(db, admin_token):
+    await _company(db, mailbox_status="active")
+    key = await _key(admin_token, scopes=("wallets:read",))
+    async with _http(key) as c:
+        wallet = (await c.get("/v1/wallets")).json()
+    assert wallet["connected"]["mailboxes"][0]["id"] == "mb_1" and wallet["connected"]["mailboxes"][0]["email"] == "sales@acme.test"
+
+
+async def test_a_refused_request_is_not_replayed_and_a_different_mailbox_is_a_different_request(db, admin_token, outbox):
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    await _second_box(db)
+    key = await _key(admin_token)
+    h = {"Idempotency-Key": "send-1"}
+    async with _http(key) as c:
+        wrong = await c.post("/v1/email/send", json=_mail(mailbox_id="sales@acme.test"), headers=h)  # an address where an id belongs
+        assert wrong.status_code == 422 and wrong.json()["error"]["code"] == "mailbox_not_found"
+        fixed = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_1"), headers=h)  # the same key, corrected: it really runs
+        assert fixed.status_code == 201 and "idempotent-replay" not in fixed.headers
+        again = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_1"), headers=h)  # a true retry: the first answer, nothing sent twice
+        assert again.status_code == 201 and again.headers["idempotent-replay"] == "true" and again.json()["id"] == fixed.json()["id"]
+        other = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_2"), headers=h)  # another mailbox is another request
+        assert other.status_code == 422 and other.json()["error"]["code"] == "idempotency_key_reused"
+    assert len(outbox) == 1
+
+
+async def test_no_secret_leaves_in_any_mailbox_answer(db, admin_token, outbox, caplog):
+    from app.models.models import EmailMailbox
+
+    await _company(db, mailbox_status="active")
+    await _ready_box(db, status="active")
+    box = await db.get(EmailMailbox, "mb_1")
+    box.credentials_encrypted = "SECRET-CREDENTIALS-BLOB"
+    box.signature = "Sent by Acme"
+    await db.commit()
+    key = await _key(admin_token, scopes=("email:write", "email:approve", "wallets:read"))
+    seen = []
+    async with _http(key) as c:
+        for r in (await c.get("/v1/email/mailboxes"), await c.get("/v1/wallets"),
+                  await c.post("/v1/email/send", json=_mail(mailbox_id="mb_nope")), await c.post("/v1/email/send", json=_mail(mailbox_id="mb_1")),
+                  await c.get("/v1/email/messages")):
+            seen.append(r.text)
+    everything = " ".join(seen) + caplog.text
+    assert "SECRET-CREDENTIALS-BLOB" not in everything and key not in everything and "credentials" not in everything.lower()

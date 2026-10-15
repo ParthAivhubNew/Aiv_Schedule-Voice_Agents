@@ -492,6 +492,14 @@ async def finish_call(call_control_id: str, payload: Optional[Dict[str, Any]] = 
         await charge_finished_call(db, call_id, rec.duration, rec.prospect)
         await _broadcast("call_ended", {"callId": call_id, "endedBy": "remote", "state": rec.state})
         await _broadcast("call_updated", {"callId": call_id, "ended": True, "state": rec.state, "duration": rec.duration})
+        next_mission = rec.mission_id
+    if next_mission and not already_ended:  # a list started from Lead Gen carries on with its next number
+        try:
+            from app.services.outbound_dial import drain_mission_queue
+
+            asyncio.create_task(drain_mission_queue(next_mission))
+        except Exception as drain_err:
+            logger.debug(f"[TELNYX-ASSISTANT] queue drain skipped: {drain_err}")
 
     if answered and not already_ended:
         from app.services.call_summary import summarize_finished

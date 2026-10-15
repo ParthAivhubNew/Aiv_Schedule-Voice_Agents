@@ -138,3 +138,30 @@ def find_identity_match(
             }
 
     return None
+
+
+def lead_phone(lead: Any) -> str:
+    """A saved company's phone: the one on the row, else the first one research found."""
+    if getattr(lead, "phone", ""):
+        return lead.phone
+    r = getattr(lead, "research", None) or {}
+    for p in (r.get("phones") or []):
+        if p:
+            return p
+    for t in (r.get("team") or []):
+        if t.get("phone"):
+            return t["phone"]
+    for o in (r.get("other_offices") or []):
+        if o.get("phone"):
+            return o["phone"]
+    return ""
+
+
+def match_lead_to_registry(lead: Any, registry_list: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The shared contact record a saved company belongs to, by name, phone or website."""
+    return find_identity_match(
+        target_name=getattr(lead, "name", "") or "",
+        target_phone=lead_phone(lead),
+        target_site=getattr(lead, "website", "") or getattr(lead, "domain", "") or "",
+        registry_list=registry_list,
+    )

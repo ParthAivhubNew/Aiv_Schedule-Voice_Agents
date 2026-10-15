@@ -42,6 +42,9 @@ from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
 from app.api.lead_checks import router as lead_checks_router
 from app.api.lead_lists import router as lead_lists_router
+from app.api.connected import router as connected_router
+from app.api.connected_home import router as connected_home_router
+from app.api.connected_social import router as connected_social_router
 from app.api.calcom import router as calcom_router
 from app.api.livekit_router import router as livekit_router
 from app.api.vapi_router import router as vapi_router
@@ -654,6 +657,8 @@ async def lifespan(app: FastAPI):
     generation_task = asyncio.create_task(generation_loop())
     from app.services.email_worker import email_loop
     email_task = asyncio.create_task(email_loop())
+    from app.services.connection_jobs import connections_loop
+    connections_task = asyncio.create_task(connections_loop())
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
     social_token_task = asyncio.create_task(_social_token_refresh_loop())
@@ -661,6 +666,7 @@ async def lifespan(app: FastAPI):
     yield
 
     email_task.cancel()
+    connections_task.cancel()
     publish_due_task.cancel()
     generation_task.cancel()
     credits_task.cancel()
@@ -775,6 +781,9 @@ app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
+app.include_router(connected_router, prefix=settings.API_PREFIX)
+app.include_router(connected_home_router, prefix=settings.API_PREFIX)
+app.include_router(connected_social_router, prefix=settings.API_PREFIX)
 app.include_router(calcom_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router, prefix=settings.API_PREFIX)
 app.include_router(livekit_router)  # Direct /livekit compatibility

@@ -1522,6 +1522,13 @@ class CalendarService:
 
         await db.commit()
         await db.refresh(meeting)
+        try:  # link the meeting to its lead and call, stop that lead's planned emails and calls
+            from app.services.connection_handlers import on_meeting_booked
+
+            await on_meeting_booked(db, meeting)
+            await db.commit()
+        except Exception as link_err:
+            logger.debug(f"Meeting not linked to a lead: {link_err}")
 
         email_result = {"attendee": False, "host": False, "error": None}
         if setting.auto_email_attendee or setting.auto_email_host:

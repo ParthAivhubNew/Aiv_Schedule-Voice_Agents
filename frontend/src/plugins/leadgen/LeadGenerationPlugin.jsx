@@ -39,6 +39,7 @@ import { CreditsChip, PlanStrip } from "./CreditsChip";
 import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
+import { takeOpenLead } from "../../connections/ConnectedHome";
 
 
 export default function LeadGenerationPlugin({
@@ -117,6 +118,19 @@ export default function LeadGenerationPlugin({
   const listsStore = useLeadLists(showToast);
   const store = useLeadAccounts(showToast, listsStore.reload);
   const outreach = useOutreachData();
+  // Home links straight to a company: open its panel once the companies have loaded.
+  const [wantedLead, setWantedLead] = useState(() => takeOpenLead());
+  useEffect(() => {
+    const onOpen = (ev) => setWantedLead((ev && ev.detail) || "");
+    window.addEventListener("aivhub:open-lead", onOpen);
+    return () => window.removeEventListener("aivhub:open-lead", onOpen);
+  }, []);
+  useEffect(() => {
+    if (!wantedLead || store.loading) return;
+    const hit = store.accounts.find((a) => a.id === wantedLead);
+    if (hit) setOpenAccount(hit);
+    setWantedLead("");
+  }, [wantedLead, store.loading, store.accounts]);
   const [wizard, setWizard] = useState(null); // { listId } while the new-campaign steps are open
   const [inboxStart, setInboxStart] = useState(null); // opens Sent & Replies on a given tab, such as one mailbox's sent emails
 

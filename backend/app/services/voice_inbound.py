@@ -67,7 +67,11 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
                                          assistant_row_id=assistant.id, phone=caller, our_number=number.e164)
         if variables.get("customer_name") not in ("", "there"):
             label = variables["customer_name"]
+        from app.services.connection_handlers import lead_for_inbound
+
+        inbound_lead = await lead_for_inbound(db, number.org_id, caller, "" if label.startswith("Caller") else label)
         db.add(LiveCall(id=call_id, carrier_sid=ccid, mission_id="m_inbound", prospect=label, mission="Inbound call",
+                        lead_id=inbound_lead,
                         state="calling", carrier=CARRIER_TAG, channel="voice", duration="00:00",
                         transcript=[f"System: Incoming call from {caller or 'unknown'} on {number.e164}."]))
         await db.commit()

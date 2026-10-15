@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Check, ListChecks, Megaphone, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, ListChecks, Megaphone, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
-import { AccountsView, emailFor } from "./AccountsViews";
+import { AccountsView, contactFor, emailFor, phoneFor } from "./AccountsViews";
+import { useConnection } from "../../hooks/useConnections";
+import { buildCallList, stageCallList } from "../../utils/leadToVoice";
+import { navigateHash } from "../../utils/route";
+import { CallButton, useCallDialog } from "./CallFlow";
 import { askConfirm, askText } from "./Dialogs";
 
 // Lists: a named group of saved companies. Build one in Saved Accounts, enrich it here, then run a
@@ -63,6 +67,21 @@ function ListName({ list, editing, onEdit, onSave, onStop, size = 15 }) {
 
 export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }) {
   const { lists, loading, reload } = listsStore;
+  const { available: canCall } = useConnection("call_leads");
+  const call = useCallDialog(store.toast);
+  const [reach, setReach] = useState({}); // per company: has it been called, is it interested (from the connections view)
+  useEffect(() => {
+    let live = true;
+    if (canCall) api.getConnectionLeads().then((r) => { if (live) setReach(r.leads || {}); }).catch(() => {});
+    return () => { live = false; };
+  }, [canCall, store.accounts, lists]);
+  // "Called 29 of 42 · 6 interested", only once calling is part of the plan.
+  const progress = (ids) => {
+    if (!canCall) return "";
+    const called = ids.filter((i) => reach[i] && reach[i].history !== "never").length;
+    const interested = ids.filter((i) => ["interested", "meeting", "won"].includes(reach[i]?.stage)).length;
+    return called ? ` · called ${called.toLocaleString()} of ${ids.length.toLocaleString()}${interested ? ` · ${interested.toLocaleString()} interested` : ""}` : "";
+  };
   const [openId, setOpenId] = useState(""); // a list id, "all" for every company, or "" for the overview
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
@@ -79,6 +98,14 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     } finally {
       setBusy(false);
     }
+  };
+
+  // "Review in Voice first": the same companies, opened on the Voice call list to look over and change before calling.
+  const reviewInVoice = (name, members) => {
+    const list = buildCallList(name, members, phoneFor, contactFor, emailFor);
+    if (!list.records.length) { store.toast("None of these companies has a phone number yet. Check & improve them first."); return; }
+    if (!stageCallList(list)) { store.toast("Couldn't pass the list to Voice."); return; }
+    navigateHash("voice/list");
   };
 
   if (loading || store.loading) return <div style={muted}>Loading your lists…</div>;
@@ -103,8 +130,15 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           <button title="Back to all your lists" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId("")}>← All lists</button>
           {open ? <ListName list={open} size={17} editing={renaming === open.id} onEdit={() => setRenaming(open.id)} onStop={() => setRenaming("")} onSave={(n) => rename(open.id, n)} />
             : <div style={{ ...text, fontSize: 17, fontWeight: 600, color: C.ink }}>All companies</div>}
-          <span style={muted}>{members.length.toLocaleString()} companies · {withEmail.length.toLocaleString()} with an email</span>
+          <span style={muted}>{members.length.toLocaleString()} companies · {withEmail.length.toLocaleString()} with an email{progress(members.map((m) => m.id))}</span>
           <span style={{ flex: 1 }} />
+          <CallButton label="Call this list" lockedLabel="Call this list · add Voice" disabled={busy || !members.length}
+            onClick={() => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" })}
+            onLocked={() => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, true)} />
+          {canCall ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy || !members.length} title="Open these companies on the Voice call list to look them over first"
+              onClick={() => reviewInVoice(open ? open.name : "All companies", members)}>Review in Voice</button>
+          ) : null}
           {open ? (
             <>
               <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!withEmail.length} onClick={() => onCampaign(open.id)}
@@ -119,6 +153,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           ) : null}
         </div>
         <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} scopeIds={scope} listId={open ? open.id : ""} />
+        {call.dialog}
       </div>
     );
   }
@@ -155,7 +190,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
               onKeyDown={(e) => { if (e.key === "Enter" && renaming !== l.id) setOpenId(l.id); }}
               style={{ textAlign: "left", padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
               <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} />
-              <div style={muted}>{l.members.length.toLocaleString()} companies · {l.withEmail.length.toLocaleString()} with an email</div>
+              <div style={muted}>{l.members.length.toLocaleString()} companies · {l.withEmail.length.toLocaleString()} with an email{progress(l.members.map((m) => m.id))}</div>
             </div>
           ))}
         </div>

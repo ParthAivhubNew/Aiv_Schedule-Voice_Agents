@@ -137,7 +137,9 @@ def _found(a: LeadAccount) -> Dict[str, Any]:
 
 
 def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]:
-    return {"found": _found(a),
+    from app.api.connected import connection_fields
+
+    return {"found": _found(a), "connection": connection_fields(a),
         "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": _phone(a.phone),
         "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",

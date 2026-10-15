@@ -11,6 +11,8 @@ import { AddToListDialog } from "./Lists";
 import { applyMapping } from "./importMapping";
 import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
+import { CallButton, useCallDialog } from "./CallFlow";
+import { LeadActivity, StageBadge } from "./LeadActivity";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -365,7 +367,7 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["quality", "Complete"], ["check", "Check"], ["source", "Found by"]];
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["stage", "Stage"], ["quality", "Complete"], ["check", "Check"], ["source", "Found by"]];
 const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
 
 // What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
@@ -565,6 +567,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const [listing, setListing] = useState(false); // the Add to list box is open
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
+  const call = useCallDialog(store.toast);
+  const [extra, setExtra] = useState({}); // score, warm and call history per company, from the connections view
+  useEffect(() => {
+    let live = true;
+    api.getConnectionLeads().then((r) => { if (live) setExtra(r.leads || {}); }).catch(() => {});
+    return () => { live = false; };
+  }, [store.accounts]);
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
     return (
@@ -584,14 +593,22 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
-  const columnCount = 2 + ["phone", "email", "contact", "quality", "check", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + ["phone", "email", "contact", "stage", "quality", "check", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   // Verdict filters appear once some companies have been checked.
   const verdictChips = VERDICT_ORDER
     .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
     .filter(([, , pred]) => base.some(pred))
     .map(([id, label, pred]) => [id, `${label} ${base.filter(pred).length}`, pred, VERDICT_TIPS[id.slice(2)]]);
-  const chips = [...ACCOUNT_CHIPS, ...verdictChips];
+  const historyChips = [
+    ["h_never", "Never called", (a) => extra[a.id]?.history === "never", "No call has been made to this company"],
+    ["h_no_answer", "Called, no answer", (a) => extra[a.id]?.history === "no_answer", "Called, but nobody picked up or it went to voicemail"],
+    ["h_interested", "Interested", (a) => extra[a.id]?.history === "interested", "Spoke with them and they showed interest"],
+    ["h_recent", "Contacted recently", (a) => extra[a.id]?.history === "recent", "Called within your re-contact gap"],
+    ["h_warm", "Warm", (a) => Boolean(extra[a.id]?.warm), "Opened your emails or engaged with your posts"],
+  ].filter(([id, , pred]) => id === "h_never" || base.some(pred))
+    .map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]);
+  const chips = [...ACCOUNT_CHIPS, ...historyChips, ...verdictChips];
   const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = base
     .filter(scopePred)
@@ -667,6 +684,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
               Remove from list
             </button>
           ) : null}
+          <CallButton label={`Call ${pickedIds.length || ""}`.trim()} lockedLabel="Call · add Voice" disabled={!pickedIds.length}
+            onClick={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` })}
+            onLocked={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` }, true)} />
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || !listsStore} onClick={() => setListing(true)}
             title="Group these companies in a named list, ready for a campaign">
             Add to list
@@ -696,6 +716,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                 {showing("phone") ? <th title="The number you saved, or one research found. A tick means the phone network confirmed it">Phone</th> : null}
                 {showing("email") ? <th title="The email you saved, or one research found">Email</th> : null}
                 {showing("contact") ? <th title="The person to write to">Contact</th> : null}
+                {showing("stage") ? <th title="Where this company is in your journey with them, and how likely it is to answer">Stage</th> : null}
                 {showing("quality") ? <th title="How much of the website, phone, email and contact is filled in">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
                 {showing("source") ? <th title="Where this company came from">Found by</th> : null}
@@ -740,6 +761,14 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                         : <Empty a={a} />}
                     </td>
                   ) : null}
+                  {showing("stage") ? (
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <StageBadge stage={a.connection?.stage || "new"} />
+                      {extra[a.id]?.warm ? <span title="Opened your emails or engaged with your posts" style={{ ...text, fontSize: 11.5, color: C.amber, marginLeft: 6 }}>Warm</span> : null}
+                      {extra[a.id] ? <div title="How reachable and how engaged they look" style={{ ...muted, fontSize: 11.5, marginTop: 2 }}>Score {extra[a.id].score}</div> : null}
+                      {a.connection?.last_call_outcome ? <div style={{ ...muted, fontSize: 11.5 }}>Last call: {String(a.connection.last_call_outcome).replace(/_/g, " ")}</div> : null}
+                    </td>
+                  ) : null}
                   {showing("quality") ? <td>{wasLookedUp(a) ? <QualityBar found={a.found} /> : <span style={{ color: C.slateLight }}>—</span>}</td> : null}
                   {showing("check") ? (
                     <td>
@@ -760,6 +789,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                   ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
+                      <CallButton label="Call" lockedLabel="Call" variant="ghost" disabled={!a.connection?.can_call}
+                        title={a.connection?.can_call ? "Have your AI caller phone them" : ({ no_phone: "No phone number yet", failed_check: "The number failed the check", do_not_contact: "On your do-not-contact list" }[a.connection?.blocked_reason] || "Can't be called")}
+                        onClick={() => call.open({ kind: "one", id: a.id, name: a.name })} onLocked={() => call.open({ kind: "one", id: a.id, name: a.name }, true)} />
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>
                         {store.researching[a.id] ? <><RefreshCw size={13} className="ui-spin" /> Working…</> : "Open"}
                       </button>
@@ -777,6 +809,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
         <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} onStart={check.start} onClose={() => setChecking(null)} />
       ) : null}
       {listing && listsStore ? <AddToListDialog ids={pickedIds} listsStore={listsStore} onToast={store.toast} onClose={() => setListing(false)} /> : null}
+      {call.dialog}
     </div>
   );
 }
@@ -1041,6 +1074,7 @@ export function AccountPanel({ account, store, onClose }) {
               </div>
             </section>
           ) : null}
+          <LeadActivity account={live} store={store} />
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Improve this company</div>
             <ImproveCard store={store} account={live} />
@@ -1153,7 +1187,8 @@ async function parseImportFile(file) {
 const IMPORT_BATCH = 500;
 
 // What an import did, in plain terms, and what to do next.
-function ImportReport({ done, onGo, onClose }) {
+function ImportReport({ done, onGo, onClose, onToast }) {
+  const call = useCallDialog(onToast);
   const row = (n, label, tip) => (n ? <div title={tip} style={{ display: "flex", gap: 8 }}><strong style={{ minWidth: 44, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</strong><span>{label}</span></div> : null);
   const gaps = [["phone number", done.blanks.phone], ["email", done.blanks.email], ["website", done.blanks.website]].filter(([, n]) => n);
   return (
@@ -1180,7 +1215,12 @@ function ImportReport({ done, onGo, onClose }) {
       {done.custom?.length ? <div style={{ ...muted, fontSize: 12.5 }}>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button title="Go to this list" type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onGo("lists")}>Open the list</button>
+        {done.list?.id && (done.blanks?.phone ?? 0) < (done.list.count ?? Infinity) ? (
+          <CallButton label="Call this list" lockedLabel="Call this list · add Voice" title="Skips anyone without a number, on your do-not-contact list or contacted lately, and shows you who before it dials"
+            onClick={() => call.open({ kind: "list", id: done.list.id, name: done.list.name })} onLocked={() => call.open({ kind: "list", id: done.list.id, name: done.list.name }, true)} />
+        ) : null}
       </div>
+      {call.dialog}
     </div>
   );
 }
@@ -1288,7 +1328,7 @@ export function ImportView({ store, onGo, onAskAi }) {
             ))}
           </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-          {done ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} /> : null}
+          {done ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
           {onAskAi ? (
             <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
               Or

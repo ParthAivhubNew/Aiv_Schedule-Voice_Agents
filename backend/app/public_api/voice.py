@@ -58,6 +58,7 @@ class CallIn(BaseModel):
     variables: Optional[Dict[str, str]] = Field(None, description="Facts about this person or company the AI may use")
     from_number: Optional[str] = Field(None, description="Which of your numbers to call from")
     accept_short_call: bool = Field(False, description="Call even if your credits only cover a short call")
+    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Lead Gen. The call, its result and any meeting are then saved against it, and the same id comes back in call.completed and meeting.booked.")
 
 
 class ControlIn(BaseModel):
@@ -115,6 +116,8 @@ async def full_view(db: AsyncSession, call_id: str, org: str) -> Dict[str, Any]:
     call = await load_call(db, call_id)
     if not call:
         fail(404, "not_found", f"Call '{call_id}' not found.")
+    meta = await db.get(PublicObject, f"callmeta_{call_id}")
+    call["lead_id"] = ((meta.data or {}).get("lead_id") if meta else None) or call.get("lead_id")
     call["live_url"] = links.preview_url("call", call["id"], org)
     call["recording_url"] = f"{links.public_base()}/v1/voice/calls/{call['id']}/recording" if call["status"] in ("completed", "no_answer") else None
     return call
@@ -186,6 +189,13 @@ async def _place(db: AsyncSession, ctx: Dict[str, Any], number: str, body: CallI
         warning = await short_call_warning(db)
         if warning:
             fail(409, "short_call", warning.get("message") or "Your credits only cover a short call.", accept_with="accept_short_call")
+    lead_id = None
+    if body.lead_id:
+        from app.services.connections import resolve_lead_id
+
+        lead_id = await resolve_lead_id(db, body.lead_id)  # the row-level rules mean only this company's own leads are found
+        if not lead_id:
+            fail(422, "lead_not_found", f"'{body.lead_id}' is not one of your saved companies.")
     result = await dial_via_telnyx_assistant(
         db, clean, from_number_override=picked, prospect_name=body.lead_name, mission_title="API call", operator_id="",
         template_id=body.script_id or "", extra_instructions=extra)
@@ -197,7 +207,13 @@ async def _place(db: AsyncSession, ctx: Dict[str, Any], number: str, body: CallI
             fail(422, "call_not_allowed", msg, reasons=result["compliance"].get("reasons", []))
         fail(502, "could_not_dial", msg)
     call_id = result["callId"]
-    db.add(PublicObject(id=f"callmeta_{call_id}", kind="call_meta", data={"key_id": ctx.get("key_id"), "to": clean}))
+    db.add(PublicObject(id=f"callmeta_{call_id}", kind="call_meta", data={"key_id": ctx.get("key_id"), "to": clean, "lead_id": lead_id}))
+    if lead_id:
+        from app.models.models import LiveCall
+
+        live = await db.get(LiveCall, call_id)
+        if live:
+            live.lead_id = lead_id
     await db.commit()
     return await full_view(db, call_id, ctx["org_id"])
 

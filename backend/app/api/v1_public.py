@@ -54,7 +54,7 @@ async def get_wallet_balances(
     card = await K.rates(db)
     channels = [{"channel": a.platform, "status": a.status, "name": a.label or a.handle or ""}
                 for a in (await db.execute(select(SocialAccount))).scalars().all()]
-    mailboxes = [{"email": m.email, "status": m.status, "daily_limit": m.daily_cap}
+    mailboxes = [{"id": m.id, "email": m.email, "status": m.status, "daily_limit": m.daily_cap}
                  for m in (await db.execute(select(EmailMailbox))).scalars().all()]
     numbers = [n.e164 for n in (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status == "active"))).scalars().all()]
     sub = await B.subscription_row(db)

@@ -247,6 +247,10 @@ async def is_opted_out(db, number: str) -> bool:
     target = normalize_phone(number)
     if not target:
         return False
+    from app.services.connections import block_for
+
+    if await block_for(db, phone=number, channel="call"):  # the one do-not-contact list
+        return True
     rows = (await db.execute(_select(ContactRegistry).where(ContactRegistry.do_not_call.is_(True)))).scalars().all()
     for r in rows:
         for p in (r.phones or []):

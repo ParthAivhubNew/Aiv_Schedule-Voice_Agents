@@ -274,6 +274,7 @@ class Mission(Base):
     # create_all/drop_all. Same convention as every other cross-plugin pointer in this file
     # (e.g. EmailEnrollment.prospect_id).
     auto_enroll_campaign_id = Column(String, nullable=True, index=True)
+    lead_list_id = Column(String, nullable=True, index=True)  # the Lead Gen list this mission was built from
     created_at = Column(DateTime, default=datetime.utcnow)
     
     prospects = relationship("Prospect", back_populates="mission", cascade="all, delete-orphan")
@@ -296,6 +297,7 @@ class Prospect(Base):
     phone = Column(String, default="")
     site = Column(String, default="")
     email = Column(String, default="")  # from Leadgen's Find Work Email, when run
+    lead_id = Column(String, nullable=True, index=True)  # the Lead Gen company this call target came from (soft reference)
     opening_hook = Column(Text, default="")  # Leadgen's AI-written icebreaker for this account
     channel = Column(String, default="voice")
     fallback_channel = Column(String, nullable=True)
@@ -314,6 +316,7 @@ class LiveCall(Base):
     carrier = Column(String, nullable=True)  # telephony provider used at dial time (twilio/telnyx/sipgate/…) for hangup
     mission_id = Column(String, nullable=True)
     prospect_id = Column(String, nullable=True)
+    lead_id = Column(String, nullable=True, index=True)
     prospect = Column(String, nullable=False)
     mission = Column(String, nullable=False)
     state = Column(String, default="negotiating")  # pitching, negotiating, human_review, ended
@@ -337,6 +340,7 @@ class CallLog(Base):
     
     id = Column(String, primary_key=True, index=True)
     registry_id = Column(String, nullable=True)
+    lead_id = Column(String, nullable=True, index=True)  # the Lead Gen company this call was to
     canonical_name = Column(String, nullable=False)
     listed_as = Column(String, nullable=False)
     person_canonical = Column(String, default="")
@@ -359,6 +363,10 @@ class Meeting(Base):
     org_id = Column(String, index=True, server_default=FetchedValue())
     
     id = Column(String, primary_key=True, index=True)
+    lead_id = Column(String, nullable=True, index=True)  # the Lead Gen company this meeting is with
+    call_id = Column(String, nullable=True, index=True)  # the call that booked it
+    registry_id = Column(String, nullable=True)
+    source_post_id = Column(String, nullable=True)  # the social post whose booking link produced it
     prospect = Column(String, nullable=False)
     mission = Column(String, nullable=False)
     date = Column(String, nullable=False)
@@ -1252,7 +1260,9 @@ class EmailMessage(Base):
     reply_category = Column(String, default="")  # interested, not_interested, ooo, unsubscribe, question
     reply_snippet = Column(Text, default="")
     reply_from = Column(String, default="")
-    
+    open_count = Column(Integer, default=0)
+    last_opened_at = Column(DateTime, nullable=True)
+
     sent_at = Column(DateTime, nullable=True)
     replied_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -1311,6 +1321,8 @@ class EmailSequenceStep(Base):
     # For Voice Steps
     voice_assistant_id = Column(String, default="")
     mission_id = Column(String, default="")
+    # When a call step runs: always, no_reply (they have not answered the emails), opened_no_reply (opened, no reply).
+    condition = Column(String, default="always")
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -1323,6 +1335,7 @@ class EmailEnrollment(Base):
     org_id = Column(String, index=True, server_default=FetchedValue())
     campaign_id = Column(String, ForeignKey("email_campaigns.id", ondelete="CASCADE"), index=True, nullable=False)
     prospect_id = Column(String, index=True, nullable=True)  # optional link to a voice prospect
+    lead_id = Column(String, index=True, nullable=True)  # the Lead Gen company this person is, so a call step can ring them
     email = Column(String, index=True, default="")
     first_name = Column(String, default="")
     last_name = Column(String, default="")
@@ -1451,8 +1464,85 @@ class LeadAccount(Base):
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)
+    # The shared contact record (contact_registry) this company matched, so calls and do-not-call
+    # flags found in Voice apply here too. Soft reference, like other cross-plugin pointers.
+    registry_id = Column(String, nullable=True, index=True)
+    last_call_outcome = Column(String, default="")
+    last_called_at = Column(DateTime, nullable=True)
+    # Where the company is in the journey: new, contacted, interested, meeting, won, lost, do_not_contact.
+    stage = Column(String, default="new", index=True)
+    last_contact_at = Column(DateTime, nullable=True)
+    next_action_at = Column(DateTime, nullable=True)  # a callback or follow-up the user or a call asked for
+    next_action = Column(String, default="")
+    best_time = Column(String, default="")
+    source_post_id = Column(String, nullable=True)  # the social post whose engagement produced this lead
+    # Facts a call or meeting found, waiting for the user to accept or ignore:
+    # [{id, field, value, from, call_id, at}]
+    suggestions = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ContactEvent(Base):
+    """One touch with a contact (email, call, meeting, post, note, status change), written as it
+    happens so a contact's timeline is one cheap query instead of a join across five tables."""
+    __tablename__ = "contact_events"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    lead_id = Column(String, nullable=True, index=True)
+    registry_id = Column(String, nullable=True, index=True)
+    kind = Column(String, nullable=False)  # email, call, meeting, post, note, status
+    ref_id = Column(String, default="", index=True)  # the call, meeting, email or post it came from
+    summary = Column(Text, default="")
+    detail = Column(JSON, nullable=True)
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class DoNotContact(Base):
+    """The one do-not-contact list. A row blocks a phone, an email, a whole email domain or a
+    registry contact on the channels listed."""
+    __tablename__ = "do_not_contact"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    registry_id = Column(String, nullable=True, index=True)
+    phone = Column(String, default="", index=True)  # digits only, as normalize_phone_digits gives
+    email = Column(String, default="", index=True)
+    domain = Column(String, default="")
+    channels = Column(JSON, default=lambda: ["call", "email", "social"])
+    reason = Column(String, default="")
+    source = Column(String, default="manual")  # call, email_unsubscribe, manual, import
+    name = Column(String, default="")
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ConnectionRules(Base):
+    """What the user switched on in Settings -> Connections, one row per organisation."""
+    __tablename__ = "connection_rules"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # always "default"
+    rules = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SocialEngager(Base):
+    """A person who engaged publicly with one of the organisation's posts."""
+    __tablename__ = "social_engagers"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    post_id = Column(String, index=True, nullable=False)
+    network = Column(String, default="")
+    handle = Column(String, default="")
+    name = Column(String, default="")
+    company = Column(String, default="")
+    profile_url = Column(String, default="")
+    kind = Column(String, default="comment")  # comment, reaction, share, reply
+    text = Column(Text, default="")
+    lead_id = Column(String, nullable=True)  # set once added to a list
+    at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class SeedInbox(Base):

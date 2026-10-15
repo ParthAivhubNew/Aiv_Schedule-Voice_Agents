@@ -97,6 +97,8 @@ async def dial_via_telnyx_assistant(
     operator_id: str = "",
     template_id: str = "",
     extra_instructions: str = "",
+    lead_id: str = "",
+    opening_hook: str = "",
 ) -> dict:
     """
     Places a real outbound call that connects the callee to our configured Telnyx
@@ -204,7 +206,10 @@ async def dial_via_telnyx_assistant(
         brief_vars = await VA.build_brief(db, call_id=call_id, direction="outbound", operator_id=operator_id,
                              assistant_row_id=managed.id, phone=to_clean, our_number=from_clean,
                              prospect_id=prospect_id or "", mission_id=mission_id or "", prospect_name=label,
-                             template_id=template_id, extra=extra_instructions)
+                             template_id=template_id,
+                             extra=(extra_instructions + ("\n\nWhat we know about them: " + opening_hook.strip() +
+                                    " You may use this naturally in your first sentence. Never read it out word for word, and never invent more."
+                                    if opening_hook.strip() else "")).strip())
         org_ref = current_org()
         if "recorded" in brief_vars:
             record = brief_vars.get("recorded") == "yes"
@@ -258,11 +263,21 @@ async def dial_via_telnyx_assistant(
 
     register_outbound(call_control_id, call_id=call_id, to_number=to_clean, prospect=label, assistant_id=assistant_id)
 
+    lead_ref = lead_id or None
+    if prospect_id and not lead_ref:
+        try:  # a call to someone from Lead Gen remembers which saved company it was
+            from app.models.models import Prospect as _Prospect
+
+            _row = (await db.execute(select(_Prospect).where(_Prospect.id == prospect_id))).scalars().first()
+            lead_ref = getattr(_row, "lead_id", None)
+        except Exception:
+            lead_ref = None
     live_call = LiveCall(
         id=call_id,
         carrier_sid=call_control_id,
         mission_id=mission_id or "m_outbound",
         prospect_id=prospect_id,
+        lead_id=lead_ref,
         prospect=label,
         mission=mission,
         state="calling",

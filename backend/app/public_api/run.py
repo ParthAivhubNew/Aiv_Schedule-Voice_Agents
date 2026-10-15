@@ -45,6 +45,10 @@ ACTIONS: Dict[str, Dict[str, Tuple[str, str, bool]]] = {
         "campaign.list": ("GET", "/email/campaigns", False),
         "campaign.edit": ("PATCH", "/email/campaigns/{id}", True),
         "campaign.decision": ("POST", "/email/campaigns/{id}/decision", True),
+        "mailbox.list": ("GET", "/email/mailboxes", False),
+        "email.send": ("POST", "/email/send", False),
+        "email.list": ("GET", "/email/messages", False),
+        "email.get": ("GET", "/email/messages/{id}", True),
     },
     "social": {
         "post.create": ("POST", "/social/posts", False),

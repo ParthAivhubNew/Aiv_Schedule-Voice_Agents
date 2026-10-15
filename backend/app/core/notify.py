@@ -17,6 +17,7 @@ logger = logging.getLogger("notify")
 # key, label, who gets it by default
 EVENTS = [
     ("meeting_booked", "A meeting is booked", "admins"),
+    ("weekly_summary", "Your week across Lead Gen, Voice and Social (Mondays)", "admins"),
     ("call_needs_review", "A call needs a person to follow up", "admins"),
     ("posts_awaiting_approval", "Posts are waiting for approval", "admins"),
     ("posts_ready", "AI writing I started has finished (when it took a while and I'd left)", "everyone"),

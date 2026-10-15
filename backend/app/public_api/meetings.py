@@ -41,6 +41,7 @@ class BookIn(BaseModel):
     phone: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=2000)
     format: Literal["video", "phone", "in_person"] = "video"
+    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Lead Gen: the meeting is saved against it.")
 
 
 class ChangeIn(BaseModel):
@@ -62,6 +63,7 @@ def booked_payload(m: Meeting) -> Dict[str, Any]:
         "duration_minutes": int(re.sub(r"\D", "", m.duration or "") or 0) or None, "event_type": m.event_type_slug or "",
         "format": m.format or "video", "platform": m.platform or "", "video_link": m.video_link or None, "dial_in": m.dial_in or None,
         "booked_by": source, "cancellation_reason": m.cancellation_reason or None,
+        "lead_id": m.lead_id or None, "call_id": m.call_id or None, "contact_id": m.registry_id or None,
         "created_at": (m.created_at.isoformat() + "Z") if m.created_at else None,
     }
 
@@ -141,7 +143,17 @@ async def book(body: BookIn, request: Request, db: AsyncSession = Depends(get_db
         if res.get("error") == "outside_hours_or_taken":
             fail(409, "slot_unavailable", "That time is not free. Pick one of the open times.", available_times=res.get("availableSlots", []))
         fail(502, "could_not_book", res.get("message") or res.get("error") or "The meeting could not be booked.")
-    return booked_payload(await _meeting(db, res["bookingId"]))
+    meeting = await _meeting(db, res["bookingId"])
+    if body.lead_id:
+        from app.services.connection_handlers import on_meeting_booked
+        from app.services.connections import resolve_lead_id
+
+        found = await resolve_lead_id(db, body.lead_id)
+        if found:
+            meeting.lead_id = found
+            await on_meeting_booked(db, meeting)
+            await db.commit()
+    return booked_payload(meeting)
 
 
 @router.get("")

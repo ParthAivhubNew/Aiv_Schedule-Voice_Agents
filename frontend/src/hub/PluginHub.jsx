@@ -2,6 +2,7 @@ import {
   CalendarCheck,
   ChevronDown,
   KeyRound,
+  Link2,
   LogOut,
   Settings2,
   User,
@@ -12,7 +13,7 @@ import { C, FONT_BODY, FONT_MONO, initialsFromName } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
 
-export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys }) {
+export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -320,6 +321,22 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
 
               <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
             </>
+          )}
+
+          {/* How the plugins work together */}
+          {onOpenConnections && (
+            <button
+              onClick={() => { setOpen(false); onOpenConnections(); }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, border: "none", background: "transparent", cursor: "pointer", textAlign: "left" }}
+              onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              <Link2 size={15} color={C.slate} />
+              <div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Connections</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>How Leads, Voice & Social work together</div>
+              </div>
+            </button>
           )}
 
           {/* User Settings */}

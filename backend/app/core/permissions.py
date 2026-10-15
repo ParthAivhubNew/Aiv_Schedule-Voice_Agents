@@ -116,6 +116,13 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/profile/org$"), "company"),
     (re.compile(r"^/profile/notifications$"), None),
     (re.compile(r"^/profile"), "company"),
+    # Working together (Lead Gen + Voice + Social). Reading what is available is open to every signed-in user;
+    # the screens and handlers ask for the section of whatever they show.
+    (re.compile(r"^/together/(availability|leads|pipeline|next-actions|search|inbox|checklist|weekly-summary)$"), None),
+    (re.compile(r"^/together/(rules|workflows|backfill|weekly-summary/send|failed-events)"), "company"),
+    (re.compile(r"^/compliance/"), "company"),
+    (re.compile(r"^/contacts/"), "leadgen"),
+    (re.compile(r"^/social/"), "scheduler"),
     (re.compile(r"^/connections"), "connections"),
     (re.compile(r"^/numbers"), "connections"),  # reading the list is open to every signed-in user
     (re.compile(r"^/voice-studio(/|$)"), "calling"),  # company rules: admins, checked in the handler

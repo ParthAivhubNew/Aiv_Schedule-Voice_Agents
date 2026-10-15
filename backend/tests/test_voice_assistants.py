@@ -58,7 +58,7 @@ async def test_one_assistant_per_user_with_a_fixed_shell(db, fake):
     assert "{{script}}" in body["instructions"] and body["greeting"] == "{{greeting}}"
     assert "Managed by OutReach" in body["description"] and "org_acme" in body["description"]
     tool_names = {t["webhook"]["name"] for t in body["tools"]}
-    assert tool_names == {"get_script", "lookup_knowledge", "check_availability", "book_appointment", "request_human", "save_outcome"}
+    assert tool_names == {"get_script", "lookup_knowledge", "check_availability", "book_appointment", "reschedule_appointment", "request_human", "save_outcome"}
     assert all(t["webhook"]["url"].startswith("https://outreach.example.com/api/telnyx-assistant/tools/")
                and t["webhook"]["url"].endswith("?ref={{call_ref}}") for t in body["tools"])
     assert body["dynamic_variables_webhook_url"] == "https://outreach.example.com/api/telnyx-assistant/call-event"

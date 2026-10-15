@@ -156,6 +156,9 @@ async def create_mission(req: MissionCreateRequest, db: AsyncSession = Depends(g
             site=p_data.get("website") or p_data.get("site", ""),
             channel=p_data.get("channel") or req.default_channel,
             fallback_channel=p_data.get("fallback_channel"),
+            lead_id=p_data.get("lead_id") or None,
+            email=p_data.get("email") or "",
+            opening_hook=p_data.get("opening_hook") or "",
             note=note,
             time_status=time_status
         )

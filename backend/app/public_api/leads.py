@@ -468,6 +468,7 @@ async def import_leads(body: ImportIn, request: Request, db: AsyncSession = Depe
         db.add(p)
         await db.commit()
         await db.refresh(p)
+        # Pass this lead_id to call.start or meeting.book and the call and the meeting are saved against the same contact.
         return {"lead_id": p.id, "name": p.name, "phone": p.phone, "company": body.company or "", "status": p.status,
                 "created_at": p.created_at.isoformat()}
     if is_test(ctx):

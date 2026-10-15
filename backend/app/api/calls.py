@@ -74,6 +74,7 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             "id": c.id,
             "missionId": c.mission_id,
             "prospectId": c.prospect_id,
+            "leadId": c.lead_id or "",
             "prospect": c.prospect,
             "mission": c.mission,
             "state": c.state,
@@ -743,6 +744,7 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
         payload.append({
             "id": l.id,
             "registryId": l.registry_id,
+            "leadId": l.lead_id or "",
             "canonicalName": names["canonical"],
             "listedAs": names["listed"],
             "personCanonical": names["person"],
@@ -782,6 +784,7 @@ class OutboundDialRequest(BaseModel):
     media_stream_url: Optional[str] = None
     status_callback_url: Optional[str] = None
     accept_capped: bool = False  # the user saw the low-minutes warning and calls anyway
+    lead_id: Optional[str] = None  # the Lead Gen company this call is to
 
 
 class BatchDialProspect(BaseModel):
@@ -793,6 +796,9 @@ class BatchDialProspect(BaseModel):
     contact_person: Optional[str] = None
     company: Optional[str] = None
     website: Optional[str] = None
+    lead_id: Optional[str] = None
+    email: Optional[str] = None
+    opening_hook: Optional[str] = None
 
 
 class BatchDialRequest(BaseModel):
@@ -998,6 +1004,7 @@ async def dial_outbound_call(
             confirming_end=False,
             ended=False,
             booked=False,
+            lead_id=req.lead_id or None,
             transcript=[
                 f"AI: [Outbound call initiated via {carrier_choice.upper()} to {to_clean}]",
                 f"System: Ringing {to_clean} from {from_clean}..."
@@ -1165,6 +1172,9 @@ async def dial_outbound_batch(req: BatchDialRequest, request: Request, db: Async
             "company": company,
             "contact": person or company,
             "website": p.website,
+            "lead_id": p.lead_id,
+            "email": p.email or "",
+            "opening_hook": p.opening_hook or "",
         })
     title = (req.mission_title or "").strip() or f"Outbound list — {len(rows)} contacts"
     if not req.accept_capped:

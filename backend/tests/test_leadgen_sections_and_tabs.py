@@ -67,8 +67,8 @@ def test_mailboxes_warmup_engine_safety():
     decision = plan_mailbox_day(mb, recent_logs=[])
     assert decision["action"] == "send"
     assert decision["daily_cap"] == 5
-    assert decision["warmup_sends"] == 5
-    assert decision["campaign_sends"] == 0
+    assert decision["warmup_sends"] == 3
+    assert decision["campaign_sends"] == 2
 
     # Auto-pause on high bounce rate (>= 2%)
     high_bounce_mb = MailboxState(id="mb_1", email="test@domain.com", status="warming", consecutive_healthy_days=10)

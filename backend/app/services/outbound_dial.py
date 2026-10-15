@@ -331,6 +331,7 @@ async def place_outbound_call(
                 prow.status = "calling"
                 prow.time_status = "now"
                 prow.note = f"Live outbound via {carrier_choice.upper()} to {to_clean}"
+                live_call.lead_id = prow.lead_id
         await db.commit()
     except Exception as live_err:
         try:
@@ -547,6 +548,7 @@ async def launch_outbound_mission(
     source: str = "manual",
     account_sid: Optional[str] = None,
     api_key: Optional[str] = None,
+    lead_list_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Persist a mission and immediately dial as many PSTN lines as concurrency allows."""
     concurrency = _cap_concurrency(concurrency)
@@ -572,6 +574,7 @@ async def launch_outbound_mission(
         lunch_start=lunch_start,
         lunch_end=lunch_end,
         default_channel="voice",
+        lead_list_id=lead_list_id,
     )
     db.add(mission)
 
@@ -596,6 +599,9 @@ async def launch_outbound_mission(
             note="Queued for live outbound",
             sector=p.get("sector") or "General",
             region=p.get("region") or "UK-wide",
+            lead_id=p.get("lead_id") or None,
+            email=p.get("email") or "",
+            opening_hook=p.get("opening_hook") or "",
         )
         db.add(row)
         stored.append(row)
@@ -691,6 +697,11 @@ async def start_mission_dials(
 
         from_clean = await resolve_from_number(db, from_number)
         title = mission_title or mission.title
+        # Lists started from Lead Gen use the same AI the organisation's own call list uses.
+        from app.core.tenancy import current_org
+        from app.services import voice_assistants as VA
+
+        via_assistant = (mission.source or "") == "leadgen" and VA.enabled_for_org(current_org())
 
         for i, p in enumerate(to_start):
             if i:
@@ -698,18 +709,32 @@ async def start_mission_dials(
             try:
                 # Re-open a short session per dial so SQLite does not lock the batch.
                 async with AsyncSessionLocal() as dial_db:
-                    res = await place_outbound_call(
-                        dial_db,
-                        to_number=p.phone,
-                        from_number=from_clean,
-                        prospect_name=clean_person_label(p.contact_person) or clean_person_label(p.name),
-                        mission_id=mission_id,
-                        mission_title=title,
-                        prospect_id=p.id,
-                        carrier=carrier,
-                        account_sid=account_sid,
-                        api_key=api_key,
-                    )
+                    if via_assistant:
+                        from app.services.telnyx_assistant_dial import dial_via_telnyx_assistant
+
+                        done = await dial_via_telnyx_assistant(
+                            dial_db, p.phone, prospect_name=clean_person_label(p.contact_person) or clean_person_label(p.name),
+                            mission_title=title, prospect_id=p.id, mission_id=mission_id, from_number_override=from_number)
+                        if not done.get("success"):
+                            raise ValueError(done.get("error") or "The call could not be placed.")
+                        pr = (await dial_db.execute(select(Prospect).where(Prospect.id == p.id))).scalars().first()
+                        if pr:
+                            pr.status, pr.time_status, pr.note = "calling", "now", "Calling now"
+                            await dial_db.commit()
+                        res = {"to": done.get("to"), "call_id": done.get("callId"), "carrier": "telnyx_assistant", "message": "Calling now"}
+                    else:
+                        res = await place_outbound_call(
+                            dial_db,
+                            to_number=p.phone,
+                            from_number=from_clean,
+                            prospect_name=clean_person_label(p.contact_person) or clean_person_label(p.name),
+                            mission_id=mission_id,
+                            mission_title=title,
+                            prospect_id=p.id,
+                            carrier=carrier,
+                            account_sid=account_sid,
+                            api_key=api_key,
+                        )
                 results.append({
                     "prospect_id": p.id,
                     "name": p.name,

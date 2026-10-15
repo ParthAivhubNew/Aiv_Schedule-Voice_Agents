@@ -18,6 +18,7 @@ import { CompanyProfileView } from "./plugins/voice/CompanyProfileView";
 import { CallingWorkspace } from "./plugins/voice/calling/CallingWorkspace";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
 import { DeveloperApiKeysModal } from "./settings/DeveloperApiKeysModal";
+import { ConnectionsSettingsModal } from "./connections/ConnectionsSettings";
 import { ProviderConfigView } from "./settings/ProviderConfigView";
 import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
@@ -546,6 +547,14 @@ function MainApp({ onSignedOut }) {
   }, []);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showDeveloperKeysModal, setShowDeveloperKeysModal] = useState(false);
+  // "Connections" (how Leads, Voice and Social work together) opens from the menu and from any screen that links to it.
+  const [showConnections, setShowConnections] = useState(false);
+  const [connectionsTab, setConnectionsTab] = useState("");
+  useEffect(() => {
+    const open = (ev) => { setConnectionsTab((ev && ev.detail) || ""); setShowConnections(true); };
+    window.addEventListener("aivhub:open-connections", open);
+    return () => window.removeEventListener("aivhub:open-connections", open);
+  }, []);
   const [commonAiTab, setCommonAiTab] = useState("leadgen");
   const [commonAiScope, setCommonAiScope] = useState(null);
 
@@ -688,6 +697,7 @@ function MainApp({ onSignedOut }) {
             onOpenProfileSettings={() => setShowProfileModal(true)}
             onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
             onOpenDeveloperKeys={() => setShowDeveloperKeysModal(true)}
+            onOpenConnections={() => { setConnectionsTab(""); setShowConnections(true); }}
           />
         </SafeErrorBoundary>
       )}
@@ -833,6 +843,8 @@ function MainApp({ onSignedOut }) {
         open={showDeveloperKeysModal}
         onClose={() => setShowDeveloperKeysModal(false)}
       />
+
+      <ConnectionsSettingsModal isOpen={showConnections} onClose={() => setShowConnections(false)} initialTab={connectionsTab} />
     </OrgSettingsProvider>
   );
 }

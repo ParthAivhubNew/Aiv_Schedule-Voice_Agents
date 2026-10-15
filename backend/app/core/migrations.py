@@ -306,6 +306,40 @@ async def _prospect_leadgen_columns(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE prospects ADD COLUMN IF NOT EXISTS opening_hook TEXT DEFAULT ''"))
 
 
+async def _link_leads_and_calls(conn: AsyncConnection) -> None:
+    """Lead Gen companies and Voice calls point at each other: a call prospect remembers the saved
+    company it came from, and a saved company remembers its shared contact record and last call."""
+    await conn.execute(text("ALTER TABLE prospects ADD COLUMN IF NOT EXISTS lead_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_prospects_lead_id ON prospects (lead_id)"))
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS registry_id VARCHAR"))
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS last_call_outcome VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS last_called_at TIMESTAMP"))
+    for col, ddl in (("stage", "VARCHAR DEFAULT 'new'"), ("last_contact_at", "TIMESTAMP"), ("next_action_at", "TIMESTAMP"),
+                     ("next_action", "VARCHAR DEFAULT ''"), ("best_time", "VARCHAR DEFAULT ''"),
+                     ("source_post_id", "VARCHAR"), ("suggestions", "JSON")):
+        await conn.execute(text(f"ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_stage ON lead_accounts (stage)"))
+    await conn.execute(text("ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS lead_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_call_logs_lead_id ON call_logs (lead_id)"))
+    await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS lead_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_live_calls_lead_id ON live_calls (lead_id)"))
+    for col in ("lead_id", "call_id", "registry_id", "source_post_id"):
+        await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN IF NOT EXISTS {col} VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meetings_lead_id ON meetings (lead_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meetings_call_id ON meetings (call_id)"))
+    await conn.execute(text("ALTER TABLE missions ADD COLUMN IF NOT EXISTS lead_list_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_missions_lead_list_id ON missions (lead_list_id)"))
+
+
+async def _campaign_calls_and_opens(conn: AsyncConnection) -> None:
+    """Call steps in email campaigns (with a condition), the lead behind an enrolment, and email opens."""
+    await conn.execute(text("ALTER TABLE email_sequence_steps ADD COLUMN IF NOT EXISTS condition VARCHAR DEFAULT 'always'"))
+    await conn.execute(text("ALTER TABLE email_enrollments ADD COLUMN IF NOT EXISTS lead_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_enrollments_lead_id ON email_enrollments (lead_id)"))
+    await conn.execute(text("ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS open_count INTEGER DEFAULT 0"))
+    await conn.execute(text("ALTER TABLE email_messages ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP"))
+
+
 async def _seed_lookup_vendor_prices(conn: AsyncConnection) -> None:
     """Carries forward the per-call vendor prices that used to be hardcoded in
     enrichment_waterfall.py (COST_USD / OTHER_VENDOR_COST_USD) into provider_prices, so billing
@@ -746,6 +780,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_03_mailbox_dkim_override", _mailbox_dkim_override),
     ("2026_11_04_enrollment_vars", _enrollment_vars),
     ("2026_11_05_replan_warming_mailboxes", _replan_warming_mailboxes),
+    ("2026_11_06_link_leads_and_calls", _link_leads_and_calls),
+    ("2026_11_07_campaign_calls_and_opens", _campaign_calls_and_opens),
 ]
 
 

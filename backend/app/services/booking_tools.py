@@ -139,7 +139,27 @@ def generate_smart_booking_tools(call_context: Dict[str, Any]) -> List[Dict[str,
         }
     }
 
-    return [check_availability_tool, book_tool]
+    reschedule_tool = {
+        "type": "function",
+        "function": {
+            "name": "reschedule_appointment",
+            "description": (
+                "Move a meeting this person ALREADY has to a new time. Use it only when they say they have a meeting and want to move it: "
+                "find a new time with check_availability first, then pass the exact start_time it returned."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_time": {"type": "string", "description": "The EXACT ISO-8601 start timestamp from check_availability."},
+                    "attendee_email": {"type": "string", "description": "Their email, only if they give it, to find the right meeting."},
+                    "caller_timezone": CALLER_TZ_PARAM,
+                },
+                "required": ["start_time"],
+            },
+        },
+    }
+
+    return [check_availability_tool, book_tool, reschedule_tool]
 
 
 def _parse_start_time(raw: str, today_iso: str):
@@ -363,4 +383,54 @@ async def execute_smart_booking_tool(
             logger.warning(f"[BOOKING-TOOL] Booking execution error: {e}")
             return {"success": False, "error": str(e)}
 
+    if tool_name == "reschedule_appointment":
+        return await _reschedule(db, args, call_context, today_iso)
+
     return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+
+async def find_upcoming_meeting(db: AsyncSession, phone: str = "", email: str = ""):
+    """The next meeting that is still ahead for this phone number or email: through the lead it was booked with,
+    else by the address it was booked under."""
+    from sqlalchemy.future import select
+
+    from app.models.models import Meeting
+    from app.services import connections as C
+
+    lead = await C.lead_for(db, phone=phone, email=email)
+    q = select(Meeting).where(Meeting.status == "upcoming")
+    now = datetime.utcnow()
+    rows = []
+    if lead is not None:
+        rows = (await db.execute(q.where(Meeting.lead_id == lead.id).order_by(Meeting.starts_at_utc.asc()))).scalars().all()
+    if not rows and email:
+        rows = (await db.execute(q.where(Meeting.attendee_email == email.strip().lower()).order_by(Meeting.starts_at_utc.asc()))).scalars().all()
+    for m in rows:
+        if m.starts_at_utc is None or m.starts_at_utc > now:
+            return m
+    return None
+
+
+async def _reschedule(db: AsyncSession, args: Dict[str, Any], call_context: Dict[str, Any], today_iso: str) -> Dict[str, Any]:
+    from app.services.calendar_service import calendar_service
+    from app.services.timezone_service import tzinfo
+
+    prospect = call_context.get("prospect") or {}
+    meeting = await find_upcoming_meeting(db, prospect.get("phone") or call_context.get("caller", {}).get("phone") or "",
+                                          str(args.get("attendee_email") or args.get("email") or prospect.get("email") or ""))
+    if meeting is None:
+        return {"success": False, "error": "no_meeting",
+                "message": "There is no upcoming meeting for this person. Offer to book one instead."}
+    date_str, time_str, instant = _parse_start_time(str(args.get("start_time") or ""), today_iso)
+    if not date_str or not time_str:
+        return {"success": False, "error": "start_time must be one of the available_slots from check_availability."}
+    host_tz, caller_tz = await _slot_zones(db, args, call_context)
+    if instant is not None:
+        local = instant.astimezone(tzinfo(host_tz))
+        date_str, time_str = local.strftime("%Y-%m-%d"), local.strftime("%H:%M")
+    res = await calendar_service.reschedule_booking(db, meeting.id, date_str, time_str, "Moved by phone")
+    if not res.get("success", True):
+        return {"success": False, "error": res.get("error") or "slot_unavailable",
+                "message": "That time is not free. Offer another time: call check_availability again."}
+    return {"success": True, "booking_id": meeting.id, "date": date_str, "time": time_str, "timezone": host_tz,
+            "message": "The meeting was moved and a new confirmation is on its way."}

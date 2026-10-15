@@ -109,6 +109,14 @@ async def _book_appointment(db, brief, args):
     return await _booking(db, brief, args, "book_appointment")
 
 
+async def _reschedule_appointment(db, brief, args):
+    from app.services.booking_tools import execute_smart_booking_tool
+
+    ctx = await _context(db, brief)
+    ctx.setdefault("prospect", {})["phone"] = ctx.get("prospect", {}).get("phone") or brief.phone
+    return await execute_smart_booking_tool(db, "reschedule_appointment", dict(args), ctx)
+
+
 async def _request_human(db, brief, args) -> Dict[str, Any]:
     reason = str(args.get("reason") or "").strip()[:300] or "The caller asked for a person."
     rec = await _live_call(db, brief.id)
@@ -151,10 +159,12 @@ async def _save_outcome(db, brief, args) -> Dict[str, Any]:
     if brief.outcome != "meeting_booked":  # a booking made in this call stays the outcome
         brief.outcome = outcome
     if outcome == "do_not_call" and brief.phone:
-        # They asked not to be called again: never dial this number again for this company.
-        from app.services.compliance import add_do_not_call
+        # They asked not to be contacted again: the one do-not-contact list covers calls, email and social.
+        from app.services.connections import add_block, lead_for
 
-        await add_do_not_call(db, brief.phone)
+        lead = await lead_for(db, phone=brief.phone)
+        await add_block(db, phone=brief.phone, email=getattr(lead, "email", "") or "", name=getattr(lead, "name", "") or "",
+                        registry_id=getattr(lead, "registry_id", "") or "", reason="Asked on a call", source="call")
     notes = str(args.get("notes") or "").strip()[:MAX_TEXT]
     if notes:
         brief.notes = notes
@@ -171,6 +181,7 @@ _TOOLS = {
     "lookup_knowledge": _lookup_knowledge,
     "check_availability": _check_availability,
     "book_appointment": _book_appointment,
+    "reschedule_appointment": _reschedule_appointment,
     "request_human": _request_human,
     "save_outcome": _save_outcome,
 }

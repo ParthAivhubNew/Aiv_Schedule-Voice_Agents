@@ -80,10 +80,11 @@ def in_window(camp: EmailCampaign, local: datetime) -> bool:
     return (camp.sending_window_start or "09:00") <= hm < (camp.sending_window_end or "17:00")
 
 
-def render(template: str, enr: EmailEnrollment) -> str:
+def render(template: str, enr: EmailEnrollment, booking_link: str = "") -> str:
     values = {"first_name": enr.first_name, "firstname": enr.first_name, "last_name": enr.last_name,
               "lastname": enr.last_name, "company": enr.company, "email": enr.email,
-              "personalline": str((getattr(enr, "vars", None) or {}).get("personal_line") or "").strip()}
+              "personalline": str((getattr(enr, "vars", None) or {}).get("personal_line") or "").strip(),
+              "bookinglink": booking_link}
 
     def sub(m: "re.Match[str]") -> str:
         key = re.sub(r"[^a-z]", "", m.group(1).lower().replace("_", ""))
@@ -92,6 +93,16 @@ def render(template: str, enr: EmailEnrollment) -> str:
     out = re.sub(r"\{\{\s*([A-Za-z_]+)\s*\}\}", sub, template or "")
     out = re.sub(r"[ \t]+([,.!?])", r"\1", out)
     return re.sub(r"\n{3,}", "\n\n", out)  # an empty {{personal_line}} leaves no gap
+
+
+async def booking_link_for(db: AsyncSession, org_id: str, enr: EmailEnrollment) -> str:
+    """The lead's own booking page, or "" when the organisation has no calendar (the calendar is part of Voice)."""
+    from app.public_api import book_page
+    from app.services.connection_handlers import entitled
+
+    if not (await entitled(db, org_id)).get("voice"):
+        return ""
+    return book_page.booking_url(org_id, lead_id=enr.lead_id or "")
 
 
 def next_window(camp: EmailCampaign, local: datetime) -> Tuple[bool, str]:
@@ -187,15 +198,25 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             enr.status = "completed"
             enr.next_action_at = None
             continue
-        if step.channel != "email":  # voice steps: not run from email yet, skipped
+        if step.channel != "email":  # a call step: ring the lead through Voice when the plans and the condition allow it
+            from app.services.connection_handlers import run_call_step
+
+            outcome, _why = await run_call_step(db, org_id, enr, step, now)
+            if outcome == "deferred":  # outside calling hours: try again later, nothing is lost
+                enr.next_action_at = now + timedelta(minutes=30)
+                continue
+            enr.last_action_at = now
             await _advance(enr, steps, now)
             continue
         # A follow-up goes from the mailbox that sent the first email. If that one is blocked, paused or
         # failing, any other ready mailbox in the campaign takes over, so one bad mailbox never stalls the list.
         sticky = boxes.get(enr.mailbox_id)
         candidates = [sticky] if sticky is not None and sticky.status in SENDING else pool
-        subject = render(step.subject, enr).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
-        body = render(step.body_template, enr)
+        link = ""
+        if re.search(r"\{\{\s*booking_?link\s*\}\}", (step.body_template or "") + (step.subject or ""), re.I):
+            link = await booking_link_for(db, org_id, enr)  # empty without the Voice plan, so no broken link goes out
+        subject = render(step.subject, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
+        body = render(step.body_template, enr, link)
         from app.services.enrichment_waterfall import classify_pecr_entity
 
         res, mb = None, None

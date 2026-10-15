@@ -31,6 +31,87 @@ router = APIRouter(prefix="/email", tags=["Email campaigns"], route_class=V1Rout
 
 SANDBOX = "cp_test_"
 SENDING = ("warming", "active", "graduated")
+SEND_STATUSES = ("connected", "warming", "active", "graduated")  # one-to-one email may go from any of these (no warm-up wait)
+TEST_MAILBOX = {"id": "mb_test", "email": "test@example.com"}  # what a test key sees
+REASON_TEXT = {
+    "paused": "it is paused", "connection_failed": "its login is failing", "warmup_not_started": "its warm-up has not been started",
+    "spf_missing": "its SPF record is missing", "dkim_missing": "its DKIM record is missing (or choose to send without it in the app)",
+    "daily_cap_reached": "it has reached its daily limit",
+}
+
+
+def daily_ceiling(m: EmailMailbox) -> int:
+    """How many one-to-one emails a mailbox may send in a day (the same ceiling /v1/email/send has always used)."""
+    return max(m.max_daily_target or 40, 40)
+
+
+def mailbox_block(m: EmailMailbox, sent_today: int) -> Optional[str]:
+    """Why a one-to-one email cannot go from this mailbox now (a reason code), or None when it can."""
+    if m.status in ("paused", "disabled"):
+        return "paused"
+    if m.status not in SEND_STATUSES:
+        return "connection_failed"
+    if not m.spf_verified:
+        return "spf_missing"
+    if not (m.dkim_verified or m.dkim_override):
+        return "dkim_missing"
+    if sent_today >= daily_ceiling(m):
+        return "daily_cap_reached"
+    return None
+
+
+def mailbox_state(m: EmailMailbox, reason: Optional[str]) -> str:
+    """sending | warming_up | paused | not_started | needs_attention."""
+    if m.status in ("paused", "disabled"):
+        return "paused"
+    if m.status == "error" or reason in ("spf_missing", "dkim_missing", "connection_failed"):
+        return "needs_attention"
+    if m.status == "connected":
+        return "not_started"
+    return "warming_up" if m.status == "warming" else "sending"
+
+
+def mailbox_view(m: EmailMailbox, sent_today: int) -> Dict[str, Any]:
+    reason = mailbox_block(m, sent_today)
+    return {"id": m.id, "email": m.email, "status": mailbox_state(m, reason), "can_send": reason is None,
+            "reason": (f"{REASON_TEXT[reason][0].upper()}{REASON_TEXT[reason][1:]}" if reason else None), "reason_code": reason,
+            "daily_cap": daily_ceiling(m), "sent_today": sent_today,
+            "spf": "ok" if m.spf_verified else "missing",
+            "dkim": "ok" if m.dkim_verified else ("skipped" if m.dkim_override else "missing")}
+
+
+def mailbox_settings_url() -> str:
+    return f"{links.public_base()}/leadgen/mailboxes"
+
+
+async def sent_today_by_mailbox(db: AsyncSession, boxes: List[EmailMailbox]) -> Dict[str, int]:
+    from app.services.email_dispatcher import day_log
+
+    return {m.id: (await day_log(db, m.id)).sent_count or 0 for m in boxes}
+
+
+def find_mailbox(boxes: List[Any], mailbox_id: Optional[str] = None, address: Optional[str] = None) -> Optional[Any]:
+    """The mailbox the caller named, by id or by address (any letter case). Both given must be the same one (422).
+    Only this company's mailboxes are in `boxes`, so another company's is found as 'not there'. None when nothing was named."""
+    mailbox_id, address = (mailbox_id or "").strip(), (address or "").strip().lower()
+    if not mailbox_id and not address:
+        return None
+    by_id = next((m for m in boxes if m.id == mailbox_id), None) if mailbox_id else None
+    by_addr = next((m for m in boxes if (m.email or "").lower() == address), None) if address else None
+    if (mailbox_id and by_id is None) or (address and by_addr is None):
+        fail(422, "mailbox_not_found", "No mailbox with that id or address is connected.",
+             valid=[{"id": m.id, "email": m.email} for m in boxes])
+    if by_id is not None and by_addr is not None and by_id.id != by_addr.id:
+        fail(422, "mailbox_mismatch", "`mailbox_id` and `from` name different mailboxes. Send one of them, or make them the same mailbox.",
+             mailbox_id=by_id.id, from_mailbox_id=by_addr.id)
+    return by_id or by_addr
+
+
+async def _visible_mailboxes(db: AsyncSession, ctx: Dict[str, Any]) -> List[Any]:
+    """The company's mailboxes, or the one pretend mailbox a test key has."""
+    if is_test(ctx):
+        return [SimpleNamespace(**TEST_MAILBOX)]
+    return list((await db.execute(select(EmailMailbox).order_by(EmailMailbox.created_at))).scalars().all())
 MAX_LEADS = 1000
 _TASKS: set = set()
 
@@ -69,7 +150,8 @@ class CreateIn(BaseModel):
     steps: Optional[List[StepIn]] = Field(None, max_length=8, description="Your own emails instead of AI-written ones")
     leads: Optional[List[LeadIn]] = Field(None, max_length=MAX_LEADS)
     lead_ids: Optional[List[str]] = Field(None, max_length=MAX_LEADS, description="Saved leads (GET /v1/leads) that have an email")
-    mailbox_ids: Optional[List[str]] = Field(None, description="Which mailboxes send. Default: your ready mailboxes")
+    mailbox_ids: Optional[List[str]] = Field(None, description="Which mailboxes send (ids from GET /v1/email/mailboxes). Default: your ready mailboxes")
+    mailbox_id: Optional[str] = Field(None, description="The same, for a single mailbox")
     schedule: ScheduleIn = Field(default_factory=ScheduleIn)
     approvers: Optional[List[str]] = Field(None, max_length=10, description="Emails to ask for approval instead of your usual approvers")
 
@@ -130,7 +212,8 @@ async def view(db: AsyncSession, camp: EmailCampaign, org: str) -> Dict[str, Any
         "id": camp.id, "name": camp.name, "status": public_status(camp, appr),
         "steps": [{"step": s["step"], "subject": s["subject"], "body": s["body"], "delay_days": s["delay_days"]} for s in out["steps"]],
         "leads": out["leads"], "lead_status": out["lead_status"], "skipped": d.get("skipped") or {},
-        "mailboxes": [{"email": m.email, "status": m.status} for m in boxes],
+        "mailboxes": [{"id": m.id, "email": m.email, "status": m.status} for m in boxes],
+        "mailbox_ids": list(camp.mailbox_ids or []),
         "schedule": {"sending_window_start": camp.sending_window_start, "sending_window_end": camp.sending_window_end,
                      "days_of_week": camp.days_of_week or [], "min_delay_seconds": camp.min_delay_seconds},
         "stats": {"sent": out["sent"], "replied": out["replied"], "bounced": out["bounced"], "reply_rate": out["reply_rate"]},
@@ -300,11 +383,15 @@ async def create_campaign(db: AsyncSession, request: Request, ctx: Dict[str, Any
     if not schedule.days_of_week or any(d not in range(1, 8) for d in schedule.days_of_week):
         fail(422, "invalid_schedule", "Pick at least one sending day (1 = Monday ... 7 = Sunday).")
 
+    asked = [x for x in dict.fromkeys([*(body.mailbox_ids or []), *([body.mailbox_id] if body.mailbox_id else [])]) if (x or "").strip()]
+    visible = await _visible_mailboxes(db, ctx)
+    for one in asked:  # a mailbox that is not this company's is answered as if it did not exist
+        find_mailbox(visible, mailbox_id=one)
     if is_test(ctx):
         return await _sandbox_create(db, ctx, body)
 
-    mailboxes = (await db.execute(select(EmailMailbox))).scalars().all()
-    ids = [m.id for m in mailboxes if (not body.mailbox_ids and m.status in SENDING) or (body.mailbox_ids and m.id in body.mailbox_ids)]
+    mailboxes = visible
+    ids = [m.id for m in mailboxes if (not asked and m.status in SENDING) or (asked and m.id in asked)]
     if not mailboxes or not ids:
         fail(422, "no_mailbox", "Connect a mailbox first (Email, Mailboxes), and start its warm-up. Then try again.",
              fix_url=links.fix_url("mailboxes"))
@@ -394,7 +481,7 @@ async def _ready_to_send(db: AsyncSession, camp: EmailCampaign) -> None:
     boxes = (await db.execute(select(EmailMailbox).where(EmailMailbox.id.in_(camp.mailbox_ids or [])))).scalars().all()
     if not any(b.status in SENDING for b in boxes):
         fail(409, "mailbox_not_ready", "None of this campaign's mailboxes is ready to send. Start its warm-up in the app first.",
-             fix_url=links.fix_url("mailboxes"))
+             fix_url=mailbox_settings_url(), mailboxes=[{"id": b.id, "email": b.email, "status": b.status} for b in boxes])
     active = (await db.execute(select(EmailEnrollment.id).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active"))).scalars().all()
     if not active:
         fail(409, "no_leads", "There are no leads left to email.")
@@ -452,7 +539,7 @@ def _sandbox_view(o: PublicObject, org: str) -> Dict[str, Any]:
     status = "completed" if done else d["status"]
     sent = n_steps * n_leads if done else (n_leads if sending else 0)
     return {"id": o.id, "name": d["name"], "status": status, "steps": d["steps"], "leads": n_leads, "lead_status": {"active": 0 if done else n_leads},
-            "skipped": {}, "mailboxes": [{"email": "sender@example.test", "status": "active"}], "schedule": d["schedule"],
+            "skipped": {}, "mailboxes": [{"id": "mb_test", "email": "sender@example.test", "status": "active"}], "mailbox_ids": ["mb_test"], "schedule": d["schedule"],
             "stats": {"sent": sent, "replied": 1 if done else 0, "bounced": 0, "reply_rate": round(100 / sent, 1) if done and sent else 0.0},
             "estimated_credits": n_leads * n_steps, "approved_by": d.get("approved_by"), "note": d.get("note"), "error": None,
             "preview_url": links.preview_url("campaign", o.id, org), "created_at": d["created_at"], "test": True}
@@ -593,7 +680,9 @@ class SendIn(BaseModel):
     first_name: str = Field("", max_length=80)
     last_name: str = Field("", max_length=80)
     company: str = Field("", max_length=160)
-    mailbox_id: Optional[str] = Field(None, description="Send from this mailbox. Default: the best one that can send")
+    model_config = {"populate_by_name": True}
+    mailbox_id: Optional[str] = Field(None, description="Send from this mailbox (its id from GET /v1/email/mailboxes). Default: the best one that can send")
+    from_: Optional[str] = Field(None, alias="from", max_length=254, description="Send from the mailbox with this address (any letter case). Use this or mailbox_id; if you send both they must be the same mailbox")
     to_is_a_person: bool = Field(False, description="True if this is a named person's own address (UK PECR: they need to have agreed to hear from you first)")
 
 
@@ -617,7 +706,8 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
     if not _EMAIL.match(to):
         fail(422, "invalid_email", "That is not a valid email address.")
     if is_test(ctx):
-        return {"id": f"em_test_{uuid.uuid4().hex[:12]}", "status": "sent", "to": to, "from": "test@example.com", "test": True}
+        find_mailbox(await _visible_mailboxes(db, ctx), body.mailbox_id, body.from_)
+        return {"id": f"em_test_{uuid.uuid4().hex[:12]}", "status": "sent", "to": to, "from": "test@example.com", "mailbox_id": "mb_test", "test": True}
 
     start = datetime.combine(date.today(), datetime.min.time())
     sent_today = len([m for m in (await db.execute(select(EmailMessage).where(
@@ -625,23 +715,23 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
     if sent_today >= DIRECT_DAILY_LIMIT:
         fail(429, "daily_limit", f"You have sent {DIRECT_DAILY_LIMIT} one-to-one emails today, which is the limit. Try again tomorrow, or use a campaign.")
 
-    boxes = (await db.execute(select(EmailMailbox))).scalars().all()
-    if body.mailbox_id:
-        boxes = [m for m in boxes if m.id == body.mailbox_id]
-
-    def can_send(m: EmailMailbox) -> bool:
-        return bool(m.spf_verified and (m.dkim_verified or m.dkim_override) and m.status in ("connected", "warming", "active", "graduated"))
-
-    rank = {"active": 0, "graduated": 0, "warming": 1, "connected": 2}
-    ready = sorted([m for m in boxes if can_send(m)], key=lambda m: rank.get(m.status, 3))
+    boxes = list((await db.execute(select(EmailMailbox))).scalars().all())
+    today = await sent_today_by_mailbox(db, boxes)
+    chosen = find_mailbox(boxes, body.mailbox_id, body.from_)  # 422 mailbox_not_found / mailbox_mismatch
     mailbox = None
-    for m in ready:
-        if ((await day_log(db, m.id)).sent_count or 0) < max(m.max_daily_target or 40, 40):  # the mailbox's own daily ceiling
-            mailbox = m
-            break
+    if chosen is not None:
+        reason = mailbox_block(chosen, today.get(chosen.id, 0))
+        if reason:
+            fail(422, "mailbox_cannot_send", f"{chosen.email} cannot send right now: {REASON_TEXT[reason]}.",
+                 reason=reason, mailbox_id=chosen.id, email=chosen.email, fix_url=mailbox_settings_url())
+        mailbox = chosen
+    else:
+        rank = {"active": 0, "graduated": 0, "warming": 1, "connected": 2}
+        ready = sorted([m for m in boxes if mailbox_block(m, today.get(m.id, 0)) is None], key=lambda m: rank.get(m.status, 3))
+        mailbox = ready[0] if ready else None
     if not mailbox:
-        fail(422, "no_mailbox", "No mailbox can send yet. Connect one under Mailboxes and add its SPF record (and DKIM, or choose to send without it).",
-             fix_url=links.fix_url("mailboxes"))
+        fail(422, "no_mailbox_can_send", "No mailbox can send yet. Connect one under Mailboxes and add its SPF record (and DKIM, or choose to send without it).",
+             fix_url=mailbox_settings_url(), mailboxes=[{"id": m.id, "email": m.email, "reason": mailbox_block(m, today.get(m.id, 0))} for m in boxes])
 
     who = SimpleNamespace(first_name=body.first_name, last_name=body.last_name, company=body.company, email=to, vars=None)
     result = await send_cold_email(db, org, mailbox, to, render(body.subject, who), render(body.body, who),
@@ -649,7 +739,7 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
     await db.commit()
     status = result["status"]
     if status == "sent":
-        return {"id": result["id"], "status": "sent", "to": to, "from": mailbox.email, "message_id": result["message_id"]}
+        return {"id": result["id"], "status": "sent", "to": to, "from": mailbox.email, "mailbox_id": mailbox.id, "message_id": result["message_id"]}
     if status == "suppressed":
         fail(422, "do_not_email", "That address is on your do-not-email list, so nothing was sent.", reason=result.get("reason"))
     if status == "blocked_pecr":
@@ -657,6 +747,19 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
     if status == "insufficient_credits":
         fail(402, "insufficient_credits", result.get("reason") or "Not enough Leads credits.")
     fail(502, "send_failed", f"The mailbox could not send it: {result.get('reason') or 'unknown error'}. Nothing was recorded as sent.")
+
+
+@router.get("/mailboxes")
+async def list_mailboxes(request: Request, db: AsyncSession = Depends(get_db)):
+    """Your connected mailboxes with their ids, so you can choose which one sends (`mailbox_id` on /send,
+    `mailbox_ids` on a campaign). Never includes passwords, tokens or any other secret."""
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"data": [{"id": "mb_test", "email": "test@example.com", "status": "sending", "can_send": True, "reason": None, "reason_code": None,
+                          "daily_cap": 40, "sent_today": 0, "spf": "ok", "dkim": "ok"}]}
+    boxes = await _visible_mailboxes(db, ctx)
+    today = await sent_today_by_mailbox(db, boxes)
+    return {"data": [mailbox_view(m, today.get(m.id, 0)) for m in boxes]}
 
 
 @router.get("/messages")

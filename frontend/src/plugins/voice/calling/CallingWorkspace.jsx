@@ -76,6 +76,8 @@ import { ConversationTemplatesView } from "../ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
+import { peekCallList, takeCallList } from "../../../utils/leadToVoice";
+import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
@@ -525,6 +527,7 @@ function rowFromRecord(headers, rec, i) {
   const phoneH = pickBestPhoneHeader(headers, [rec]) || pickHeader(headers, /telephone|phone|mobile|\btel\b|cell\b/i) || "";
   const emailH = pickHeader(headers, /e-?mail/i) || "";
   const webH = pickHeader(headers, /web\s*address|website|web\s*site|homepage|\burl\b/i) || "";
+  const leadIdH = pickHeader(headers, /^lead.?id$/i) || "";
   const liH = pickHeader(headers, /linkedin/i) || "";
   const firstH = pickHeader(headers, /forename|first.?name|given.?name/i) || "";
   const lastH = pickHeader(headers, /surname|last.?name|family.?name/i) || "";
@@ -556,6 +559,7 @@ function rowFromRecord(headers, rec, i) {
     name: company || contact || `Row ${i + 1}`,
     phone,
     email: String((emailH && rec[emailH]) || "").trim(),
+    leadId: String((leadIdH && rec[leadIdH]) || "").trim(),
     website,
     linkedin,
     town: String((townH && rec[townH]) || "").trim(),
@@ -1854,7 +1858,7 @@ export function CallingWorkspace({
       slots -= 1;
       setAssistantQueued(queue.length);
       try {
-        const res = await api.dialViaTelnyxAssistant({ to: p.phone, prospect_name: p.contact || p.name || undefined, mission_title: queue.mission, from_number: callFrom || undefined });
+        const res = await api.dialViaTelnyxAssistant({ to: p.phone, prospect_name: p.contact || p.name || undefined, mission_title: queue.mission, from_number: callFrom || undefined, lead_id: p.leadId || undefined });
         if (!res || res.success === false) throw new Error(res?.error || "The call could not be placed.");
       } catch (e) {
         showToast(`${p.name || p.phone}: ${e.message || "dial failed"}`);
@@ -1903,6 +1907,7 @@ export function CallingWorkspace({
           from_number: callFrom || undefined,
           prospect_name: prospectLabel !== phone ? prospectLabel : undefined,
           mission_title: (r.contact || r.company || r.name) ? `Direct — ${r.contact || r.company || r.name}` : undefined,
+          lead_id: r.leadId || undefined,
         });
         if (!res || res.success === false) throw new Error(res?.error || "The call could not be placed.");
         swapPending(optimisticId, res.callId);
@@ -1914,6 +1919,7 @@ export function CallingWorkspace({
           mission_title: (r.contact || r.company || r.name)
             ? `Direct — ${r.contact || r.company || r.name}`
             : "Direct Client Outreach",
+          lead_id: r.leadId || undefined,
           ...savedTwilioCreds(),
         });
         swapPending(optimisticId, res && (res.call_id || res.callId));
@@ -1996,6 +2002,24 @@ export function CallingWorkspace({
     setSelectedIds(new Set());
     showToast(`${records.length} rows imported${sheet && imp && imp.sheetNames && imp.sheetNames.length > 1 ? ` from sheet "${sheet}"` : ""}.`);
   };
+
+  // A list sent over from Lead Gen ("Call this list"). Taken once the plan is confirmed, so a user
+  // who has to buy Voice first still finds it waiting.
+  useEffect(() => {
+    if (voicePlanLoading || !voiceHasPlan) return;
+    const staged = takeCallList();
+    if (!staged) return;
+    setFileName(staged.name || "Lead Gen list");
+    setWorkbookSheets(null);
+    setAvailableSheets([]);
+    setActiveSheet("");
+    setHeaders(staged.headers.filter((h) => h !== "Lead ID")); // the id stays on each row but isn't a column to read
+    setRows(staged.records.map((rec, i) => rowFromRecord(staged.headers, rec, i)).map(ensureRowPhone));
+    setSelectedIds(new Set());
+    setPage("list");
+    const skip = staged.skipped ? ` ${staged.skipped.toLocaleString()} left out.` : "";
+    showToast(`${staged.records.length.toLocaleString()} companies from Lead Gen are ready to call.${skip}`);
+  }, [voicePlanLoading, voiceHasPlan]);
 
   const switchSheet = (sheetName) => {
     if (!workbookSheets || !workbookSheets[sheetName]) return;
@@ -2262,6 +2286,8 @@ export function CallingWorkspace({
         contact: r.contact || "",
         company: r.company || "",
         website: r.website || "",
+        lead_id: r.leadId || undefined,
+        email: r.email || undefined,
       };
     });
     if (!prospects.length) {
@@ -2271,7 +2297,7 @@ export function CallingWorkspace({
     // 2+ selected → up to 2 at once. Whole list (or 0–1 selected) → 1 at a time.
     const cap = useSelected ? MAX_CONCURRENT : 1;
     if (callVia === "assistant") {
-      const queue = prospects.map((p) => ({ phone: p.phone, name: p.name, contact: p.contact }));
+      const queue = prospects.map((p) => ({ phone: p.phone, name: p.name, contact: p.contact, leadId: p.lead_id }));
       queue.cap = cap;
       queue.mission = fileName ? `List — ${fileName}` : `Outbound list — ${prospects.length} contacts`;
       assistantQueueRef.current = queue;
@@ -2644,6 +2670,11 @@ export function CallingWorkspace({
         ) : null}
 
         <div className={page === "list" && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: page === "list" && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
+          {pluginLocked && peekCallList() ? (
+            <div role="status" style={{ maxWidth: 1240, marginBottom: 14, padding: "12px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
+              Your list of {peekCallList().count.toLocaleString()} {peekCallList().count === 1 ? "company" : "companies"} from Lead Gen is saved. Choose a plan below and it will be ready to call straight after.
+            </div>
+          ) : null}
           {pluginLocked && page !== "subscription" ? (
             <div style={{ maxWidth: 1240 }}>
               <div
@@ -3748,6 +3779,7 @@ export function CallingWorkspace({
                           onWrite={() => api.summarizeLoggedCall(l.id)}
                           onEmail={() => api.emailLoggedCallSummary(l.id)}
                         />
+                        {l.leadId ? <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(l.leadId)}>Open this company in Lead Gen</button> : null}
                       </div>
                     ) : null}
                     <div style={{

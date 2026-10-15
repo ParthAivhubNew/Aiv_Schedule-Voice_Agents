@@ -135,6 +135,10 @@ def shell_tools(base: str) -> List[Dict[str, Any]]:
                "email": text("The person's email, spelled back and confirmed."),
                "name": text("The person's name."),
                "caller_timezone": text("Only if the person says they are in another timezone, e.g. America/New_York.")}, ["start_time"]),
+        _tool(base, "reschedule_appointment", "Move a meeting this person already has to a new time returned by check_availability.",
+              {"start_time": text("The exact ISO-8601 time from check_availability."),
+               "email": text("Their email, only if they give it, to find the right meeting."),
+               "caller_timezone": text("Only if the person says they are in another timezone, e.g. America/New_York.")}, ["start_time"]),
         _tool(base, "request_human", "Ask a person from the business to take over this call.",
               {"reason": text("Why a person is needed.")}, ["reason"]),
         _tool(base, "save_outcome", "Record how the call went before it ends.",
@@ -305,6 +309,10 @@ async def build_brief(db, *, call_id: str, direction: str, operator_id: str, ass
     studio = await agent_studio.settings(db)
     company_row = await agent_studio.profile(db)
     script = template_engine.render_system_prompt(tpl, ctx)
+    hook = str((ctx.get("prospect") or {}).get("opening_hook") or "").strip()
+    if hook:  # what Lead Gen's research found about them: a first line the user can edit before the call
+        script += ("\n\nWhat we know about them: " + hook + " You may use this naturally in your first sentence "
+                   "to show you did your homework. Never read it out word for word, and never invent more.")
     if extra.strip():  # this call's own goal, questions and instructions (public API), read before the standing rules
         script += "\n\n" + extra.strip()
     script += "\n\n" + agent_studio.rules_block(studio, company_row)

@@ -43,6 +43,8 @@ class DialViaAssistantRequest(BaseModel):
     mission_id: Optional[str] = None
     from_number: Optional[str] = None
     accept_capped: bool = False  # the user saw the low-minutes warning and calls anyway
+    lead_id: Optional[str] = None  # the Lead Gen company this call is to
+    opening_hook: Optional[str] = None  # what research found, for the AI's first line
 
 
 @router.post("/dial")
@@ -72,6 +74,8 @@ async def dial_via_assistant_endpoint(req: DialViaAssistantRequest, request: Req
         prospect_id=req.prospect_id,
         mission_id=req.mission_id,
         operator_id=(getattr(request.state, "auth", None) or {}).get("operator_id", ""),
+        lead_id=req.lead_id or "",
+        opening_hook=req.opening_hook or "",
     )
     if not result.get("success"):
         return JSONResponse(status_code=400, content=result)

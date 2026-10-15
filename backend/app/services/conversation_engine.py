@@ -178,8 +178,8 @@ class CallContextResolver:
         p_name = (override_name or (prospect.name if prospect else "") or "").strip()
         p_phone = (override_phone or (prospect.phone if prospect else "") or "").strip()
         p_email = (override_email or (prospect.email if prospect else "") or "").strip()
-        p_company = (override_company or (prospect.company if prospect else "") or "").strip()
-        p_tz_raw = prospect.timezone if prospect else None
+        p_company = (override_company or getattr(prospect, "company", "") or "").strip()
+        p_tz_raw = getattr(prospect, "timezone", None)
         p_tz = validate_and_normalize_timezone(p_tz_raw, comp_tz)
 
         norm_phone, country_code = normalize_smart_phone(p_phone)
@@ -217,6 +217,7 @@ class CallContextResolver:
                 "phone": norm_phone or p_phone,
                 "email": p_email,
                 "company": p_company,
+                "opening_hook": (getattr(prospect, "opening_hook", "") or "").strip(),  # from Lead Gen research
                 "timezone": p_tz,
                 "timezone_short": today_dt.strftime("%Z") or "Local Time",
                 "industry_phrase": industry_phrase,

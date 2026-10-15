@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Lock, Phone } from "lucide-react";
+import { openPlans, useConnection } from "../../hooks/useConnections";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { contactFor, emailFor } from "./AccountsViews";
@@ -16,6 +17,9 @@ const label = { ...text, fontSize: 12.5, fontWeight: 600, color: C.textInk, disp
 const STEPS = ["Who", "Emails", "Send from", "Schedule", "Launch"];
 const DAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]];
 const blankEmail = (delay) => ({ subject: "", body: "Hi {{first_name}},\n\n", delay_days: delay });
+const blankCall = (delay) => ({ channel: "call", subject: "", body: "", delay_days: delay, condition: "no_reply" });
+const CONDITIONS = [["always", "Always"], ["no_reply", "Only if they haven't replied"], ["opened_no_reply", "Only if they opened an email but haven't replied"]];
+const isCall = (e) => e.channel === "call";
 
 // The campaign's leads from a list: one per company that has an email, named from its contact when known.
 export function leadsFromList(members) {
@@ -23,7 +27,7 @@ export function leadsFromList(members) {
     const email = emailFor(a)?.text;
     if (!email) return null;
     const parts = String(contactFor(a)?.text || "").trim().split(/\s+/).filter(Boolean);
-    return { email, first_name: parts[0] || "", last_name: parts.slice(1).join(" "), company: a.name, account_id: a.id };
+    return { email, first_name: parts[0] || "", last_name: parts.slice(1).join(" "), company: a.name, account_id: a.id, lead_id: a.id };
   }).filter(Boolean);
 }
 
@@ -40,6 +44,10 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   const [lines, setLines] = useState({}); // account id -> the opening line for that company
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const callStep = useConnection("call_step");
+  const booking = useConnection("booking_in_email");
+  const proof = useConnection("social_audience");
+  const [blocks, setBlocks] = useState(null); // recent posts that can be dropped into an email
 
   const list = listsStore.lists.find((l) => l.id === listId);
   const { members } = list ? listReach(list, store.accounts) : { members: [] };
@@ -50,8 +58,8 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
 
   const problem = [
     !list ? "Pick a list to email." : !leads.length ? "None of the companies in this list has an email yet. Enrich the list first." : "",
-    !emails[0].subject.trim() || emails.some((e) => !e.body.trim()) ? "Every email needs text, and the first one a subject."
-      : emails.some((e) => unknownFields(e.subject, e.body).length) ? "An email uses a field that can't be filled in. Fix it before going on."
+    isCall(emails[0]) || !emails[0].subject.trim() || emails.some((e) => !isCall(e) && !e.body.trim()) ? "Every email needs text, and the first one a subject. A call can only come after an email."
+      : emails.some((e) => !isCall(e) && unknownFields(e.subject, e.body).length) ? "An email uses a field that can't be filled in. Fix it before going on."
       : emails.some((e) => e.ai && (e.warnings || []).length) ? "The AI wrote something the facts don't back up. Edit or remove it, or ask the AI to change it." : "",
     !chosen.length ? "Pick at least one mailbox to send from." : "",
     !sched.days.length ? "Pick at least one sending day." : "",
@@ -69,7 +77,9 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
       made = (await api.emailCreateCampaign({
         name: name.trim() || `${list.name} campaign`, mailbox_ids: mailboxIds, sending_window_start: sched.start, sending_window_end: sched.end,
         days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120, aliases: aliasMap,
-        steps: emails.map((e) => ({ subject: e.subject, body: e.body, delay_days: Number(e.delay_days) || 0 })),
+        steps: emails.map((e) => (isCall(e)
+          ? { channel: "call", condition: e.condition, delay_days: Number(e.delay_days) || 0 }
+          : { subject: e.subject, body: e.body, delay_days: Number(e.delay_days) || 0 })),
       })).campaign;
       const out = await api.emailAddLeads(made.id, leads.map(({ account_id, ...lead }) => ({ ...lead, personal_line: (lines[account_id] || "").trim() })));
       if (start) await api.emailCampaignStatus(made.id, "running");
@@ -140,24 +150,62 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             <ProfileBox onReady={setProfileReady} onManage={onOpenBusiness} />
             <SequenceWriter accountIds={members.map((a) => a.id)} personalise={personalise} setPersonalise={setPersonalise} ready={profileReady}
               onWritten={(steps) => { if (steps.length) setEmails(steps.map((s, i) => ({ subject: s.subject || "", body: s.body, delay_days: s.delay_days ?? (i ? 3 : 0), ai: true, warnings: s.warnings || [] }))); }} />
-            {emails.map((e, i) => (
+            {emails.map((e, i) => (isCall(e) ? (
+              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, display: "grid", gap: 8, background: C.paperSoft }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <strong style={{ ...text, fontSize: 13, display: "inline-flex", gap: 6, alignItems: "center" }}><Phone size={13} /> Step {i + 1}: your AI caller phones them</strong>
+                  <label style={{ ...muted, display: "inline-flex", gap: 6, alignItems: "center" }}>wait
+                    <input className="ui-input" style={{ width: 64 }} type="number" min={1} value={e.delay_days} onChange={(ev) => setEmail(i, "delay_days", ev.target.value)} /> days after step {i}
+                  </label>
+                  <button title="Remove this call step from the campaign" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button>
+                </div>
+                <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>When
+                  <select className="ui-input" style={{ width: "auto" }} value={e.condition} onChange={(ev) => setEmail(i, "condition", ev.target.value)}>
+                    {CONDITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </label>
+                <div style={muted}>The call only goes out inside calling hours, skips numbers that failed the check or are on your do-not-contact list, and is skipped if they have already booked. The emails carry on either way.</div>
+              </div>
+            ) : (
               <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <strong style={{ ...text, fontSize: 13 }}>Email {i + 1}</strong>
+                  <strong style={{ ...text, fontSize: 13 }}>{i === 0 ? "Email 1" : `Step ${i + 1}: email`}</strong>
                   {i > 0 ? (
                     <label style={{ ...muted, display: "inline-flex", gap: 6, alignItems: "center" }}>wait
-                      <input className="ui-input" style={{ width: 64 }} type="number" min={1} value={e.delay_days} onChange={(ev) => setEmail(i, "delay_days", ev.target.value)} /> days after email {i}
+                      <input className="ui-input" style={{ width: 64 }} type="number" min={1} value={e.delay_days} onChange={(ev) => setEmail(i, "delay_days", ev.target.value)} /> days after step {i}
                     </label>
                   ) : null}
                   {i > 0 ? <button title="Remove this follow-up from the campaign" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button> : null}
                 </div>
                 <input className="ui-input" placeholder={i === 0 ? "Subject" : "Subject (empty = reply in the same thread)"} value={e.subject} onChange={(ev) => setEmail(i, "subject", ev.target.value)} />
                 <textarea className="ui-input" style={{ minHeight: 110 }} value={e.body} onChange={(ev) => setEmail(i, "body", ev.target.value)} />
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ ...muted, fontSize: 12 }}>Add:</span>
+                  {booking.available ? (
+                    <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="A link to a page where they pick a free time. Each person gets their own"
+                      onClick={() => setEmail(i, "body", `${e.body.replace(/\s*$/, "")}\n\nPick a time that suits you: {{booking_link}}\n`)}>Booking link</button>
+                  ) : (
+                    <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Booking pages come with Voice" onClick={() => openPlans("voice")}><Lock size={12} /> Booking link · add Voice</button>
+                  )}
+                  {proof.available ? (
+                    <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Mention something you recently posted"
+                      onClick={async () => { try { const r = blocks || (await api.getProofBlocks()).blocks; setBlocks(r); if (r[0]) setEmail(i, "body", `${e.body.replace(/\s*$/, "")}\n\n${r[0].block}\n`); else store.toast("You haven't published a post yet."); } catch (err) { store.toast(err.message || "Couldn't get your posts."); } }}>Recent post</button>
+                  ) : null}
+                </div>
                 <CheckNote email={e} aiWritten={Boolean(e.ai)} />
                 <RefineBar email={e} ready={profileReady} onChange={(r) => setEmails(emails.map((x, j) => (j === i ? { ...x, subject: i === 0 || x.subject ? r.subject : x.subject, body: r.body, ai: true, warnings: r.warnings || [] } : x)))} />
               </div>
-            ))}
-            {emails.length < 6 ? <div><button title="Add another email that is sent if there is no reply" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setEmails([...emails, blankEmail(3)])}>Add a follow-up</button></div> : null}
+            )))}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {emails.length < 6 ? <button title="Add another email that is sent if there is no reply" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setEmails([...emails, blankEmail(3)])}>Add a follow-up</button> : null}
+              {emails.length < 6 ? (
+                callStep.available ? (
+                  <button title="Have your AI caller phone them between emails" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setEmails([...emails, blankCall(2)])}><Phone size={13} /> Add a call step</button>
+                ) : (
+                  <button title="Calls between emails come with Voice" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={callStep.loading} onClick={() => openPlans("voice")}><Lock size={13} /> Add a call step · add Voice</button>
+                )
+              ) : null}
+            </div>
           </>
         ) : null}
 
@@ -213,7 +261,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             {usesLine ? <PersonalLines leads={leads} lines={lines} setLines={setLines} ready={profileReady} /> : null}
             <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4, ...text, fontSize: 13.5, color: C.textInk }}>
               <li><strong>{leads.length.toLocaleString()}</strong> people at companies in <strong>{list?.name}</strong>{members.length > leads.length ? ` (${(members.length - leads.length).toLocaleString()} skipped: no email yet)` : ""}</li>
-              <li><strong>{emails.length}</strong> email{emails.length === 1 ? "" : "s"}, the first starting "{emails[0].subject || "…"}"</li>
+              <li><strong>{emails.filter((e) => !isCall(e)).length}</strong> email{emails.filter((e) => !isCall(e)).length === 1 ? "" : "s"}{emails.some(isCall) ? ` and ${emails.filter(isCall).length} call${emails.filter(isCall).length === 1 ? "" : "s"}` : ""}, the first starting "{emails[0].subject || "…"}"</li>
               <li>Sent from <strong>{chosen.map((m) => aliasMap[m.id] || m.email).join(", ")}</strong></li>
               <li>{sched.days.map((d) => DAYS.find((x) => x[0] === d)[1]).join(", ")}, {sched.start} to {sched.end}, one email every {sched.gap}s at most</li>
               <li>Every email gets an unsubscribe link, and anyone on your do-not-email list is skipped.</li>

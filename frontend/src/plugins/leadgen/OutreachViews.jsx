@@ -3,6 +3,29 @@ import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Note, Pill, btn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
+import { useConnection } from "../../hooks/useConnections";
+
+// "Reply with times": the free times in their own time zone and a booking link, as the body of a reply.
+function ReplyWithTimes({ r }) {
+  const { available } = useConnection("booking_in_email");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  if (!available) return null;
+  return (
+    <>
+    <button type="button" style={btn(false)} disabled={busy} title="Opens a reply with free times in their time zone and a link to pick their own"
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const t = await api.getSlotsByEmail(r.email);
+          const subject = r.subject.startsWith("Re:") ? r.subject : `Re: ${r.subject}`;
+          window.location.href = `mailto:${r.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Hi ${(r.name || "").split(" ")[0] || "there"},\n\n${t.text}\n`)}`;
+        } catch (e) { setProblem(e.message || "Couldn't get your free times."); } finally { setBusy(false); }
+      }}>Reply with times</button>
+    {problem ? <span style={{ fontSize: 12, color: C.red }}>{problem}</span> : null}
+    </>
+  );
+}
 
 const DAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]];
 const PRESETS = [["one.com", "one.com"], ["gmail", "Google Workspace / Gmail"], ["outlook", "Microsoft 365 / Outlook"], ["zoho", "Zoho Mail"], ["", "Other (enter servers)"]];
@@ -343,17 +366,32 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
         <label style={label} title="The shortest wait between two emails from the same mailbox"><span>Gap between emails (seconds)</span><input style={{ ...input, width: 110 }} type="number" min={30} value={c.min_delay_seconds} onChange={(e) => setC({ ...c, min_delay_seconds: e.target.value })} /></label>
       </div>
       <div style={small}>Hours are in your company's timezone. Use {"{{first_name}}"}, {"{{last_name}}"} and {"{{company}}"} in subjects and emails. Follow-ups with no subject go as a reply in the same thread.</div>
-      {c.steps.map((s, i) => (
+      {c.steps.map((s, i) => (s.channel === "call" ? (
+        <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "grid", gap: 8, background: C.paperSoft }}>
+          <div style={row}>
+            <strong style={{ fontSize: 13 }}>Step {i + 1}: your AI caller phones them</strong>
+            <label style={{ ...row, ...small }}>wait <input style={{ ...input, width: 64 }} type="number" min={1} value={s.delay_days} onChange={(e) => step(i, "delay_days", e.target.value)} /> days after step {i}</label>
+            <label style={{ ...row, ...small }}>When
+              <select style={input} value={s.condition || "always"} onChange={(e) => step(i, "condition", e.target.value)}>
+                <option value="always">Always</option>
+                <option value="no_reply">Only if they haven't replied</option>
+                <option value="opened_no_reply">Only if they opened an email but haven't replied</option>
+              </select>
+            </label>
+            <button title="Remove this call step from the campaign" type="button" style={{ ...btn(false), marginLeft: "auto" }} onClick={() => setC({ ...c, steps: c.steps.filter((_, j) => j !== i) })}>Remove</button>
+          </div>
+        </div>
+      ) : (
         <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
           <div style={row}>
-            <strong style={{ fontSize: 13 }}>Email {i + 1}</strong>
+            <strong style={{ fontSize: 13 }}>{i === 0 ? "Email 1" : `Step ${i + 1}: email`}</strong>
             {i > 0 && <label style={{ ...row, ...small }}>wait <input style={{ ...input, width: 64 }} type="number" min={1} value={s.delay_days} onChange={(e) => step(i, "delay_days", e.target.value)} /> days after email {i}</label>}
             {i > 0 && <button title="Remove this step from the campaign" type="button" style={{ ...btn(false), marginLeft: "auto" }} onClick={() => setC({ ...c, steps: c.steps.filter((_, j) => j !== i) })}>Remove</button>}
           </div>
           <input style={input} placeholder={i === 0 ? "Subject" : "Subject (empty = reply in the same thread)"} value={s.subject} onChange={(e) => step(i, "subject", e.target.value)} />
           <textarea style={{ ...input, minHeight: 120 }} value={s.body} onChange={(e) => step(i, "body", e.target.value)} />
         </div>
-      ))}
+      )))}
       <div style={row}>
         {c.steps.length < 6 && <button title="Add another email that is sent if there is no reply" type="button" style={btn(false)} onClick={() => setC({ ...c, steps: [...c.steps, { subject: "", body: "Hi {{first_name}},\n\n", delay_days: 3 }] })}>Add follow-up</button>}
         <button title="Save the changes to this campaign" type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={save}>Save campaign</button>
@@ -375,7 +413,7 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   if (!data) return <Note error>{err}</Note>;
   const c = data.campaign;
   if (editing) {
-    return <CampaignEditor initial={{ ...c, steps: c.steps.map((s) => ({ subject: s.subject, body: s.body, delay_days: s.delay_days })) }} mailboxes={mailboxes}
+    return <CampaignEditor initial={{ ...c, steps: c.steps.map((s) => ({ subject: s.subject, body: s.body, delay_days: s.delay_days, channel: s.channel || "email", condition: s.condition || "always" })) }} mailboxes={mailboxes}
       onSaved={() => { setEditing(false); reload(); }} onCancel={() => setEditing(false)} />;
   }
   const leads = parseLeads(paste);
@@ -470,7 +508,7 @@ export function CampaignsView({ outreach, onNew }) {
       {camps.map((c) => (
         <button type="button" title="Open this campaign" key={c.id} onClick={() => setOpen(c.id)} style={{ ...card, textAlign: "left", cursor: "pointer", display: "grid", gap: 6 }}>
           <div style={row}><strong>{c.name}</strong><Pill tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status] || c.status}</Pill>
-            <span style={{ ...small, marginLeft: "auto" }}>{c.steps.length} email{c.steps.length === 1 ? "" : "s"} · {c.mailbox_ids.length} mailbox{c.mailbox_ids.length === 1 ? "" : "es"}</span></div>
+            <span style={{ ...small, marginLeft: "auto" }}>{c.steps.filter((s) => s.channel !== "call").length} email{c.steps.filter((s) => s.channel !== "call").length === 1 ? "" : "s"}{c.steps.some((s) => s.channel === "call") ? ` · ${c.steps.filter((s) => s.channel === "call").length} call${c.steps.filter((s) => s.channel === "call").length === 1 ? "" : "s"}` : ""} · {c.mailbox_ids.length} mailbox{c.mailbox_ids.length === 1 ? "" : "es"}</span></div>
           <div style={small}>{c.leads} leads · {c.sent} sent · {c.replied} replies ({c.reply_rate}%) · {c.bounced} bounced</div>
         </button>
       ))}
@@ -692,6 +730,7 @@ function RepliesList() {
               {Object.entries(CATEGORY).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
             </select>
             <a href={`mailto:${r.email}?subject=${encodeURIComponent(r.subject.startsWith("Re:") ? r.subject : `Re: ${r.subject}`)}`} style={{ ...btn(false), textDecoration: "none" }}>Reply</a>
+            {["interested", "question"].includes(r.category) && <ReplyWithTimes r={r} />}
           </div>
         </div>
       ))}

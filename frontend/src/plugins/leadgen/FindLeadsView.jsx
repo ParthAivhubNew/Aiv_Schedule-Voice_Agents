@@ -8,6 +8,8 @@ import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
 import { creditWord, useLeadCredits } from "./CreditsChip";
 import { askConfirm, askText } from "./Dialogs";
+import { CallButton, useCallDialog } from "./CallFlow";
+import { useConnection } from "../../hooks/useConnections";
 
 const FAVOURITES = "Favourites";
 const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Set filters above, or just tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters, so what I find and what you see always match. Say \"remove X\" to drop a company." };
@@ -172,7 +174,7 @@ function ContactsPanel({ company }) {
   );
 }
 
-function CompanyRow({ c, saved, onSave, onRemove, last }) {
+function CompanyRow({ c, saved, onSave, onRemove, onCall, onCallLocked, last }) {
   const [open, setOpen] = useState(false);
   const d = domainOf(c.website);
   return (
@@ -197,6 +199,9 @@ function CompanyRow({ c, saved, onSave, onRemove, last }) {
           <button title="Show the contacts found for this company" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             <Users size={14} /> Contacts <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
           </button>
+          {c.phone && onCall ? (
+            <CallButton label="Save & call" lockedLabel="Call · add Voice" variant="ghost" title="Save it to your Unsorted list and have your AI caller phone them" onClick={() => onCall(c)} onLocked={() => onCallLocked?.(c)} />
+          ) : null}
           {saved ? (
             <span style={{ ...text, fontSize: 12.5, color: C.green, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><Check size={14} /> Saved</span>
           ) : (
@@ -548,6 +553,31 @@ function FindLeadsSearch({ store, listsStore }) {
   const pickAmount = (n) => showFromArea(area, n, areaStep.candidates);
   const pinCount = companies.filter((c) => points[c.id]).length;
   const saveOne = (c) => store.save([asAccount(c)]);
+  const call = useCallDialog(store.toast);
+  const { available: canCall } = useConnection("call_leads");
+  // The saved copy of a search result, saving it first when it isn't saved yet. Calling needs a saved company
+  // so the call, its result and any meeting stay with it.
+  const savedCopy = async (c) => {
+    const have = store.accounts.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
+    if (have) return have;
+    const r = await store.save([asAccount(c)], "Unsorted", { quiet: true });
+    return r?.accounts?.[0] || null;
+  };
+  const callOne = async (c) => {
+    const row = await savedCopy(c);
+    if (!row) return;
+    call.open({ kind: "one", id: row.id, name: row.name });
+  };
+  const callAll = async (list) => {
+    const withPhone = list.filter((c) => c.phone);
+    if (!withPhone.length) { store.toast("None of these companies has a phone number yet."); return; }
+    const rows = [];
+    for (const c of withPhone) {
+      const row = await savedCopy(c);
+      if (row) rows.push(row);
+    }
+    if (rows.length) call.open({ kind: "selected", ids: rows.map((r) => r.id), name: `${rows.length} companies from your search` });
+  };
   // Favourites are an ordinary list called Favourites, so they can be enriched and emailed like any other.
   const favKeys = useMemo(() => {
     const fav = (listsStore?.lists || []).find((l) => l.name.toLowerCase() === FAVOURITES.toLowerCase());
@@ -564,6 +594,8 @@ function FindLeadsSearch({ store, listsStore }) {
     onFavourite: (c) => store.save([asAccount(c)], FAVOURITES),
     onAddToList: async (c) => { const name = await askText({ title: `Add ${c.name} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) store.save([asAccount(c)], name); },
     onRemove: removeCompany,
+    onCall: (c) => (canCall ? callOne(c) : call.open({ kind: "one", id: "", name: c.name }, true)),
+    callLocked: !canCall,
     // A note goes on the saved company (it is saved to Unsorted first if it isn't yet).
     onNote: async (c) => {
       const note = await askText({ title: `Note on ${c.name}`, label: "Your note", multiline: true, confirm: "Save note", maxLength: 1000 });
@@ -668,6 +700,7 @@ function FindLeadsSearch({ store, listsStore }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {call.dialog}
       <div className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
         <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", alignSelf: "flex-start", background: C.bgSoft || "#F4F5F9", border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3, flexWrap: "wrap" }}>
           {[["register", "Company register", "Free"], ["web", "Open web", webRate == null ? "" : `${creditWord(webRate)} per company found`]].map(([id, name, price]) => (
@@ -795,6 +828,13 @@ function FindLeadsSearch({ store, listsStore }) {
           {view === "map" ? (
             <div style={{ padding: 12 }}>
               <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
+              {area && companies.some((c) => c.phone) ? (
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <CallButton label={`Call the ${companies.filter((c) => c.phone).length} with a phone number in this area`} lockedLabel="Call these · add Voice" variant="secondary"
+                    title="Saves them to your Unsorted list, then shows who can be called"
+                    onClick={() => callAll(companies)} onLocked={() => call.open({ kind: "selected", ids: [], name: "the companies in your area" }, true)} />
+                </div>
+              ) : null}
               {areaStep && area ? (
                 <div className="ui-card" role="status" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   {areaStep.phase === "counting" ? (
@@ -855,7 +895,8 @@ function FindLeadsSearch({ store, listsStore }) {
             </div>
           ) : null}
           {companies.length ? companies.map((c, i) => (
-            <CompanyRow key={c.id} c={c} saved={isSaved(c)} onSave={saveOne} onRemove={removeCompany} last={i === companies.length - 1} />
+            <CompanyRow key={c.id} c={c} saved={isSaved(c)} onSave={saveOne} onRemove={removeCompany} onCall={callOne}
+              onCallLocked={(co) => call.open({ kind: "one", id: "", name: co.name }, true)} last={i === companies.length - 1} />
           )) : searched && !inArea ? (
             <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
           ) : null}

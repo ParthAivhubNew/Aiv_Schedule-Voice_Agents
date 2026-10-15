@@ -59,10 +59,10 @@ def test_every_action_points_at_a_real_public_call():
     paths = app.openapi()["paths"]
     real = {(m.upper(), plain(p)) for p, ops in paths.items() if p.startswith("/v1/") for m in ops}
     mapped = [(m, "/v1" + p) for acts in ACTIONS.values() for (m, p, _) in acts.values()]
-    assert len(mapped) == 27
+    assert len(mapped) == 31
     missing = [x for x in mapped if x not in real]
     assert not missing, missing
-    assert len({x for x in mapped}) == 27
+    assert len({x for x in mapped}) == 31
 
 
 async def test_a_call_started_and_read_through_the_one_endpoint(db, monkeypatch):

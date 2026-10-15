@@ -260,7 +260,9 @@ class V1Route(APIRoute):
                                         status_code=500)
             if idem:
                 body = _json_body(response)
-                await _idem_finish(org, idem_key, response.status_code, body, keep=response.status_code < 500 and body is not None)
+                # Only an answer that worked is remembered. A request that was refused (a mailbox that doesn't exist, no credits,
+                # a bad field) is not replayed: the caller fixes it and retries with the same key.
+                await _idem_finish(org, idem_key, response.status_code, body, keep=response.status_code < 400 and body is not None)
             response.headers["X-Request-Id"] = request_id
             if org:
                 ms = int((time.perf_counter() - started) * 1000)

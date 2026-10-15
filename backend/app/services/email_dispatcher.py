@@ -60,6 +60,27 @@ def read_unsubscribe_token(token: str) -> Optional[Tuple[str, str]]:
         return None
 
 
+def open_token(org_id: str, message_id: str) -> str:
+    body = base64.urlsafe_b64encode(json.dumps([org_id, message_id], separators=(",", ":")).encode()).decode().rstrip("=")
+    mac = hmac.new(_key(), ("open:" + body).encode(), hashlib.sha256).hexdigest()[:24]
+    return f"{body}.{mac}"
+
+
+def read_open_token(token: str) -> Optional[Tuple[str, str]]:
+    try:
+        body, mac = str(token or "").rsplit(".", 1)
+        if not hmac.compare_digest(mac, hmac.new(_key(), ("open:" + body).encode(), hashlib.sha256).hexdigest()[:24]):
+            return None
+        org_id, message_id = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        return str(org_id), str(message_id)
+    except Exception:
+        return None
+
+
+def open_url(org_id: str, message_id: str) -> str:
+    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/email/o/{open_token(org_id, message_id)}"
+
+
 def unsubscribe_url(org_id: str, email_addr: str) -> str:
     return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/email/u/{unsubscribe_token(org_id, email_addr)}"
 
@@ -70,6 +91,11 @@ async def is_email_suppressed(db: AsyncSession, email_addr: str, org_id: str) ->
     (a domain entry has no address)."""
     addr = (email_addr or "").strip().lower()
     domain = addr.split("@")[-1] if "@" in addr else ""
+    from app.services.connections import block_for
+
+    shared = await block_for(db, email=addr, channel="email")  # the one do-not-contact list
+    if shared:
+        return True, shared.reason or "do_not_contact"
     q = select(EmailSuppression).where(
         (EmailSuppression.email == addr) | ((EmailSuppression.email == "") & (EmailSuppression.domain == domain))
     ).where((EmailSuppression.org_id == org_id) | (EmailSuppression.org_id.is_(None)))
@@ -115,7 +141,7 @@ def alias_for(mb: EmailMailbox, address: str) -> Optional[Dict[str, Any]]:
 
 
 def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, warmup_id: str = "",
-          in_reply_to: str = "", references: str = "", from_alias: str = "") -> MimeMessage:
+          in_reply_to: str = "", references: str = "", from_alias: str = "", open_marker: str = "") -> MimeMessage:
     msg = MimeMessage()
     alias = alias_for(mb, from_alias)
     msg["From"] = formataddr(((alias.get("name") if alias else "") or mb.display_name or "", alias["address"] if alias else mb.email))
@@ -137,7 +163,10 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
         msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         body += f"\n\n--\nNot interested? Unsubscribe: {link}"
     msg.set_content(body)
-    msg.add_alternative(_html_of(body), subtype="html")
+    page = _html_of(body)
+    if open_marker and not warmup_id:  # lets Lead Gen see who is reading (Settings -> Connections can switch it off)
+        page += f'<img src="{open_marker}" width="1" height="1" alt="" style="display:none">'
+    msg.add_alternative(page, subtype="html")
     return msg
 
 
@@ -174,8 +203,18 @@ async def send_cold_email(
         if not ok:
             return {"status": "insufficient_credits", "reason": why}
 
+    row_id = str(uuid.uuid4())
+    marker = ""
+    if not is_warmup:
+        try:
+            from app.services.connections import get_rules
+
+            if (await get_rules(db)).get("warm_lead_prompt"):
+                marker = open_url(org_id, row_id)
+        except Exception:
+            marker = ""
     msg = build(mailbox, to, subject, body_text, org_id=org_id, warmup_id=warmup_id if is_warmup else "",
-                in_reply_to=in_reply_to, from_alias=from_alias)
+                in_reply_to=in_reply_to, from_alias=from_alias, open_marker=marker)
     try:
         await T.send(mailbox_settings(mailbox), msg)
     except T.MailError as err:
@@ -186,7 +225,7 @@ async def send_cold_email(
     now = datetime.utcnow()
     mailbox.last_error = ""
     mailbox.last_sent_at = now
-    row = EmailMessage(id=str(uuid.uuid4()), mailbox_id=mailbox.id, campaign_id=campaign_id or "",
+    row = EmailMessage(id=row_id, mailbox_id=mailbox.id, campaign_id=campaign_id or "",
                        sequence_step_id=sequence_step_id or "", enrollment_id=enrollment_id or "",
                        prospect_id=prospect_id or "", message_id=msg["Message-ID"], thread_id=in_reply_to or msg["Message-ID"],
                        recipient_email=to, subject=subject, body_text=body_text, is_warmup=is_warmup,

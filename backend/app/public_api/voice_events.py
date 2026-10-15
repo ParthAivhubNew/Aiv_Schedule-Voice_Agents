@@ -41,6 +41,7 @@ async def dispatch_finished(db: AsyncSession, org: str, event: str, call: Any, l
         "duration_seconds": secs,
         "answers": dict(getattr(brief, "captured", None) or {}),
         "meeting_booked": outcome == "meeting_booked" or bool(getattr(call, "booked", False)),
+        "lead_id": getattr(call, "lead_id", None) or None,
         "notes": getattr(brief, "notes", "") or "",
         "recording_url": f"{links.public_base()}/v1/voice/calls/{call_id}/recording",
     })

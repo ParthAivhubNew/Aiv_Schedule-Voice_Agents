@@ -59,10 +59,13 @@ async def _round(db: AsyncSession) -> None:
         if status in ("sending", "completed", "paused"):
             replies = (await db.execute(select(EmailMessage).where(EmailMessage.campaign_id == camp.id, EmailMessage.status == "replied"))).scalars().all()
             told = set(d.get("replies") or [])
+            from app.services.connections import lead_for
+
             for m in replies:
                 if m.id not in told:
                     told.add(m.id)
-                    dispatch_event(org, "campaign.reply", {"campaign": {"id": camp.id, "name": camp.name}, "reply": {
+                    the_lead = await lead_for(db, email=m.reply_from or m.recipient_email)
+                    dispatch_event(org, "campaign.reply", {"id": m.id, "lead_id": the_lead.id if the_lead else None, "campaign": {"id": camp.id, "name": camp.name}, "reply": {
                         "email": m.reply_from or m.recipient_email, "subject": m.subject, "category": m.reply_category,
                         "text": m.reply_snippet, "replied_at": m.replied_at.isoformat() + "Z" if m.replied_at else None}})
             if len(told) != len(d.get("replies") or []):

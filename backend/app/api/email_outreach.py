@@ -366,7 +366,8 @@ class StepBody(BaseModel):
     delay_hours: int = 0
     subject: str = ""
     body: str = ""
-    channel: str = "email"
+    channel: str = "email"  # email | call
+    condition: str = "always"  # a call step only: always | no_reply | opened_no_reply
 
 
 class CampaignBody(BaseModel):
@@ -392,7 +393,15 @@ def _check_campaign(body: CampaignBody) -> None:
         raise HTTPException(status_code=400, detail="Add at least one email.")
     if not body.steps[0].subject.strip():
         raise HTTPException(status_code=400, detail="The first email needs a subject.")
+    if body.steps[0].channel == "call":
+        raise HTTPException(status_code=400, detail="The first step has to be an email. A call can follow it.")
     for i, s in enumerate(body.steps, 1):
+        if s.channel == "call":
+            if s.condition not in ("always", "no_reply", "opened_no_reply"):
+                raise HTTPException(status_code=400, detail=f"Call {i} has an unknown condition.")
+            if i > 1 and (s.delay_days or 0) * 24 + (s.delay_hours or 0) <= 0:
+                raise HTTPException(status_code=400, detail=f"Call {i} needs a wait after the step before it.")
+            continue
         if not s.body.strip():
             raise HTTPException(status_code=400, detail=f"Email {i} is empty.")
         if i > 1 and (s.delay_days or 0) * 24 + (s.delay_hours or 0) <= 0:
@@ -404,10 +413,12 @@ async def _save_steps(db: AsyncSession, camp: EmailCampaign, steps: List[StepBod
         await db.delete(old)
     await db.flush()
     for n, s in enumerate(steps, 1):
+        is_call = s.channel == "call"
         db.add(EmailSequenceStep(id=f"st_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, step_number=n,
-                                 channel="email", delay_days=max(0, s.delay_days if n > 1 else 0),
+                                 channel="voice_call" if is_call else "email", delay_days=max(0, s.delay_days if n > 1 else 0),
                                  delay_hours=max(0, s.delay_hours if n > 1 else 0),
-                                 subject=s.subject.strip()[:300], body_template=s.body.strip()[:10000]))
+                                 condition=s.condition if is_call else "always",
+                                 subject="" if is_call else s.subject.strip()[:300], body_template="" if is_call else s.body.strip()[:10000]))
 
 
 async def _known_mailboxes(db: AsyncSession, ids: List[str]) -> List[str]:
@@ -513,7 +524,8 @@ async def _campaign_out(db: AsyncSession, camp: EmailCampaign, full: bool = Fals
     steps = (await db.execute(select(EmailSequenceStep).where(EmailSequenceStep.campaign_id == camp.id)
                               .order_by(EmailSequenceStep.step_number))).scalars().all()
     out["steps"] = [{"step": s.step_number, "delay_days": s.delay_days, "delay_hours": s.delay_hours,
-                     "subject": s.subject, "body": s.body_template, "channel": s.channel} for s in steps]
+                     "subject": s.subject, "body": s.body_template, "channel": "call" if s.channel == "voice_call" else s.channel,
+                     "condition": s.condition or "always"} for s in steps]
     if full:
         from app.services.email_worker import local_now, next_window
         from app.services.org_settings import org_timezone
@@ -629,6 +641,7 @@ class LeadBody(BaseModel):
     last_name: str = ""
     company: str = ""
     prospect_id: str = ""
+    lead_id: str = ""  # the saved Lead Gen company, so a call step can ring it and a booking can stop the sequence
     personal_line: str = ""  # the opening sentence written for this person, if any (see /ai/personalise)
     facts: List[str] = []  # what the sender knows about this company, for writing its opening line
     company_number: str = ""  # lets us match the company register exactly
@@ -679,7 +692,7 @@ async def add_leads(campaign_id: str, body: LeadsBody, request: Request, db: Asy
             continue
         have.add(addr)
         db.add(EmailEnrollment(id=f"en_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, prospect_id=lead.prospect_id or None,
-                               email=addr, first_name=lead.first_name.strip()[:80], last_name=lead.last_name.strip()[:80],
+                               lead_id=lead.lead_id or None, email=addr, first_name=lead.first_name.strip()[:80], last_name=lead.last_name.strip()[:80],
                                company=lead.company.strip()[:160], current_step=1, status="active", next_action_at=now,
                                vars=_lead_vars(lead)))
         added += 1
@@ -839,6 +852,39 @@ async def _unsubscribe(token: str) -> bool:
                 enr.next_action_at = None
             await db.commit()
     return True
+
+
+_GIF = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
+
+
+@router.get("/o/{token}")
+async def email_opened(token: str):
+    """The 1x1 picture in a campaign email. Counts the open and puts it on the lead's timeline."""
+    from fastapi.responses import Response
+
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.services import connections as C
+    from app.services.email_dispatcher import read_open_token
+
+    ref = read_open_token(token)
+    if ref:
+        org, message_id = ref
+        try:
+            with org_scope(org):
+                async with AsyncSessionLocal() as db:
+                    msg = await db.get(EmailMessage, message_id)
+                    if msg and not msg.is_warmup:
+                        msg.open_count = (msg.open_count or 0) + 1
+                        msg.last_opened_at = datetime.utcnow()
+                        lead = await C.lead_for(db, email=msg.recipient_email)
+                        if lead:
+                            await C.record_event(db, "email", lead_id=lead.id, registry_id=lead.registry_id or "",
+                                                 ref_id=f"open:{msg.id}", summary=f"Opened: {msg.subject}"[:200])
+                        await db.commit()
+        except Exception as err:  # a picture request must always answer
+            logger.debug(f"open not recorded: {err}")
+    return Response(content=_GIF, media_type="image/gif", headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @router.get("/u/{token}", response_class=HTMLResponse)

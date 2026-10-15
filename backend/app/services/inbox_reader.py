@@ -140,4 +140,10 @@ async def process(db: AsyncSession, org_id: str, mb: EmailMailbox, messages: Lis
         log = await day_log(db, mb.id)
         log.reply_count = (log.reply_count or 0) + 1
         out["replies"] += 1
+        try:  # the lead behind this address moves on, and the reply lands on its timeline
+            from app.services.connection_handlers import on_reply
+
+            await on_reply(db, org_id, inc.from_addr, inc.subject, positive=(category == "interested"))
+        except Exception as link_err:
+            logger.debug(f"reply not linked to a lead: {link_err}")
     return out

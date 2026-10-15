@@ -3,6 +3,7 @@ import { Calendar, CheckCircle2, ChevronDown, ChevronUp, Headphones, PhoneOff, S
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { CallSummary } from "./CallSummary";
+import { openLead } from "../../../connections/ConnectedHome";
 
 const STATE_META = {
   calling: { label: "Ringing", fg: C.amber, bg: C.amberSoft, pulse: true },
@@ -151,6 +152,9 @@ export function LiveCallCard({
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
             <StatePill state={state} />
+            {call.leadId ? (
+              <button type="button" className="ui-link" style={{ fontSize: 12 }} title="Open this company in Lead Gen" onClick={() => openLead(call.leadId)}>From Lead Gen</button>
+            ) : null}
             {call.booked ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 800, color: C.green }}>
                 <CheckCircle2 size={13} /> Booked

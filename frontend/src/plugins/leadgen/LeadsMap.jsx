@@ -85,6 +85,9 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     row.append(button(s.saved ? "✓ Saved" : "Save", () => act?.onSave?.(c), { disabled: s.saved, title: "Save it to your Unsorted list" }));
     row.append(button("Add to list…", () => act?.onAddToList?.(c), { title: "Save it into a list you name" }));
     row.append(button("Note…", () => act?.onNote?.(c), { title: "Write a note on this company" }));
+    if (c.phone && act?.onCall) {
+      row.append(button(act.callLocked ? "Call · add Voice" : "Save & call", () => act.onCall(c), { title: act.callLocked ? "Phoning leads comes with the Voice plan" : "Save it, then have your AI caller phone them" }));
+    }
     row.append(button("Not interested", () => act?.onRemove?.(c), { title: "Take it out of these results" }));
     box.append(row);
     const links = document.createElement("div");

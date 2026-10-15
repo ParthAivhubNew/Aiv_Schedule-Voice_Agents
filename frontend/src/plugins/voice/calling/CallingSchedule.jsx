@@ -17,6 +17,7 @@ import {
 import { api } from "../../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { MeetingInvitePreview } from "../../../components/MeetingInvitePreview";
+import { openLead } from "../../../connections/ConnectedHome";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
@@ -465,6 +466,8 @@ export function CallingSchedule({
       phone: m.dialIn || m.phone || "",
       email: m.attendeeEmail || m.attendee_email || "",
       notes: m.prep || m.mission || "",
+      leadId: m.leadId || "",
+      callSummary: m.callSummary || "",
       status: m.status || "upcoming",
       cancellationReason: m.cancellationReason || m.cancellation_reason || "",
       source: "meeting",
@@ -1293,6 +1296,14 @@ export function CallingSchedule({
                   <div style={{ fontSize: 13, color: C.slate, marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon size={14} color={meta.color || C.slate} /> {meta.label}{open.platform ? ` · ${shownPlatform(open.platform)}` : ""}
                   </div>
+                  {open.leadId ? (
+                    <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(open.leadId)}>Open this company in Lead Gen</button>
+                  ) : null}
+                  {open.callSummary ? (
+                    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: C.paperSoft, fontSize: 12.5, color: C.textInk, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                      <b style={{ display: "block", marginBottom: 2 }}>From the call that booked it</b>{open.callSummary}
+                    </div>
+                  ) : null}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <span style={{
