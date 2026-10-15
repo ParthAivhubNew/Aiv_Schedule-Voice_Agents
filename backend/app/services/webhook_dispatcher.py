@@ -76,7 +76,8 @@ def url_problem(url: str) -> Optional[str]:
     if host in ("localhost", "127.0.0.1", "::1"):
         allowed = os.getenv("ALLOW_LOCAL_WEBHOOKS", "true").lower() in ("1", "true", "yes")
         return None if allowed else "That address is not allowed."
-    if u.scheme != "https":
+    allow_http = os.getenv("ALLOW_HTTP_WEBHOOKS", "true").lower() in ("1", "true", "yes")
+    if u.scheme != "https" and not allow_http:
         return "Webhook URLs must use HTTPS."
     try:
         infos = socket.getaddrinfo(host, u.port or 443, proto=socket.IPPROTO_TCP)

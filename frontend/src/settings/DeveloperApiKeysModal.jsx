@@ -1824,7 +1824,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     }}
                   />
                   <span style={{ fontSize: 11, color: C.slate, marginTop: 4, display: "block" }}>
-                    Must begin with <code>https://</code> (or <code>http://localhost</code> for local development).
+                    Must begin with <code>https://</code> (or <code>http://</code> for test endpoints &amp; local development).
                   </span>
                 </div>
 

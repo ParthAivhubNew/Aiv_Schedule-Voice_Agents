@@ -275,7 +275,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <h2>📢 Social Media Webhook Workflow</h2>
           <div class="step-box">
             <strong>How to test Social Webhooks here:</strong><br>
-            1. Copy <code style="color:#38BDF8;">http://localhost:8001/webhook</code> and register it in <strong>Outreach Settings → Developer → Webhooks</strong> tab (check <em>post.ready, post.approved, post.published, post.rejected</em>).<br>
+            1. Copy <code style="color:#38BDF8;" id="stepWebhookUrl">http://localhost:8001/webhook</code> and register it in <strong>Outreach Settings → Developer → Webhooks</strong> tab (check <em>post.ready, post.approved, post.published, post.rejected</em>).<br>
             2. Paste the generated <strong>whsec_...</strong> secret above and click <strong>Save</strong>.<br>
             3. Click the buttons below in sequence to test post creation, approval, and live webhooks!
           </div>
@@ -709,6 +709,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         api_key: document.getElementById("apiKey").value.trim(),
         webhook_secret: document.getElementById("whSecret").value.trim()
       };
+      localStorage.setItem("acme_api_base", cfg.api_base);
+      localStorage.setItem("acme_api_key", cfg.api_key);
+      localStorage.setItem("acme_wh_secret", cfg.webhook_secret);
       await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -720,6 +723,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     async function sendRequest() {
       const out = document.getElementById("responseOutput");
       out.innerText = "Dispatching request...";
+
+      const api_base = document.getElementById("apiBase").value.trim();
+      const api_key = document.getElementById("apiKey").value.trim();
+      const webhook_secret = document.getElementById("whSecret").value.trim();
+
+      if (!api_key) {
+        out.innerText = "⚠️ Missing API Secret Key! Please enter your sk_live_... or sk_test_... key above.";
+        return;
+      }
+
+      // Auto-persist in localStorage
+      localStorage.setItem("acme_api_base", api_base);
+      localStorage.setItem("acme_api_key", api_key);
+      if (webhook_secret) localStorage.setItem("acme_wh_secret", webhook_secret);
 
       const method = document.getElementById("reqMethod").value;
       const endpoint = document.getElementById("reqEndpoint").value.trim();
@@ -741,7 +758,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const res = await fetch("/api/proxy-run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ method, endpoint, body })
+          body: JSON.stringify({ method, endpoint, body, api_base, api_key, webhook_secret })
         });
         const json = await res.json();
         out.innerText = JSON.stringify(json, null, 2);
@@ -850,7 +867,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       pollEvents();
     }
 
-    // Initialize UI
+    // Initialize UI and restore saved settings
+    const savedKey = localStorage.getItem("acme_api_key");
+    const savedBase = localStorage.getItem("acme_api_base");
+    const savedSecret = localStorage.getItem("acme_wh_secret");
+    if (savedKey) document.getElementById("apiKey").value = savedKey;
+    if (savedBase) document.getElementById("apiBase").value = savedBase;
+    if (savedSecret) document.getElementById("whSecret").value = savedSecret;
+
+    // Dynamically set webhook URLs to current host and port
+    const myWebhookUrl = window.location.origin + "/webhook";
+    const whDisp = document.getElementById("webhookUrlDisp");
+    if (whDisp) whDisp.innerText = myWebhookUrl;
+    const stepUrlElem = document.getElementById("stepWebhookUrl");
+    if (stepUrlElem) stepUrlElem.innerText = myWebhookUrl;
+
     switchCategory('social');
     selectAction('social', 'post.create');
     setInterval(pollEvents, 1500);
@@ -988,13 +1019,17 @@ class ClientHandler(http.server.BaseHTTPRequestHandler):
 
         # ── 5. PROXY RUNNER (Supports both GET and POST with URL parameters) ──
         elif self.path == "/api/proxy-run":
-            api_base = CONFIG.get("api_base", "http://127.0.0.1:8000").rstrip("/")
-            api_key = CONFIG.get("api_key", "").strip()
-
             try:
                 data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
             except Exception:
                 data = {}
+
+            api_base = (data.get("api_base") or CONFIG.get("api_base") or "http://127.0.0.1:8000").rstrip("/")
+            api_key = (data.get("api_key") or CONFIG.get("api_key") or "").strip()
+            if data.get("webhook_secret"):
+                CONFIG["webhook_secret"] = data.get("webhook_secret").strip()
+            CONFIG["api_base"] = api_base
+            CONFIG["api_key"] = api_key
 
             method = "POST"
             endpoint = "/v1/run"
