@@ -46,37 +46,111 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
+      --bg: #F1F5F9;
+      --card-bg: #FFFFFF;
+      --card-border: #E2E8F0;
+      --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+      --text: #0F172A;
+      --heading: #0F172A;
+      --slate: #64748B;
+      --cobalt: #2563EB;
+      --green: #10B981;
+      --purple: #7C3AED;
+      --amber: #D97706;
+      --red: #EF4444;
+      --input-bg: #F8FAFC;
+      --input-border: #CBD5E1;
+      --input-color: #0F172A;
+      --pre-bg: #0F172A;
+      --pre-text: #38BDF8;
+      --tab-bg: #F1F5F9;
+      --tab-color: #64748B;
+      --tab-border: #E2E8F0;
+      --preset-bg: #F8FAFC;
+      --preset-border: #CBD5E1;
+      --preset-color: #1E293B;
+      --preset-hover-bg: #E2E8F0;
+      --webhook-bg: #F8FAFC;
+      --webhook-border: #E2E8F0;
+      --step-bg: #EFF6FF;
+      --step-border: #BFDBFE;
+      --step-text: #1E3A8A;
+      --social-box-bg: #FAF5FF;
+      --social-box-border: #D8B4FE;
+    }
+
+    [data-theme="dark"] {
       --bg: #0B1120;
       --card-bg: #1E293B;
       --card-border: #334155;
+      --card-shadow: none;
       --text: #F8FAFC;
+      --heading: #E2E8F0;
       --slate: #94A3B8;
       --cobalt: #3B82F6;
       --green: #10B981;
       --purple: #8B5CF6;
       --amber: #F59E0B;
       --red: #EF4444;
+      --input-bg: #0F172A;
+      --input-border: #334155;
+      --input-color: #FFFFFF;
+      --pre-bg: #070B14;
+      --pre-text: #38BDF8;
+      --tab-bg: #0F172A;
+      --tab-color: #94A3B8;
+      --tab-border: #334155;
+      --preset-bg: #0F172A;
+      --preset-border: #334155;
+      --preset-color: #E2E8F0;
+      --preset-hover-bg: #1E293B;
+      --webhook-bg: #0F172A;
+      --webhook-border: #334155;
+      --step-bg: rgba(59, 130, 246, 0.08);
+      --step-border: rgba(59, 130, 246, 0.25);
+      --step-text: inherit;
+      --social-box-bg: linear-gradient(180deg, rgba(139, 92, 246, 0.06) 0%, var(--card-bg) 100%);
+      --social-box-border: rgba(139, 92, 246, 0.4);
     }
+
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', -apple-system, sans-serif;
-      padding: 20px 24px;
     }
-    .container { max-width: 1300px; margin: 0 auto; }
+    body {
+      padding: 16px 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 1360px;
+      margin: 0 auto;
+    }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 14px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
       border-bottom: 1px solid var(--card-border);
       flex-wrap: wrap;
       gap: 12px;
     }
-    h1 { margin: 0; font-size: 20px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+    h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
     .badge {
       font-size: 11px;
       padding: 3px 8px;
@@ -85,12 +159,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .badge-live { background: #064E3B; color: #6EE7B7; border: 1px solid #059669; }
-    .badge-get { background: #064E3B; color: #34D399; font-weight: 800; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
-    .badge-post { background: #1E3A8A; color: #60A5FA; font-weight: 800; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+    .badge-live { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+    [data-theme="dark"] .badge-live { background: #064E3B; color: #6EE7B7; border: 1px solid #059669; }
     
-    .grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; }
-    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+    .badge-get { background: #ECFDF5; color: #047857; font-weight: 800; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #A7F3D0; }
+    [data-theme="dark"] .badge-get { background: #064E3B; color: #34D399; border: none; }
+
+    .badge-post { background: #EFF6FF; color: #1D4ED8; font-weight: 800; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #BFDBFE; }
+    [data-theme="dark"] .badge-post { background: #1E3A8A; color: #60A5FA; border: none; }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 16px;
+      width: 100%;
+    }
+    .grid > div {
+      min-width: 0;
+      width: 100%;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: minmax(0, 1fr); }
+    }
     
     .card {
       background: var(--card-bg);
@@ -98,22 +188,38 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border-radius: 12px;
       padding: 16px;
       margin-bottom: 16px;
+      box-shadow: var(--card-shadow);
+      width: 100%;
+      box-sizing: border-box;
     }
-    h2 { margin: 0 0 10px; font-size: 14px; font-weight: 700; color: #E2E8F0; display: flex; align-items: center; gap: 6px; }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
     label { display: block; font-size: 11.5px; font-weight: 600; color: var(--slate); margin-bottom: 4px; }
     input, select, textarea {
       width: 100%;
-      background: #0F172A;
-      border: 1px solid var(--card-border);
+      max-width: 100%;
+      box-sizing: border-box;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
       border-radius: 6px;
       padding: 7px 10px;
-      color: #fff;
+      color: var(--input-color);
       font-size: 12.5px;
       font-family: inherit;
       outline: none;
-      transition: border 0.15s;
+      transition: border 0.15s, box-shadow 0.15s;
     }
-    input:focus, select:focus, textarea:focus { border-color: var(--cobalt); }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--cobalt);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
     .btn {
       display: inline-flex;
       align-items: center;
@@ -126,10 +232,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border: none;
       transition: all 0.15s;
     }
-    .btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
     .btn:active { transform: translateY(0); }
     .btn-primary { background: var(--cobalt); color: #fff; }
-    .btn-secondary { background: #334155; color: #F1F5F9; }
+    .btn-secondary {
+      background: var(--tab-bg);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+    }
     .btn-success { background: var(--green); color: #fff; }
     .btn-amber { background: var(--amber); color: #fff; }
     .btn-danger { background: var(--red); color: #fff; }
@@ -140,9 +250,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       cursor: pointer;
       font-size: 12px;
       font-weight: 600;
-      background: #0F172A;
-      color: var(--slate);
-      border: 1px solid var(--card-border);
+      background: var(--tab-bg);
+      color: var(--tab-color);
+      border: 1px solid var(--tab-border);
+      transition: all 0.15s;
     }
     .category-tab.active {
       background: var(--cobalt);
@@ -156,9 +267,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gap: 6px;
       padding: 5px 9px;
       border-radius: 6px;
-      background: #0F172A;
-      color: #E2E8F0;
-      border: 1px solid #334155;
+      background: var(--preset-bg);
+      color: var(--preset-color);
+      border: 1px solid var(--preset-border);
       font-size: 11.5px;
       cursor: pointer;
       transition: all 0.15s;
@@ -166,21 +277,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
     .preset-btn:hover {
       border-color: var(--cobalt);
-      color: #fff;
-      background: #1E293B;
+      background: var(--preset-hover-bg);
     }
     .preset-btn.active {
       border-color: var(--cobalt);
-      background: rgba(59, 130, 246, 0.15);
-      color: #60A5FA;
+      background: rgba(37, 99, 235, 0.1);
+      color: var(--cobalt);
     }
     
     .webhook-item {
-      background: #0F172A;
-      border: 1px solid #334155;
+      background: var(--webhook-bg);
+      border: 1px solid var(--webhook-border);
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 10px;
+      width: 100%;
+      box-sizing: border-box;
     }
     .webhook-meta {
       display: flex;
@@ -189,37 +301,47 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       margin-bottom: 6px;
     }
     .sig-verified {
-      background: #064E3B;
-      color: #6EE7B7;
-      border: 1px solid #059669;
+      background: #ECFDF5;
+      color: #065F46;
+      border: 1px solid #A7F3D0;
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 4px;
       font-weight: 700;
     }
+    [data-theme="dark"] .sig-verified { background: #064E3B; color: #6EE7B7; border-color: #059669; }
+    
     .sig-invalid {
-      background: #7F1D1D;
-      color: #FCA5A5;
-      border: 1px solid #DC2626;
+      background: #FEF2F2;
+      color: #991B1B;
+      border: 1px solid #FECACA;
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 4px;
       font-weight: 700;
     }
+    [data-theme="dark"] .sig-invalid { background: #7F1D1D; color: #FCA5A5; border-color: #DC2626; }
+    
     pre {
       margin: 0;
-      padding: 10px;
-      background: #070B14;
+      padding: 10px 12px;
+      background: var(--pre-bg);
       border-radius: 6px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: #38BDF8;
+      font-size: 11.5px;
+      color: var(--pre-text);
+      max-height: 280px;
       overflow-x: auto;
-      max-height: 250px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      word-wrap: break-word;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     .step-box {
-      background: rgba(59, 130, 246, 0.08);
-      border: 1px solid rgba(59, 130, 246, 0.25);
+      background: var(--step-bg);
+      border: 1px solid var(--step-border);
+      color: var(--step-text);
       border-radius: 8px;
       padding: 10px 14px;
       margin-bottom: 12px;
@@ -237,9 +359,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           Test <strong>GET</strong> & <strong>POST</strong> requests for all 27 Outreach API actions and inspect incoming webhooks in real-time.
         </div>
       </div>
-      <div style="text-align: right; font-size: 12px; color: var(--slate);">
-        REGISTER THIS WEBHOOK URL IN OUTREACH:<br>
-        <code style="color: #38BDF8; font-weight: 700; font-size: 12.5px;" id="webhookUrlDisp">http://localhost:8001/webhook</code>
+      <div style="display: flex; align-items: center; gap: 14px; text-align: right;">
+        <div style="font-size: 12px; color: var(--slate);">
+          REGISTER WEBHOOK URL:<br>
+          <code style="color: var(--cobalt); font-weight: 700; font-size: 12.5px;" id="webhookUrlDisp">http://localhost:8001/webhook</code>
+        </div>
+        <button class="btn btn-secondary" onclick="toggleTheme()" id="themeToggleBtn" style="padding: 5px 10px; font-size: 11.5px;">
+          ☀️ Light Theme
+        </button>
       </div>
     </header>
 
@@ -361,7 +488,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
           <div id="eventsContainer" style="max-height: 800px; overflow-y: auto;">
             <div style="padding: 30px 20px; text-align: center; color: var(--slate); font-size: 13px;">
-              Waiting for incoming webhooks on <code style="color:#38BDF8;">http://localhost:8001/webhook</code>...
+              Waiting for incoming webhooks on <code style="color:var(--cobalt); font-weight:700;" id="inboxWebhookUrl">http://localhost:8001/webhook</code>...
             </div>
           </div>
         </div>
@@ -853,19 +980,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         const cont = document.getElementById("eventsContainer");
         if (events.length === 0) {
-          cont.innerHTML = '<div style="padding: 30px 20px; text-align: center; color: var(--slate); font-size: 13px;">Waiting for incoming webhooks on <code style="color:#38BDF8;">http://localhost:8001/webhook</code>...</div>';
+          cont.innerHTML = `<div style="padding: 30px 20px; text-align: center; color: var(--slate); font-size: 13px;">Waiting for incoming webhooks on <code style="color:var(--cobalt); font-weight:700;">${myWebhookUrl}</code>...</div>`;
           return;
         }
 
         cont.innerHTML = events.slice().reverse().map((ev) => {
           const sigBadge = ev.sig_valid
             ? '<span class="sig-verified">HMAC SIGNATURE VERIFIED ✅</span>'
-            : (ev.sig_header ? '<span class="sig-invalid">SIGNATURE MISMATCH ❌</span>' : '<span style="color:#94A3B8; font-size:11px;">NO SIGNATURE</span>');
+            : (ev.sig_header ? '<span class="sig-invalid">SIGNATURE MISMATCH ❌</span>' : '<span style="color:var(--slate); font-size:11px;">NO SIGNATURE</span>');
 
           return `
             <div class="webhook-item">
               <div class="webhook-meta">
-                <span style="font-weight: 700; color: #38BDF8; font-family: monospace;">${ev.event || "webhook.event"}</span>
+                <span style="font-weight: 700; color: var(--cobalt); font-family: monospace;">${ev.event || "webhook.event"}</span>
                 <span style="font-size: 11px; color: var(--slate);">${ev.time}</span>
               </div>
               <div style="margin-bottom: 6px;">${sigBadge}</div>
@@ -883,7 +1010,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       pollEvents();
     }
 
+    // ── Theme Management (Light by default) ──
+    function setTheme(theme) {
+      const btn = document.getElementById('themeToggleBtn');
+      if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        if (btn) btn.innerHTML = '🌙 Dark Mode';
+        localStorage.setItem('acme_theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        if (btn) btn.innerHTML = '☀️ Light Mode';
+        localStorage.setItem('acme_theme', 'light');
+      }
+    }
+
+    function toggleTheme() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      setTheme(isDark ? 'light' : 'dark');
+    }
+
     // Initialize UI and restore saved settings
+    const savedTheme = localStorage.getItem('acme_theme') || 'light';
+    setTheme(savedTheme);
+
     const savedKey = localStorage.getItem("acme_api_key");
     let savedBase = localStorage.getItem("acme_api_base");
     if (savedBase && savedBase.includes("api.outreach.aivhub.com")) {
@@ -901,6 +1050,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     if (whDisp) whDisp.innerText = myWebhookUrl;
     const stepUrlElem = document.getElementById("stepWebhookUrl");
     if (stepUrlElem) stepUrlElem.innerText = myWebhookUrl;
+    const inboxWh = document.getElementById("inboxWebhookUrl");
+    if (inboxWh) inboxWh.innerText = myWebhookUrl;
 
     switchCategory('social');
     selectAction('social', 'post.create');
