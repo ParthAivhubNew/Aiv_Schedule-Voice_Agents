@@ -605,6 +605,13 @@ button, input, select, textarea {
   select {
     min-height: 40px;
   }
+  /* 100vh on iOS Safari is taller than the visible page (the address bar), which pushed the
+     bottom of each app, including the chat input, off screen. */
+  .plugin-frame,
+  .app-shell,
+  .app-main {
+    height: 100dvh !important;
+  }
   #root {
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);

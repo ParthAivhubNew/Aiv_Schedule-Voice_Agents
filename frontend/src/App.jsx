@@ -705,6 +705,7 @@ function MainApp({ onSignedOut }) {
       {visitedPlugins.map((p) => (
         <div
           key={p}
+          className="plugin-frame"
           style={{
             display: plugin === p ? "block" : "none",
             height: "100vh",
