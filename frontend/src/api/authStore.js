@@ -1,6 +1,8 @@
-// Sign-in tokens for this browser tab.
+// Sign-in tokens.
 // The access token is short-lived and sent on every request; the refresh token gets a new one
-// when it expires. Both live in sessionStorage, so closing the tab signs out.
+// when it expires. In a browser tab they live in sessionStorage, so closing the tab signs out.
+// In the installed phone app (home-screen icon) they live in localStorage, so the user stays
+// signed in between launches.
 
 const ACCESS_KEY = "outreach_access_token";
 const REFRESH_KEY = "outreach_refresh_token";
@@ -8,9 +10,22 @@ const OPERATOR_KEY = "aivhub_operator";
 export const AUTH_LOST_EVENT = "outreach-auth-lost";
 export const PASSWORD_CHANGE_EVENT = "outreach-password-change";
 
+function isInstalledApp() {
+  try {
+    return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Storage that holds the sign-in for this launch mode.
+export function authStorage() {
+  return isInstalledApp() ? localStorage : sessionStorage;
+}
+
 function read(key) {
   try {
-    return sessionStorage.getItem(key) || "";
+    return authStorage().getItem(key) || "";
   } catch (_) {
     return "";
   }
@@ -18,8 +33,11 @@ function read(key) {
 
 function write(key, value) {
   try {
-    if (value) sessionStorage.setItem(key, value);
-    else sessionStorage.removeItem(key);
+    if (value) authStorage().setItem(key, value);
+    else {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    }
   } catch (_) {}
 }
 

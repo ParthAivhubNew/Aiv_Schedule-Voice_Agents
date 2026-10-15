@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
-import { AUTH_LOST_EVENT, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
+import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
 import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
 import { AppChrome } from "./app/ui";
@@ -100,7 +100,7 @@ class SafeErrorBoundary extends React.Component {
 
 function savedOperator() {
   try {
-    const saved = sessionStorage.getItem("aivhub_operator");
+    const saved = authStorage().getItem("aivhub_operator");
     // An operator without sign-in tokens (older app version) must sign in again.
     return saved && hasSession() ? JSON.parse(saved) : null;
   } catch (_) {
@@ -143,7 +143,7 @@ export default function App() {
       <AppChrome />
       <LoginScreen
         onLogin={(op) => {
-          try { sessionStorage.setItem("aivhub_operator", JSON.stringify(op)); } catch (_) {}
+          try { authStorage().setItem("aivhub_operator", JSON.stringify(op)); } catch (_) {}
           setMustChangePassword(Boolean(op && op.must_change_password));
           setSession({ operator: op, key: op.id + ":" + Date.now() });
         }}
@@ -156,7 +156,7 @@ export default function App() {
       <ChangePasswordScreen
         operator={session.operator}
         onDone={(me) => {
-          try { sessionStorage.setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
+          try { authStorage().setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
           setMustChangePassword(false);
           setSession({ operator: me, key: me.id + ":" + Date.now() });
         }}
@@ -179,7 +179,7 @@ function MainApp({ onSignedOut }) {
     api.getMe().then((me) => {
       if (!me) return;
       setOperator((prev) => ({ ...(prev || {}), ...me }));
-      try { sessionStorage.setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
+      try { authStorage().setItem("aivhub_operator", JSON.stringify(me)); } catch (_) {}
     }).catch(() => {});
   }, [operatorId]);
 
@@ -631,7 +631,7 @@ function MainApp({ onSignedOut }) {
 
   const handleLogout = () => {
     try {
-      sessionStorage.removeItem("aivhub_operator");
+      authStorage().removeItem("aivhub_operator");
       sessionStorage.removeItem("aivhub_return_plugin");
       localStorage.removeItem("aivhub_active_plugin");
       replaceHash("");
@@ -672,9 +672,9 @@ function MainApp({ onSignedOut }) {
       const next = typeof updater === "function" ? updater(prev) : updater;
       try {
         if (next) {
-          sessionStorage.setItem("aivhub_operator", JSON.stringify(next));
+          authStorage().setItem("aivhub_operator", JSON.stringify(next));
         } else {
-          sessionStorage.removeItem("aivhub_operator");
+          authStorage().removeItem("aivhub_operator");
         }
       } catch (_) {}
       return next;
