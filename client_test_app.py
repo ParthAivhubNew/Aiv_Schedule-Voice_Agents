@@ -251,7 +251,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <h2>1. Client Credentials & Target Server</h2>
           <div style="display: flex; gap: 8px; margin-bottom: 12px;">
             <button class="btn btn-secondary" onclick="setServer('local')">🖥️ Localhost (127.0.0.1:8000)</button>
-            <button class="btn btn-secondary" onclick="setServer('live')">☁️ Live Cloud (api.outreach.aivhub.com)</button>
+            <button class="btn btn-secondary" onclick="setServer('live')">☁️ Live Cloud (outreach.aivhub.com)</button>
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
             <div>
@@ -654,7 +654,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function setServer(env) {
       const baseInput = document.getElementById("apiBase");
-      baseInput.value = (env === 'live') ? "https://api.outreach.aivhub.com" : "http://127.0.0.1:8000";
+      baseInput.value = (env === 'live') ? "https://outreach.aivhub.com" : "http://127.0.0.1:8000";
     }
 
     function switchCategory(cat) {
@@ -724,7 +724,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const out = document.getElementById("responseOutput");
       out.innerText = "Dispatching request...";
 
-      const api_base = document.getElementById("apiBase").value.trim();
+      let api_base = document.getElementById("apiBase").value.trim();
+      if (api_base.includes("api.outreach.aivhub.com")) {
+        api_base = api_base.replace("api.outreach.aivhub.com", "outreach.aivhub.com");
+        document.getElementById("apiBase").value = api_base;
+      }
       const api_key = document.getElementById("apiKey").value.trim();
       const webhook_secret = document.getElementById("whSecret").value.trim();
 
@@ -869,7 +873,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     // Initialize UI and restore saved settings
     const savedKey = localStorage.getItem("acme_api_key");
-    const savedBase = localStorage.getItem("acme_api_base");
+    let savedBase = localStorage.getItem("acme_api_base");
+    if (savedBase && savedBase.includes("api.outreach.aivhub.com")) {
+      savedBase = savedBase.replace("api.outreach.aivhub.com", "outreach.aivhub.com");
+      localStorage.setItem("acme_api_base", savedBase);
+    }
     const savedSecret = localStorage.getItem("acme_wh_secret");
     if (savedKey) document.getElementById("apiKey").value = savedKey;
     if (savedBase) document.getElementById("apiBase").value = savedBase;
@@ -1025,6 +1033,8 @@ class ClientHandler(http.server.BaseHTTPRequestHandler):
                 data = {}
 
             api_base = (data.get("api_base") or CONFIG.get("api_base") or "http://127.0.0.1:8000").rstrip("/")
+            if "api.outreach.aivhub.com" in api_base:
+                api_base = api_base.replace("api.outreach.aivhub.com", "outreach.aivhub.com")
             api_key = (data.get("api_key") or CONFIG.get("api_key") or "").strip()
             if data.get("webhook_secret"):
                 CONFIG["webhook_secret"] = data.get("webhook_secret").strip()
