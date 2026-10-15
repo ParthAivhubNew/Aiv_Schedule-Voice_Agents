@@ -386,7 +386,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             action: "post.create",
             data: {
               prompt: "Announce our newly awarded NHAI Smart Highway EPC contract 2026",
-              channels: ["linkedin", "twitter"],
+              channels: ["linkedin"],
               tone: "professional"
             }
           }
@@ -676,12 +676,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const item = ACTIONS[cat].find(a => a.id === actionId);
       if (!item) return;
 
+      let ep = item.endpoint;
+      if (currentPostId) {
+        ep = ep.replace("post_sample_id", currentPostId);
+      }
       document.getElementById("reqMethod").value = item.method;
-      document.getElementById("reqEndpoint").value = item.endpoint;
+      document.getElementById("reqEndpoint").value = ep;
       handleMethodChange();
 
       if (item.body) {
-        document.getElementById("requestBody").value = JSON.stringify(item.body, null, 2);
+        const bodyClone = JSON.parse(JSON.stringify(item.body));
+        if (bodyClone.id === "post_sample_id" && currentPostId) {
+          bodyClone.id = currentPostId;
+        }
+        document.getElementById("requestBody").value = JSON.stringify(bodyClone, null, 2);
       } else {
         document.getElementById("requestBody").value = "";
       }
@@ -776,7 +784,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     async function testSocialCreate() {
       const st = document.getElementById("socialTestStatus");
       st.innerHTML = "⏳ Creating post via <code>social.post.create</code>...";
-      selectAction('social', 'post.create');
+      const currentBody = document.getElementById("requestBody").value.trim();
+      const currentMethod = document.getElementById("reqMethod").value;
+      if (!currentBody || !currentBody.includes("post.create") || currentMethod !== "POST") {
+        selectAction('social', 'post.create');
+      }
       const res = await sendRequest();
 
       if (res && (res.id || (res.data && res.data.id))) {
