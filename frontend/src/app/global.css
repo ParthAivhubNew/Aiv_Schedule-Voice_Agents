@@ -592,3 +592,22 @@ button, input, select, textarea {
 @keyframes imp-slide { to { background-position: -200% 0; } }
 @keyframes imp-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 @media (prefers-reduced-motion: reduce) { .imp-step--run, .imp-pop, .imp-note, .imp-bar--live > span, .imp-dots::after { animation: none; } }
+
+/* Touch phones: fields at 16px so iPhones do not zoom the page on focus, buttons tall enough to
+   hit, and room for the home-bar and rounded corners when the app is installed. */
+@media (max-width: 820px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  button,
+  select {
+    min-height: 40px;
+  }
+  #root {
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
