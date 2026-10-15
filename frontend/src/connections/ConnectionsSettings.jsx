@@ -309,6 +309,12 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
     if (!isOpen) return;
     api.getConnectionRules().then((r) => setRules(r.rules)).catch((e) => toast(e.message || "Couldn't load your settings."));
   }, [isOpen, toast]);
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
   if (!isOpen) return null;
   const change = async (patch) => {
     const next = { ...rules, ...patch };
@@ -317,7 +323,7 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
     try { setRules((await api.saveConnectionRules(patch)).rules); } catch (e) { toast(e.message || "Couldn't save."); api.getConnectionRules().then((r) => setRules(r.rules)).catch(() => {}); } finally { setBusy(false); }
   };
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, overscrollBehavior: "contain", background: "rgba(15,18,28,0.45)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div role="dialog" aria-label="Connections" onClick={(e) => e.stopPropagation()} className="ui-card"
         style={{ width: "min(100%, 760px)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 20px 8px" }}>

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -191,21 +192,33 @@ async def inbox(request: Request, limit: int = 40, db: AsyncSession = Depends(ge
     items: List[Dict[str, Any]] = []
     leads_by_email: Dict[str, LeadAccount] = {}
     if allowed(request, "email"):
-        replies = (await db.execute(select(EmailMessage).where(EmailMessage.status == "replied", EmailMessage.is_warmup.is_(False))
-                                    .order_by(EmailMessage.replied_at.desc()).limit(30))).scalars().all()
-        for r in replies:
-            lead = leads_by_email.get(r.reply_from) or await C.lead_for(db, email=r.reply_from or r.recipient_email)
-            kind = "meeting_request" if r.reply_category in ("interested", "question") else "reply"
-            items.append({"type": kind, "id": r.id, "title": f"{r.reply_from or r.recipient_email}: {r.subject}"[:160], "text": r.reply_snippet or "",
-                          "category": r.reply_category or "", "at": iso(r.replied_at), "lead_id": lead.id if lead else "", "lead_name": lead.name if lead else ""})
+        try:
+            replies = (await db.execute(select(EmailMessage).where(EmailMessage.status == "replied", EmailMessage.is_warmup.is_(False))
+                                        .order_by(EmailMessage.replied_at.desc()).limit(30))).scalars().all()
+            for r in replies:
+                lead = leads_by_email.get(r.reply_from) or await C.lead_for(db, email=r.reply_from or r.recipient_email)
+                kind = "meeting_request" if r.reply_category in ("interested", "question") else "reply"
+                items.append({"type": kind, "id": r.id, "title": f"{r.reply_from or r.recipient_email}: {r.subject}"[:160], "text": r.reply_snippet or "",
+                              "category": r.reply_category or "", "at": iso(r.replied_at), "lead_id": lead.id if lead else "", "lead_name": lead.name if lead else ""})
+        except Exception as err:  # one source being down must not empty the whole inbox
+            logging.getLogger("connections").warning("inbox: %s skipped: %s", 'email', err)
+            await db.rollback()
     if allowed(request, "calling"):
-        for c in (await db.execute(select(LiveCall).where(LiveCall.state == "human_review", LiveCall.ended.is_(False)).limit(10))).scalars().all():
-            items.append({"type": "needs_human", "id": c.id, "title": f"{c.prospect} needs a person on the call", "text": c.flag or "", "at": iso(c.created_at), "lead_id": c.lead_id or "", "lead_name": c.prospect})
-        for l in (await db.execute(select(CallLog).where(CallLog.outcome == "callback_requested").order_by(CallLog.created_at.desc()).limit(10))).scalars().all():
-            items.append({"type": "callback", "id": l.id, "title": f"{l.canonical_name} asked for a call back", "text": l.summary or "", "at": iso(l.created_at), "lead_id": l.lead_id or "", "lead_name": l.canonical_name})
+        try:
+            for c in (await db.execute(select(LiveCall).where(LiveCall.state == "human_review", LiveCall.ended.is_(False)).limit(10))).scalars().all():
+                items.append({"type": "needs_human", "id": c.id, "title": f"{c.prospect} needs a person on the call", "text": c.flag or "", "at": iso(c.created_at), "lead_id": c.lead_id or "", "lead_name": c.prospect})
+            for l in (await db.execute(select(CallLog).where(CallLog.outcome == "callback_requested").order_by(CallLog.created_at.desc()).limit(10))).scalars().all():
+                items.append({"type": "callback", "id": l.id, "title": f"{l.canonical_name} asked for a call back", "text": l.summary or "", "at": iso(l.created_at), "lead_id": l.lead_id or "", "lead_name": l.canonical_name})
+        except Exception as err:  # one source being down must not empty the whole inbox
+            logging.getLogger("connections").warning("inbox: %s skipped: %s", 'calling', err)
+            await db.rollback()
     if allowed(request, "scheduler"):
-        for e in (await db.execute(select(SocialEngager).where(SocialEngager.kind.in_(("comment", "reply"))).order_by(SocialEngager.at.desc()).limit(15))).scalars().all():
-            items.append({"type": "comment", "id": e.id, "title": f"{e.name or e.handle} on your {e.network.title()} post", "text": e.text, "at": iso(e.at), "lead_id": e.lead_id or "", "lead_name": e.name or e.handle})
+        try:
+            for e in (await db.execute(select(SocialEngager).where(SocialEngager.kind.in_(("comment", "reply"))).order_by(SocialEngager.at.desc()).limit(15))).scalars().all():
+                items.append({"type": "comment", "id": e.id, "title": f"{e.name or e.handle} on your {e.network.title()} post", "text": e.text, "at": iso(e.at), "lead_id": e.lead_id or "", "lead_name": e.name or e.handle})
+        except Exception as err:  # one source being down must not empty the whole inbox
+            logging.getLogger("connections").warning("inbox: %s skipped: %s", 'scheduler', err)
+            await db.rollback()
     items.sort(key=lambda i: i["at"] or "", reverse=True)
     return {"items": items[: max(1, min(limit, 100))]}
 
@@ -347,8 +360,9 @@ async def mark_no_show(meeting_id: str, request: Request, db: AsyncSession = Dep
 
 @router.post("/together/weekly-summary/send")
 async def send_weekly_now(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    """Send this week's summary now, to the people who chose to get it."""
-    from app.core.notify import notify
+    """Email this week's numbers to the person who asked, whatever their notification choices are."""
+    from app.core.mailer import render, send_system_email
+    from app.models.models import Operator
 
     ent = (await C.availability(db, current_org()))["plugins"]
     nums = await weekly_numbers(db)
@@ -358,8 +372,15 @@ async def send_weekly_now(request: Request, db: AsyncSession = Depends(get_db)) 
     lines = [f"<b>{nums[k]}</b> {label.lower()}" for k, label, plugin in labels if ent.get(plugin)]
     if not lines:
         raise HTTPException(status_code=400, detail="Add a plugin first. There is nothing to summarise yet.")
-    await notify("weekly_summary", "Your week across Outreach", lines, None)
-    return {"sent": True, "lines": len(lines)}
+    op = await db.get(Operator, current(request).get("operator_id"))
+    to = (getattr(op, "email", "") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Your account has no email address. Add one in your profile first.")
+    msg = render("Your last 7 days across Outreach", lines, None)
+    res = await send_system_email(to, "Your last 7 days across Outreach", msg["html"], msg["text"])
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail="We couldn't send the email just now. Try again in a minute.")
+    return {"sent": True, "to": to, "lines": len(lines)}
 
 
 # ── Reactions that failed (so nothing is lost silently) ─────────────────────

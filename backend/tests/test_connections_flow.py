@@ -242,7 +242,9 @@ async def test_rules_blocklist_timeline_and_stage_through_the_api(db):
 
 
 async def test_home_views_pipeline_actions_search_inbox_and_export(db):
-    _, token = await make_user(db, "boss3", "Admin", org_id=ORG)
+    user, token = await make_user(db, "boss3", "Admin", org_id=ORG)
+    user.email = "boss3@acme.test"
+    await db.commit()
     async with _client(token) as c:
         accounts = (await c.post("/api/leads/accounts", json={"accounts": [
             {"name": "Kirkgate Dental", "phone": "01134960001", "email": "a@kirkgate.example"},
@@ -269,6 +271,19 @@ async def test_home_views_pipeline_actions_search_inbox_and_export(db):
         assert (await c.get("/api/together/inbox")).status_code == 200
         assert (await c.get("/api/together/checklist")).json()["total"] >= 3
         assert (await c.get("/api/together/weekly-summary")).status_code == 200
+        sent = []
+
+        async def fake_send(to, subject, html, text, reply_to=None):
+            sent.append((to, subject))
+            return {"ok": True}
+
+        import app.core.mailer as mailer
+        real, mailer.send_system_email = mailer.send_system_email, fake_send
+        try:
+            mine = await c.post("/api/together/weekly-summary/send")
+        finally:
+            mailer.send_system_email = real
+        assert mine.status_code == 200 and sent == [(mine.json()["to"], "Your last 7 days across Outreach")] and mine.json()["to"] == "boss3@acme.test"
 
         csv_text = (await c.get("/api/contacts/export.csv")).text
         assert csv_text.splitlines()[0].startswith("Company,Contact,Email") and "Kirkgate Dental" in csv_text
