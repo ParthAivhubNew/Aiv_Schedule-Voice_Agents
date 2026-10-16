@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Lock, Plus, Trash2, X } from "lucide-react";
+import { Ban, Database, Lock, Plus, Repeat, Trash2, Workflow, X } from "lucide-react";
 import { api, apiRequest } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { openPlans, useConnections, PLUGIN_NAME } from "../hooks/useConnections";
@@ -32,23 +32,66 @@ const SWITCHES = [
   ] },
 ];
 
-function Lockable({ needs, children, plugins }) {
-  const missing = needs.filter((p) => !plugins[p]);
-  if (!missing.length) return children;
+// An on/off switch that a screen reader and the keyboard can use.
+function Toggle({ on, onChange, disabled, label }) {
   return (
-    <div style={{ opacity: 0.55 }} title={`Needs ${missing.map((p) => PLUGIN_NAME[p]).join(" and ")}`}>
-      {children}
-      <button type="button" className="ui-link" style={{ ...muted, marginLeft: 26 }} onClick={() => openPlans(missing[0])}><Lock size={11} /> Add {PLUGIN_NAME[missing[0]]} to use this</button>
+    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}
+      style={{ all: "unset", cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, width: 40, height: 22, borderRadius: 999, boxSizing: "border-box", position: "relative", opacity: disabled ? 0.5 : 1,
+        background: on ? C.cobalt : C.border, transition: "background 0.15s" }}>
+      <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: 999, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left 0.15s" }} />
+    </button>
+  );
+}
+
+// Which plugins a switch needs, as small tags.
+function Needs({ needs, plugins }) {
+  if (!needs.length) return null;
+  return (
+    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+      {needs.map((p) => (
+        <span key={p} style={{ ...text, fontSize: 10.5, fontWeight: 600, padding: "1px 7px", borderRadius: 999, border: `1px solid ${plugins[p] ? C.border : "#F5C28A"}`, background: plugins[p] ? C.paperSoft : "#FFF6EA", color: plugins[p] ? C.slate : "#9A5B0C" }}>{PLUGIN_NAME[p]}</span>
+      ))}
+    </span>
+  );
+}
+
+function Row({ s, rules, plugins, onChange, busy, first }) {
+  const missing = s.needs.filter((p) => !plugins[p]);
+  const on = Boolean(rules[s.key]);
+  return (
+    <div style={{ padding: "12px 16px", borderTop: first ? "none" : `1px solid ${C.borderLight}`, opacity: missing.length ? 0.75 : 1 }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>{s.label}</div>
+          <div style={{ ...muted, margin: "2px 0 6px" }}>{s.help}</div>
+          <Needs needs={s.needs} plugins={plugins} />
+        </div>
+        {missing.length ? (
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ flexShrink: 0 }} onClick={() => openPlans(missing[0])}><Lock size={12} /> Add {PLUGIN_NAME[missing[0]]}</button>
+        ) : (
+          <Toggle on={on} label={s.label} disabled={busy} onChange={(v) => onChange({ [s.key]: v })} />
+        )}
+      </div>
+      {!missing.length && on && s.number ? (
+        <label style={{ ...muted, display: "flex", gap: 6, alignItems: "center", marginTop: 10 }}>{s.number.label}
+          <input className="ui-input" type="number" min={s.number.min} max={s.number.max} style={{ width: 70 }} value={rules[s.number.key]} onChange={(e) => onChange({ [s.number.key]: Number(e.target.value) })} /> {s.number.suffix}
+        </label>
+      ) : null}
+      {!missing.length && on && s.template ? (
+        <textarea className="ui-input" rows={4} style={{ width: "100%", marginTop: 10, boxSizing: "border-box" }} maxLength={200}
+          placeholder="Hi {{first_name}}, thanks for the chat. I'll send details of {{company}}'s next steps shortly."
+          defaultValue={rules[s.template]} onBlur={(e) => { if (e.target.value !== rules[s.template]) onChange({ [s.template]: e.target.value }); }} />
+      ) : null}
     </div>
   );
 }
 
 function Switches({ rules, plugins, onChange, busy }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div className="ui-card" style={{ padding: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div className="ui-card" style={{ padding: "14px 16px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={heading}>Wait before contacting a company again</div>
+          <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Wait before contacting a company again</div>
           <div style={muted}>A company you called or emailed in this time is held back from new call rounds, unless you include it by hand.</div>
         </div>
         <label style={{ ...muted, display: "flex", gap: 6, alignItems: "center" }}>
@@ -57,31 +100,12 @@ function Switches({ rules, plugins, onChange, busy }) {
         </label>
       </div>
       {SWITCHES.map((g) => (
-        <div key={g.group} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={heading}>{g.group}</div>
-          {g.items.map((s) => (
-            <Lockable key={s.key} needs={s.needs} plugins={plugins}>
-              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
-                <input type="checkbox" style={{ marginTop: 3 }} checked={Boolean(rules[s.key])} disabled={busy || s.needs.some((p) => !plugins[p])}
-                  onChange={(e) => onChange({ [s.key]: e.target.checked })} />
-                <span style={{ flex: 1 }}>
-                  <span style={{ ...text, fontSize: 13.5, color: C.ink }}>{s.label}</span>
-                  <span style={{ ...muted, display: "block" }}>{s.help}</span>
-                </span>
-              </label>
-              {s.number && rules[s.key] ? (
-                <label style={{ ...muted, display: "flex", gap: 6, alignItems: "center", marginLeft: 26, marginTop: 4 }}>{s.number.label}
-                  <input className="ui-input" type="number" min={s.number.min} max={s.number.max} style={{ width: 70 }} value={rules[s.number.key]} onChange={(e) => onChange({ [s.number.key]: Number(e.target.value) })} /> {s.number.suffix}
-                </label>
-              ) : null}
-              {s.template && rules[s.key] ? (
-                <textarea className="ui-input" rows={4} style={{ width: "calc(100% - 26px)", marginLeft: 26, marginTop: 6, boxSizing: "border-box" }} maxLength={200}
-                  placeholder="Hi {{first_name}}, thanks for the chat. I'll send details of {{company}}'s next steps shortly."
-                  defaultValue={rules[s.template]} onBlur={(e) => { if (e.target.value !== rules[s.template]) onChange({ [s.template]: e.target.value }); }} />
-              ) : null}
-            </Lockable>
-          ))}
-        </div>
+        <section key={g.group}>
+          <div style={{ ...text, fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px 2px" }}>{g.group}</div>
+          <div className="ui-card" style={{ padding: 0, overflow: "hidden" }}>
+            {g.items.map((s, i) => <Row key={s.key} s={s} rules={rules} plugins={plugins} onChange={onChange} busy={busy} first={i === 0} />)}
+          </div>
+        </section>
       ))}
     </div>
   );
@@ -295,7 +319,31 @@ function DataTab({ toast, plugins }) {
   );
 }
 
-const TABS = [["follow", "Follow-ups"], ["rules", "Your rules"], ["block", "Do not contact"], ["data", "Data"]];
+const TABS = [
+  ["follow", "Follow-ups", Repeat, "What happens by itself after calls, meetings and replies"],
+  ["rules", "Your rules", Workflow, "“When this happens, do that”"],
+  ["block", "Do not contact", Ban, "People every plugin must leave alone"],
+  ["data", "Data", Database, "Duplicates, export and older calls"],
+];
+
+const CSS = `
+.cx-modal{display:flex;width:min(100%,900px);height:min(680px,calc(100dvh - 32px));background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
+.cx-side{width:220px;flex-shrink:0;background:${C.paperSoft};border-right:1px solid ${C.border};padding:18px 12px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.cx-tabs{display:flex;flex-direction:column;gap:2px}
+.cx-tab{all:unset;cursor:pointer;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font:600 13.5px ${FONT_BODY};color:${C.slate};white-space:nowrap}
+.cx-tab:hover{background:#fff}
+.cx-tab.on{background:#fff;color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
+.cx-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.cx-head{display:flex;align-items:center;gap:8px;padding:16px 22px 12px;border-bottom:1px solid ${C.border}}
+.cx-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:18px 22px 24px}
+@media (max-width:700px){
+  .cx-modal{flex-direction:column;height:calc(100dvh - 32px)}
+  .cx-side{width:auto;padding:12px 12px 0;border-right:none;border-bottom:1px solid ${C.border};overflow:visible}
+  .cx-tabs{flex-direction:row;overflow-x:auto}
+  .cx-tab{border-radius:8px 8px 0 0}
+  .cx-head,.cx-body{padding-left:16px;padding-right:16px}
+}
+`;
 
 export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
   const [tab, setTab] = useState("follow");
@@ -313,8 +361,10 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
     if (!isOpen) return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [isOpen]);
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
+  }, [isOpen, onClose]);
   if (!isOpen) return null;
   const change = async (patch) => {
     const next = { ...rules, ...patch };
@@ -322,25 +372,47 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
     setBusy(true);
     try { setRules((await api.saveConnectionRules(patch)).rules); } catch (e) { toast(e.message || "Couldn't save."); api.getConnectionRules().then((r) => setRules(r.rules)).catch(() => {}); } finally { setBusy(false); }
   };
+  const current = TABS.find(([k]) => k === tab) || TABS[0];
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, overscrollBehavior: "contain", background: "rgba(15,18,28,0.45)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div role="dialog" aria-label="Connections" onClick={(e) => e.stopPropagation()} className="ui-card"
-        style={{ width: "min(100%, 760px)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 20px 8px" }}>
-          <div style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, flex: 1 }}>Connections</div>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={onClose}><X size={15} /></button>
+    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: "fixed", inset: 0, overscrollBehavior: "contain", background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <style>{CSS}</style>
+      <div role="dialog" aria-label="Connections" className="cx-modal">
+        <aside className="cx-side">
+          <div style={{ padding: "0 6px" }}>
+            <div style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, color: C.ink }}>Connections</div>
+            <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>How Lead Gen, Voice and Social work together.</div>
+          </div>
+          <div className="cx-tabs" role="tablist">
+            {TABS.map(([k, label, Icon]) => (
+              <button key={k} type="button" role="tab" aria-selected={tab === k} className={`cx-tab${tab === k ? " on" : ""}`} onClick={() => setTab(k)}><Icon size={16} /> {label}</button>
+            ))}
+          </div>
+          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }} className="hide-mobile">
+            <div style={{ ...text, fontSize: 10.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 6px" }}>Your plugins</div>
+            {["leads", "voice", "social"].map((p) => (
+              <div key={p} style={{ ...text, fontSize: 12.5, color: plugins[p] ? C.ink : C.slate, display: "flex", alignItems: "center", gap: 8, padding: "0 6px" }}>
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: plugins[p] ? "#16A34A" : C.border }} />
+                {PLUGIN_NAME[p]}<span style={{ marginLeft: "auto", fontSize: 11, color: C.slate }}>{plugins[p] ? "Active" : "Not added"}</span>
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className="cx-main">
+          <div className="cx-head">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, margin: 0 }}>{current[1]}</h1>
+              <div style={{ ...muted, fontSize: 12.5 }}>{current[3]}</div>
+            </div>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={onClose}><X size={16} /></button>
+          </div>
+          <div className="cx-body ui-scroll">
+            {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <div style={muted}>Loading…</div>) : null}
+            {tab === "rules" ? <RulesTab toast={toast} /> : null}
+            {tab === "block" ? <BlockTab toast={toast} /> : null}
+            {tab === "data" ? <DataTab toast={toast} plugins={plugins} /> : null}
+          </div>
+          {message ? <div role="status" style={{ ...text, fontSize: 13, padding: "9px 22px", background: C.paperSoft, color: C.ink, borderTop: `1px solid ${C.border}` }}>{message}</div> : null}
         </div>
-        <div style={{ ...muted, padding: "0 20px" }}>How Lead Gen, Voice and Social work together. Each switch only does something when you have the plugins it needs.</div>
-        <div style={{ display: "flex", gap: 6, padding: "10px 20px", flexWrap: "wrap" }}>
-          {TABS.map(([k, label]) => <button key={k} type="button" className={`ui-btn ui-btn--sm ${tab === k ? "ui-btn--primary" : "ui-btn--ghost"}`} onClick={() => setTab(k)}>{label}</button>)}
-        </div>
-        <div className="ui-scroll" style={{ padding: "6px 20px 20px", overflowY: "auto", flex: 1 }}>
-          {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <div style={muted}>Loading…</div>) : null}
-          {tab === "rules" ? <RulesTab toast={toast} /> : null}
-          {tab === "block" ? <BlockTab toast={toast} /> : null}
-          {tab === "data" ? <DataTab toast={toast} plugins={plugins} /> : null}
-        </div>
-        {message ? <div role="status" style={{ ...text, fontSize: 13, padding: "8px 20px", background: C.paperSoft, color: C.ink }}>{message}</div> : null}
       </div>
     </div>
   );

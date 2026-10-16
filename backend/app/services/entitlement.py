@@ -5,6 +5,7 @@ for specific modular services (Voice AI, Lead Gen, Social Scheduler).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +67,10 @@ async def get_org_entitlements(db: AsyncSession, org_id: str) -> Dict[str, bool]
     wallets_dict = await K.wallets(db)
     sub = await B.subscription_row(db)
     sub_plans = (sub.plans or {}) if (sub and sub.status in LIVE_SUB_STATUSES) else {}
+    # Whatever Stripe said, a plan whose paid period ended over a week ago and was never renewed is not running any more.
+    # (The daily check refreshes the end date from Stripe, so a paying company never reaches this.)
+    if sub and sub.current_period_end and datetime.utcnow() > sub.current_period_end + timedelta(days=7):
+        sub_plans = {}
 
     # Map internal wallet keys (voice, leadgen, scheduler)
     wallet_map = {w.get("key"): w for w in wallets_dict}

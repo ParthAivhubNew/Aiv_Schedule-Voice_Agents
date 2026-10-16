@@ -775,6 +775,23 @@ class BillingSubscription(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class BillingEvent(Base):
+    """What happened to a company's plans (started, renewed, cancelled, ended...), for the month-end report and for staff."""
+    __tablename__ = "billing_events"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    org_name = Column(String, default="")
+    wallet = Column(String, default="", index=True)
+    plan_id = Column(String, default="")
+    plan_name = Column(String, default="")
+    kind = Column(String, index=True, default="")  # started, renewed, cancel_requested, cancel_undone, ended, repaired
+    reason = Column(String, default="")  # why a plan was cancelled (a choice from billing_events.REASONS)
+    note = Column(Text, default="")
+    by = Column(String, default="")
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class StripeEvent(Base):
     """Stripe events already handled, so a retried webhook never grants credits twice."""
     __tablename__ = "stripe_events"

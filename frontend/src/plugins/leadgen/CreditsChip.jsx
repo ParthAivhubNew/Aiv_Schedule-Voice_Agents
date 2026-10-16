@@ -66,7 +66,7 @@ export function PlanStrip({ onOpen }) {
           <span style={{ display: "block", width: `${pct}%`, height: "100%", background: tone }} />
         </span>
         <span style={small}>
-          {c.used_30d.toLocaleString()} used in 30 days{c.held ? ` · ${c.held.toLocaleString()} on hold` : ""}
+          {c.used_30d.toLocaleString()} used in the last 30 days{c.held ? ` · ${c.held.toLocaleString()} on hold` : ""}
           {canBuy ? ` · enough for about ${canBuy.toLocaleString()} web-found companies` : ""}
         </span>
         {c.empty ? <strong style={{ ...small, color: C.red }}>Out of credits</strong> : c.low ? <strong style={{ ...small, color: "#B45309" }}>Running low</strong> : null}
@@ -112,7 +112,7 @@ export function CreditsChip({ onOpen, wallet = "leadgen", app = "Leads" }) {
       <strong style={{ fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
       <span style={{ color: C.slate }}>{unit}</span>
       {c.held ? <span style={{ color: C.slate, fontSize: 11.5 }}>· {c.held.toLocaleString()} on hold</span> : null}
-      <span className="hide-mobile" style={{ color: C.slate, fontSize: 11.5 }}>· {c.used_30d.toLocaleString()} used (30 days)</span>
+      <span className="hide-mobile" style={{ color: C.slate, fontSize: 11.5 }}>· {c.used_30d.toLocaleString()} used in the last 30 days</span>
     </button>
   );
 }

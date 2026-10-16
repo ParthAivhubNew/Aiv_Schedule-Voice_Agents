@@ -204,7 +204,8 @@ export const api = {
   openBillingPortal: (back = '/') => apiRequest('/billing/portal', { method: 'POST', body: { back } }),
   getLivePlans: () => apiRequest('/billing/subscriptions'),
   changePlan: (plan) => apiRequest('/billing/plan', { method: 'POST', body: { plan } }),
-  cancelPlan: (wallet, cancel = true) => apiRequest('/billing/cancel', { method: 'POST', body: { wallet, cancel } }),
+  cancelPlan: (wallet, cancel = true, reason = '', note = '') => apiRequest('/billing/cancel', { method: 'POST', body: { wallet, cancel, reason, note } }),
+  getBillingEvents: (orgId = '') => apiRequest(`/admin-api/billing-events${orgId ? `?org_id=${encodeURIComponent(orgId)}` : ''}`),
   updateMe: (data) => apiRequest('/auth/me', { method: 'PATCH', body: data }),
   uploadMyAvatar: (file) => {
     const form = new FormData();

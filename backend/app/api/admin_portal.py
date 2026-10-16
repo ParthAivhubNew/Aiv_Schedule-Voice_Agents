@@ -319,7 +319,7 @@ async def delete_client(org_id: str, request: Request, confirm_name: str = ""):
 
         # Ordered FK deletion across tenant and child tables
         tables_to_delete = [
-            "email_enrollments", "email_sequence_steps", "email_send_logs", "email_messages", "mail_messages", "email_campaigns",
+            "billing_events", "email_enrollments", "email_sequence_steps", "email_send_logs", "email_messages", "mail_messages", "email_campaigns",
             "enrichment_attempts", "prospects", "missions", "contact_registry",
             "call_briefs", "live_calls", "call_logs", "meetings", "meeting_event_types", "calcom_settings",
             "schedule_items", "notifications", "voices",
@@ -653,6 +653,39 @@ def _check_plan(body: PlanBody) -> None:
         raise HTTPException(status_code=400, detail="Pick an app and plan or top-up.")
     if body.priceUsdCents < 50 or body.credits <= 0 or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name, a price of at least $0.50 and credits are required.")
+
+
+@router.get("/billing-events")
+async def billing_events(request: Request, org_id: str = "", limit: int = 100):
+    """What happened to plans, newest first: started, renewed, cancelled (and why), ended. One company, or all."""
+    from app.models.models import BillingEvent
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        q = select(BillingEvent).order_by(BillingEvent.at.desc()).limit(max(1, min(limit, 500)))
+        if org_id:
+            q = q.where(BillingEvent.org_id == org_id)
+        from app.services.billing_events import REASON_LABEL
+
+        return [{"id": e.id, "org_id": e.org_id, "org": e.org_name, "wallet": e.wallet, "plan": e.plan_name, "kind": e.kind,
+                 "reason": e.reason, "reasonLabel": REASON_LABEL.get(e.reason, ""), "note": e.note, "by": e.by,
+                 "at": e.at.isoformat() if e.at else None} for e in (await db.execute(q)).scalars().all()]
+
+
+class ReportBody(BaseModel):
+    year: int
+    month: int
+
+
+@router.post("/billing-report/send")
+async def send_billing_report(body: ReportBody, request: Request):
+    """Emails a month's plan report to the staff admins now (it also goes by itself from the 1st of every month)."""
+    from app.services.billing_events import send_month_report
+
+    _admin_only(request)
+    if not (2020 <= body.year <= 2100 and 1 <= body.month <= 12):
+        raise HTTPException(status_code=400, detail="Pick a real month.")
+    return {"sent": await send_month_report(body.year, body.month)}
 
 
 @router.get("/plans")

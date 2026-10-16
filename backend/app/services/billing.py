@@ -34,6 +34,7 @@ logger = logging.getLogger("billing")
 STRIPE_API = "https://api.stripe.com/v1"
 TOLERANCE_S = 300
 MAX_TOPUP_QUANTITY = 99
+LIVE_SUB_STATUSES = ("active", "trialing", "past_due")  # a plan in one of these still works
 
 
 def secret_key() -> str:
@@ -339,6 +340,133 @@ async def set_ending(db, wallet: str, ending: bool) -> None:
     await stripe("POST", f"/subscriptions/{live['subscription']}", {"cancel_at_period_end": ending})
 
 
+async def cancel_with_reason(db, wallet: str, ending: bool, reason: str = "", note: str = "", by: str = "") -> Dict[str, Any]:
+    """set_ending, and the history line for it (why, and by whom). The caller commits and then tells the admins."""
+    from app.models.models import BillingPlan
+    from app.services import billing_events as E
+
+    live = (await live_plans(db)).get(wallet)
+    await set_ending(db, wallet, ending)
+    plan = await db.get(BillingPlan, live["planId"]) if live else None
+    ends = datetime.fromisoformat(live["periodEnd"]) if live and live.get("periodEnd") else None
+    await E.record(db, "cancel_requested" if ending else "cancel_undone", wallet, plan, reason=reason if ending else "",
+                   note=note if ending else "", by=by)
+    return {"planName": (plan.name if plan else wallet), "ends": ends}
+
+
+async def note_webhook() -> None:
+    """Remembers when Stripe last reached us, so a silent webhook can be noticed."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services.credits import _get_doc, _put_doc
+
+    try:
+        with system_scope():
+            async with AsyncSessionLocal() as db:
+                doc = await _get_doc(db, "stripe_webhook_seen")
+                doc["at"] = datetime.utcnow().isoformat()
+                await _put_doc(db, "stripe_webhook_seen", doc)
+                await db.commit()
+    except Exception as err:
+        logger.warning(f"[billing] could not note a webhook: {err}")
+
+
+# ── Keeping our books the same as Stripe's, even when a webhook was missed ──────────────────
+async def reconcile(db, live: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, List[str]]:
+    """Compares the company's plans as Stripe has them with ours, and fixes the difference:
+    - a plan that is paid in Stripe but has no plan credits yet gets them (with their end date);
+    - a plan Stripe no longer has is taken off, and its admins are told.
+    Run on every Subscription page visit and once a day. The caller commits, then calls tell_ended for the `ended` ones."""
+    from app.models.models import BillingPlan, CreditGrant
+    from app.services import billing_events as E
+    from app.services import credits as K
+
+    sub = await subscription_row(db)
+    if not sub or not sub.stripe_customer_id or not configured():
+        return {"repaired": [], "ended": []}
+    if live is None:
+        live = await live_plans(db)
+    now = datetime.utcnow()
+    repaired: List[str] = []
+    ended: List[str] = []
+    plans = dict(sub.plans or {})
+    periods = []
+    for wallet, info in live.items():
+        if info.get("status") not in LIVE_SUB_STATUSES:
+            continue
+        plan = await db.get(BillingPlan, info["planId"])
+        end = datetime.fromisoformat(info["periodEnd"]) if info.get("periodEnd") else None
+        if end:
+            periods.append(end)
+        if plans.get(wallet) != info["planId"]:
+            plans[wallet] = info["planId"]
+            sub.stripe_subscription_id = info.get("subscription") or sub.stripe_subscription_id
+            sub.status = "active"
+            await E.record(db, "started", wallet, plan, note="Found in Stripe by the daily check")
+            repaired.append(wallet)
+        if plan and plan.credits > 0 and end and end > now:
+            ref = f"reconcile:{info.get('subscription')}:{end.date().isoformat()}"
+            has_current = (await db.execute(select(CreditGrant.id).where(
+                CreditGrant.wallet == wallet, CreditGrant.source == "plan", CreditGrant.expires_at > now).limit(1))).first()
+            if not has_current and not (await db.execute(select(CreditGrant.id).where(CreditGrant.ref == ref).limit(1))).first():
+                await K.expire_plan_batches(db, wallet)
+                await K.add_credits(db, wallet, plan.credits, source="plan", expires_at=end, note=f"Plan: {plan.name} (added by the daily check)", ref=ref)
+                await E.record(db, "repaired", wallet, plan, note="Plan credits were missing")
+                if wallet not in repaired:
+                    repaired.append(wallet)
+    for wallet in list(plans):
+        if wallet not in live or live[wallet].get("status") not in LIVE_SUB_STATUSES:
+            plan = await db.get(BillingPlan, plans.pop(wallet)) if plans.get(wallet) else None
+            await E.record(db, "ended", wallet, plan, note="Found ended in Stripe by the daily check")
+            ended.append(wallet if not plan else f"{wallet}|{plan.name}")
+    if plans != (sub.plans or {}):
+        sub.plans = plans
+        if not plans:
+            sub.status = "canceled"
+    if periods:
+        sub.current_period_end = max(periods)
+    return {"repaired": repaired, "ended": ended}
+
+
+async def reconcile_all() -> Dict[str, int]:
+    """The daily pass: every company with a Stripe customer. A repair or a missed ending means a webhook was lost, so staff are warned."""
+    from app.core.tenancy import org_scope, system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import BillingSubscription
+    from app.services import billing_events as E
+    from app.services.ai_errors import alert_staff
+
+    if not configured():
+        return {"companies": 0, "fixed": 0}
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            orgs = [r.id for r in (await db.execute(select(BillingSubscription).where(BillingSubscription.stripe_customer_id != ""))).scalars().all()]
+    fixed = 0
+    for org in orgs:
+        try:
+            with org_scope(org):
+                async with AsyncSessionLocal() as db:
+                    out = await reconcile(db)
+                    await db.commit()
+                    for item in out["ended"]:
+                        wallet, _, name = item.partition("|")
+                        await E.tell_ended(db, wallet, name or E.WALLET_NAME.get(wallet, wallet))
+            if out["repaired"] or out["ended"]:
+                fixed += 1
+                await alert_staff("BL-01", f"Repaired {len(out['repaired'])} plan(s) and ended {len(out['ended'])} that Stripe had changed without telling us.", org_id=org)
+        except Exception as err:
+            logger.warning(f"[billing] daily check failed for {org}: {err}")
+    if orgs:
+        from app.services.credits import _get_doc
+
+        with system_scope():
+            async with AsyncSessionLocal() as db:
+                seen = (await _get_doc(db, "stripe_webhook_seen")).get("at")
+        if not seen:
+            await alert_staff("BL-01", "Stripe has never sent this server a payment message, yet companies have Stripe customers. Check the webhook endpoint and STRIPE_WEBHOOK_SECRET.", org_id="platform")
+    return {"companies": len(orgs), "fixed": fixed}
+
+
 # ── Webhook events ─────────────────────────────────────────────────────────
 def _meta_org(obj: Dict[str, Any]) -> str:
     meta = obj.get("metadata") or {}
@@ -402,6 +530,7 @@ async def handle_event(event: Dict[str, Any]) -> str:
     from app.core.tenancy import org_scope, system_scope
     from app.database import AsyncSessionLocal
     from app.models.models import BillingPlan, StripeEvent
+    from app.services import billing_events as E
     from app.services import credits as K
 
     event_id, etype = event.get("id") or "", event.get("type") or ""
@@ -430,6 +559,7 @@ async def handle_event(event: Dict[str, Any]) -> str:
                 sub.stripe_customer_id = obj["customer"]
             done = "ignored"
             bought = set()  # apps whose plan was bought by this event
+            ended_now: List[Tuple[str, str]] = []  # plans this event ended, to tell their admins after it is saved
 
             # async_payment_succeeded: bank debits (e.g. Bacs) are paid days after Checkout completes.
             if etype in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
@@ -438,6 +568,8 @@ async def handle_event(event: Dict[str, Any]) -> str:
                     sub.status = "active"
                     ids = [i for i in ((obj.get("metadata") or {}).get("plans") or "").split(",") if i]
                     rows = (await db.execute(select(BillingPlan).where(BillingPlan.id.in_(ids)))).scalars().all() if ids else []
+                    for p in rows:
+                        await E.record(db, "started", p.wallet, p)
                     sub.plans = {**(sub.plans or {}), **{p.wallet: p.id for p in rows}}
                     bought = {p.wallet for p in rows}
                 done = "checkout"
@@ -480,6 +612,8 @@ async def handle_event(event: Dict[str, Any]) -> str:
                                             note=f"Plan: {p.name}", ref=ref, paid_cents=max(paid, 0), paid_currency=currency)
                     sub.current_period_end = period_end
                     sub.status = "active"
+                    if obj.get("billing_reason") == "subscription_cycle":
+                        await E.record(db, "renewed", p.wallet, p)
                     done = "renewal"
 
             elif etype == "invoice.payment_failed":
@@ -508,6 +642,10 @@ async def handle_event(event: Dict[str, Any]) -> str:
                     sub.status = obj.get("status") or sub.status
                     sub.plans = {**others, **mapping}
                 else:
+                    for wallet, pid in mapping.items():
+                        gone = await db.get(BillingPlan, pid)
+                        await E.record(db, "ended", wallet, gone)
+                        ended_now.append((wallet, gone.name if gone else wallet))
                     sub.plans = others
                     if not others:
                         sub.status = "canceled"
@@ -515,6 +653,8 @@ async def handle_event(event: Dict[str, Any]) -> str:
                 done = "subscription"
 
             await db.commit()
+            for wallet, name in ended_now:
+                await E.tell_ended(db, wallet, name)
             if done in ("checkout", "topup", "renewal"):
                 from app.services import voice_access
 

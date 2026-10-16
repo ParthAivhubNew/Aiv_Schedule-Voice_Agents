@@ -35,8 +35,9 @@ CODES: Dict[str, str] = {
     # Staff only (never shown to customers).
     "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
     "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
+    "BL-01": "Stripe changes were missed: the payments webhook is not reaching the server, so the daily check repaired them.",
 }
-STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert"}
+STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert"}
 ALERTS_KEY = "staff_alerts"
 MAX_ALERTS = 100
 EMAIL_EVERY = timedelta(minutes=30)  # one email per code and company in this time
@@ -167,7 +168,8 @@ async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
         if ref:
             lines.append(f"Reference: {ref}")
         lines.append("See the owner portal (Platform AI) for the provider's health." if code.startswith("AI")
-                     else "See the owner portal (Plans & pricing → Telnyx costs).")
+                     else "In Stripe open Developers → Webhooks: the endpoint must be https://<your domain>/api/billing/webhook and its signing secret must be STRIPE_WEBHOOK_SECRET on the server."
+                     if code.startswith("BL") else "See the owner portal (Plans & pricing → Telnyx costs).")
         msg = render(subject, lines, None)
         for to in recipients:
             await send_system_email(to, subject, msg["html"], msg["text"])

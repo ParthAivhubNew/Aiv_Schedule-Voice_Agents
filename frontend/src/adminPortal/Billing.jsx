@@ -151,6 +151,7 @@ export function Billing({ canEdit }) {
       )}
 
       <TelnyxMargin canEdit={canEdit} />
+      <MonthReport canEdit={canEdit} />
     </>
   );
 }
@@ -221,6 +222,35 @@ function TelnyxMargin({ canEdit }) {
       )}
       <VoiceCheck month={month} canEdit={canEdit} />
     </>
+  );
+}
+
+// The owner's month-end summary of plans (who joined, started, cancelled and why, ended). It goes by itself from the 1st; this sends one now.
+function MonthReport({ canEdit }) {
+  const last = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const send = async (d) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = await adminApi.sendBillingReport(d.getFullYear(), d.getMonth() + 1);
+      setMsg(r.sent ? `Sent to ${r.sent} staff admin${r.sent === 1 ? "" : "s"}.` : "Nobody could be emailed: check the system mailbox and the staff admins' addresses.");
+    } catch (err) {
+      setMsg(err.message);
+    }
+    setBusy(false);
+  };
+  const name = (d) => d.toLocaleString([], { month: "long", year: "numeric" });
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+        <b>Month-end plan report:</b>
+        <span style={{ color: C.slate }}>emailed to the staff admins by itself from the 1st: who joined, who left and why.</span>
+        {canEdit && <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => send(last)}>Send {name(last)} now</button>}
+      </div>
+      <Note error>{msg}</Note>
+    </div>
   );
 }
 

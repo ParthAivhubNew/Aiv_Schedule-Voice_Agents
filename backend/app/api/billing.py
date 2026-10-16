@@ -133,6 +133,20 @@ async def subscriptions(request: Request, db: AsyncSession = Depends(get_db)):
         live = await B.live_plans(db)
     except B.StripeError as err:
         raise HTTPException(status_code=502, detail=str(err))
+    try:  # seeing the page also puts right anything a lost webhook left behind
+        from app.services import billing_events as E
+
+        fixed = await B.reconcile(db, live)
+        await db.commit()
+        for item in fixed["ended"]:
+            wallet, _, name = item.partition("|")
+            await E.tell_ended(db, wallet, name or E.WALLET_NAME.get(wallet, wallet))
+        if fixed["repaired"] or fixed["ended"]:
+            from app.services.ai_errors import alert_staff
+
+            await alert_staff("BL-01", f"A plan was out of step with Stripe and was repaired: {', '.join(fixed['repaired'] + fixed['ended'])}.")
+    except Exception as err:
+        logger.warning(f"[billing] reconcile on page visit skipped: {err}")
     return {w: {k: v[k] for k in ("planId", "status", "periodEnd", "ending", "alone")} for w, v in live.items()}
 
 
@@ -158,6 +172,8 @@ async def change_plan(body: PlanBody, request: Request, db: AsyncSession = Depen
 class CancelBody(BaseModel):
     wallet: str
     cancel: bool = True  # False: keep the plan after all
+    reason: str = ""  # why they are cancelling: one of billing_events.REASONS (required when cancelling)
+    note: str = Field("", max_length=500)
 
 
 @router.post("/cancel")
@@ -165,12 +181,19 @@ async def cancel_plan(body: CancelBody, request: Request, db: AsyncSession = Dep
     _admin(request)
     if not B.configured():
         raise HTTPException(status_code=503, detail="Payments are not switched on yet.")
+    from app.services import billing_events as E
+
+    if body.cancel and body.reason not in E.REASON_LABEL:
+        raise HTTPException(status_code=400, detail="Tell us why you are cancelling: pick one of the reasons.")
     try:
-        await B.set_ending(db, body.wallet, body.cancel)
+        done = await B.cancel_with_reason(db, body.wallet, body.cancel, body.reason, body.note.strip(), by=current(request).get("name") or current(request).get("username") or "")
+        await db.commit()
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
     except B.StripeError as err:
         raise HTTPException(status_code=502, detail=str(err))
+    if body.cancel:
+        await E.tell_cancelled(db, body.wallet, done["planName"], done["ends"])
     return {"wallet": body.wallet, "ending": body.cancel}
 
 
@@ -201,6 +224,7 @@ async def stripe_webhook(request: Request):
         event = json.loads(raw)
     except ValueError:
         raise HTTPException(status_code=400, detail="Bad payload")
+    await B.note_webhook()
     result = await B.handle_event(event)
     logger.info(f"[billing] {event.get('type')} {event.get('id')}: {result}")
     return {"received": True, "result": result}

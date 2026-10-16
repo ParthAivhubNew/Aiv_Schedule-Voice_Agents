@@ -107,281 +107,67 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
             </div>
           </div>
 
+          {/* Everyone: the same row, the same icon tile, the same spacing */}
+          <MenuItem icon={User} title="Your profile" sub="Photo, details and security" onClick={() => { setOpen(false); onOpenProfileSettings(); }} />
+          {onOpenConnections ? (
+            <MenuItem icon={Link2} title="Connections" sub="How Leads, Voice & Social work together" onClick={() => { setOpen(false); onOpenConnections(); }} />
+          ) : null}
+
           {/* Admin Controls */}
           {isAdmin && (
             <>
+              <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
               <div style={{ padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: C.slateLight, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 Admin Controls
               </div>
-
+              {(operator?.is_admin || (operator?.permissions && operator.permissions.team && operator.permissions.team !== "none")) ? (
+                <MenuItem icon={Users} title="Users & roles" sub="Add people and choose what they can see" onClick={() => { setOpen(false); onOpenTeamUsers(); }} />
+              ) : null}
+              <MenuItem icon={CalendarCheck} title="Calendar & meetings" sub="Invite mail, embeds & host sync" badge="Admin"
+                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); }} />
+              {onOpenDeveloperKeys ? (
+                <MenuItem icon={KeyRound} title="Admin APIs & Webhooks" sub="Voice, Leads & Social APIs" badge="API"
+                  onClick={() => { setOpen(false); onOpenDeveloperKeys(); }} />
+              ) : null}
               {/* AI Configuration (Outreach's own organisation only) */}
-              {onOpenCommonAi && <button
-                onClick={() => { setOpen(false); onOpenCommonAi(); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}>
-                    <Settings2 size={15} />
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>AI Configuration</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>App models & API keys</div>
-                  </div>
-                </div>
-                {isFullyConnected ? (
-                  <span style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    background: "#ECFDF5",
-                    color: "#059669",
-                    border: "1px solid #A7F3D0",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#059669", flexShrink: 0 }} />
-                    All Active
-                  </span>
-                ) : isPartiallyConnected ? (
-                  <span style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    background: "#F1F5F9",
-                    color: "#475569",
-                    border: "1px solid #CBD5E1",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#94A3B8", flexShrink: 0 }} />
-                    {configuredCount} / {totalProvidersCount} Connected
-                  </span>
-                ) : (
-                  <span style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    background: "#F8FAFC",
-                    color: "#64748B",
-                    border: "1px solid #E2E8F0",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 999, background: "#94A3B8", flexShrink: 0 }} />
-                    Not configured
-                  </span>
-                )}
-              </button>}
-
-              {/* Users & roles (admins and anyone given the Users & roles section) */}
-              {(operator?.is_admin || (operator?.permissions && operator.permissions.team && operator.permissions.team !== "none")) && (
-              <button
-                onClick={() => { setOpen(false); onOpenTeamUsers(); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "9px 12px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <Users size={15} color={C.cobalt} />
-                <div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Users & roles</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Add people and choose what they can see</div>
-                </div>
-              </button>
-              )}
-
-              {/* Calendar & meetings (host mail, invite accounts, embeds) */}
-              <button
-                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "9px 12px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: "#ECFDF5", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669" }}>
-                    <CalendarCheck size={15} />
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Calendar & meetings</div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Invite mail, embeds & host sync</div>
-                  </div>
-                </div>
-                <span style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  background: "#ECFDF5",
-                  color: "#059669",
-                  border: "1px solid #A7F3D0"
-                }}>
-                  <span style={{ width: 5, height: 5, borderRadius: 999, background: "#059669" }} />
-                  Admin
-                </span>
-              </button>
-
-              {/* Admin APIs & Webhooks */}
-              {onOpenDeveloperKeys && (
-                <button
-                  onClick={() => { setOpen(false); onOpenDeveloperKeys(); }}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "9px 12px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 7, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}>
-                      <KeyRound size={15} />
-                    </div>
-                    <div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Admin APIs & Webhooks</div>
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Voice, Leads & Social APIs</div>
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "2px 6px",
-                    borderRadius: 6,
-                    background: "#EEF2FF",
-                    color: C.cobalt,
-                  }}>
-                    API
-                  </span>
-                </button>
-              )}
-
-              <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
+              {onOpenCommonAi ? (
+                <MenuItem icon={Settings2} title="AI Configuration" sub="App models & API keys"
+                  badge={isFullyConnected ? "All active" : isPartiallyConnected ? `${configuredCount} / ${totalProvidersCount} connected` : "Not configured"}
+                  onClick={() => { setOpen(false); onOpenCommonAi(); }} />
+              ) : null}
             </>
           )}
 
-          {/* How the plugins work together */}
-          {onOpenConnections && (
-            <button
-              onClick={() => { setOpen(false); onOpenConnections(); }}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, border: "none", background: "transparent", cursor: "pointer", textAlign: "left" }}
-              onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-            >
-              <Link2 size={15} color={C.slate} />
-              <div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Connections</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>How Leads, Voice & Social work together</div>
-              </div>
-            </button>
-          )}
-
-          {/* User Settings */}
-          <button
-            onClick={() => { setOpen(false); onOpenProfileSettings(); }}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "9px 12px",
-              borderRadius: 10,
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = C.paperSoft}
-            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-          >
-            <User size={15} color={C.slate} />
-            <div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Your profile</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Photo, details and security</div>
-            </div>
-          </button>
-
           <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
-
-          {/* Logout */}
-          <button
-            onClick={() => { setOpen(false); onLogout(); }}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "9px 12px",
-              borderRadius: 10,
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              textAlign: "left",
-              color: C.red,
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = C.redSoft}
-            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-          >
-            <LogOut size={15} color={C.red} />
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>Sign out</div>
-          </button>
+          <MenuItem icon={LogOut} title="Sign out" danger onClick={() => { setOpen(false); onLogout(); }} />
         </div>
       )}
     </div>
+  );
+}
+
+// One row of the profile menu. Every row looks the same: an icon in a tile, a title, a line under it, and a badge if it has one.
+function MenuItem({ icon: Icon, title, sub, badge, danger, onClick }) {
+  const tone = danger ? { bg: C.redSoft, fg: C.red } : { bg: C.cobaltSoft, fg: C.cobalt };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 10, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", boxSizing: "border-box" }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = danger ? C.redSoft : C.paperSoft; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    >
+      <span aria-hidden="true" style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, background: tone.bg, color: tone.fg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icon size={17} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: danger ? C.red : C.textInk }}>{title}</span>
+        {sub ? <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.slateLight, lineHeight: 1.35 }}>{sub}</span> : null}
+      </span>
+      {badge ? (
+        <span style={{ flexShrink: 0, fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: C.paperSoft, color: C.slate, border: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{badge}</span>
+      ) : null}
+    </button>
   );
 }
 

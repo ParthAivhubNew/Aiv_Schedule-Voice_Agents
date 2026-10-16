@@ -542,13 +542,14 @@ async def test_plan_is_changed_and_cancelled_from_the_plugin(client, staff, anon
     assert calls[-1][2]["automatic_tax"] == {"enabled": True}
 
     # Cancel at the end of the paid period, or keep it after all.
-    assert (await client.post("/api/billing/cancel", json={"wallet": "voice"})).json() == {"wallet": "voice", "ending": True}
+    assert (await client.post("/api/billing/cancel", json={"wallet": "voice"})).status_code == 400  # a reason is asked for
+    assert (await client.post("/api/billing/cancel", json={"wallet": "voice", "reason": "pause"})).json() == {"wallet": "voice", "ending": True}
     assert calls[-1][2] == {"cancel_at_period_end": True}
     assert (await client.post("/api/billing/cancel", json={"wallet": "voice", "cancel": False})).status_code == 200
     assert calls[-1][2] == {"cancel_at_period_end": False}
-    assert (await client.post("/api/billing/cancel", json={"wallet": "scheduler"})).status_code == 400
+    assert (await client.post("/api/billing/cancel", json={"wallet": "scheduler", "reason": "pause"})).status_code == 400
     sub["items"]["data"].append({"id": "si_x", "price": {"id": "price_other"}, "current_period_end": period_end})
-    r = await client.post("/api/billing/cancel", json={"wallet": "voice"})
+    r = await client.post("/api/billing/cancel", json={"wallet": "voice", "reason": "pause"})
     assert r.status_code == 400 and "bought together" in r.json()["detail"]
 
     _, tok = await make_user(db, "olly", "Operator")

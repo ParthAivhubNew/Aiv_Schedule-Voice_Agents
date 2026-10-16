@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react";
-import { Bell, BellRing, PlusCircle, CheckCircle2, AlertTriangle, Info, X, Trash2, ExternalLink } from "lucide-react";
+import { Bell, PlusCircle, CheckCircle2, AlertTriangle, Info, X, Trash2, ExternalLink } from "lucide-react";
 import {
   C,
   FONT_BODY,
@@ -118,34 +118,34 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
         aria-expanded={open}
         style={{
           position: "relative",
-          width: 40,
-          height: 40,
+          width: 34,
+          height: 34,
           borderRadius: 999,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
-          border: `1px solid ${hasUnread || open ? C.cobalt : C.border}`,
+          padding: 0,
+          border: `1px solid ${open ? C.cobalt : C.border}`,
           background: hasUnread || open ? C.cobaltSoft : "#fff",
-          color: hasUnread || open ? C.cobaltDeep : C.ink,
-          boxShadow: "0 1px 3px rgba(18,20,28,0.06)",
+          color: hasUnread || open ? C.cobalt : C.slate,
           transition: "background 0.12s, border-color 0.12s",
         }}
       >
-        {hasUnread ? <BellRing size={20} strokeWidth={2.1} /> : <Bell size={20} strokeWidth={2} />}
+        <Bell size={16} strokeWidth={2} />
         {hasUnread && (
           <span
             style={{
               position: "absolute",
-              top: -4,
-              right: -4,
-              minWidth: 18,
-              height: 18,
-              padding: "0 5px",
+              top: -5,
+              right: -5,
+              minWidth: 14,
+              height: 14,
+              padding: "0 4px",
               borderRadius: 99,
-              background: C.redSolid,
+              background: C.cobalt,
               color: "#fff",
-              fontSize: 11,
+              fontSize: 9.5,
               fontWeight: 700,
               display: "flex",
               alignItems: "center",
@@ -183,11 +183,10 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               width: 360,
               maxWidth: "calc(100vw - 16px)",
               maxHeight: "min(70vh, 480px)",
-              background: "rgba(18, 22, 41, 0.98)",
-              backdropFilter: "blur(20px)",
-              borderRadius: 16,
-              border: `1px solid rgba(255,255,255,0.12)`,
-              boxShadow: "0 20px 50px rgba(0,0,0,0.55)",
+              background: "#fff",
+              borderRadius: 14,
+              border: `1px solid ${C.border}`,
+              boxShadow: "0 18px 50px rgba(18,20,28,0.16)",
               zIndex: 9999,
               display: "flex",
               flexDirection: "column",
@@ -200,12 +199,12 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                 alignItems: "center",
                 justifyContent: "space-between",
                 padding: "12px 14px",
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                borderBottom: `1px solid ${C.borderLight}`,
                 gap: 8,
                 flexShrink: 0,
               }}
             >
-              <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: "#fff" }}>
+              <span style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk }}>
                 Notifications{unreadCount > 0 ? ` · ${unreadCount}` : ""}
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -216,7 +215,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                     style={{
                       background: "none",
                       border: "none",
-                      color: "#93B4FF",
+                      color: C.cobalt,
                       fontFamily: FONT_BODY,
                       fontSize: 11.5,
                       fontWeight: 600,
@@ -236,7 +235,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                     style={{
                       background: "none",
                       border: "none",
-                      color: "#A0A6B5",
+                      color: C.slate,
                       fontFamily: FONT_BODY,
                       fontSize: 11.5,
                       fontWeight: 600,
@@ -260,8 +259,8 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                     height: 28,
                     borderRadius: 8,
                     border: "none",
-                    background: "rgba(255,255,255,0.1)",
-                    color: "#fff",
+                    background: C.paperSoft,
+                    color: C.slate,
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
@@ -276,7 +275,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
 
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
               {items.length === 0 ? (
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: "#9CA3AF", textAlign: "center", padding: "20px 0" }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, textAlign: "center", padding: "24px 0" }}>
                   No notifications
                 </div>
               ) : (
@@ -286,8 +285,8 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                     onClick={(e) => handleItemClick(e, n)}
                     style={{
                       borderRadius: 10,
-                      background: n.unread ? "rgba(75,115,255,0.14)" : "rgba(255,255,255,0.04)",
-                      border: `1px solid ${n.unread ? "rgba(75,115,255,0.3)" : "rgba(255,255,255,0.06)"}`,
+                      background: n.unread ? C.cobaltSoft : "#fff",
+                      border: `1px solid ${n.unread ? "rgba(52,87,213,0.25)" : C.borderLight}`,
                       padding: "10px 10px 8px",
                       cursor: "pointer",
                     }}
@@ -296,13 +295,13 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                       <div style={{ marginTop: 2, flexShrink: 0 }}>
                         {n.type === "success" && <CheckCircle2 size={15} color={C.teal} />}
                         {n.type === "alert" && <AlertTriangle size={15} color={C.amber} />}
-                        {(n.type === "info" || !n.type) && <Info size={15} color="#7B9CFF" />}
+                        {(n.type === "info" || !n.type) && <Info size={15} color={C.cobalt} />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: "#F8FAFC", lineHeight: 1.4 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.4 }}>
                           {n.text}
                         </div>
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#9CA3AF", marginTop: 3 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.slate, marginTop: 3 }}>
                           {n.time}
                         </div>
                       </div>

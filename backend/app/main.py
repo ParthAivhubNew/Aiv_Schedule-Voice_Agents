@@ -164,6 +164,24 @@ async def _platform_balance_check_loop():
             logger.warning(f"[Balances] Check cycle failed: {loop_err}")
 
 
+async def _billing_upkeep_loop():
+    """Every few hours: put each company's plans right with Stripe's view (a lost webhook never leaves anyone without the
+    credits they paid for or with a plan that has ended), and send last month's report to the owner from the 1st."""
+    await asyncio.sleep(600)
+    while True:
+        try:
+            from app.services import billing as B
+            from app.services.billing_events import send_due_report
+
+            await B.reconcile_all()
+            await send_due_report()
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Billing] Upkeep cycle failed: {loop_err}")
+        await asyncio.sleep(6 * 3600)
+
+
 async def _social_token_refresh_loop():
     """Once a day: renew social logins that end within a week and email staff (never customers)
     about any that need a reconnect. First pass shortly after start so a restart never skips a day."""
@@ -663,9 +681,11 @@ async def lifespan(app: FastAPI):
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
     social_token_task = asyncio.create_task(_social_token_refresh_loop())
+    billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
 
     yield
 
+    billing_upkeep_task.cancel()
     email_task.cancel()
     connections_task.cancel()
     publish_due_task.cancel()

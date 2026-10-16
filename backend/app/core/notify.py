@@ -22,6 +22,7 @@ EVENTS = [
     ("posts_awaiting_approval", "Posts are waiting for approval", "admins"),
     ("posts_ready", "AI writing I started has finished (when it took a while and I'd left)", "everyone"),
     ("low_credits", "Credits are running low", "admins"),
+    ("plan_changes", "A plan is cancelled or ends", "admins"),
     ("numbers", "Phone numbers and business verification updates", "admins"),
     ("whatsapp_message", "A WhatsApp message needs a person to reply", "admins"),
     ("security", "Security: password reset or account disabled", "everyone"),

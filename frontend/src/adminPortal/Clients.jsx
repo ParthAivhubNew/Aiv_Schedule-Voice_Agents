@@ -94,6 +94,35 @@ export function Clients({ canEdit, openId, open }) {
   );
 }
 
+const KIND_WORD = { started: "Plan started", renewed: "Renewed", cancel_requested: "Cancelled", cancel_undone: "Kept after cancelling", ended: "Plan ended", repaired: "Credits added by the daily check" };
+const APP_WORD = { leadgen: "Leads", voice: "Voice", scheduler: "Social" };
+
+// What happened to this company's plans, and why people cancelled.
+function PlanHistory({ id }) {
+  const load = useCallback(() => adminApi.billingEvents(id), [id]);
+  const [rows, err] = useLoad(load, [load]);
+  return (
+    <>
+      <div style={heading}>Plan history</div>
+      <Note error>{err}</Note>
+      {rows && !rows.length ? <div style={{ fontSize: 13, color: C.slate }}>Nothing yet.</div> : null}
+      {rows && rows.length > 0 && (
+        <Table head={["When", "App", "Plan", "What happened", "Why"]} minWidth={560}>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td style={cell}>{when(r.at)}</td>
+              <td style={cell}>{APP_WORD[r.wallet] || r.wallet}</td>
+              <td style={cell}>{r.plan || "—"}</td>
+              <td style={cell}>{KIND_WORD[r.kind] || r.kind}</td>
+              <td style={cell}>{[r.reasonLabel, r.note].filter(Boolean).join(": ") || "—"}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </>
+  );
+}
+
 function ClientDetail({ id, canEdit, back }) {
   const load = useCallback(() => adminApi.client(id), [id]);
   const [c, err, reload] = useLoad(load, [load]);
@@ -213,6 +242,7 @@ function ClientDetail({ id, canEdit, back }) {
       <div style={heading}>Credits given by staff</div>
       <AwardsTable rows={awards || []} />
       <Note error>{awardsErr}</Note>
+      <PlanHistory id={id} />
 
       <div style={heading}>Phone numbers</div>
       <Table head={["Number", "Status", "Provider", "Capabilities", "WhatsApp"]}>

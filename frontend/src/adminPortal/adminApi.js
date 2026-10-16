@@ -76,6 +76,8 @@ export const adminApi = {
   setWhatsapp: (orgId, numberId, enabled) => request(`/clients/${q(orgId)}/numbers/${q(numberId)}/whatsapp`, { method: "POST", body: { enabled } }),
   queue: () => request("/verifications"),
   plans: () => request("/plans"),
+  billingEvents: (orgId = "") => request(`/billing-events${orgId ? `?org_id=${q(orgId)}` : ""}`),
+  sendBillingReport: (year, month) => request("/billing-report/send", { method: "POST", body: { year, month } }),
   createPlan: (body) => request("/plans", { method: "POST", body }),
   updatePlan: (id, body) => request(`/plans/${q(id)}`, { method: "PUT", body }),
   syncPlan: (id) => request(`/plans/${q(id)}/sync-stripe`, { method: "POST" }),

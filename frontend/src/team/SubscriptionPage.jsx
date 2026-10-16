@@ -8,6 +8,11 @@ import { btn, day, fmt, heading, money, MonthlyUsage, WalletCard, WALLET_COLOUR 
 const card = { border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" };
 const stepBtn = { width: 30, height: 32, border: "none", background: C.paperSoft, color: C.textInk, fontSize: 16, fontWeight: 700, cursor: "pointer" };
 const MAX_QUANTITY = 99; // same limit as the server
+// Why people cancel: the same choices the server accepts.
+const REASONS = [
+  ["too_expensive", "It costs too much"], ["not_using", "I am not using it enough"], ["missing_feature", "It is missing something I need"],
+  ["other_tool", "I am switching to another tool"], ["pause", "I just need a break"], ["other", "Something else"],
+];
 
 // One plugin's subscription, managed by the organisation's admins from inside the plugin:
 // subscribe to a monthly plan, move to another plan, cancel or keep it, buy one-off top-ups,
@@ -18,6 +23,7 @@ export function SubscriptionPage({ wallet, back }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [ask, setAsk] = useState(null); // { text, yes, run } waiting for a yes
+  const [leaving, setLeaving] = useState(null); // { reason, note } while the cancel questions are open
   const [qty, setQty] = useState({}); // top-up id -> how many to buy
   const [returned] = useState(takeBillingParam);
   const [notice, setNotice] = useState(returned === "success" ? "Payment received. Your plan and credits appear here within a minute." : returned ? "Checkout cancelled. Nothing was charged." : "");
@@ -108,14 +114,19 @@ export function SubscriptionPage({ wallet, back }) {
   };
 
   const setEnding = (ending) => {
-    const go = () => run("cancel", async () => {
-      await api.cancelPlan(wallet, ending);
-      setNotice(ending ? `${current.name} is cancelled. It stays active until ${day(mine.periodEnd)}.` : `${current.name} carries on and renews as usual.`);
+    const go = (reason = "", note = "") => run("cancel", async () => {
+      await api.cancelPlan(wallet, ending, reason, note);
+      setLeaving(null);
+      setNotice(ending ? `${current.name} is cancelled. It stays active until ${day(mine.periodEnd)}. We have emailed the details to your admins.` : `${current.name} carries on and renews as usual.`);
       load();
     });
     if (!ending) return go();
-    setAsk({ text: `Cancel ${current.name}? It stays active, with its credits, until ${day(mine.periodEnd)} and is not renewed after that.`, yes: "Cancel plan", run: go });
+    setAsk(null);
+    setLeaving({ reason: "", note: "", go });
   };
+  // What the cancel dialog tells them: plan credits end with the period, top-ups stay.
+  const planCredits = (w?.batches || []).filter((b) => b.expiresAt).reduce((a, b) => a + b.remaining, 0);
+  const keptCredits = (w?.batches || []).filter((b) => !b.expiresAt).reduce((a, b) => a + b.remaining, 0);
 
   return (
     <div style={{ fontFamily: FONT_BODY, maxWidth: 860 }}>
@@ -163,6 +174,40 @@ export function SubscriptionPage({ wallet, back }) {
         <div style={{ fontSize: 12, color: C.slate, marginTop: 8 }}>
           Credits are used like this: {rates.map((r) => `${r.label} = ${fmt(r.credits)} ${r.credits === 1 ? "credit" : "credits"}${r.charged ? "" : " (not charged yet)"}`).join(" · ")}.
           {perMinute > 1 && w && w.balance > 0 && ` You have ${callTime(w.balance)} left.`}
+        </div>
+      )}
+
+      {leaving && current && (
+        <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setLeaving(null); }}
+          style={{ position: "fixed", inset: 0, zIndex: 130, background: "rgba(18,20,28,.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div role="dialog" aria-label={`Cancel ${current.name}`} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 520, maxHeight: "calc(100dvh - 32px)", overflowY: "auto", padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.25)" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk }}>Cancel {current.name}?</div>
+            <ul style={{ margin: "10px 0 14px", paddingLeft: 18, fontSize: 13, color: C.textInk, lineHeight: 1.6 }}>
+              <li>It stays active until <b>{day(mine.periodEnd)}</b>, then stops. It will not renew and nothing more is charged.</li>
+              <li>{planCredits > 0 ? <>You can use your <b>{fmt(planCredits)}</b> plan credits until then. Any left over expire that day.</> : "You have no plan credits left to use."}</li>
+              {keptCredits > 0 && <li>Your <b>{fmt(keptCredits)}</b> top-up credits never expire and stay with you.</li>}
+              <li>The current month is not refunded.</li>
+              <li>You can press <b>Keep my plan</b> any time before {day(mine.periodEnd)}.</li>
+            </ul>
+            <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+              <legend style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 6 }}>Why are you cancelling?</legend>
+              {REASONS.map(([id, label]) => (
+                <label key={id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.textInk, padding: "4px 0", cursor: "pointer" }}>
+                  <input type="radio" name="cancel-reason" checked={leaving.reason === id} onChange={() => setLeaving({ ...leaving, reason: id })} /> {label}
+                </label>
+              ))}
+            </fieldset>
+            <textarea aria-label="Anything we should know?" placeholder="Anything we should know? (optional)" maxLength={500} value={leaving.note}
+              onChange={(e) => setLeaving({ ...leaving, note: e.target.value })}
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 10, minHeight: 64, borderRadius: 8, border: `1px solid ${C.border}`, padding: "8px 10px", fontFamily: FONT_BODY, fontSize: 13, resize: "vertical" }} />
+            {error && <div role="alert" style={{ color: C.red, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button type="button" style={btn(true)} onClick={() => setLeaving(null)}>Keep my plan</button>
+              <button type="button" disabled={!leaving.reason || busy === "cancel"}
+                style={{ ...btn(false, busy === "cancel"), color: C.red, borderColor: C.red, opacity: leaving.reason ? 1 : 0.5 }}
+                onClick={() => leaving.go(leaving.reason, leaving.note.trim())}>{busy === "cancel" ? "Cancelling…" : "Cancel plan"}</button>
+            </div>
+          </div>
         </div>
       )}
 

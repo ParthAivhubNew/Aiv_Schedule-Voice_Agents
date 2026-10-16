@@ -35,7 +35,7 @@ export function ChangePasswordScreen({ operator, onDone, onLogout }) {
   const label = { display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F8F7F4", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: FONT_BODY }}>
+    <div style={{ minHeight: "100vh", boxSizing: "border-box", background: "#F8F7F4", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: FONT_BODY }}>
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: C.ink, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>

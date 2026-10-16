@@ -106,6 +106,7 @@ export function SignIn({ onSignedIn }) {
     <div
       style={{
         minHeight: "100vh",
+        boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
