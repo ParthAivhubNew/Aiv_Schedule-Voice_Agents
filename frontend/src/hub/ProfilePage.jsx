@@ -4,7 +4,7 @@ import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, TIMEZONES } from "../tokens";
 import { api } from "../api/apiClient";
 import { Avatar } from "./Avatar";
 
-const TABS = [["profile", "Profile"], ["contact", "Contact"], ["prefs", "Preferences"], ["notifications", "Notifications"], ["security", "Security"], ["account", "Account"]];
+const TABS = [["profile", "Profile"], ["contact", "Contact & settings"], ["notifications", "Notifications & account"], ["security", "Security"]];
 const GENDERS = ["Female", "Male", "Non-binary"];
 const isCustom = (g) => Boolean(g) && !GENDERS.includes(g);
 const LANGUAGES = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["pt", "Português"], ["nl", "Nederlands"], ["pl", "Polski"], ["hi", "हिन्दी"], ["ar", "العربية"]];
@@ -13,6 +13,7 @@ const FIELDS = ["first_name", "last_name", "gender", "job_title", "department", 
 const label = { display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 };
 const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", color: C.textInk };
 const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 14 };
+const sub = { fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk };
 const note = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
 const btn = { padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY };
 const btnDark = { ...btn, border: "none", background: C.ink, color: "#fff", fontWeight: 600 };
@@ -20,7 +21,7 @@ const btnDark = { ...btn, border: "none", background: C.ink, color: "#fff", font
 
 // A dialog with the sections down the left; on a phone the sections run along the top and the dialog fills the screen.
 const MODAL_CSS = `
-.pf-modal{display:flex;width:100%;max-width:860px;height:min(640px,calc(100dvh - 32px));background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
+.pf-modal{display:flex;width:100%;max-width:860px;height:min(680px,calc(100dvh - 32px));background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
 .pf-side{width:210px;flex-shrink:0;background:${C.paperSoft};border-right:1px solid ${C.border};display:flex;flex-direction:column;gap:14px;padding:18px 12px;overflow-y:auto}
 .pf-who{display:flex;align-items:center;gap:10px;padding:0 6px}
 .pf-tabs{display:flex;flex-direction:column;gap:2px}
@@ -203,7 +204,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   const toggle = (key) => setNotif((n) => ({ ...n, events: n.events.map((e) => (e.key === key ? { ...e, on: !e.on } : e)) }));
 
   const field = (id, name, el) => <Field key={id} id={id} name={name}>{el}</Field>;
-  const showSave = dirty && ["profile", "contact", "prefs", "notifications"].includes(tab);
+  const showSave = dirty && ["profile", "contact", "notifications"].includes(tab);
   const discard = () => { setForm(base); setCustomGender(isCustom(base.gender)); if (notif && !notif.failed) api.getMyNotifications().then(setNotif).catch(() => {}); };
 
   return (
@@ -280,11 +281,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                   {field("p-web", "Website or LinkedIn", <input id="p-web" value={form.website} onChange={set("website")} style={input} placeholder="linkedin.com/in/you" autoComplete="url" />)}
                 </div>
                 {operator.email && form.email.trim() !== operator.email ? <div style={note}>You will need to verify the new address.</div> : null}
-              </>
-            )}
-
-            {tab === "prefs" && (
-              <>
+                <div style={{ ...sub, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>Language and time</div>
                 <div style={grid}>
                   {field("p-tz", "Timezone", (
                     <select id="p-tz" value={form.timezone} onChange={set("timezone")} style={input}>
@@ -311,7 +308,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                     </select>
                   ))}
                 </div>
-                {field("p-sig", "Email signature", <textarea id="p-sig" value={form.signature} onChange={set("signature")} style={{ ...input, minHeight: 84, resize: "vertical" }} maxLength={600} placeholder={`${shownName}\n${form.job_title || "Job title"}`} />)}
+                {field("p-sig", "Email signature", <textarea id="p-sig" value={form.signature} onChange={set("signature")} style={{ ...input, minHeight: 60, resize: "vertical" }} maxLength={600} placeholder={`${shownName}\n${form.job_title || "Job title"}`} />)}
               </>
             )}
 
@@ -322,7 +319,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                 {notif?.failed && <div style={note}>Could not load your email settings.</div>}
                 {notif && !notif.failed && (
                   <>
-                    {!form.email.trim() && <div style={note}>Add your email on the Contact tab to receive these.</div>}
+                    {!form.email.trim() && <div style={note}>Add your email on the Contact and settings tab to receive these.</div>}
                     {!notif.mailboxReady && <div style={note}>Platform email is not switched on yet; your choices are kept for when it is.</div>}
                     <div>
                       {notif.events.map((ev) => (
@@ -334,6 +331,15 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                     </div>
                   </>
                 )}
+                <div style={{ ...sub, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>Account</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))", gap: "10px 14px" }}>
+                  {[["Username", `@${operator.username || ""}`], ["Role", operator.role || ""], ["Organisation", orgName || ""], ["Member since", when(operator.member_since).split(",").slice(0, 2).join(",")], ["Last sign-in", when(operator.last_login_at)]].map(([name, val]) => (
+                    <div key={name} style={{ minWidth: 0 }}>
+                      <div style={{ ...label, marginBottom: 2 }}>{name}</div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.textInk, overflowWrap: "anywhere" }}>{val || "—"}</div>
+                    </div>
+                  ))}
+                </div>
               </>
             )}
 
@@ -369,14 +375,6 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                   ))}
                 </div>
               </>
-            )}
-
-            {tab === "account" && (
-              <div style={grid}>
-                {[["a-user", "Username", `@${operator.username || ""}`], ["a-role", "Role", operator.role || ""], ["a-org", "Organisation", orgName || ""], ["a-since", "Member since", when(operator.member_since).split(",").slice(0, 2).join(",")], ["a-last", "Last sign-in", when(operator.last_login_at)]].map(([id, name, val]) => (
-                  field(id, name, <input id={id} value={val} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} />)
-                ))}
-              </div>
             )}
           </div>
 

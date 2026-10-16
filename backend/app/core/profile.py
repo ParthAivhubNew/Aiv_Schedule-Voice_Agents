@@ -6,7 +6,7 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
-from zoneinfo import ZoneInfo, available_timezones
+from zoneinfo import ZoneInfo
 
 AVATAR_DIR = Path(__file__).resolve().parent.parent / "static" / "avatars"
 AVATAR_PX = 256
@@ -25,6 +25,16 @@ CHOICES = {
 EMPTY = {k: "" for k in [*TEXT_FIELDS, "secondary_email", "timezone", "language", *CHOICES]}
 LANGUAGES = {"en", "es", "fr", "de", "it", "pt", "nl", "pl", "hi", "ar"}
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _known_zone(name: str) -> bool:
+    # Opening the zone, as the organisation timezone does, also accepts old names such as Asia/Calcutta
+    # and does not depend on the list of zones, which is empty on a machine without a timezone database.
+    try:
+        ZoneInfo(name)
+        return True
+    except Exception:
+        return False
 
 
 def clean(patch: Dict[str, Any]) -> Dict[str, str]:
@@ -49,7 +59,7 @@ def clean(patch: Dict[str, Any]) -> Dict[str, str]:
         out["secondary_email"] = mail
     if patch.get("timezone") is not None:
         tz = str(patch["timezone"]).strip()
-        if tz and tz not in available_timezones():
+        if tz and not _known_zone(tz):
             raise ValueError("Pick a timezone from the list.")
         out["timezone"] = tz
     if patch.get("language") is not None:

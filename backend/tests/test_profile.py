@@ -29,6 +29,13 @@ async def test_details_save_and_name_follows(client):
     assert again["profile"]["timezone"] == "Europe/London" and again["profile"]["department"] == ""
 
 
+async def test_browser_style_timezone_names_are_accepted(client):
+    for tz in ("Asia/Calcutta", "Asia/Kolkata", "America/Argentina/Buenos_Aires", "UTC"):
+        r = await client.patch("/api/auth/me", json={"profile": {"timezone": tz}})
+        assert r.status_code == 200, (tz, r.text)
+        assert r.json()["profile"]["timezone"] == tz
+
+
 async def test_bad_details_are_refused(client):
     for body in (
         {"profile": {"timezone": "Mars/Base"}},
