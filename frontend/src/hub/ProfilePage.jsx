@@ -1,20 +1,44 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Monitor, Trash2 } from "lucide-react";
+import { Camera, CheckCircle2, AlertTriangle, Monitor, Trash2, X } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, TIMEZONES } from "../tokens";
 import { api } from "../api/apiClient";
 import { Avatar } from "./Avatar";
 
-const TABS = [["profile", "Profile"], ["notifications", "Notifications"], ["security", "Security"], ["account", "Account"]];
+const TABS = [["profile", "Profile"], ["contact", "Contact"], ["prefs", "Preferences"], ["notifications", "Notifications"], ["security", "Security"], ["account", "Account"]];
+const GENDERS = ["Female", "Male", "Non-binary"];
+const isCustom = (g) => Boolean(g) && !GENDERS.includes(g);
 const LANGUAGES = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["pt", "Português"], ["nl", "Nederlands"], ["pl", "Polski"], ["hi", "हिन्दी"], ["ar", "العربية"]];
-const FIELDS = ["first_name", "last_name", "pronouns", "job_title", "department", "company", "bio", "website", "secondary_email", "timezone", "language", "date_format", "time_format", "signature"];
+const FIELDS = ["first_name", "last_name", "gender", "job_title", "department", "company", "bio", "website", "secondary_email", "timezone", "language", "date_format", "time_format", "signature"];
 
 const label = { display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 };
 const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", color: C.textInk };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "clamp(16px, 3vw, 24px)" };
-const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 16 };
-const h2 = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: "0 0 14px" };
+const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 14 };
+const note = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
 const btn = { padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY };
 const btnDark = { ...btn, border: "none", background: C.ink, color: "#fff", fontWeight: 600 };
+
+
+// A dialog with the sections down the left; on a phone the sections run along the top and the dialog fills the screen.
+const MODAL_CSS = `
+.pf-modal{display:flex;width:100%;max-width:860px;height:min(640px,calc(100dvh - 32px));background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
+.pf-side{width:210px;flex-shrink:0;background:${C.paperSoft};border-right:1px solid ${C.border};display:flex;flex-direction:column;gap:14px;padding:18px 12px;overflow-y:auto}
+.pf-who{display:flex;align-items:center;gap:10px;padding:0 6px}
+.pf-tabs{display:flex;flex-direction:column;gap:2px}
+.pf-tab{all:unset;cursor:pointer;box-sizing:border-box;padding:9px 12px;border-radius:8px;font:600 13.5px ${FONT_BODY};color:${C.slate};white-space:nowrap}
+.pf-tab:hover{background:#fff}
+.pf-tab.on{background:#fff;color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
+.pf-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.pf-head{display:flex;align-items:center;gap:8px;padding:16px 22px;border-bottom:1px solid ${C.border}}
+.pf-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 22px;display:flex;flex-direction:column;gap:18px}
+.pf-foot{display:flex;align-items:center;gap:8px;padding:12px 22px;border-top:1px solid ${C.border}}
+@media (max-width:700px){
+  .pf-modal{flex-direction:column;height:calc(100dvh - 32px)}
+  .pf-side{width:auto;flex-direction:column;gap:8px;padding:12px 12px 0;border-right:none;border-bottom:1px solid ${C.border};overflow:visible}
+  .pf-tabs{flex-direction:row;overflow-x:auto;gap:2px}
+  .pf-tab{border-radius:8px 8px 0 0}
+  .pf-head,.pf-body,.pf-foot{padding-left:16px;padding-right:16px}
+}
+`;
 
 function zoneList() {
   try {
@@ -66,6 +90,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   const [status, setStatus] = useState({ kind: "", text: "" });
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [customGender, setCustomGender] = useState(() => isCustom(seed(operator).gender));
   const [sessions, setSessions] = useState(null);
   const [pw, setPw] = useState({ current: "", next: "", again: "", busy: false, msg: "", ok: false });
   const fileRef = useRef(null);
@@ -76,6 +101,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
     const s = seed(operator);
     setForm(s);
     setBase(s);
+    setCustomGender(isCustom(s.gender));
     setTab("profile");
     setStatus({ kind: "", text: "" });
     setNotif(null);
@@ -96,6 +122,11 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
 
   if (!isOpen || !operator) return null;
 
+  const pickGender = (e) => {
+    const v = e.target.value;
+    setCustomGender(v === "custom");
+    setForm((f) => ({ ...f, gender: v === "custom" ? "" : v }));
+  };
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const dirty = JSON.stringify(form) !== JSON.stringify(base) || (notif && !notif.failed && JSON.stringify(notif.events.map((e) => e.on)) !== notifBase);
   const shownName = `${form.first_name} ${form.last_name}`.trim() || operator.name;
@@ -171,206 +202,197 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
 
   const toggle = (key) => setNotif((n) => ({ ...n, events: n.events.map((e) => (e.key === key ? { ...e, on: !e.on } : e)) }));
 
-  return (
-    <div role="dialog" aria-label="Your profile" style={{ position: "fixed", inset: 0, zIndex: 120, background: C.paper, overflowY: "auto", overscrollBehavior: "contain" }}>
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: "clamp(14px, 3vw, 28px) clamp(16px, 4vw, 32px) 96px", display: "flex", flexDirection: "column", gap: 18 }}>
-        <button type="button" onClick={onClose} style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 13, color: C.slate, alignSelf: "flex-start" }}>
-          <ArrowLeft size={15} /> Back
-        </button>
+  const field = (id, name, el) => <Field key={id} id={id} name={name}>{el}</Field>;
+  const showSave = dirty && ["profile", "contact", "prefs", "notifications"].includes(tab);
+  const discard = () => { setForm(base); setCustomGender(isCustom(base.gender)); if (notif && !notif.failed) api.getMyNotifications().then(setNotif).catch(() => {}); };
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <Avatar user={operator} size={72} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: "clamp(20px, 3vw, 24px)", color: C.textInk, margin: 0, overflowWrap: "anywhere" }}>{shownName}</h1>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 3 }}>
-              {[form.job_title, form.company || orgName].filter(Boolean).join(" · ") || `@${operator.username}`}
+  return (
+    <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+      <style>{MODAL_CSS}</style>
+      <div role="dialog" aria-label="Your profile" className="pf-modal">
+        <aside className="pf-side">
+          <div className="pf-who">
+            <Avatar user={operator} size={44} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.textInk, overflowWrap: "anywhere" }}>{shownName}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, overflowWrap: "anywhere" }}>{form.job_title || `@${operator.username}`}</div>
             </div>
           </div>
-        </div>
-
-        <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, overflowX: "auto" }}>
-          {TABS.map(([k, name]) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { setTab(k); setStatus({ kind: "", text: "" }); }}
-              style={{ all: "unset", cursor: "pointer", padding: "10px 14px", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", color: tab === k ? C.cobalt : C.slate, borderBottom: `2px solid ${tab === k ? C.cobalt : "transparent"}`, marginBottom: -1 }}>
-              {name}
-            </button>
-          ))}
-        </div>
-
-        {status.text ? (
-          <div role="status" style={{ padding: "8px 12px", borderRadius: 8, fontSize: 12.5, fontFamily: FONT_BODY, display: "flex", alignItems: "center", gap: 6, background: status.kind === "ok" ? C.tealSoft : "#fdecea", color: status.kind === "ok" ? C.teal : "#b3261e" }}>
-            {status.kind === "ok" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />} {status.text}
+          <div role="tablist" className="pf-tabs">
+            {TABS.map(([k, name]) => (
+              <button key={k} type="button" role="tab" aria-selected={tab === k} className={`pf-tab${tab === k ? " on" : ""}`} onClick={() => { setTab(k); setStatus({ kind: "", text: "" }); }}>{name}</button>
+            ))}
           </div>
-        ) : null}
+        </aside>
 
-        {tab === "profile" && (
-          <form onSubmit={save} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <section style={card}>
-              <h2 style={h2}>Photo</h2>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                <Avatar user={operator} size={88} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button type="button" style={btn} disabled={photoBusy} onClick={() => fileRef.current?.click()}>
-                      <Camera size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{photoBusy ? "Working…" : operator.avatar_url ? "Change photo" : "Upload photo"}
-                    </button>
-                    {operator.avatar_url ? (
-                      <button type="button" style={{ ...btn, color: C.red }} disabled={photoBusy} onClick={removePhoto}>
-                        <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Remove
-                      </button>
-                    ) : null}
-                  </div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>JPG, PNG or WebP, up to 2 MB. It is cropped to a square.</div>
-                </div>
-                <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} hidden />
-              </div>
-            </section>
+        <div className="pf-main">
+          <div className="pf-head">
+            <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, margin: 0, flex: 1 }}>{TABS.find(([k]) => k === tab)[1]}</h1>
+            <button type="button" aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate, display: "flex" }}><X size={20} /></button>
+          </div>
 
-            <section style={card}>
-              <h2 style={h2}>About you</h2>
-              <div style={grid}>
-                <Field id="p-first" name="First name"><input id="p-first" value={form.first_name} onChange={set("first_name")} style={input} autoComplete="given-name" maxLength={60} /></Field>
-                <Field id="p-last" name="Last name"><input id="p-last" value={form.last_name} onChange={set("last_name")} style={input} autoComplete="family-name" maxLength={60} /></Field>
-                <Field id="p-pro" name="Pronouns (optional)"><input id="p-pro" value={form.pronouns} onChange={set("pronouns")} style={input} placeholder="she/her, he/him, they/them" maxLength={30} /></Field>
-                <Field id="p-title" name="Job title"><input id="p-title" value={form.job_title} onChange={set("job_title")} style={input} autoComplete="organization-title" maxLength={80} /></Field>
-                <Field id="p-dept" name="Department"><input id="p-dept" value={form.department} onChange={set("department")} style={input} maxLength={80} /></Field>
-                <Field id="p-co" name="Company"><input id="p-co" value={form.company} onChange={set("company")} style={input} placeholder={orgName || ""} autoComplete="organization" maxLength={120} /></Field>
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <Field id="p-bio" name="Short bio"><textarea id="p-bio" value={form.bio} onChange={set("bio")} style={{ ...input, minHeight: 72, resize: "vertical" }} maxLength={500} /></Field>
-              </div>
-            </section>
-
-            <section style={card}>
-              <h2 style={h2}>Contact</h2>
-              <div style={grid}>
-                <Field id="p-email" name="Email"><input id="p-email" type="email" value={form.email} onChange={set("email")} style={input} placeholder="you@company.com" autoComplete="email" /></Field>
-                <Field id="p-email2" name="Second email (optional)"><input id="p-email2" type="email" value={form.secondary_email} onChange={set("secondary_email")} style={input} /></Field>
-                <Field id="p-phone" name="Phone"><input id="p-phone" type="tel" value={form.phone} onChange={set("phone")} style={input} placeholder="+44 7700 900123" autoComplete="tel" /></Field>
-                <Field id="p-web" name="Website or LinkedIn"><input id="p-web" value={form.website} onChange={set("website")} style={input} placeholder="linkedin.com/in/you" autoComplete="url" /></Field>
-              </div>
-              {operator.email && form.email.trim() !== operator.email ? (
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate, marginTop: 10 }}>You will need to verify the new address.</div>
-              ) : null}
-            </section>
-
-            <section style={card}>
-              <h2 style={h2}>Language and time</h2>
-              <div style={grid}>
-                <Field id="p-tz" name="Timezone">
-                  <select id="p-tz" value={form.timezone} onChange={set("timezone")} style={input}>
-                    <option value="">Not set</option>
-                    {form.timezone && !zones.some((z) => z.id === form.timezone) ? <option value={form.timezone}>{form.timezone}</option> : null}
-                    {zones.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
-                  </select>
-                </Field>
-                <Field id="p-lang" name="Language">
-                  <select id="p-lang" value={form.language} onChange={set("language")} style={input}>
-                    {LANGUAGES.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                  </select>
-                </Field>
-                <Field id="p-date" name="Date format">
-                  <select id="p-date" value={form.date_format} onChange={set("date_format")} style={input}>
-                    <option value="dmy">Day / month / year</option>
-                    <option value="mdy">Month / day / year</option>
-                  </select>
-                </Field>
-                <Field id="p-time" name="Clock">
-                  <select id="p-time" value={form.time_format} onChange={set("time_format")} style={input}>
-                    <option value="24h">24-hour</option>
-                    <option value="12h">12-hour</option>
-                  </select>
-                </Field>
-              </div>
-            </section>
-
-            <section style={card}>
-              <h2 style={h2}>Email signature</h2>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 10 }}>Added to emails the app sends as you.</div>
-              <textarea id="p-sig" aria-label="Email signature" value={form.signature} onChange={set("signature")} style={{ ...input, minHeight: 90, resize: "vertical" }} maxLength={600} placeholder={`${shownName}\n${form.job_title || "Job title"}\n${form.phone || ""}`} />
-            </section>
-          </form>
-        )}
-
-        {tab === "notifications" && (
-          <section style={card}>
-            <h2 style={h2}>Email me when</h2>
-            {!notif && <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div>}
-            {notif?.failed && <div style={{ fontSize: 12.5, color: C.slate }}>Could not load your email settings.</div>}
-            {notif && !notif.failed && (
+          <div className="pf-body">
+            {tab === "profile" && (
               <>
-                {!form.email.trim() && <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>Add your email on the Profile tab to receive these.</div>}
-                {!notif.mailboxReady && <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>Platform email is not switched on yet; your choices are kept for when it is.</div>}
-                {notif.events.map((ev) => (
-                  <label key={ev.key} style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 13.5, color: C.textInk, padding: "7px 0", cursor: "pointer" }}>
-                    <input type="checkbox" checked={ev.on} onChange={() => toggle(ev.key)} />
-                    {ev.label}
-                  </label>
-                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <Avatar user={operator} size={72} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" style={btn} disabled={photoBusy} onClick={() => fileRef.current?.click()}>
+                        <Camera size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{photoBusy ? "Working…" : operator.avatar_url ? "Change photo" : "Upload photo"}
+                      </button>
+                      {operator.avatar_url ? (
+                        <button type="button" style={{ ...btn, color: C.red }} disabled={photoBusy} onClick={removePhoto}>
+                          <Trash2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>JPG, PNG or WebP, up to 2 MB.</div>
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} hidden />
+                </div>
+                <div style={grid}>
+                  {field("p-first", "First name", <input id="p-first" value={form.first_name} onChange={set("first_name")} style={input} autoComplete="given-name" maxLength={60} />)}
+                  {field("p-last", "Last name", <input id="p-last" value={form.last_name} onChange={set("last_name")} style={input} autoComplete="family-name" maxLength={60} />)}
+                  {field("p-gender", "Gender", (
+                    <select id="p-gender" value={customGender ? "custom" : form.gender} onChange={pickGender} style={input}>
+                      <option value="">Prefer not to say</option>
+                      {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
+                      <option value="custom">Custom…</option>
+                    </select>
+                  ))}
+                  {customGender ? field("p-gender-text", "Your gender", <input id="p-gender-text" value={form.gender} onChange={set("gender")} style={input} maxLength={40} placeholder="How you describe yourself" autoFocus />) : <span />}
+                  {field("p-title", "Job title", <input id="p-title" value={form.job_title} onChange={set("job_title")} style={input} autoComplete="organization-title" maxLength={80} />)}
+                  {field("p-dept", "Department", <input id="p-dept" value={form.department} onChange={set("department")} style={input} maxLength={80} />)}
+                  {field("p-co", "Company", <input id="p-co" value={form.company} onChange={set("company")} style={input} placeholder={orgName || ""} autoComplete="organization" maxLength={120} />)}
+                </div>
+                {field("p-bio", "Short bio", <textarea id="p-bio" value={form.bio} onChange={set("bio")} style={{ ...input, minHeight: 64, resize: "vertical" }} maxLength={500} />)}
               </>
             )}
-          </section>
-        )}
 
-        {tab === "security" && (
-          <>
-            <form onSubmit={changePassword} style={card}>
-              <h2 style={h2}>Change password</h2>
-              <div style={{ ...grid, maxWidth: 520 }}>
-                <Field id="pw-now" name="Current password"><input id="pw-now" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} style={input} /></Field>
-                <span />
-                <Field id="pw-new" name="New password"><input id="pw-new" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} style={input} /></Field>
-                <Field id="pw-again" name="New password again"><input id="pw-again" type="password" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} style={input} /></Field>
-              </div>
-              {pw.msg ? <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontFamily: FONT_BODY, color: pw.ok ? C.teal : "#b3261e" }}>{pw.msg}</div> : null}
-              <div style={{ marginTop: 14 }}>
-                <button type="submit" style={btnDark} disabled={pw.busy || !pw.current || !pw.next}>{pw.busy ? "Changing…" : "Change password"}</button>
-              </div>
-            </form>
-
-            <section style={card}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-                <h2 style={{ ...h2, margin: 0, flex: 1 }}>Where you are signed in</h2>
-                {sessions && sessions.length > 1 ? <button type="button" style={btn} onClick={endOthers}>Sign out everywhere else</button> : null}
-              </div>
-              {!sessions ? <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div> : sessions.map((s, i) => (
-                <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${C.borderLight}` : "none", flexWrap: "wrap" }}>
-                  <Monitor size={18} color={C.slate} />
-                  <div style={{ flex: 1, minWidth: 160 }}>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
-                      {deviceName(s.device)} {s.current ? <span style={{ fontSize: 11, color: C.teal, marginLeft: 6 }}>This device</span> : null}
-                    </div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>
-                      {[s.ip, s.last_used_at ? `Last active ${when(s.last_used_at)}` : ""].filter(Boolean).join(" · ")}
-                    </div>
-                  </div>
-                  {!s.current ? <button type="button" style={btn} onClick={() => endSession(s.id)}>Sign out</button> : null}
+            {tab === "contact" && (
+              <>
+                <div style={grid}>
+                  {field("p-email", "Email", <input id="p-email" type="email" value={form.email} onChange={set("email")} style={input} placeholder="you@company.com" autoComplete="email" />)}
+                  {field("p-email2", "Second email (optional)", <input id="p-email2" type="email" value={form.secondary_email} onChange={set("secondary_email")} style={input} />)}
+                  {field("p-phone", "Phone", <input id="p-phone" type="tel" value={form.phone} onChange={set("phone")} style={input} placeholder="+44 7700 900123" autoComplete="tel" />)}
+                  {field("p-web", "Website or LinkedIn", <input id="p-web" value={form.website} onChange={set("website")} style={input} placeholder="linkedin.com/in/you" autoComplete="url" />)}
                 </div>
-              ))}
-            </section>
-          </>
-        )}
+                {operator.email && form.email.trim() !== operator.email ? <div style={note}>You will need to verify the new address.</div> : null}
+              </>
+            )}
 
-        {tab === "account" && (
-          <section style={card}>
-            <h2 style={h2}>Account</h2>
-            <div style={grid}>
-              <Field id="a-user" name="Username"><input id="a-user" value={`@${operator.username || ""}`} disabled style={{ ...input, fontFamily: FONT_MONO, fontSize: 12.5, background: C.paperSoft, color: C.slate }} /></Field>
-              <Field id="a-role" name="Role"><input id="a-role" value={operator.role || ""} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} /></Field>
-              <Field id="a-org" name="Organisation"><input id="a-org" value={orgName || ""} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} /></Field>
-              <Field id="a-since" name="Member since"><input id="a-since" value={when(operator.member_since).split(",").slice(0, 2).join(",")} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} /></Field>
-              <Field id="a-last" name="Last sign-in"><input id="a-last" value={when(operator.last_login_at)} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} /></Field>
+            {tab === "prefs" && (
+              <>
+                <div style={grid}>
+                  {field("p-tz", "Timezone", (
+                    <select id="p-tz" value={form.timezone} onChange={set("timezone")} style={input}>
+                      <option value="">Not set</option>
+                      {form.timezone && !zones.some((z) => z.id === form.timezone) ? <option value={form.timezone}>{form.timezone}</option> : null}
+                      {zones.map((z) => <option key={z.id} value={z.id}>{z.label}</option>)}
+                    </select>
+                  ))}
+                  {field("p-lang", "Language", (
+                    <select id="p-lang" value={form.language} onChange={set("language")} style={input}>
+                      {LANGUAGES.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                    </select>
+                  ))}
+                  {field("p-date", "Date format", (
+                    <select id="p-date" value={form.date_format} onChange={set("date_format")} style={input}>
+                      <option value="dmy">Day / month / year</option>
+                      <option value="mdy">Month / day / year</option>
+                    </select>
+                  ))}
+                  {field("p-time", "Clock", (
+                    <select id="p-time" value={form.time_format} onChange={set("time_format")} style={input}>
+                      <option value="24h">24-hour</option>
+                      <option value="12h">12-hour</option>
+                    </select>
+                  ))}
+                </div>
+                {field("p-sig", "Email signature", <textarea id="p-sig" value={form.signature} onChange={set("signature")} style={{ ...input, minHeight: 84, resize: "vertical" }} maxLength={600} placeholder={`${shownName}\n${form.job_title || "Job title"}`} />)}
+              </>
+            )}
+
+            {tab === "notifications" && (
+              <>
+                <div style={note}>Choose which emails we send you.</div>
+                {!notif && <div style={note}>Loading…</div>}
+                {notif?.failed && <div style={note}>Could not load your email settings.</div>}
+                {notif && !notif.failed && (
+                  <>
+                    {!form.email.trim() && <div style={note}>Add your email on the Contact tab to receive these.</div>}
+                    {!notif.mailboxReady && <div style={note}>Platform email is not switched on yet; your choices are kept for when it is.</div>}
+                    <div>
+                      {notif.events.map((ev) => (
+                        <label key={ev.key} style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 13.5, color: C.textInk, padding: "7px 0", cursor: "pointer" }}>
+                          <input type="checkbox" checked={ev.on} onChange={() => toggle(ev.key)} />
+                          {ev.label}
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {tab === "security" && (
+              <>
+                <form onSubmit={changePassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.textInk }}>Change password</div>
+                  <div style={grid}>
+                    {field("pw-now", "Current password", <input id="pw-now" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} style={input} />)}
+                    <span />
+                    {field("pw-new", "New password", <input id="pw-new" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} style={input} />)}
+                    {field("pw-again", "New password again", <input id="pw-again" type="password" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} style={input} />)}
+                  </div>
+                  {pw.msg ? <div role="status" style={{ fontSize: 12.5, fontFamily: FONT_BODY, color: pw.ok ? C.teal : "#b3261e" }}>{pw.msg}</div> : null}
+                  <div><button type="submit" style={btnDark} disabled={pw.busy || !pw.current || !pw.next}>{pw.busy ? "Changing…" : "Change password"}</button></div>
+                </form>
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                    <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.textInk, flex: 1 }}>Where you are signed in</div>
+                    {sessions && sessions.length > 1 ? <button type="button" style={btn} onClick={endOthers}>Sign out everywhere else</button> : null}
+                  </div>
+                  {!sessions ? <div style={note}>Loading…</div> : sessions.map((s, i) => (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderTop: i ? `1px solid ${C.borderLight}` : "none", flexWrap: "wrap" }}>
+                      <Monitor size={18} color={C.slate} />
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
+                          {deviceName(s.device)} {s.current ? <span style={{ fontSize: 11, color: C.teal, marginLeft: 6 }}>This device</span> : null}
+                        </div>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slate }}>{[s.ip, s.last_used_at ? `Last active ${when(s.last_used_at)}` : ""].filter(Boolean).join(" · ")}</div>
+                      </div>
+                      {!s.current ? <button type="button" style={btn} onClick={() => endSession(s.id)}>Sign out</button> : null}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {tab === "account" && (
+              <div style={grid}>
+                {[["a-user", "Username", `@${operator.username || ""}`], ["a-role", "Role", operator.role || ""], ["a-org", "Organisation", orgName || ""], ["a-since", "Member since", when(operator.member_since).split(",").slice(0, 2).join(",")], ["a-last", "Last sign-in", when(operator.last_login_at)]].map(([id, name, val]) => (
+                  field(id, name, <input id={id} value={val} disabled style={{ ...input, background: C.paperSoft, color: C.slate }} />)
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="pf-foot">
+            <div role="status" style={{ flex: 1, minWidth: 0, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, color: status.kind === "ok" ? C.teal : "#b3261e" }}>
+              {status.text ? <>{status.kind === "ok" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />} {status.text}</> : null}
             </div>
-          </section>
-        )}
-      </div>
-
-      {dirty && (tab === "profile" || tab === "notifications") ? (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#fff", borderTop: `1px solid ${C.border}`, padding: "12px clamp(16px, 4vw, 32px)", display: "flex", justifyContent: "flex-end", gap: 8, zIndex: 130 }}>
-          <button type="button" style={btn} onClick={() => { setForm(base); if (notif && !notif.failed) api.getMyNotifications().then(setNotif).catch(() => {}); }}>Discard</button>
-          <button type="button" style={btnDark} disabled={saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</button>
+            {showSave ? (
+              <>
+                <button type="button" style={btn} onClick={discard}>Discard</button>
+                <button type="button" style={btnDark} disabled={saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</button>
+              </>
+            ) : <button type="button" style={btn} onClick={onClose}>Close</button>}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

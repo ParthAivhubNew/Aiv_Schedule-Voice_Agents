@@ -15,7 +15,7 @@ AVATAR_URL = "/media/avatars/"
 
 # key -> longest value kept
 TEXT_FIELDS: Dict[str, int] = {
-    "first_name": 60, "last_name": 60, "pronouns": 30, "job_title": 80, "department": 80,
+    "first_name": 60, "last_name": 60, "gender": 40, "job_title": 80, "department": 80,
     "company": 120, "bio": 500, "website": 200, "signature": 600,
 }
 CHOICES = {
