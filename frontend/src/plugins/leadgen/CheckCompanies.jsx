@@ -13,7 +13,7 @@ const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 export const VERDICTS = {
   verified: { label: "Verified", color: C.green, bg: C.greenSoft },
-  looks_ok: { label: "Looks OK", color: C.cobalt, bg: C.cobaltSoft },
+  looks_ok: { label: "Looks OK", color: "var(--ui-accent)", bg: "var(--ui-accent-soft)" },
   not_found: { label: "Not found", color: C.amber, bg: C.amberSoft },
   problem: { label: "Problem", color: C.red, bg: C.redSoft },
   unclear: { label: "Unclear", color: C.slate, bg: C.paperSoft },
@@ -296,7 +296,7 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
       {running ? <div style={{ ...muted, fontSize: 12.5 }}>{job.pause ? "Paused. Nothing more is spent until you resume." : liveLine(job)}</div> : null}
       {running ? (
         <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: C.paperSoft, overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: C.cobalt, transition: "width .4s" }} />
+          <div style={{ width: `${pct}%`, height: "100%", background: "var(--ui-accent)", transition: "width .4s" }} />
         </div>
       ) : null}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>

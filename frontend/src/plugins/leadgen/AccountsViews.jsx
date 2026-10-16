@@ -700,7 +700,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
         {allShownPicked && shownIds.length < base.length ? (
           <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
             {shownIds.length.toLocaleString()} shown are selected.{" "}
-            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(base.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
+            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(base.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: "var(--ui-accent)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
               Select all {base.length.toLocaleString()} companies
             </button>
           </div>
@@ -1371,7 +1371,7 @@ export function ImportView({ store, onGo, onAskAi }) {
             </button>
             {busy && progress ? (
               <div role="progressbar" aria-valuenow={Math.round((progress.done / progress.total) * 100)} style={{ flex: "1 1 160px", height: 6, borderRadius: 3, background: C.paperSoft, overflow: "hidden" }}>
-                <div style={{ width: `${Math.round((progress.done / progress.total) * 100)}%`, height: "100%", background: C.cobalt, transition: "width .3s" }} />
+                <div style={{ width: `${Math.round((progress.done / progress.total) * 100)}%`, height: "100%", background: "var(--ui-accent)", transition: "width .3s" }} />
               </div>
             ) : null}
             {fields.length > usable.length ? <span style={{ ...muted, fontSize: 12.5 }}>{fields.length - usable.length} without a name or website will be left out.</span> : null}

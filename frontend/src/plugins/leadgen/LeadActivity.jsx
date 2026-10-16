@@ -25,7 +25,7 @@ const SUGGEST_WORD = { email: "Email", contact_name: "Contact", best_time: "Best
 
 export function StageBadge({ stage }) {
   const label = END_STAGES[stage] || (STAGES.find(([k]) => k === stage) || [])[1] || "New";
-  const tone = stage === "do_not_contact" || stage === "lost" ? C.red : stage === "meeting" || stage === "won" ? "#16A34A" : stage === "interested" ? C.cobalt : C.slate;
+  const tone = stage === "do_not_contact" || stage === "lost" ? C.red : stage === "meeting" || stage === "won" ? "#16A34A" : stage === "interested" ? "var(--ui-accent)" : C.slate;
   return <span style={{ ...text, fontSize: 11.5, fontWeight: 600, color: tone, border: `1px solid ${tone}33`, background: `${tone}12`, borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>{label}</span>;
 }
 
@@ -36,7 +36,7 @@ function Journey({ stage }) {
     <div style={{ display: "flex", gap: 4 }} aria-label={`Stage: ${stage}`}>
       {STAGES.map(([k, label], i) => (
         <div key={k} style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ height: 5, borderRadius: 3, background: i <= at ? C.cobalt : C.border }} />
+          <div style={{ height: 5, borderRadius: 3, background: i <= at ? "var(--ui-accent)" : C.border }} />
           <div style={{ ...muted, fontSize: 11, marginTop: 3, color: i === at ? C.ink : C.slateLight, fontWeight: i === at ? 600 : 400 }}>{label}</div>
         </div>
       ))}

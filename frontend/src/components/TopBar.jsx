@@ -109,7 +109,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
     <div ref={bellRef} style={{ position: "relative", flexShrink: 0 }}>
       <style>{`
         .nb-btn{transition:background .12s,border-color .12s,box-shadow .12s}
-        .nb-btn:hover,.nb-btn:focus-visible{border-color:${C.cobalt} !important;background:${C.cobaltSoft} !important;color:${C.cobalt} !important;box-shadow:0 0 0 3px rgba(52,87,213,.12)}
+        .nb-btn:hover,.nb-btn:focus-visible{border-color:var(--ui-accent, ${C.cobalt}) !important;background:var(--ui-accent-soft, ${C.cobaltSoft}) !important;color:var(--ui-accent, ${C.cobalt}) !important;box-shadow:0 0 0 3px var(--ui-ring, rgba(52,87,213,.12))}
         .nb-btn:focus-visible{outline:none}
         .nb-tip{position:absolute;top:calc(100% + 8px);right:0;white-space:nowrap;background:${C.ink};color:#fff;font:600 11.5px ${FONT_BODY};padding:5px 9px;border-radius:7px;opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .12s,transform .12s;z-index:60}
         .nb-btn:hover + .nb-tip,.nb-btn:focus-visible + .nb-tip{opacity:1;transform:none}
@@ -134,9 +134,9 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
           justifyContent: "center",
           cursor: "pointer",
           padding: 0,
-          border: `1px solid ${open ? C.cobalt : C.border}`,
-          background: hasUnread || open ? C.cobaltSoft : "#fff",
-          color: hasUnread || open ? C.cobalt : C.slate,
+          border: `1px solid ${open ? "var(--ui-accent, " + C.cobalt + ")" : C.border}`,
+          background: hasUnread || open ? `var(--ui-accent-soft, ${C.cobaltSoft})` : "#fff",
+          color: hasUnread || open ? `var(--ui-accent, ${C.cobalt})` : C.slate,
           transition: "background 0.12s, border-color 0.12s",
         }}
       >
@@ -151,7 +151,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               height: 14,
               padding: "0 4px",
               borderRadius: 99,
-              background: C.cobalt,
+              background: `var(--ui-accent, ${C.cobalt})`,
               color: "#fff",
               fontSize: 9.5,
               fontWeight: 700,

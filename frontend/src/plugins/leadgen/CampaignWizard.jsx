@@ -128,7 +128,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
                 {listsStore.lists.map((l) => {
                   const r = listReach(l, store.accounts);
                   return (
-                    <label key={l.id} className="ui-card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", cursor: "pointer", borderColor: listId === l.id ? C.cobalt : undefined }}>
+                    <label key={l.id} className="ui-card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", cursor: "pointer", borderColor: listId === l.id ? "var(--ui-accent)" : undefined }}>
                       <input type="radio" name="list" checked={listId === l.id} onChange={() => setListId(l.id)} />
                       <span style={{ ...text, fontWeight: 600, color: C.ink }}>{l.name}</span>
                       <span style={{ ...muted, marginLeft: "auto" }}>{r.members.length.toLocaleString()} companies · {r.withEmail.length.toLocaleString()} with an email</span>

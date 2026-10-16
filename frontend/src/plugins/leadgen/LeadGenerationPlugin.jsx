@@ -33,7 +33,7 @@ import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
-import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./OutreachViews";
+import { CampaignsView, MailboxesView, useOutreachData } from "./OutreachViews";
 import { MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
@@ -44,6 +44,9 @@ import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
 import { takeOpenLead } from "../../connections/ConnectedHome";
 
+
+// Leads is purple: its buttons, selections and highlights follow this instead of Voice's blue.
+const ACCENT = { "--ui-accent": "#7C3AED", "--ui-accent-hover": "#6D28D9", "--ui-accent-soft": "#F3EEFF", "--ui-accent-ink": "#5B21B6", "--ui-ring": "rgba(124, 58, 237, 0.22)", "--ui-side-active-icon": "#B79DFB" };
 
 export default function LeadGenerationPlugin({
   operator,
@@ -57,7 +60,7 @@ export default function LeadGenerationPlugin({
     if (raw === "campaigns" || raw === "email" || raw.startsWith("email/") || raw === "sequences" || raw === "find_email") return "outreach";
     if (raw === "warmup") return "mailboxes";
     if (raw === "contacts" || raw === "dossiers" || raw === "accounts") return "lists";
-    if (raw === "suppression") return "replies";
+    if (raw === "suppression" || raw === "replies") return "mail";
     if (raw === "copilot" || raw === "scout" || raw === "import_export") return "find_leads";
     return raw;
   };
@@ -136,7 +139,16 @@ export default function LeadGenerationPlugin({
     setWantedLead("");
   }, [wantedLead, store.loading, store.accounts]);
   const [wizard, setWizard] = useState(null); // { listId } while the new-campaign steps are open
-  const [inboxStart, setInboxStart] = useState(null); // opens Sent & Replies on a given tab, such as one mailbox's sent emails
+  // Which campaign view Mail opens on, when something asked for one: a link to the replies or the do-not-email list,
+  // or a mailbox's "View sent".
+  const [inboxStart, setInboxStart] = useState(() => {
+    try {
+      const part = routeHash().replace(/^#\/?/, "").split("/")[1];
+      return part === "replies" ? { sub: "replies" } : part === "suppression" ? { sub: "suppression" } : null;
+    } catch (_) {
+      return null;
+    }
+  });
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = [
@@ -144,7 +156,6 @@ export default function LeadGenerationPlugin({
     { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Campaigns", icon: Send, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
-    { id: "replies", label: "Campaign replies", icon: MessageSquare, group: "Outreach" },
     { id: "mailboxes", label: "Mailboxes", icon: Layers, group: "Outreach" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, group: "Setup" }] : []),
@@ -164,6 +175,7 @@ export default function LeadGenerationPlugin({
           showToast("Choose a plan or buy a top-up to unlock Leads.");
           return;
         }
+        if (item.id === "mail") setInboxStart(null);
         setView(item.id);
       },
     })),
@@ -173,15 +185,14 @@ export default function LeadGenerationPlugin({
     find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
-    mail: { title: "Mail", desc: "Read, write and tidy the email of your connected mailboxes in one place." },
-    replies: { title: "Campaign replies", desc: "Every email you have sent and what became of it, the replies that came back sorted by intent, and your do-not-email list." },
+    mail: { title: "Mail", desc: "Your mailboxes, and everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
     mailboxes: { title: "Mailboxes", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
-    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
+    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden", ...ACCENT }}>
       <MobileNavBackdrop nav={nav} />
       
       <AppChrome />
@@ -239,11 +250,9 @@ export default function LeadGenerationPlugin({
                 onOpenBusiness={() => { setWizard(null); setView("business"); }} onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
             : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
 
-          {view === "mail" && <MailView operator={operator} />}
+          {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
 
-          {view === "replies" && <RepliesView outreach={outreach} initial={inboxStart} onStarted={() => setInboxStart(null)} />}
-
-          {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("replies"); }} />}
+          {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("mail"); }} />}
           {view === "business" && <div style={{ maxWidth: 760 }}><ProfileBox page /></div>}
 
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}

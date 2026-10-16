@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive, ArrowLeft, Bold, Forward, FileText, Inbox, Italic, Link2, List, Mail, MailOpen, Paperclip, PenSquare,
+  Archive, ArrowLeft, Ban, Bold, MessageSquare, Forward, FileText, Inbox, Italic, Link2, List, Mail, MailOpen, Paperclip, PenSquare,
   RefreshCw, Reply, ReplyAll, Search, Send, ShieldAlert, Star, Trash2, Underline, X,
 } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { DoNotEmailView, RepliesList, SentList } from "./OutreachViews";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 
 const FOLDERS = [
   ["inbox", "Inbox", Inbox], ["sent", "Sent", Send], ["drafts", "Drafts", FileText],
   ["archive", "Archive", Archive], ["spam", "Spam", ShieldAlert], ["trash", "Trash", Trash2],
 ];
+
+const CAMPAIGN_VIEWS = [["c_replies", "Replies", MessageSquare], ["c_sent", "Sent by campaigns", Send], ["c_dnc", "Do not email", Ban]];
 
 const CSS = `
 .ml{display:grid;grid-template-columns:200px 350px minmax(0,1fr);height:calc(100vh - 150px);min-height:460px;background:#fff;border:1px solid ${C.border};border-radius:12px;overflow:hidden}
@@ -18,12 +21,14 @@ const CSS = `
 .ml-read{display:flex;flex-direction:column;min-width:0;min-height:0}
 .ml-folder{all:unset;cursor:pointer;display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;font:500 13.5px ${FONT_BODY};color:${C.slate};box-sizing:border-box}
 .ml-folder:hover{background:#fff}
-.ml-folder.on{background:#fff;color:${C.cobalt};font-weight:600;box-shadow:0 1px 3px rgba(18,20,28,.08)}
+.ml-folder.on{background:#fff;color:var(--ui-accent);font-weight:600;box-shadow:0 1px 3px rgba(18,20,28,.08)}
 .ml-row{all:unset;cursor:pointer;display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid ${C.borderLight};box-sizing:border-box;flex:1;min-width:0}
 .ml-row:hover{background:${C.paperSoft}}
-.ml-row.on{background:${C.cobaltSoft}}
+.ml-row.on{background:var(--ui-accent-soft)}
 .ml-chip{all:unset;cursor:pointer;padding:3px 10px;border-radius:999px;border:1px solid ${C.border};font:500 12px ${FONT_BODY};color:${C.slate}}
-.ml-chip.on{background:${C.cobaltSoft};border-color:${C.cobalt};color:${C.cobaltDeep}}
+.ml-chip.on{background:var(--ui-accent-soft);border-color:var(--ui-accent);color:var(--ui-accent-ink)}
+.ml-wide{grid-column:2 / -1;min-width:0;min-height:0;overflow-y:auto;padding:16px 20px}
+.ml-group{font:700 10.5px ${FONT_BODY};text-transform:uppercase;letter-spacing:.05em;color:${C.slate};margin:14px 10px 4px}
 .ml-ibtn{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;height:32px;padding:0 8px;box-sizing:border-box;border-radius:8px;color:${C.slate};font:500 12.5px ${FONT_BODY}}
 .ml-ibtn:hover{background:${C.paperSoft};color:${C.ink}}
 .ml-ibtn[disabled]{opacity:.4;cursor:default}
@@ -32,6 +37,7 @@ const CSS = `
 @media (max-width:900px){
   .ml{grid-template-columns:1fr;height:calc(100dvh - 170px)}
   .ml>*{display:none}
+  .ml[data-pane="list"]>.ml-wide{display:block}
   .ml[data-pane="folders"]>.ml-rail,.ml[data-pane="list"]>.ml-list,.ml[data-pane="read"]>.ml-read{display:flex}
   .ml-back{display:inline-flex}
 }
@@ -204,11 +210,11 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
 }
 
 // ── The screen ──────────────────────────────────────────────────────────────
-export function MailView({ operator }) {
+export function MailView({ operator, outreach, start }) {
   const [boxes, setBoxes] = useState(null);
   const [counts, setCounts] = useState({});
-  const [folder, setFolder] = useState("inbox");
-  const [boxId, setBoxId] = useState("");
+  const [folder, setFolder] = useState(start?.sub === "sent" ? "c_sent" : start?.sub === "suppression" ? "c_dnc" : start?.sub === "replies" ? "c_replies" : "inbox");
+  const [boxId, setBoxId] = useState(start?.mailboxId || "");
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState({ unread: false, starred: false, attachments: false });
@@ -230,6 +236,7 @@ export function MailView({ operator }) {
   const flash = (text) => { setNote(text); setTimeout(() => alive.current && setNote(""), 3500); };
   const loadCounts = useCallback(() => api.mailCounts(boxId).then((r) => alive.current && setCounts(r.folders)).catch(() => {}), [boxId]);
   const loadList = useCallback(() => {
+    if (folder.startsWith("c_")) { setLoading(false); return Promise.resolve(); }
     return api.mailMessages({ folder, mailbox_id: boxId, q: query, ...filter })
       .then((r) => { if (alive.current) { setData(r); setLoading(false); } })
       .catch(() => alive.current && setLoading(false));
@@ -303,6 +310,7 @@ export function MailView({ operator }) {
   const allPicked = data.threads.length > 0 && data.threads.every((t) => picked.has(t.id));
   const chosen = useMemo(() => Array.from(picked), [picked]);
   const inTrash = folder === "trash";
+  const wide = folder.startsWith("c_");
   const current = boxes?.find((b) => b.id === boxId);
 
   if (boxes && !boxes.length) {
@@ -328,10 +336,16 @@ export function MailView({ operator }) {
             const n = id === "drafts" ? c.total : c.unread;
             return (
               <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
-                <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>{n ? <span style={{ ...small, fontWeight: 700, color: id === "inbox" ? C.cobalt : C.slate }}>{n}</span> : null}
+                <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>{n ? <span style={{ ...small, fontWeight: 700, color: id === "inbox" ? "var(--ui-accent)" : C.slate }}>{n}</span> : null}
               </button>
             );
           })}
+          <div className="ml-group">Campaigns</div>
+          {CAMPAIGN_VIEWS.map(([id, label, Icon]) => (
+            <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
+              <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>
+            </button>
+          ))}
           <div style={{ ...small, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 10.5, margin: "14px 10px 4px" }}>Mailbox</div>
           <button type="button" className={`ml-folder${!boxId ? " on" : ""}`} onClick={() => setBoxId("")}><Mail size={16} /> <span style={{ flex: 1 }}>All mailboxes</span></button>
           {(boxes || []).map((b) => (
@@ -341,6 +355,11 @@ export function MailView({ operator }) {
           ))}
         </nav>
 
+        {wide ? (
+          <section className="ml-wide" aria-label={CAMPAIGN_VIEWS.find(([id]) => id === folder)[1]}>
+            {folder === "c_replies" ? <RepliesList /> : folder === "c_sent" ? <SentList outreach={outreach} initialMailbox={boxId} key={boxId || "all"} /> : <DoNotEmailView />}
+          </section>
+        ) : (<>
         <section className="ml-list" aria-label="Messages">
           <div style={{ padding: 10, borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -402,7 +421,7 @@ export function MailView({ operator }) {
                       <span style={{ ...small, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.snippet}</span>
                       {t.has_attachments ? <Paperclip size={13} color={C.slate} aria-label="Has attachment" /> : null}
                       {t.is_starred ? <Star size={13} color="#d9a400" fill="#d9a400" aria-label="Starred" /> : null}
-                      {t.unread_count ? <span aria-label="Unread" style={{ width: 8, height: 8, borderRadius: 999, background: C.cobalt }} /> : null}
+                      {t.unread_count ? <span aria-label="Unread" style={{ width: 8, height: 8, borderRadius: 999, background: "var(--ui-accent)" }} /> : null}
                     </div>
                   </div>
                 </button>
@@ -451,6 +470,7 @@ export function MailView({ operator }) {
             </>
           )}
         </section>
+        </>)}
       </div>
       {note ? <div role="status" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "9px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, zIndex: 140 }}>{note}</div> : null}
       {compose ? (

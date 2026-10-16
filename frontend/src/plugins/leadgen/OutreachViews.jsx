@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
-import { Note, Pill, btn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
+import { Note, Pill, btn as baseBtn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
 import { useConnection } from "../../hooks/useConnections";
 
@@ -115,6 +115,9 @@ function SetupGuide({ mailbox: m, onCheck, onAuto }) {
 // Mailboxes and campaigns are each fetched once here instead of separately in every view that
 // needs them (MailboxesView, CampaignsView and FindView all used to run their own duplicate
 // api.emailMailboxes/api.emailCampaigns calls). Instantiate once in the shell and pass down.
+// The selected button wears the app's own colour (purple in Leads), not the owner portal's black.
+const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}) });
+
 export function useOutreachData() {
   const [mailboxData, mailboxErr, reloadMailboxes] = useLoad(api.emailMailboxes);
   const [campaignData, campaignErr, reloadCampaigns] = useLoad(api.emailCampaigns);
@@ -612,7 +615,7 @@ export function RepliesView({ outreach, initial, onStarted }) {
 const SENT_STATUS = { sent: ["Sent", "slate"], replied: ["Replied", "green"], bounced: ["Bounced", "red"], failed: ["Failed", "red"] };
 
 // Every email that went out (warm-up traffic left out), newest first. Click one to read it as it was sent.
-function SentList({ outreach, initialMailbox = "" }) {
+export function SentList({ outreach, initialMailbox = "" }) {
   const PAGE = 50;
   const [filters, setFilters] = useState({ mailbox_id: initialMailbox, campaign_id: "", status: "", kind: "", q: "" });
   const [rows, setRows] = useState([]);
@@ -700,7 +703,7 @@ function SentList({ outreach, initialMailbox = "" }) {
   );
 }
 
-function RepliesList() {
+export function RepliesList() {
   const [category, setCategory] = useState("");
   const [data, err, reload] = useLoad(() => api.emailReplies(category), [category]);
   const [msg, run] = useAction(reload);

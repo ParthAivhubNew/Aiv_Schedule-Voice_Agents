@@ -149,7 +149,7 @@ function BatchProgress({ batches, tips }) {
               </span>
             </div>
             <div style={{ height: 6, borderRadius: 99, background: C.paperSoft, overflow: "hidden" }}>
-              <div style={{ width: `${Math.max(4, pct)}%`, height: "100%", background: C.cobalt, transition: "width .6s ease" }} />
+              <div style={{ width: `${Math.max(4, pct)}%`, height: "100%", background: "var(--ui-accent)", transition: "width .6s ease" }} />
             </div>
           </div>
         );
@@ -3768,7 +3768,7 @@ export function SocialWorkspace({
   };
   const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];
   return (
-    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
+    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY, "--ui-accent": "#0C8C7D", "--ui-accent-hover": "#0A7468", "--ui-accent-soft": "#E4F5F2", "--ui-accent-ink": "#065F54", "--ui-ring": "rgba(12, 140, 125, 0.22)", "--ui-side-active-icon": "#5FD3C3" }}>
       <MobileNavBackdrop nav={nav} />
       <AppChrome />
       <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} wallet="scheduler" operator={operator}
