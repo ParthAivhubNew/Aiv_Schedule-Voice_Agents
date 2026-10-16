@@ -24,6 +24,32 @@ function AppCard({ app, state, unit, onOpen, onPlans, compact }) {
     ? (wallet.empty ? "Out of credits: paused until you top up" : `${fmt(left)} ${unit} left${plan ? "" : " to try it"}`)
     : "";
   const price = !plan && from ? `From ${money(from.priceUsdCents, from.currency)}/month${vat}` : "";
+  if (compact) {
+    return (
+      <div className="ui-card app-card" style={{ "--accent": app.accent, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, minWidth: 0, flexWrap: "wrap" }}>
+        <div style={{ width: 36, height: 36, borderRadius: 8, background: `${app.accent}14`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Icon size={18} color={app.accent} />
+        </div>
+        <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 15, color: C.ink }}>{app.name}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: wallet && wallet.empty ? C.red : wallet && wallet.low ? C.amber : C.slate, overflowWrap: "anywhere" }}>{credits || price || app.role}</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {plan || !canBuy ? (
+            <>
+              <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={onOpen}>Open <ArrowRight size={14} /></button>
+              {plan && <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onPlans}>Plan</button>}
+            </>
+          ) : (
+            <>
+              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onPlans}>See plans</button>
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onOpen}>Try it</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="ui-card app-card" style={{ "--accent": app.accent, padding: compact ? 14 : 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
@@ -108,17 +134,20 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
       </header>
 
       <main className="home-fit" style={{ width: "100%", maxWidth: 1180, boxSizing: "border-box", margin: "0 auto", padding: "clamp(14px, 2.4vw, 22px) clamp(16px, 4vw, 32px) 20px" }}>
-        <h1 style={{ fontWeight: 600, fontSize: "clamp(20px, 2.6vw, 24px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
-          {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
-        </h1>
-        <p style={{ fontSize: 13.5, color: C.slate, margin: "4px 0 14px", lineHeight: 1.5 }}>
-          {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
-        </p>
-
         <BillingReturnBanner />
         <ConnectedHome
           operator={operator}
-          cards={<div className="home-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 14 }}>{[...mine, ...rest].map((app) => card(app, true))}</div>}
+          greeting={(
+            <>
+              <h1 style={{ fontWeight: 600, fontSize: "clamp(20px, 2.6vw, 24px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
+                {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
+              </h1>
+              <p style={{ fontSize: 13.5, color: C.slate, margin: "4px 0 14px", lineHeight: 1.5 }}>
+                {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
+              </p>
+            </>
+          )}
+          cards={<div className="home-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 14 }}>{[...mine, ...rest].map((app) => card(app, true))}</div>}
           plainCards={(
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
