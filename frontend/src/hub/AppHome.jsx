@@ -9,14 +9,13 @@ import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
-import { ConnectedHome } from "../connections/ConnectedHome";
 
 const LIVE_PLAN = ["active", "past_due", "trialing"];
 const line = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, fontVariantNumeric: "tabular-nums", margin: 0 };
 
 // One app of the suite. `state` (admins only) says whether the organisation has a plan for it,
 // what is left in its wallet and what a plan starts at.
-function AppCard({ app, state, unit, onOpen, onPlans, compact }) {
+function AppCard({ app, state, unit, onOpen, onPlans }) {
   const Icon = app.icon;
   const { wallet, plan, from, canBuy, vat } = state;
   const left = wallet ? Math.max(wallet.balance, 0) : 0;
@@ -24,34 +23,8 @@ function AppCard({ app, state, unit, onOpen, onPlans, compact }) {
     ? (wallet.empty ? "Out of credits: paused until you top up" : `${fmt(left)} ${unit} left${plan ? "" : " to try it"}`)
     : "";
   const price = !plan && from ? `From ${money(from.priceUsdCents, from.currency)}/month${vat}` : "";
-  if (compact) {
-    return (
-      <div className="ui-card app-card" style={{ "--accent": app.accent, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, minWidth: 0, flexWrap: "wrap" }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: `${app.accent}14`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Icon size={18} color={app.accent} />
-        </div>
-        <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-          <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 15, color: C.ink }}>{app.name}</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: wallet && wallet.empty ? C.red : wallet && wallet.low ? C.amber : C.slate, overflowWrap: "anywhere" }}>{credits || price || app.role}</div>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {plan || !canBuy ? (
-            <>
-              <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={onOpen}>Open <ArrowRight size={14} /></button>
-              {plan && <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onPlans}>Plan</button>}
-            </>
-          ) : (
-            <>
-              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onPlans}>See plans</button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onOpen}>Try it</button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
   return (
-    <div className="ui-card app-card" style={{ "--accent": app.accent, padding: compact ? 14 : 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
+    <div className="ui-card app-card" style={{ "--accent": app.accent, padding: 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         <div style={{ width: 40, height: 40, borderRadius: 6, background: `${app.accent}14`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Icon size={20} color={app.accent} />
@@ -62,10 +35,10 @@ function AppCard({ app, state, unit, onOpen, onPlans, compact }) {
           </span>
         ) : null}
       </div>
-      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 16, color: C.ink, marginTop: compact ? 8 : 14 }}>{app.name}</div>
+      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 16, color: C.ink, marginTop: 14 }}>{app.name}</div>
       <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 2 }}>{app.role}</div>
-      {compact ? null : <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, margin: "12px 0 0", lineHeight: 1.5, flex: 1 }}>{app.blurb}</p>}
-      <div style={{ marginTop: compact ? 10 : 16, paddingTop: compact ? 10 : 14, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: compact ? 8 : 12 }}>
+      <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, margin: "12px 0 0", lineHeight: 1.5, flex: 1 }}>{app.blurb}</p>
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 12 }}>
         {price || credits ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {price ? <p style={{ ...line, color: C.textInk }}>{price}</p> : null}
@@ -108,8 +81,8 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
     return { wallet: billing.wallets.find((w) => w.key === app.wallet), plan: billing.plans.find((p) => p.id === held[app.wallet]), from: monthly[0], canBuy: onSale.length > 0, vat: billing.taxAdded ? " + VAT" : "" };
   };
   const unitOf = (app) => (app.wallet === "voice" && billing?.rates.voice_minute?.credits === 1 ? "minutes of calls" : "credits");
-  const card = (app, compact = false) => (
-    <AppCard key={app.id} app={app} state={stateOf(app)} unit={unitOf(app)} compact={compact} onOpen={() => onPick(app.id)} onPlans={() => navigateHash(app.plans)} />
+  const card = (app) => (
+    <AppCard key={app.id} app={app} state={stateOf(app)} unit={unitOf(app)} onOpen={() => onPick(app.id)} onPlans={() => navigateHash(app.plans)} />
   );
   const mine = APPS.filter((app) => stateOf(app).plan);
   const rest = APPS.filter((app) => !mine.includes(app));
@@ -133,34 +106,24 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
         />
       </header>
 
-      <main className="home-fit" style={{ width: "100%", maxWidth: 1180, boxSizing: "border-box", margin: "0 auto", padding: "clamp(14px, 2.4vw, 22px) clamp(16px, 4vw, 32px) 20px" }}>
+      <main style={{ width: "100%", maxWidth: 1080, boxSizing: "border-box", margin: "0 auto", padding: "clamp(24px, 5vw, 44px) clamp(16px, 4vw, 32px) 64px" }}>
+        <h1 style={{ fontWeight: 600, fontSize: "clamp(22px, 3vw, 26px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
+          {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
+        </h1>
+        <p style={{ fontSize: 14, color: C.slate, margin: "6px 0 24px", lineHeight: 1.5 }}>
+          {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
+        </p>
+
         <BillingReturnBanner />
-        <ConnectedHome
-          operator={operator}
-          greeting={(
-            <>
-              <h1 style={{ fontWeight: 600, fontSize: "clamp(20px, 2.6vw, 24px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
-                {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
-              </h1>
-              <p style={{ fontSize: 13.5, color: C.slate, margin: "4px 0 14px", lineHeight: 1.5 }}>
-                {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
-              </p>
-            </>
-          )}
-          cards={<div className="home-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 14 }}>{[...mine, ...rest].map((app) => card(app, true))}</div>}
-          plainCards={(
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
-                {[...mine, ...rest].map((app) => card(app))}
-              </div>
-              {billing && rest.length > 0 && (
-                <p style={{ fontSize: 13, color: C.slateLight, margin: "16px 0 0" }}>
-                  Each app has its own plan. You can open any app to try it before you buy.
-                </p>
-              )}
-            </>
-          )}
-        />
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
+          {[...mine, ...rest].map(card)}
+        </div>
+        {billing && rest.length > 0 && (
+          <p style={{ fontSize: 13, color: C.slateLight, margin: "16px 0 0" }}>
+            Each app has its own plan. You can open any app to try it before you buy.
+          </p>
+        )}
       </main>
     </div>
   );
