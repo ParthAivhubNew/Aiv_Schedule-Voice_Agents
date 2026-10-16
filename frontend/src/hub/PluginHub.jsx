@@ -9,9 +9,10 @@ import {
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { C, FONT_BODY, FONT_MONO, initialsFromName } from "../app/constants";
+import { C, FONT_BODY, FONT_MONO } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
+import { Avatar } from "./Avatar";
 
 export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections }) {
   const [open, setOpen] = useState(false);
@@ -56,22 +57,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           transition: "all 0.15s ease",
         }}
       >
-        <div style={{
-          width: 32,
-          height: 32,
-          borderRadius: 999,
-          background: isAdmin ? `linear-gradient(135deg, ${C.cobalt}, #6366F1)` : C.slate,
-          color: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: FONT_BODY,
-          fontSize: 12,
-          fontWeight: 700,
-          boxShadow: "0 2px 6px rgba(52,87,213,0.2)",
-        }}>
-          {initialsFromName(operator?.name)}
-        </div>
+        <Avatar user={operator} size={32} bg={isAdmin ? `linear-gradient(135deg, ${C.cobalt}, #6366F1)` : C.slate} />
         <div style={{ textAlign: "left" }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk, lineHeight: 1.2 }}>
             {operator?.name}
@@ -108,11 +94,14 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           zIndex: 150,
         }}>
           {/* Header Card */}
-          <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}`, marginBottom: 6 }}>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{operator?.name}</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 1 }}>@{operator?.username}</div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slate, marginTop: 3 }}>
-              {operator?.email || `${operator?.username}@aivhub.io`}
+          <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}`, marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
+            <Avatar user={operator} size={44} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{operator?.name}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 1 }}>{operator?.profile?.job_title || `@${operator?.username}`}</div>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slate, marginTop: 3, overflowWrap: "anywhere" }}>
+                {operator?.email || `${operator?.username}@aivhub.io`}
+              </div>
             </div>
           </div>
 
@@ -359,8 +348,8 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           >
             <User size={15} color={C.slate} />
             <div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Profile Settings</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Name & email details</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>Your profile</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>Photo, details and security</div>
             </div>
           </button>
 

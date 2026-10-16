@@ -205,6 +205,15 @@ export const api = {
   changePlan: (plan) => apiRequest('/billing/plan', { method: 'POST', body: { plan } }),
   cancelPlan: (wallet, cancel = true) => apiRequest('/billing/cancel', { method: 'POST', body: { wallet, cancel } }),
   updateMe: (data) => apiRequest('/auth/me', { method: 'PATCH', body: data }),
+  uploadMyAvatar: (file) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return apiRequest('/auth/me/avatar', { method: 'POST', body: form, timeoutMs: 60000 });
+  },
+  deleteMyAvatar: () => apiRequest('/auth/me/avatar', { method: 'DELETE' }),
+  getMySessions: () => apiRequest('/auth/me/sessions'),
+  endMySession: (id) => apiRequest(`/auth/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  signOutOtherSessions: () => apiRequest('/auth/me/sessions/sign-out-others', { method: 'POST' }),
   getMyNotifications: () => apiRequest('/auth/me/notifications'),
   setMyNotifications: (events) => apiRequest('/auth/me/notifications', { method: 'PUT', body: { events } }),
   changePassword: (current_password, new_password) =>

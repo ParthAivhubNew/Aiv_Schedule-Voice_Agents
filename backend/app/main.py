@@ -745,6 +745,11 @@ _media_dir = Path(__file__).resolve().parent / "static" / "generated"
 _media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media/generated", StaticFiles(directory=str(_media_dir)), name="generated-media")
 
+from app.core.profile import AVATAR_DIR  # noqa: E402
+
+AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media/avatars", StaticFiles(directory=str(AVATAR_DIR)), name="avatars")
+
 try:
     from starlette.formparsers import MultiPartParser
     MultiPartParser.max_part_size = 25 * 1024 * 1024

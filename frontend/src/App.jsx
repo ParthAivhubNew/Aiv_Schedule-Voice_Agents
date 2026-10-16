@@ -8,7 +8,7 @@ import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
 import { AppHome } from "./hub/AppHome";
 import { UniversalCallNotificationBanner } from "./hub/PluginHub";
-import { ProfileSettingsModal } from "./hub/ProfileSettingsModal";
+import { ProfilePage } from "./hub/ProfilePage";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CalcomSchedulerPlugin } from "./plugins/calendar/CalcomSchedulerPlugin";
@@ -834,7 +834,8 @@ function MainApp({ onSignedOut }) {
         initialTab={teamInitialTab}
       />
 
-      <ProfileSettingsModal
+      <ProfilePage
+        orgName={operator?.org_name}
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}
         operator={operator}

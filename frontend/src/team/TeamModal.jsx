@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Users, Shield, Plus, KeyRound, UserX, UserCheck, Copy, Trash2, Check, Phone, Coins } from "lucide-react";
 import { NumbersTab } from "./NumbersTab";
 import { CreditsTab } from "./CreditsTab";
-import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, initialsFromName } from "../tokens";
+import { Avatar } from "../hub/Avatar";
+import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 
 export const LEVEL_LABELS = { none: "No access", view: "View only", full: "Full access" };
@@ -116,9 +117,7 @@ function UsersTab({ me, roles, sections }) {
           return (
             <div key={u.id} style={{ borderTop: i ? `1px solid ${C.borderLight}` : "none", background: u.is_active ? "#fff" : C.paper }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-                <div style={{ width: 34, height: 34, borderRadius: 999, background: u.is_admin ? C.cobalt : C.slate, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                  {initialsFromName(u.name)}
-                </div>
+                <Avatar user={u} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
                     {u.name} {isMe && <span style={{ fontSize: 11, color: C.slateLight }}>(you)</span>}

@@ -51,6 +51,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     # Images social networks and email clients fetch
     _OPT_API + r"scheduler/media/[^/]+$",
     r"^/media/generated/",
+    r"^/media/avatars/[0-9a-f]{32}\.jpg$",  # profile photos: the name is a random token
 )]
 if os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes"):
     PUBLIC_HTTP += [re.compile(_OPT_API + r"(docs|redoc)(/|$)"), re.compile(_OPT_API + r"openapi\.json$")]

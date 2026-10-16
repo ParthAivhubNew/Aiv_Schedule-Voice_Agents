@@ -87,6 +87,8 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
   const mine = APPS.filter((app) => stateOf(app).plan);
   const rest = APPS.filter((app) => !mine.includes(app));
   const firstName = String(operator?.name || "").trim().split(/\s+/)[0];
+  // A name that is only the login (admin, the username) is not a real name: ask for one.
+  const needsName = !firstName || [operator?.username, "admin", "administrator"].some((n) => n && firstName.toLowerCase() === String(n).toLowerCase());
 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
@@ -108,10 +110,13 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
 
       <main style={{ width: "100%", maxWidth: 1080, boxSizing: "border-box", margin: "0 auto", padding: "clamp(24px, 5vw, 44px) clamp(16px, 4vw, 32px) 64px" }}>
         <h1 style={{ fontWeight: 600, fontSize: "clamp(22px, 3vw, 26px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
-          {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
+          {firstName && !needsName ? `Welcome back, ${firstName}` : "Welcome back"}
         </h1>
         <p style={{ fontSize: 14, color: C.slate, margin: "6px 0 24px", lineHeight: 1.5 }}>
           {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
+          {needsName && onOpenProfileSettings ? (
+            <> <button type="button" onClick={onOpenProfileSettings} style={{ all: "unset", cursor: "pointer", color: C.cobalt, fontWeight: 500 }}>Add your name</button> so we can greet you.</>
+          ) : null}
         </p>
 
         <BillingReturnBanner />

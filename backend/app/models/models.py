@@ -41,6 +41,8 @@ class Operator(Base):
     email_verified = Column(Boolean, default=False)
     google_sub = Column(String, nullable=True, index=True)
     phone = Column(String, default="")  # rings for "Call my phone" tests and when taking over a call
+    profile = Column(JSON, nullable=True)  # the person's own details: names, job, locale, links, signature (see app/core/profile.py)
+    avatar_file = Column(String, nullable=True)  # file name of the photo under static/avatars
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="operators")

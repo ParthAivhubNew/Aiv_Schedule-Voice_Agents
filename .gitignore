@@ -27,6 +27,7 @@ ENV/
 *.venv/
 
 # Generated social images (recreated on generate)
+backend/app/static/avatars/
 backend/app/static/generated/*
 !backend/app/static/generated/.gitkeep
 

@@ -738,6 +738,11 @@ async def _social_account_expiry(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP"))
 
 
+async def _operator_profile_details(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE operators ADD COLUMN IF NOT EXISTS profile JSON"))
+    await conn.execute(text("ALTER TABLE operators ADD COLUMN IF NOT EXISTS avatar_file VARCHAR"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -782,6 +787,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_05_replan_warming_mailboxes", _replan_warming_mailboxes),
     ("2026_11_06_link_leads_and_calls", _link_leads_and_calls),
     ("2026_11_07_campaign_calls_and_opens", _campaign_calls_and_opens),
+    ("2026_11_08_operator_profile_details", _operator_profile_details),
 ]
 
 

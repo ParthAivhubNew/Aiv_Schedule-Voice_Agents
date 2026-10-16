@@ -27,7 +27,8 @@ import {
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
-import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER, initialsFromName } from "../../tokens";
+import { Avatar } from "../../hub/Avatar";
+import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
@@ -257,23 +258,7 @@ export default function LeadGenerationPlugin({
             Logged in as
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 999,
-                background: "#8B5CF6",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontFamily: FONT_BODY,
-                fontSize: 11,
-                fontWeight: 700,
-              }}
-            >
-              {initialsFromName(operator?.name)}
-            </div>
+            <Avatar user={operator} size={26} bg="#8B5CF6" />
             <div style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 12.5, color: "#C8CCD6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {operator?.name || "Operator"}
             </div>

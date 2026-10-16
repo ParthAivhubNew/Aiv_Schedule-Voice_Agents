@@ -7,13 +7,14 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Any, Deque, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core import permissions as P
+from app.core import profile as prof
 from app.core.accounts import (
     admins_in,
     assign_roles,
@@ -35,7 +36,7 @@ from app.core.security import (
     verify_password,
 )
 from app.database import get_db
-from app.models.models import AuthSession, Operator, OperatorGrant, OperatorRole, Role
+from app.models.models import AuthSession, Operator, OperatorGrant, OperatorRole, Organization, Role
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -106,6 +107,11 @@ async def _operator_json(db: AsyncSession, op: Operator) -> Dict[str, Any]:
         "username": op.username,
         "name": op.name,
         "email": op.email,
+        "phone": op.phone or "",
+        "avatar_url": prof.avatar_url(op),
+        "profile": prof.details(op),
+        "org_name": (await db.execute(select(Organization.name).where(Organization.id == org_of(op)))).scalar() or "",
+        "member_since": op.created_at.isoformat() if op.created_at else None,
         "role": "Admin" if is_admin else (roles[0].name if roles else (op.role or "Operator")),
         "roles": [{"id": r.id, "name": r.name, "is_admin": bool(r.is_admin)} for r in roles],
         "is_admin": is_admin,
@@ -288,6 +294,9 @@ async def me(request: Request, db: AsyncSession = Depends(get_db)):
 class MePatch(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
+    # first_name, last_name, job_title, timezone and the rest of app.core.profile
+    profile: Optional[Dict[str, Any]] = None
 
 
 @router.patch("/me")
@@ -305,9 +314,109 @@ async def update_me(body: MePatch, request: Request, db: AsyncSession = Depends(
         if (email or None) != op.email:
             op.email = email or None
             op.email_verified = False
+    if body.phone is not None:
+        phone = body.phone.strip()
+        problem = prof.phone_problem(phone)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        op.phone = phone
+    if body.profile:
+        try:
+            fresh = prof.clean(body.profile)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        merged = {**prof.details(op), **fresh}
+        op.profile = merged
+        if ("first_name" in fresh or "last_name" in fresh) and body.name is None:
+            full = f"{merged['first_name']} {merged['last_name']}".strip()
+            if not full:
+                raise HTTPException(status_code=400, detail="Name cannot be empty.")
+            op.name = full[:120]
     await db.commit()
     forget(op.id)
     return await _operator_json(db, op)
+
+
+@router.post("/me/avatar")
+async def upload_my_avatar(request: Request, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    raw = await file.read(prof.AVATAR_MAX_BYTES + 1)
+    try:
+        data = prof.make_avatar(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    old = op.avatar_file
+    op.avatar_file = prof.save_avatar(data)
+    await db.commit()
+    prof.delete_avatar(old)
+    forget(op.id)
+    return await _operator_json(db, op)
+
+
+@router.delete("/me/avatar")
+async def remove_my_avatar(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    old, op.avatar_file = op.avatar_file, None
+    await db.commit()
+    prof.delete_avatar(old)
+    forget(op.id)
+    return await _operator_json(db, op)
+
+
+def _my_session_id(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    claims = decode_token(auth[7:], "access") if auth.lower().startswith("bearer ") else None
+    return (claims or {}).get("sid", "")
+
+
+@router.get("/me/sessions")
+async def my_sessions(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    mine = _my_session_id(request)
+    rows = (await db.execute(
+        select(AuthSession).where(
+            AuthSession.operator_id == ctx["operator_id"],
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > datetime.utcnow(),
+        ).order_by(AuthSession.last_used_at.desc())
+    )).scalars().all()
+    return [{
+        "id": r.id,
+        "device": r.user_agent or "Unknown device",
+        "ip": r.ip or "",
+        "signed_in_at": r.created_at.isoformat() if r.created_at else None,
+        "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+        "current": r.id == mine,
+    } for r in rows]
+
+
+@router.delete("/me/sessions/{session_id}")
+async def end_my_session(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    ses = (await db.execute(select(AuthSession).where(AuthSession.id == session_id, AuthSession.operator_id == ctx["operator_id"]))).scalars().first()
+    if not ses:
+        raise HTTPException(status_code=404, detail="That device is not signed in any more.")
+    ses.revoked_at = ses.revoked_at or datetime.utcnow()
+    await db.commit()
+    forget(ctx["operator_id"])
+    return {"ok": True}
+
+
+@router.post("/me/sessions/sign-out-others")
+async def end_my_other_sessions(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    mine = _my_session_id(request)
+    rows = (await db.execute(select(AuthSession).where(
+        AuthSession.operator_id == ctx["operator_id"], AuthSession.revoked_at.is_(None), AuthSession.id != mine,
+    ))).scalars().all()
+    now = datetime.utcnow()
+    for r in rows:
+        r.revoked_at = now
+    await db.commit()
+    forget(ctx["operator_id"])
+    return {"ok": True, "signed_out": len(rows)}
 
 
 @router.post("/change-password")
