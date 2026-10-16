@@ -287,7 +287,7 @@ def _unique(emails: List[str]) -> List[str]:
 async def _email_everyone(r: Dict[str, Any]) -> None:
     """Runs in the background; never raises: the credits are already given and recorded."""
     try:
-        from app.core.mailer import render, send_system_email
+        from app.core.mailer import render, render_owner, send_system_email
 
         e = html.escape
         paid = f"{r['paidCents'] / 100:.2f} {r['currency'].upper()}, reference {e(r['paymentRef'])}" if r["label"] != "given" else "No payment"
@@ -300,7 +300,7 @@ async def _email_everyone(r: Dict[str, Any]) -> None:
             f"Balance {r['before']:,} → {r['after']:,}. Confirmed by retyping the {r['confirmedWith']}.",
             f"Record {e(r['id'])} at {r['at']} UTC. This record cannot be changed or deleted.",
         ]
-        msg = render(subject, staff_lines, None)
+        msg = render_owner(subject, staff_lines, page=f"clients/{r['orgId']}", button_label="Open the client")
         for to in await _staff_emails(r["staffEmail"]):
             await send_system_email(to, subject, msg["html"], msg["text"])
 

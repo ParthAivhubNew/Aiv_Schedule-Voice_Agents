@@ -173,7 +173,7 @@ def report_paragraphs(s: Dict[str, Any]) -> List[str]:
 
 async def send_month_report(year: int, month: int) -> int:
     """Emails the month's summary to the staff admins. Returns how many were sent."""
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render_owner, send_system_email
     from app.core.tenancy import system_scope
     from app.database import AsyncSessionLocal
     from app.services.ai_errors import _staff_emails
@@ -182,7 +182,7 @@ async def send_month_report(year: int, month: int) -> int:
         async with AsyncSessionLocal() as db:
             stats = await month_stats(db, year, month)
     title = f"Outreach: {calendar.month_name[month]} {year} in plans"
-    msg = render(title, report_paragraphs(stats), None)
+    msg = render_owner(title, report_paragraphs(stats), page="clients", button_label="Open the clients page")
     sent = 0
     for to in await _staff_emails():
         res = await send_system_email(to, title, msg["html"], msg["text"])

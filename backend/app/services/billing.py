@@ -453,7 +453,7 @@ async def reconcile_all() -> Dict[str, int]:
                         await E.tell_ended(db, wallet, name or E.WALLET_NAME.get(wallet, wallet))
             if out["repaired"] or out["ended"]:
                 fixed += 1
-                await alert_staff("BL-01", f"Repaired {len(out['repaired'])} plan(s) and ended {len(out['ended'])} that Stripe had changed without telling us.", org_id=org)
+                await alert_staff("BL-01", f"Put right {len(out['repaired'])} plan(s) and ended {len(out['ended'])} that were out of step with Stripe. Expected for plans bought before the webhook was connected.", org_id=org)
         except Exception as err:
             logger.warning(f"[billing] daily check failed for {org}: {err}")
     if orgs:
@@ -462,8 +462,9 @@ async def reconcile_all() -> Dict[str, int]:
         with system_scope():
             async with AsyncSessionLocal() as db:
                 seen = (await _get_doc(db, "stripe_webhook_seen")).get("at")
-        if not seen:
-            await alert_staff("BL-01", "Stripe has never sent this server a payment message, yet companies have Stripe customers. Check the webhook endpoint and STRIPE_WEBHOOK_SECRET.", org_id="platform")
+        # With the webhook set up, no message yet only means nothing has happened in Stripe since: that is not worth an alert.
+        if not seen and not webhook_secret():
+            await alert_staff("BL-01", "Companies have Stripe customers but STRIPE_WEBHOOK_SECRET is not set on the server, so Stripe's payment messages cannot be accepted.", org_id="platform")
     return {"companies": len(orgs), "fixed": fixed}
 
 

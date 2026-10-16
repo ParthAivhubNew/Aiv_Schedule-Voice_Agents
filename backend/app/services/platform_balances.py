@@ -377,7 +377,7 @@ async def _maybe_alert(db: AsyncSession, assessed: Dict[str, Any]) -> None:
         return
     await _put_doc(db, f"{ALERT_PREFIX}{provider}", {"at": now.isoformat(), "status": assessed["status"]})
     try:
-        from app.core.mailer import render, send_system_email
+        from app.core.mailer import render_owner, send_system_email
         from app.services.ai_errors import _staff_emails
 
         recipients = await _staff_emails()
@@ -393,8 +393,8 @@ async def _maybe_alert(db: AsyncSession, assessed: Dict[str, Any]) -> None:
             lines.append(f"Headroom after covering what customers are still owed: <b>${assessed['headroomUsd']:,.2f}</b>.")
         if assessed.get("recommendedTopupUsd"):
             lines.append(f"Recommended top-up: about <b>${assessed['recommendedTopupUsd']:,.2f}</b> (2 weeks at the current pace).")
-        lines.append("See the owner portal (Balances) for the full picture.")
-        msg = render(subject, lines, None)
+        lines.append("The Balances page of the owner portal has the full picture.")
+        msg = render_owner(subject, lines, page="balances", button_label="Open Balances")
         for to in recipients:
             await send_system_email(to, subject, msg["html"], msg["text"])
     except Exception as err:

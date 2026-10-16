@@ -1,0 +1,65 @@
+import React from "react";
+import { LogOut } from "lucide-react";
+import { C } from "../tokens";
+import { MobileNavButton } from "../components/MobileNav";
+import { PluginCredits } from "../team/PluginCredits";
+import { AppSwitcher } from "./AppSwitcher";
+
+// The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
+// the pages in labelled groups, then (at the bottom) the app's credits and Log out.
+// groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
+export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey }) {
+  return (
+    <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
+        <div style={{ width: 32, height: 32, borderRadius: 6, background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Icon size={17} />
+        </div>
+        <div style={{ fontWeight: 600, fontSize: 15, color: "#fff" }}>{name}</div>
+      </div>
+      <AppSwitcher current={appId} onHome={onHome} />
+      <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
+        {groups.map((group) => {
+          const items = group.items.filter(Boolean);
+          if (!items.length) return null;
+          return (
+            <React.Fragment key={group.label}>
+              <div className="ui-nav-label">{group.label}</div>
+              {items.map((it) => {
+                const ItemIcon = it.icon;
+                return (
+                  <button key={it.id} type="button" className="ui-nav-item" title={it.title} onClick={it.onClick} aria-current={it.active ? "page" : undefined} data-locked={it.locked ? "true" : undefined}>
+                    <ItemIcon size={16} strokeWidth={1.75} />
+                    <span style={{ flex: 1 }}>{it.label}</span>
+                    {it.count ? <span className="ui-nav-count">{it.count}</span> : null}
+                  </button>
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
+      </nav>
+      <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
+      {wallet ? <PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /> : null}
+      <button type="button" className="ui-nav-item" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+        <LogOut size={16} strokeWidth={1.75} /> Log out
+      </button>
+    </div>
+  );
+}
+
+// The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
+// anything the page needs (children), your credits, notifications and profile (accountBar).
+export function PluginHeader({ nav, title, sub, children, accountBar }) {
+  return (
+    <div style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
+      <MobileNavButton nav={nav} />
+      <h1 style={{ margin: 0, fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em", color: C.textInk, whiteSpace: "nowrap" }}>{title}</h1>
+      <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+        {children}
+        {accountBar}
+      </div>
+    </div>
+  );
+}

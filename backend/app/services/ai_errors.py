@@ -35,7 +35,7 @@ CODES: Dict[str, str] = {
     # Staff only (never shown to customers).
     "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
     "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
-    "BL-01": "Stripe changes were missed: the payments webhook is not reaching the server, so the daily check repaired them.",
+    "BL-01": "A plan was out of step with Stripe and the daily check put it right. Normal for plans bought before the webhook was connected; if it keeps happening, the webhook is not reaching the server.",
 }
 STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert"}
 ALERTS_KEY = "staff_alerts"
@@ -155,12 +155,20 @@ async def _staff_emails() -> List[str]:
     return uniq
 
 
+def _webhook_url() -> str:
+    """Where Stripe must send its messages. Written out when the server knows its own address; no <angle brackets>, an email drops them."""
+    from app.config import settings
+
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    return f"{base}/api/billing/webhook" if base else "https://YOUR-DOMAIN/api/billing/webhook (your site's address, then /api/billing/webhook)"
+
+
 async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
     recipients = await _staff_emails()
     if not recipients:
         return
     try:
-        from app.core.mailer import render, send_system_email
+        from app.core.mailer import render_owner, send_system_email
 
         level = "URGENT: " if STAFF_CODES.get(code) == "urgent" else ""
         subject = f"{level}Outreach {'AI ' if code.startswith('AI') else ''}{code} for {org}"
@@ -168,9 +176,9 @@ async def _email_staff(code: str, detail: str, ref: str, org: str) -> None:
         if ref:
             lines.append(f"Reference: {ref}")
         lines.append("See the owner portal (Platform AI) for the provider's health." if code.startswith("AI")
-                     else "In Stripe open Developers → Webhooks: the endpoint must be https://<your domain>/api/billing/webhook and its signing secret must be STRIPE_WEBHOOK_SECRET on the server."
+                     else f"In Stripe open Developers → Webhooks: the endpoint must be {_webhook_url()} and its signing secret must be STRIPE_WEBHOOK_SECRET on the server."
                      if code.startswith("BL") else "See the owner portal (Plans & pricing → Telnyx costs).")
-        msg = render(subject, lines, None)
+        msg = render_owner(subject, lines, page="billing" if code.startswith("BL") else "dashboard")
         for to in recipients:
             await send_system_email(to, subject, msg["html"], msg["text"])
     except Exception as err:

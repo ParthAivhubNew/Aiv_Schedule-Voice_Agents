@@ -26,7 +26,8 @@ import {
   Lock,
   Mail,
 } from "lucide-react";
-import { AppSwitcher } from "../../hub/AppSwitcher";
+import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
+import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
@@ -137,17 +138,36 @@ export default function LeadGenerationPlugin({
   const [wizard, setWizard] = useState(null); // { listId } while the new-campaign steps are open
   const [inboxStart, setInboxStart] = useState(null); // opens Sent & Replies on a given tab, such as one mailbox's sent emails
 
-  // Navigation Items on Left
+  // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = [
-    { id: "find_leads", label: "Find Leads", icon: Sparkles, section: "Find Leads" },
-    { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, section: "Enrichment" },
-    { id: "outreach", label: "Campaigns", icon: Send, section: "Email Outreach" },
-    { id: "mail", label: "Mail", icon: Mail, section: "Email Outreach" },
-    { id: "replies", label: "Campaign replies", icon: MessageSquare, section: "Email Outreach" },
-    { id: "mailboxes", label: "Mailboxes", icon: Layers, section: "Mailboxes" },
-    { id: "business", label: "About your business", icon: Building2, section: "Company" },
-    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
+    { id: "find_leads", label: "Find Leads", icon: Sparkles, group: "Outreach" },
+    { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
+    { id: "outreach", label: "Campaigns", icon: Send, group: "Outreach" },
+    { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
+    { id: "replies", label: "Campaign replies", icon: MessageSquare, group: "Outreach" },
+    { id: "mailboxes", label: "Mailboxes", icon: Layers, group: "Outreach" },
+    { id: "business", label: "About your business", icon: Building2, group: "Setup" },
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, group: "Setup" }] : []),
   ];
+  const navGroups = ["Outreach", "Setup"].map((label) => ({
+    label,
+    items: navItems.filter((item) => item.group === label).map((item) => ({
+      id: item.id,
+      label: item.label,
+      icon: item.icon,
+      count: item.count,
+      active: view === item.id,
+      locked: isLocked && item.id !== "subscription",
+      title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
+      onClick: () => {
+        if (isLocked && item.id !== "subscription") {
+          showToast("Choose a plan or buy a top-up to unlock Leads.");
+          return;
+        }
+        setView(item.id);
+      },
+    })),
+  }));
 
   const viewTitles = {
     find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
@@ -164,182 +184,24 @@ export default function LeadGenerationPlugin({
     <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
       <MobileNavBackdrop nav={nav} />
       
-      {/* ----------------- LEFT DARK SIDEBAR (MATCHING OTHER PLUGINS) ----------------- */}
-      <div
-        className="app-sidebar"
-        style={{
-          width: 232,
-          minWidth: 232,
-          background: C.ink,
-          height: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          padding: "22px 14px",
-          boxSizing: "border-box",
-        }}
-      >
-        {/* Header with Icon + Title */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 8px 12px 8px" }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              background: "linear-gradient(135deg, #8B5CF6, #6D28D9)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
-            }}
-          >
-            <Search size={15} strokeWidth={2.4} />
-          </div>
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: "-0.01em" }}>
-            Leads
-          </span>
-        </div>
-
-        <AppSwitcher current="leadgen" onHome={onBackToHub} />
-
-        {/* Navigation items */}
-        <div className="app-sidebar-nav" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = view === item.id;
-            const tabLocked = isLocked && item.id !== "subscription";
-            return (
-              <button
-                key={item.id}
-                title={tabLocked ? "Choose a plan or top up to unlock this" : `Open ${item.label}`}
-                onClick={() => {
-                  if (tabLocked) {
-                    showToast("Choose a plan or buy a top-up to unlock Leads.");
-                    return;
-                  }
-                  setView(item.id);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "9px 10px",
-                  borderRadius: 8,
-                  border: "none",
-                  cursor: tabLocked ? "not-allowed" : "pointer",
-                  opacity: tabLocked ? 0.4 : 1,
-                  background: active ? "rgba(255,255,255,0.09)" : "transparent",
-                  color: active ? "#fff" : "#9AA0AE",
-                  ...NAV_TEXT,
-                  textAlign: "left",
-                  transition: "all 0.12s",
-                }}
-              >
-                <Icon size={16} color={active ? "#A78BFA" : "#9AA0AE"} />
-                <span style={{ flex: 1 }}>{item.label}</span>
-                {item.count && (
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      padding: "1px 6px",
-                      borderRadius: 999,
-                      background: active ? "#8B5CF6" : "rgba(255,255,255,0.08)",
-                      color: "#fff",
-                    }}
-                  >
-                    {item.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Sidebar Footer: Operator & Sign Out */}
-        <div className="app-sidebar-extra" style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
-          {onLogout && (
-            <button title="Sign out of Outreach"
-              onClick={onLogout}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                padding: "7px 8px",
-                borderRadius: 8,
-                border: `1px solid ${C.inkLine}`,
-                background: "transparent",
-                color: "#8B90A0",
-                fontFamily: FONT_BODY,
-                fontSize: 11.5,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <LogOut size={12} /> Sign out
-            </button>
-          )}
-        </div>
-      </div>
+      <AppChrome />
+      <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent="#8B5CF6" groups={navGroups} wallet="leadgen" operator={operator}
+        onOpenPlan={() => setView("subscription")} onHome={onBackToHub} onLogout={onLogout} refreshKey={view} />
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
-        {/* Top Header Bar: Clean, consistent */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "16px 28px",
-            borderBottom: `1px solid ${C.border}`,
-            background: "#fff",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <MobileNavButton nav={nav} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink, letterSpacing: "-0.02em" }}>
-                {viewTitles[view]?.title || "Leads"}
-              </div>
-              <div className="hide-mobile" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                {viewTitles[view]?.desc || ""}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {view === "lists" && (
-              <button title="Type in one company yourself"
-                onClick={() => setShowAddModal(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  background: C.ink,
-                  color: "#fff",
-                  fontFamily: FONT_BODY,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                <Plus size={14} /> Add one company
-              </button>
-            )}
-            {accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}
-
-          </div>
-        </div>
+        <PluginHeader nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
+          accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
+          {view === "lists" && (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
+              <Plus size={14} /> Add one company
+            </button>
+          )}
+        </PluginHeader>
 
         {/* Main Content Area */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+        <div className="app-page" style={{ flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
           {isLocked && view !== "subscription" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div

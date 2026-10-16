@@ -83,14 +83,15 @@ _FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans
 
 
 def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None, footer: str = "",
-           highlights: Optional[list] = None, note: str = "", preheader: str = "") -> Dict[str, str]:
+           highlights: Optional[list] = None, note: str = "", preheader: str = "", reason: str = "") -> Dict[str, str]:
     """Branded HTML + text versions of a notification, in the platform's one email design.
 
     paragraphs are HTML (the caller escapes anything user-supplied); title is plain text.
     highlights: optional [(heading, text), ...] shown as a short "what you get" list under the
     button. note: a small line under the button (e.g. when a link expires). preheader: the grey
     preview line some inboxes show beside the subject. Tables and inline styles only, so it
-    renders the same in Gmail, Outlook and phone apps; no images to block."""
+    renders the same in Gmail, Outlook and phone apps; no images to block. reason: the last footer line, why the
+    reader is getting it (the default suits a company's own users)."""
     e = _html.escape
     body_html = "".join(f'<p style="font-size:15px;line-height:1.65;margin:0 0 16px;color:#3B4252">{p}</p>' for p in paragraphs)
     btn = ""
@@ -143,7 +144,7 @@ def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None
         '</td></tr></table></td></tr>'
         # footer
         f'<tr><td align="center" style="padding:26px 24px 8px;font-family:{_FONT};font-size:12px;line-height:1.7;color:#8A8F9C">'
-        f'{footer or "Sent by " + BRAND + "."}<br>You are getting this because of activity on your {BRAND} account.</td></tr>'
+        f'{footer or "Sent by " + BRAND + "."}<br>{reason or "You are getting this because of activity on your " + BRAND + " account."}</td></tr>'
         '</table></td></tr></table></body></html>'
     )
     import re as _re
@@ -160,6 +161,21 @@ def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None
     if highlights:
         text += gap + "\n".join(f"- {h}: {t}" for h, t in highlights)
     return {"html": html_doc, "text": text}
+
+
+def render_owner(title: str, paragraphs: list, page: str = "dashboard", button_label: str = "Open the owner portal",
+                 note: str = "") -> Dict[str, str]:
+    """The same email design, for the software owner: it says it comes from the owner portal, links to it, and says why they get it.
+    Use for anything meant for staff admins (alerts, the month-end report, credits given), never for a company's own users."""
+    from app.config import settings
+
+    badge = ('<span style="display:inline-block;background:#EEF2FF;color:#3457D5;font-size:11px;font-weight:700;'
+             'letter-spacing:0.08em;padding:4px 11px;border-radius:999px">OWNER PORTAL &middot; FOR THE SOFTWARE OWNER</span>')
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    button = {"label": button_label, "url": f"{base}/admin/{page}"} if base else None
+    return render(title, [badge, *paragraphs], button, footer="Sent from the Outreach owner portal by Aivhub.",
+                  note=note or "Sign in with your staff account. This email is for the software owner and staff admins only; companies never receive it.",
+                  reason="You are getting this because you are a staff admin of the Outreach owner portal.")
 
 
 async def send_system_email(to: str, subject: str, html_body: str, text_body: str, reply_to: Optional[str] = None) -> Dict[str, Any]:

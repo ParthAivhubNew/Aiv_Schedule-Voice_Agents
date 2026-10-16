@@ -110,7 +110,7 @@ export function CreditsChip({ onOpen, wallet = "leadgen", app = "Leads" }) {
       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 11px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: onOpen ? "pointer" : "default", fontFamily: FONT_BODY, fontSize: 12.5, color: tone }}>
       <Coins size={14} />
       <strong style={{ fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
-      <span style={{ color: C.slate }}>{unit}</span>
+      <span className="hide-xs" style={{ color: C.slate }}>{unit}</span>
       {c.held ? <span style={{ color: C.slate, fontSize: 11.5 }}>· {c.held.toLocaleString()} on hold</span> : null}
       <span className="hide-mobile" style={{ color: C.slate, fontSize: 11.5 }}>· {c.used_30d.toLocaleString()} used in the last 30 days</span>
     </button>

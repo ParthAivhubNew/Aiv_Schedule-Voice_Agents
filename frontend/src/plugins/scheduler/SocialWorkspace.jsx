@@ -28,7 +28,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { AppChrome } from "../../components/AppChrome";
+import { AppChrome } from "../../app/ui";
+import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { api } from "../../api/apiClient";
 import { NAV_TEXT,
   C,
@@ -3742,161 +3743,39 @@ export function SocialWorkspace({
     }
   };
 
+  const goPage = (id) => {
+    if (pluginLocked && id !== "subscription") { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
+    setApprovalOpen(false);
+    setPage(id);
+  };
+  const navGroups = [
+    { label: "Posts", items: [
+      { id: "plan", label: "Calendar", icon: CalendarDays, active: page === "plan" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
+      { id: "approvals", label: "Approvals", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+    ] },
+    { label: "Setup", items: [
+      { id: "accounts", label: "Accounts", icon: Plug, active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
+      { id: "audience", label: "Audience & ideas", icon: Users, active: page === "audience" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("audience") },
+      operator?.is_admin ? { id: "subscription", label: "Subscription", icon: CreditCard, active: page === "subscription" && !approvalOpen, onClick: () => goPage("subscription") } : null,
+    ] },
+  ];
+  const topTitles = {
+    plan: ["Calendar", "Plan posts with the AI, see them on a calendar and publish."],
+    approvals: ["Approvals", "Posts waiting for your yes before they go out."],
+    accounts: ["Accounts", "The social accounts your posts go to."],
+    audience: ["Audience & ideas", "Who you are talking to, and what to post about."],
+    subscription: ["Subscription", "Your Social plan, credits and top-ups."],
+  };
+  const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];
   return (
     <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
       <MobileNavBackdrop nav={nav} />
       <AppChrome />
-      <div className="app-sidebar" style={{ width: 228, minWidth: 228, background: C.ink, height: "100vh", display: "flex", flexDirection: "column", padding: "18px 12px", boxSizing: "border-box" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 12px" }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: C.teal, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <CalendarDays size={15} color="#fff" />
-          </div>
-          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#fff" }}>Social</span>
-        </div>
-        <AppSwitcher current="scheduler" onHome={onBackToHub} />
-
-        <button
-          type="button"
-          onClick={() => {
-            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
-            setPage("plan"); setApprovalOpen(false);
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            margin: "0 4px",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "none",
-            background: page === "plan" && !approvalOpen ? "#1E2230" : "transparent",
-            color: "#fff",
-            ...NAV_TEXT,
-            cursor: pluginLocked ? "not-allowed" : "pointer",
-            opacity: pluginLocked ? 0.4 : 1,
-            textAlign: "left",
-          }}
-        >
-          <CalendarDays size={15} />
-          <span>Calendar</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => openApprovals()}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            margin: "0 4px",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "none",
-            background: approvalOpen ? "#1E2230" : "transparent",
-            color: "#fff",
-            ...NAV_TEXT,
-            cursor: pluginLocked ? "not-allowed" : "pointer",
-            opacity: pluginLocked ? 0.4 : 1,
-            textAlign: "left",
-          }}
-        >
-          <Check size={15} />
-          <span style={{ flex: 1 }}>Approvals</span>
-          {drafts.length ? (
-            <span style={{ minWidth: 18, height: 18, borderRadius: 99, background: C.amber, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
-              {drafts.length}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
-            setApprovalOpen(false); setPage("accounts");
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            margin: "0 4px",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "none",
-            background: page === "accounts" && !approvalOpen ? "#1E2230" : "transparent",
-            color: "#fff",
-            ...NAV_TEXT,
-            cursor: pluginLocked ? "not-allowed" : "pointer",
-            opacity: pluginLocked ? 0.4 : 1,
-            textAlign: "left",
-          }}
-        >
-          <Plug size={15} />
-          <span>Accounts</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
-            setApprovalOpen(false); setPage("audience");
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            margin: "0 4px",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "none",
-            background: page === "audience" && !approvalOpen ? "#1E2230" : "transparent",
-            color: "#fff",
-            ...NAV_TEXT,
-            cursor: pluginLocked ? "not-allowed" : "pointer",
-            opacity: pluginLocked ? 0.4 : 1,
-            textAlign: "left",
-          }}
-        >
-          <Users size={15} />
-          <span>Audience & ideas</span>
-        </button>
-        {operator?.is_admin && (
-          <button
-            type="button"
-            onClick={() => { setApprovalOpen(false); setPage("subscription"); }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              margin: "0 4px",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "none",
-              background: page === "subscription" && !approvalOpen ? "#1E2230" : "transparent",
-              color: "#fff",
-              ...NAV_TEXT,
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-          >
-            <CreditCard size={15} />
-            <span>Subscription</span>
-          </button>
-        )}
-        <div className="app-sidebar-spacer" style={{ flex: 1 }} />
-
-        <PluginCredits wallet="scheduler" operator={operator} onOpen={() => { setApprovalOpen(false); setPage("subscription"); }} refreshKey={page} />
-        <button
-          type="button"
-          onClick={onLogout}
-          style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 4px", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "#8B90A0", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-        >
-          <LogOut size={14} /> Log out
-        </button>
-      </div>
+      <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} wallet="scheduler" operator={operator}
+        onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <MobileTopBar nav={nav} title="Social" right={socialBar} />
-        {accountBar ? (
-          <div className="hide-mobile" style={{ display: "flex", justifyContent: "flex-end", padding: "6px 20px", background: "#fff", borderBottom: `1px solid ${C.border}` }}>{socialBar}</div>
-        ) : null}
+        <PluginHeader nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar} />
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />

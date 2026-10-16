@@ -167,6 +167,8 @@ async def test_the_daily_pass_repairs_every_company_and_warns_the_staff(client, 
         codes = [a["code"] for a in await alerts(db)]
     assert "BL-01" in codes  # a repair means a webhook was lost, so the owner's portal says so
     assert (await B.reconcile_all())["fixed"] == 0  # nothing left to repair the second time
+    # the webhook secret is set, so "no message from Stripe yet" is not treated as a fault
+    assert [a for a in codes if a == "BL-01"] == ["BL-01"]
     _ = _get_doc
 
 
@@ -238,3 +240,17 @@ async def test_staff_can_see_why_people_leave_and_send_a_report_now(staff, clien
     assert sent.status_code == 200 and sent.json()["sent"] == 1 and mails[0]["to"] == "ops@outreach.test"
     assert (await staff.post("/api/admin-api/billing-report/send", json={"year": 1999, "month": 13})).status_code == 400
     _ = time
+
+
+def test_emails_for_the_owner_look_like_the_rest_and_say_they_are_for_the_owner():
+    from app.core.mailer import render, render_owner
+
+    owner = render_owner("Low balance: Telnyx", ["Only 12 days of runway."], page="balances", button_label="Open Balances")
+    company = render("Your plan has ended", ["Subscribe again any time."])
+    assert "FOR THE SOFTWARE OWNER" in owner["html"] and "/admin/balances" in owner["html"] and "Open Balances" in owner["html"]
+    assert "staff admin of the Outreach owner portal" in owner["html"] and "companies never receive it" in owner["html"]
+    assert "activity on your" not in owner["html"]  # the line meant for a company's own users
+    assert "OWNER PORTAL" in owner["text"]
+    # the same design: the same header band and card
+    assert "BY AIVHUB" in owner["html"] and "BY AIVHUB" in company["html"] and "border-radius:18px" in owner["html"]
+    assert "OWNER PORTAL" not in company["html"] and "activity on your" in company["html"]

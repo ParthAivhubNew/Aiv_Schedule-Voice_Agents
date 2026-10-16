@@ -202,7 +202,7 @@ async def alert_staff(db: AsyncSession, problems: List[Dict[str, Any]]) -> int:
     if not fresh:
         return 0
     try:
-        from app.core.mailer import render, send_system_email
+        from app.core.mailer import render_owner, send_system_email
         from app.services.ai_errors import _staff_emails
 
         recipients = await _staff_emails()
@@ -217,8 +217,8 @@ async def alert_staff(db: AsyncSession, problems: List[Dict[str, Any]]) -> int:
             org = getattr(acc, "org_id", None) or ""
             lines.append(f"<b>{names.get(org, org or '?')}</b> — {normalize_platform(acc.platform)} {acc.handle or acc.id}: "
                          f"login {what}." + (f" {p['error']}" if p.get("error") else ""))
-        lines.append("The customer sees Reconnect on their Accounts page. See the owner portal (Social connections).")
-        msg = render(subject, lines, None)
+        lines.append("The customer sees Reconnect on their Accounts page.")
+        msg = render_owner(subject, lines)
         for to in recipients:
             await send_system_email(to, subject, msg["html"], msg["text"])
     except Exception as err:
