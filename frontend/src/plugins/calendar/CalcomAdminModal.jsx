@@ -980,7 +980,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     }}
                   >
                     <Plus size={14} />
-                    + Add Gmail / Google Account
+                    Add Gmail / Google Account
                   </button>
                   <button
                     onClick={() => handleOpenAccountModal("outlook")}
@@ -999,7 +999,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     }}
                   >
                     <Plus size={14} />
-                    + Add Outlook / 365 Account
+                    Add Outlook / 365 Account
                   </button>
                   <button
                     onClick={() => handleOpenAccountModal("smtp")}
@@ -1018,7 +1018,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     }}
                   >
                     <Server size={14} />
-                    + Add Custom SMTP
+                    Add Custom SMTP
                   </button>
                 </div>
               </div>
@@ -1671,7 +1671,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         onClick={() => setActiveTab("accounts")}
                         style={{ background: "none", border: "none", color: "#2563EB", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                       >
-                        + Manage Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length})
+                        Manage Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length})
                       </button>
                     </div>
                     {accounts.filter(a => a.status === "connected" && a.config?.email).length > 0 ? (
