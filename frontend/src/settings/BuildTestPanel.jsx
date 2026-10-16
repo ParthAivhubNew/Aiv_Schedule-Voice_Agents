@@ -23,6 +23,9 @@ const PERMISSION = {
   "social:write": "Social posts",
   "social:approve": "Social posts",
   "any key": "Balance and setup (read only)",
+  "mail:read": "Read mail",
+  "mail:write": "Write and tidy mail",
+  "mail:delete": "Delete mail for good",
 };
 
 const LANGS = [
@@ -34,7 +37,7 @@ const LANGS = [
   ["java", "Java"],
 ];
 
-const STEPS = ENDPOINTS.filter((ep) => RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })]).map((ep) => ({
+const STEPS = ENDPOINTS.filter((ep) => RUN_ACTIONS[endpointKey(ep)] || RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })]).map((ep) => ({
   ...pluginAction(ep),
   ep,
   title: ep.title,

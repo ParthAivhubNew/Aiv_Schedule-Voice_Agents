@@ -33,7 +33,7 @@ import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, mee
 import { api } from "../../api/apiClient";
 import { MeetingInvitePreview } from "../../components/MeetingInvitePreview";
 
-export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
+export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
   const [activeTab, setActiveTab] = useState("comms"); // email preview only — schedule lives in Calling
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState(null);
@@ -293,12 +293,14 @@ export function CalcomSchedulerPlugin({ operator, onBackToHub, onLogout, profile
             Configure
           </button>
 
+          {accountBar || (
           <button
             onClick={onLogout}
             style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
           >
             <LogOut size={14} />
           </button>
+          )}
         </div>
       </header>
 

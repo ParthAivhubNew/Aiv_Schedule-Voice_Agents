@@ -50,10 +50,17 @@ describe("developer snippets", () => {
     }
   });
   it("gives every documented call one action on the one endpoint", () => {
-    const actions = ENDPOINTS.map((ep) => RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })]);
+    const actions = ENDPOINTS.map((ep) => RUN_ACTIONS[endpointKey(ep)] || RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })]);
     expect(actions.every(Boolean)).toBe(true);
     expect(new Set(actions).size).toBe(ENDPOINTS.length);
     expect(Object.keys(RUN_ACTIONS)).toHaveLength(ENDPOINTS.length);
+  });
+
+  it("puts a mail call into the envelope with its own id and data", () => {
+    const del = ENDPOINTS.find((e) => e.path === "/v1/run?plugin=mail&action=messages.delete");
+    expect(JSON.parse(runRequest(del, defaultBody(del)).body)).toEqual({ plugin: "mail", action: "messages.delete", data: { ids: ["mm_9c1d..."] } });
+    const one = ENDPOINTS.find((e) => e.path === "/v1/run?plugin=mail&action=messages.get");
+    expect(JSON.parse(runRequest(one, defaultBody(one)).body)).toEqual({ plugin: "mail", action: "messages.get", id: "mm_9c1d..." });
   });
 
   it("turns a call into a request to POST /v1/run", () => {

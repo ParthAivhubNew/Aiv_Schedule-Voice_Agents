@@ -743,6 +743,15 @@ async def _operator_profile_details(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE operators ADD COLUMN IF NOT EXISTS avatar_file VARCHAR"))
 
 
+async def _mailbox_mail_state(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE email_mailboxes ADD COLUMN IF NOT EXISTS mail_state JSON"))
+    await conn.execute(text("ALTER TABLE email_mailboxes ADD COLUMN IF NOT EXISTS mail_synced_at TIMESTAMP"))
+
+
+async def _api_key_mailboxes(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS mailbox_ids JSON"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -788,6 +797,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_06_link_leads_and_calls", _link_leads_and_calls),
     ("2026_11_07_campaign_calls_and_opens", _campaign_calls_and_opens),
     ("2026_11_08_operator_profile_details", _operator_profile_details),
+    ("2026_11_09_mailbox_mail_state", _mailbox_mail_state),
+    ("2026_11_10_api_key_mailboxes", _api_key_mailboxes),
 ]
 
 

@@ -38,6 +38,9 @@ SCOPE_TO_SERVICE: Dict[str, str] = {
     "social:approve": "social",
     "email:write": "leads",  # email sends are paid from the Leads wallet
     "email:approve": "leads",
+    "mail:read": "leads",  # the Mail screen's mailboxes belong to Leads
+    "mail:write": "leads",
+    "mail:delete": "leads",
 }
 
 

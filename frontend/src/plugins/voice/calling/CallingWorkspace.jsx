@@ -886,6 +886,9 @@ export function CallingWorkspace({
   operator,
   onBackToHub,
   onLogout,
+  accountBar,
+  notifications: sharedNotes,
+  setNotifications: setSharedNotes,
   profile,
   setProfile,
   aiKeysPanel,
@@ -1016,10 +1019,12 @@ export function CallingWorkspace({
   const [chatHint, setChatHint] = useState("");
   const [findProgress, setFindProgress] = useState(null);
   const [chatInput, setChatInput] = useState("");
-  const [notifications, setNotifications] = useState(() => {
+  const [ownNotes, setOwnNotes] = useState(() => {
     const saved = readJson(LS_NOTES, []);
     return dedupeNotifications(Array.isArray(saved) ? saved : []);
   });
+  const notifications = sharedNotes || ownNotes;
+  const setNotifications = setSharedNotes || setOwnNotes;
   const [draft, setDraft] = useState({
     name: (profile && profile.name) || "",
     pitch: (profile && profile.pitch) || "",
@@ -2643,11 +2648,13 @@ export function CallingWorkspace({
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto" }}>
-            <NotificationBell
-              notifications={notifications}
-              setNotifications={setNotifications}
-              onNavigate={onNotificationNavigate}
-            />
+            {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
+              <NotificationBell
+                notifications={notifications}
+                setNotifications={setNotifications}
+                onNavigate={onNotificationNavigate}
+              />
+            )}
           </div>
         </div>
 

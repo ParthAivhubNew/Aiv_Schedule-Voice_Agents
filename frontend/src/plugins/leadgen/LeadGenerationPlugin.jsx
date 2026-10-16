@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { cloneElement, useState, useEffect } from "react";
 import {
   Search,
   Sparkles,
@@ -23,20 +23,21 @@ import {
   CreditCard,
   MessageSquare,
   ListChecks,
-  Lock
+  Lock,
+  Mail,
 } from "lucide-react";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
-import { Avatar } from "../../hub/Avatar";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
 import { CampaignsView, MailboxesView, RepliesView, useOutreachData } from "./OutreachViews";
+import { MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
-import { CreditsChip, PlanStrip } from "./CreditsChip";
+import { PlanStrip } from "./CreditsChip";
 import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
@@ -47,6 +48,7 @@ export default function LeadGenerationPlugin({
   operator,
   onBackToHub,
   onLogout,
+  accountBar,
   profile,
 }) {
   const normalizeLeadgenView = (raw) => {
@@ -140,7 +142,8 @@ export default function LeadGenerationPlugin({
     { id: "find_leads", label: "Find Leads", icon: Sparkles, section: "Find Leads" },
     { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, section: "Enrichment" },
     { id: "outreach", label: "Campaigns", icon: Send, section: "Email Outreach" },
-    { id: "replies", label: "Sent & Replies", icon: MessageSquare, section: "Email Outreach" },
+    { id: "mail", label: "Mail", icon: Mail, section: "Email Outreach" },
+    { id: "replies", label: "Campaign replies", icon: MessageSquare, section: "Email Outreach" },
     { id: "mailboxes", label: "Mailboxes", icon: Layers, section: "Mailboxes" },
     { id: "business", label: "About your business", icon: Building2, section: "Company" },
     ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, section: "Billing" }] : []),
@@ -150,7 +153,8 @@ export default function LeadGenerationPlugin({
     find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
-    replies: { title: "Sent & Replies", desc: "Every email you have sent and what became of it, the replies that came back sorted by intent, and your do-not-email list." },
+    mail: { title: "Mail", desc: "Read, write and tidy the email of your connected mailboxes in one place." },
+    replies: { title: "Campaign replies", desc: "Every email you have sent and what became of it, the replies that came back sorted by intent, and your do-not-email list." },
     mailboxes: { title: "Mailboxes", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
@@ -254,15 +258,6 @@ export default function LeadGenerationPlugin({
 
         {/* Sidebar Footer: Operator & Sign Out */}
         <div className="app-sidebar-extra" style={{ marginTop: "auto", padding: "12px 10px", borderTop: `1px solid ${C.inkLine}` }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#6B7280", marginBottom: 8 }}>
-            Logged in as
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Avatar user={operator} size={26} bg="#8B5CF6" />
-            <div style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 12.5, color: "#C8CCD6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {operator?.name || "Operator"}
-            </div>
-          </div>
           {onLogout && (
             <button title="Sign out of Outreach"
               onClick={onLogout}
@@ -317,7 +312,6 @@ export default function LeadGenerationPlugin({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {(!isLocked || view === "subscription") && view !== "find_leads" && view !== "lists" ? <CreditsChip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} /> : null}
             {view === "lists" && (
               <button title="Type in one company yourself"
                 onClick={() => setShowAddModal(true)}
@@ -339,6 +333,7 @@ export default function LeadGenerationPlugin({
                 <Plus size={14} /> Add one company
               </button>
             )}
+            {accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}
 
           </div>
         </div>
@@ -381,6 +376,8 @@ export default function LeadGenerationPlugin({
             ? <CampaignWizard store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
                 onOpenBusiness={() => { setWizard(null); setView("business"); }} onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
             : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
+
+          {view === "mail" && <MailView operator={operator} />}
 
           {view === "replies" && <RepliesView outreach={outreach} initial={inboxStart} onStarted={() => setInboxStart(null)} />}
 

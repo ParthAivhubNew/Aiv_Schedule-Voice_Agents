@@ -172,6 +172,7 @@ export const api = {
   getOnboarding: () => apiRequest('/auth/onboarding'),
   getCredits: () => apiRequest('/credits'),
   getLeadCredits: () => apiRequest('/credits/leads'),
+  getWalletGlance: (wallet) => apiRequest(`/credits/wallet/${encodeURIComponent(wallet)}`),
   getNumbersOverview: () => apiRequest('/telnyx/overview'),
   getNumberRequirements: (country, numberType) => apiRequest(`/telnyx/requirements?country=${encodeURIComponent(country)}&number_type=${encodeURIComponent(numberType)}`),
   submitVerification: ({ entityType, texts, addresses, files }) => {
@@ -563,6 +564,29 @@ export const api = {
     return apiRequest(`/email/messages${q.toString() ? `?${q}` : ''}`);
   },
   emailSentOne: (id) => apiRequest(`/email/messages/${encodeURIComponent(id)}`),
+  mailMailboxes: () => apiRequest('/email/mail/mailboxes'),
+  mailCounts: (mailboxId = '') => apiRequest(`/email/mail/counts${mailboxId ? `?mailbox_id=${encodeURIComponent(mailboxId)}` : ''}`),
+  mailMessages: ({ folder = 'inbox', mailbox_id = '', q = '', unread = false, starred = false, attachments = false } = {}) => {
+    const p = new URLSearchParams({ folder });
+    if (mailbox_id) p.set('mailbox_id', mailbox_id);
+    if (q) p.set('q', q);
+    if (unread) p.set('unread', 'true');
+    if (starred) p.set('starred', 'true');
+    if (attachments) p.set('attachments', 'true');
+    return apiRequest(`/email/mail/messages?${p}`);
+  },
+  mailMessage: (id) => apiRequest(`/email/mail/messages/${encodeURIComponent(id)}`),
+  mailThread: (key, folder = '') => apiRequest(`/email/mail/threads/${encodeURIComponent(key)}${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`),
+  mailActions: (ids, action) => apiRequest('/email/mail/actions', { method: 'POST', body: { ids, action } }),
+  mailSync: (mailbox_id = '', force = false) => apiRequest('/email/mail/sync', { method: 'POST', body: { mailbox_id, force }, timeoutMs: 120000 }),
+  mailSaveDraft: (data) => apiRequest('/email/mail/drafts', { method: 'POST', body: data }),
+  mailSend: (data, files = []) => {
+    const form = new FormData();
+    form.append('payload', JSON.stringify(data));
+    files.forEach((f) => form.append('files', f, f.name));
+    return apiRequest('/email/mail/send', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
+  mailAttachment: (id, index) => apiRequest(`/email/mail/messages/${encodeURIComponent(id)}/attachments/${index}`, { asBlob: true }),
   emailReplies: (category) => apiRequest(`/email/replies${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   emailReplyCategory: (id, category) => apiRequest(`/email/replies/${id}/category`, { method: 'POST', body: { category } }),
   emailSuppressions: () => apiRequest('/email/suppression'),

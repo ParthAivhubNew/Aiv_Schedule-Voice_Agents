@@ -38,6 +38,26 @@ AVAILABLE_SCOPES = [
         "service": "social",
     },
     {
+        "id": "mail:read",
+        "label": "Read mail",
+        "desc": "List mailboxes and folders, search and read emails and conversations, download attachments",
+        "service": "leads",
+    },
+    {
+        "id": "mail:write",
+        "label": "Write and tidy mail",
+        "desc": "Send emails and replies, save drafts, mark read, star, archive, and move emails to Trash or Spam",
+        "service": "leads",
+        "danger": False,
+    },
+    {
+        "id": "mail:delete",
+        "label": "Delete mail for good",
+        "desc": "Permanently erase emails that are in Trash or Drafts. This cannot be undone",
+        "service": "leads",
+        "danger": True,
+    },
+    {
         "id": "wallets:read",
         "label": "Balance and prices",
         "desc": "Check remaining credit balances and service pricing",
@@ -58,6 +78,20 @@ SERVICE_SCOPES = {
 }
 
 
+async def _own_mailboxes(db: AsyncSession, ids: Optional[List[str]]) -> Optional[List[str]]:
+    """The mailbox ids a key may reach: only the company's own (the session is scoped to it); none given means all of them."""
+    from app.models.models import EmailMailbox
+
+    wanted = [str(i) for i in (ids or []) if i]
+    if not wanted:
+        return None
+    have = {m for (m,) in (await db.execute(select(EmailMailbox.id))).all()}
+    unknown = [i for i in wanted if i not in have]
+    if unknown:
+        raise HTTPException(status_code=400, detail="One of those mailboxes does not exist.")
+    return list(dict.fromkeys(wanted))
+
+
 def admin_ctx(request: Request) -> Dict[str, Any]:
     """Keys and webhooks are managed by an account admin, never by a key and never by a regular user."""
     ctx = current(request)
@@ -69,6 +103,7 @@ def admin_ctx(request: Request) -> Dict[str, Any]:
 class CreateApiKeyRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100, description="Friendly label for the API key")
     scopes: List[str] = Field(default_factory=lambda: ["voice:calls"], description="Allowed API capabilities")
+    mailbox_ids: Optional[List[str]] = Field(default=None, description="Limit the mail permissions to these mailboxes (empty or missing = all)")
     live: bool = Field(default=True, description="True for live key (sk_live_), False for test key (sk_test_)")
 
 
@@ -76,6 +111,8 @@ class UpdateApiKeyRequest(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
     scopes: Optional[List[str]] = None
+    mailbox_ids: Optional[List[str]] = None
+    set_mailboxes: bool = False  # true to apply mailbox_ids (an empty list then means "all mailboxes")
 
 
 def _format_key(key: ApiKey) -> Dict[str, Any]:
@@ -84,6 +121,7 @@ def _format_key(key: ApiKey) -> Dict[str, Any]:
         "name": key.name,
         "prefix": key.prefix,
         "scopes": key.scopes or ["full_access"],
+        "mailbox_ids": key.mailbox_ids or None,
         "is_active": bool(key.is_active),
         "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
         "created_at": key.created_at.isoformat() if key.created_at else None,
@@ -174,6 +212,7 @@ async def create_api_key(
         prefix=prefix,
         hashed_key=hashed_key,
         scopes=clean_scopes,
+        mailbox_ids=await _own_mailboxes(db, body.mailbox_ids),
         is_active=True,
         created_at=datetime.utcnow(),
     )
@@ -211,6 +250,8 @@ async def update_api_key(
         clean = [s for s in body.scopes if any(a["id"] == s for a in AVAILABLE_SCOPES)]
         if clean:
             row.scopes = clean
+    if body.set_mailboxes:
+        row.mailbox_ids = await _own_mailboxes(db, body.mailbox_ids)
 
     await db.commit()
     forget_api_keys()

@@ -134,13 +134,16 @@ const formatScopePills = (scopes = []) => {
   if (set.has("wallets:read") || set.has("wallets")) {
     pills.push("Wallets & Usage");
   }
+  if (set.has("mail:read")) pills.push("Read mail");
+  if (set.has("mail:write")) pills.push("Write mail");
+  if (set.has("mail:delete")) pills.push("Delete mail");
   scopes.forEach((s) => {
     if (
       ![
         "voice:calls", "calendar:book",
         "leads:search", "email:write", "email:approve",
         "social:publish", "social:write", "social:approve",
-        "wallets:read", "wallets"
+        "wallets:read", "wallets", "mail:read", "mail:write", "mail:delete"
       ].includes(s)
     ) {
       pills.push(s);
@@ -162,6 +165,8 @@ export function DeveloperApiKeysModal({ open, onClose }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState([]);
+  const [mailboxChoices, setMailboxChoices] = useState([]);
+  const [limitMailboxes, setLimitMailboxes] = useState([]); // empty = every mailbox of the company
   const [isLive, setIsLive] = useState(true);
   const [creating, setCreating] = useState(false);
 
@@ -220,7 +225,9 @@ export function DeveloperApiKeysModal({ open, onClose }) {
       const loadedScopes = res.available_scopes || [];
       setKeys(loadedKeys);
       setAvailableScopes(loadedScopes);
-      const unlocked = loadedScopes.filter((s) => s.unlocked !== false).map((s) => s.id);
+      api.emailMailboxes().then((r) => setMailboxChoices(r.mailboxes || [])).catch(() => setMailboxChoices([]));
+      // Mail permissions are never ticked for you: reading, writing and erasing mail are chosen on purpose.
+      const unlocked = loadedScopes.filter((s) => s.unlocked !== false && !s.id.startsWith("mail:")).map((s) => s.id);
       setSelectedScopes(unlocked);
       setEntitlements(res.entitlements || { voice: false, leads: false, social: false });
       setHasAnySubscription(Boolean(res.has_any_subscription));
@@ -258,6 +265,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
         name: finalName,
         scopes: selectedScopes,
         live: isLive,
+        mailbox_ids: selectedScopes.some((s) => s.startsWith("mail:")) ? limitMailboxes : [],
       });
       setNewlyCreatedSecret(res.secret);
       setPlaygroundKey(res.secret);
@@ -1645,6 +1653,11 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#059669", background: "#ECFDF5", padding: "1px 6px", borderRadius: 4 }}>
                               Active Plan
                             </span>
+                            {scope.danger ? (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: "#B91C1C", background: "#FEE2E2", padding: "1px 6px", borderRadius: 4 }}>
+                                Cannot be undone
+                              </span>
+                            ) : null}
                           </div>
                           <div style={{ fontSize: 11.5, color: C.slate }}>{scope.desc}</div>
                         </div>
@@ -1652,6 +1665,20 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                     );
                   })}
                 </div>
+                {selectedScopes.some((s) => s.startsWith("mail:")) && mailboxChoices.length > 0 ? (
+                  <fieldset style={{ marginTop: 12, border: `1px solid ${C.borderLight}`, borderRadius: 10, padding: "10px 12px" }}>
+                    <legend style={{ fontSize: 12, fontWeight: 600, color: C.textInk, padding: "0 6px" }}>Which mailboxes can this key reach?</legend>
+                    <label style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "3px 0", cursor: "pointer" }}>
+                      <input type="radio" name="mailbox-limit" checked={limitMailboxes.length === 0} onChange={() => setLimitMailboxes([])} /> All of the company&apos;s mailboxes
+                    </label>
+                    {mailboxChoices.map((m) => (
+                      <label key={m.id} style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "3px 0", cursor: "pointer" }}>
+                        <input type="checkbox" checked={limitMailboxes.includes(m.id)}
+                          onChange={(e) => setLimitMailboxes((cur) => (e.target.checked ? [...cur, m.id] : cur.filter((x) => x !== m.id)))} /> Only {m.email}
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : null}
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>

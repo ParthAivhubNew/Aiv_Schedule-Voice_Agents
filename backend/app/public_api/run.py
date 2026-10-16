@@ -61,6 +61,8 @@ ACTIONS: Dict[str, Dict[str, Tuple[str, str, bool]]] = {
         "wallet": ("GET", "/wallets", False),
     },
 }
+# Mail has no URL of its own: its actions are done right here (see _mail), under the same rules as the calls above.
+PLUGINS = [*ACTIONS, "mail"]
 
 _ENVELOPE = {"plugin", "action", "id", "data"}
 _PASS_HEADERS = ("authorization", "idempotency-key", "x-forwarded-for", "user-agent")
@@ -77,9 +79,40 @@ def _choices() -> Dict[str, Any]:
     return {p: sorted(a) for p, a in ACTIONS.items()}
 
 
+async def _mail(request: Request, action: Any, id_: Any, data: Any, query: bool) -> Response:
+    """Mail actions are done here, not forwarded: there is no separate mail URL. The same rules apply as for every call."""
+    from app.database import AsyncSessionLocal
+    from app.public_api import mail as M
+    from app.public_api.core import under_shared_rules
+
+    if not isinstance(action, str) or action not in M.ACTIONS:
+        return _refuse(422, "unknown_action", f"'{action}' is not an action of 'mail'. Use one of: " + ", ".join(sorted(M.ACTIONS)) + ".",
+                       plugin="mail", actions=sorted(M.ACTIONS))
+    if query and M.ACTIONS[action]["scope"] != M.READ:
+        return _refuse(405, "read_only", f"'mail.{action}' changes something, so send it as POST /v1/run, not GET.", plugin="mail", action=action)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return _refuse(422, "invalid_request", "'data' must be an object.")
+    if id_ is not None and not isinstance(id_, str):
+        return _refuse(422, "invalid_request", "'id' must be text.")
+    if query:  # a link carries text only
+        data = {k: ({"true": True, "false": False}.get(v, v) if isinstance(v, str) else v) for k, v in data.items()}
+
+    async def call() -> Response:
+        async with AsyncSessionLocal() as db:
+            return JSONResponse(await M.handle(request, db, M.MailIn(action=action, id=(id_ or None), data=data)))
+
+    out = await under_shared_rules(request, call)
+    out.headers["X-Outreach-Action"] = f"mail.{action}"
+    return out
+
+
 async def _dispatch(request: Request, plugin: Any, action: Any, id_: Any, data: Any, query: bool) -> Response:
-    if not isinstance(plugin, str) or plugin not in ACTIONS:
-        return _refuse(422, "unknown_plugin", "'plugin' must be one of: " + ", ".join(ACTIONS) + ".", plugins=list(ACTIONS))
+    if not isinstance(plugin, str) or plugin not in PLUGINS:
+        return _refuse(422, "unknown_plugin", "'plugin' must be one of: " + ", ".join(PLUGINS) + ".", plugins=list(PLUGINS))
+    if plugin == "mail":
+        return await _mail(request, action, id_, data, query)
     if not isinstance(action, str) or action not in ACTIONS[plugin]:
         return _refuse(422, "unknown_action", f"'{action}' is not an action of '{plugin}'. Use one of: "
                        + ", ".join(sorted(ACTIONS[plugin])) + ".", plugin=plugin, actions=sorted(ACTIONS[plugin]))
@@ -124,7 +157,7 @@ async def _dispatch(request: Request, plugin: Any, action: Any, id_: Any, data: 
 
 @router.post("/run", summary="Do anything: pick a plugin and an action")
 async def run_post(request: Request) -> Response:
-    """Send `{plugin, action, id?, data?}`. `plugin` is voice, leads, social or account; `action` is the step."""
+    """Send `{plugin, action, id?, data?}`. `plugin` is voice, leads, social, mail or account; `action` is the step."""
     try:
         body = json.loads((await request.body()) or b"{}")
     except Exception:

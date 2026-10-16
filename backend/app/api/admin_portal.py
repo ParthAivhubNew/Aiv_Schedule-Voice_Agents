@@ -319,7 +319,7 @@ async def delete_client(org_id: str, request: Request, confirm_name: str = ""):
 
         # Ordered FK deletion across tenant and child tables
         tables_to_delete = [
-            "email_enrollments", "email_sequence_steps", "email_send_logs", "email_messages", "email_campaigns",
+            "email_enrollments", "email_sequence_steps", "email_send_logs", "email_messages", "mail_messages", "email_campaigns",
             "enrichment_attempts", "prospects", "missions", "contact_registry",
             "call_briefs", "live_calls", "call_logs", "meetings", "meeting_event_types", "calcom_settings",
             "schedule_items", "notifications", "voices",

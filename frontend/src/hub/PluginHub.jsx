@@ -14,7 +14,7 @@ import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
 import { Avatar } from "./Avatar";
 
-export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections }) {
+export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections, compact }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -51,13 +51,14 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           background: open ? "#fff" : "#fff",
           border: `1px solid ${open ? C.cobalt : C.border}`,
           borderRadius: 999,
-          padding: "4px 14px 4px 5px",
+          padding: compact ? "3px 8px 3px 3px" : "4px 14px 4px 5px",
           cursor: "pointer",
           boxShadow: open ? "0 4px 14px rgba(52,87,213,0.14)" : "0 2px 8px rgba(18,20,28,0.04)",
           transition: "all 0.15s ease",
         }}
       >
         <Avatar user={operator} size={32} bg={isAdmin ? `linear-gradient(135deg, ${C.cobalt}, #6366F1)` : C.slate} />
+        {compact ? null : (
         <div style={{ textAlign: "left" }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk, lineHeight: 1.2 }}>
             {operator?.name}
@@ -77,7 +78,8 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
             </span>
           </div>
         </div>
-        <ChevronDown size={14} color={C.slate} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s ease", marginLeft: 4 }} />
+        )}
+        <ChevronDown size={14} color={C.slate} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s ease", marginLeft: compact ? 0 : 4 }} />
       </button>
 
       {open && (

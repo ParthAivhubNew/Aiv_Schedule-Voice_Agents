@@ -9,6 +9,7 @@ export const GROUPS = [
   { id: "leads", label: "Find leads" },
   { id: "email", label: "Email campaigns" },
   { id: "social", label: "Social posts" },
+  { id: "mail", label: "Mail" },
   { id: "meetings", label: "Meetings" },
   { id: "account", label: "Account" },
 ];
@@ -41,7 +42,7 @@ export const ENDPOINTS = [
     group: "voice", method: "POST", path: "/v1/voice/calls/{id}/control", scope: "voice:calls", title: "Steer a live call",
     summary: "guide: tell the AI what to do from now on (it pauses for a moment, then carries on). take_over: we ring your phone and connect you to the person. hand_back: give the call back to the AI with a note.",
     pathParam: { name: "id", example: "call_8f2a91c4" },
-    body: { action: "guide", message: "Offer them Tuesday at 3pm instead" },
+    body: { plugin: "mail", action: "guide", message: "Offer them Tuesday at 3pm instead" },
   },
   { group: "voice", method: "GET", path: "/v1/voice/calls/{id}/recording", scope: "voice:calls", title: "Download the recording", summary: "The call's recording as audio. Test calls have none.", pathParam: { name: "id", example: "call_8f2a91c4" } },
   { group: "voice", method: "GET", path: "/v1/voice/scripts", scope: "voice:calls", title: "Saved call scripts", summary: "Your saved outbound scripts. Use an id as script_id when you make a call." },
@@ -101,6 +102,72 @@ export const ENDPOINTS = [
     summary: "The only way a campaign starts sending. Approval is its own permission, so a different person or system can hold it.",
     pathParam: { name: "id", example: "cp_4a1b2c3d4e5f" }, body: { decision: "approve" },
   },
+  // ── Mail: no URL of its own, it goes through POST /v1/run with plugin "mail" ──
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=mailboxes.list", scope: "mail:read", title: "Your mailboxes and unread counts",
+    summary: "Mail goes through POST /v1/run like everything else: plugin is mail, action says what to do, and id and data carry the details. Each action needs its own permission: mail:read looks, mail:write sends and tidies (never erases), mail:delete erases what is already in Trash or Drafts. A key can also be limited to some mailboxes when it is made; mail in other mailboxes does not exist for it (404). Mail permissions are never included in an older full-access key: tick them on purpose.",
+    body: { plugin: "mail", action: "mailboxes.list" },
+    response: { data: [{ id: "mb_1a2b3c4d5e6f", email: "sales@yourcompany.com", unread: 3, synced_at: "2026-11-03T10:30:00" }] },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=folders.counts", scope: "mail:read", title: "Emails in each folder",
+    summary: "How many emails are in Inbox, Sent, Drafts, Archive, Spam and Trash, and how many are unread. data.mailbox_id narrows it to one mailbox.",
+    body: { plugin: "mail", action: "folders.counts", data: { mailbox_id: "mb_1a2b3c4d5e6f" } },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=messages.list", scope: "mail:read", title: "List a folder, or search",
+    summary: "Conversations in a folder, newest first. data: folder (inbox, sent, drafts, archive, spam or trash), mailbox_id, q (sender, subject or text), unread, starred, attachments, limit (up to 100) and cursor from the last answer.",
+    body: { plugin: "mail", action: "messages.list", data: { folder: "inbox", q: "proposal", unread: true, limit: 20 } },
+    response: { data: [{ id: "mm_9c1d...", thread_key: "0ca792d4...", from: { name: "Tom Reed", email: "tom@kirkgate.example" }, subject: "Proposal for Q4", snippet: "Please find our proposal attached", is_read: false, has_attachments: true, count: 2 }], total: 1, next_cursor: null },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=messages.get", scope: "mail:read", title: "Read one email",
+    summary: "The email in full: recipients, body (text and cleaned HTML) and its attachments list. id is the message id from a list.",
+    body: { plugin: "mail", action: "messages.get", id: "mm_9c1d..." },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=thread.get", scope: "mail:read", title: "Read a whole conversation",
+    summary: "Every email of one conversation, oldest first. id is the thread_key from a list. Add data.folder trash to include deleted ones.",
+    body: { plugin: "mail", action: "thread.get", id: "0ca792d4..." },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=attachment.get", scope: "mail:read", title: "Download an attachment",
+    summary: "One attachment as base64. id is the message id; data.index is its position in the attachments list (0 is the first).",
+    body: { plugin: "mail", action: "attachment.get", id: "mm_9c1d...", data: { index: 0 } },
+    response: { name: "Q4-proposal.pdf", type: "application/pdf", size: 52311, content_base64: "JVBERi0x..." },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=sync", scope: "mail:read", title: "Check for new mail now",
+    summary: "Reads the mail server for new email. It also happens by itself every few minutes. data.mailbox_id limits it to one mailbox; data.force skips the short wait between checks.",
+    body: { plugin: "mail", action: "sync", data: { mailbox_id: "mb_1a2b3c4d5e6f" } },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=send", scope: "mail:write", title: "Send an email, reply or forward",
+    summary: "Sends from one of your mailboxes. data: mailbox_id, to, cc, bcc (lists or comma-separated), subject, body_html or body_text, from_address (a saved alias), in_reply_to_id (a message id: makes it a reply in the same conversation) and attachments: a list of { name, type, content_base64 } (up to 10 files, 20 MB together). Up to 50 people per email and 200 emails a day per mailbox. Use an Idempotency-Key header so a retry never sends twice.",
+    body: { plugin: "mail", action: "send", data: { mailbox_id: "mb_1a2b3c4d5e6f", to: ["tom@kirkgate.example"], subject: "Re: Proposal for Q4", body_text: "Tuesday works. See you then.", in_reply_to_id: "mm_9c1d..." } },
+    response: { ok: true, id: "mm_2e7f...", status: "sent" },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=draft.save", scope: "mail:write", title: "Save a draft",
+    summary: "Saves an email without sending it. Send the same fields as send; add data.id to update a draft you saved before. Drafts have no attachments.",
+    body: { plugin: "mail", action: "draft.save", data: { mailbox_id: "mb_1a2b3c4d5e6f", to: ["tom@kirkgate.example"], subject: "Following up", body_text: "Hi Tom," } },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=messages.mark", scope: "mail:write", title: "Mark read, unread or starred",
+    summary: "data.ids is a list of up to 100 message ids (or send one in id). data.mark is read, unread, star or unstar. The mail server's own copy changes too.",
+    body: { plugin: "mail", action: "messages.mark", data: { ids: ["mm_9c1d..."], mark: "read" } },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=messages.move", scope: "mail:write", title: "Archive, mark as spam, or move to Trash",
+    summary: "data.to is archive, spam, trash or inbox (to put it back). Moving to Trash is not erasing: it can be undone by moving it to inbox. Up to 100 ids at a time.",
+    body: { plugin: "mail", action: "messages.move", data: { ids: ["mm_9c1d..."], to: "trash" } },
+  },
+  {
+    group: "mail", method: "POST", path: "/v1/run?plugin=mail&action=messages.delete", scope: "mail:delete", title: "Delete for good",
+    summary: "Erases emails and their attachments, here and on the mail server. This cannot be undone, so it only works on emails already in Trash or Drafts (anything else is refused with 400: move it to trash first). It has its own permission, mail:delete, so a key that can send and tidy still cannot erase. Up to 100 ids at a time. Every call is recorded in the activity of the key.",
+    body: { plugin: "mail", action: "messages.delete", data: { ids: ["mm_9c1d..."] } },
+    response: { ok: true, changed: 1 },
+  },
   // ── Social ──
   {
     group: "social", method: "POST", path: "/v1/social/posts", scope: "social:write", title: "Write a post",
@@ -131,7 +198,7 @@ export const ENDPOINTS = [
   { group: "meetings", method: "GET", path: "/v1/meetings/{id}", scope: "calendar:book", title: "See a meeting", summary: "One meeting: when, who, the video link and who booked it.", pathParam: { name: "id", example: "mtg_1a2b3c4d" } },
   {
     group: "meetings", method: "PATCH", path: "/v1/meetings/{id}", scope: "calendar:book", title: "Cancel or move a meeting",
-    summary: "action: cancel, or reschedule with a new date and time.", pathParam: { name: "id", example: "mtg_1a2b3c4d" }, body: { action: "reschedule", date: "2026-11-04", time: "14:00" },
+    summary: "action: cancel, or reschedule with a new date and time.", pathParam: { name: "id", example: "mtg_1a2b3c4d" }, body: { plugin: "mail", action: "reschedule", date: "2026-11-04", time: "14:00" },
   },
   // ── Account ──
   {
@@ -205,6 +272,18 @@ export const RUN_ACTIONS = {
   "PATCH /v1/social/posts/{id}": "social.post.edit",
   "POST /v1/social/posts/{id}/decision": "social.post.decision",
   "GET /v1/wallets": "account.wallet",
+  "POST /v1/run?plugin=mail&action=mailboxes.list": "mail.mailboxes.list",
+  "POST /v1/run?plugin=mail&action=folders.counts": "mail.folders.counts",
+  "POST /v1/run?plugin=mail&action=messages.list": "mail.messages.list",
+  "POST /v1/run?plugin=mail&action=messages.get": "mail.messages.get",
+  "POST /v1/run?plugin=mail&action=thread.get": "mail.thread.get",
+  "POST /v1/run?plugin=mail&action=attachment.get": "mail.attachment.get",
+  "POST /v1/run?plugin=mail&action=sync": "mail.sync",
+  "POST /v1/run?plugin=mail&action=send": "mail.send",
+  "POST /v1/run?plugin=mail&action=draft.save": "mail.draft.save",
+  "POST /v1/run?plugin=mail&action=messages.mark": "mail.messages.mark",
+  "POST /v1/run?plugin=mail&action=messages.move": "mail.messages.move",
+  "POST /v1/run?plugin=mail&action=messages.delete": "mail.messages.delete",
 };
 
 // The details to start from for a call: its example body, or for a read its filters (the part after "?").
@@ -216,7 +295,7 @@ export function defaultData(ep) {
 
 // "voice.call.start" -> { plugin: "voice", action: "call.start" } for a documented call.
 export function pluginAction(ep) {
-  const [plugin, ...rest] = (RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })] || "").split(".");
+  const [plugin, ...rest] = (RUN_ACTIONS[endpointKey(ep)] || RUN_ACTIONS[endpointKey({ method: ep.method, path: ep.path.split("?")[0] })] || "").split(".");
   return { plugin, action: rest.join(".") };
 }
 
@@ -226,6 +305,12 @@ export function runRequest(ep, bodyText, id) {
   if (ep.pathParam) request.id = (id || "").trim() || ep.pathParam.example;
   let data = {};
   try { data = JSON.parse((bodyText || "").trim() || "{}"); } catch { data = {}; }
+  if (ep.path.startsWith("/v1/run?plugin=mail")) { // a mail call already says what it does: its own id and data go straight into the envelope
+    const own = data && typeof data === "object" ? data : {};
+    if (own.id) request.id = own.id;
+    if (own.data && Object.keys(own.data).length) request.data = own.data;
+    return { method: "POST", path: "/v1/run", body: JSON.stringify(request, null, 2) };
+  }
   if (!bodyText?.trim() && ep.method === "GET") data = JSON.parse(defaultData(ep) || "{}");
   if (data && typeof data === "object" && Object.keys(data).length) request.data = data;
   return { method: "POST", path: "/v1/run", body: JSON.stringify(request, null, 2) };

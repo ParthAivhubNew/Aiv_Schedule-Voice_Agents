@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react";
-import { Bell, PlusCircle, CheckCircle2, AlertTriangle, Info, X, Trash2, ExternalLink } from "lucide-react";
+import { Bell, BellRing, PlusCircle, CheckCircle2, AlertTriangle, Info, X, Trash2, ExternalLink } from "lucide-react";
 import {
   C,
   FONT_BODY,
@@ -109,30 +109,44 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
     <div ref={bellRef} style={{ position: "relative", flexShrink: 0 }}>
       <button
         type="button"
-        className="ui-icon-btn"
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
         title={hasUnread ? `${unreadCount} unread` : "Notifications"}
+        aria-label={hasUnread ? `Notifications, ${unreadCount} unread` : "Notifications"}
         aria-expanded={open}
-        style={{ width: 36, height: 36 }}
+        style={{
+          position: "relative",
+          width: 40,
+          height: 40,
+          borderRadius: 999,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          border: `1px solid ${hasUnread || open ? C.cobalt : C.border}`,
+          background: hasUnread || open ? C.cobaltSoft : "#fff",
+          color: hasUnread || open ? C.cobaltDeep : C.ink,
+          boxShadow: "0 1px 3px rgba(18,20,28,0.06)",
+          transition: "background 0.12s, border-color 0.12s",
+        }}
       >
-        <Bell size={17} />
+        {hasUnread ? <BellRing size={20} strokeWidth={2.1} /> : <Bell size={20} strokeWidth={2} />}
         {hasUnread && (
           <span
             style={{
               position: "absolute",
-              top: 3,
-              right: 2,
-              minWidth: 16,
-              height: 16,
-              padding: "0 4px",
+              top: -4,
+              right: -4,
+              minWidth: 18,
+              height: 18,
+              padding: "0 5px",
               borderRadius: 99,
-              background: C.cobalt,
+              background: C.redSolid,
               color: "#fff",
-              fontSize: 10,
-              fontWeight: 600,
+              fontSize: 11,
+              fontWeight: 700,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

@@ -37,11 +37,12 @@ export function MobileNavBackdrop({ nav }) {
 
 // For an app without a header bar of its own: a slim bar with the menu button and the app's
 // name, shown on narrow screens only.
-export function MobileTopBar({ nav, title }) {
+export function MobileTopBar({ nav, title, right }) {
   return (
     <div className="mobile-topbar">
       <MobileNavButton nav={nav} />
-      <span style={{ fontWeight: 600, fontSize: 15, color: "#111827" }}>{title}</span>
+      <span style={{ fontWeight: 600, fontSize: 15, color: "#111827", flex: 1 }}>{title}</span>
+      {right}
     </div>
   );
 }

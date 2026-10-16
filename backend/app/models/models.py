@@ -113,6 +113,7 @@ class ApiKey(Base):
     prefix = Column(String, nullable=False, index=True)  # e.g. "sk_live_3829f0a8"
     hashed_key = Column(String, nullable=False, unique=True, index=True)  # SHA-256 hex digest
     scopes = Column(JSON, default=lambda: ["full_access"])  # ["voice:calls", "leads:search", "social:publish"]
+    mailbox_ids = Column(JSON, nullable=True)  # mail scopes only reach these mailboxes; None = all of the company's
     is_active = Column(Boolean, default=True, index=True)
     last_used_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
@@ -1216,6 +1217,9 @@ class EmailMailbox(Base):
     warmup_quota = Column(Integer, default=0)
     campaign_quota = Column(Integer, default=0)
     last_sent_at = Column(DateTime, nullable=True)
+    # Mail screen sync: {"folders": {"inbox": "INBOX", ...}, "uids": {"inbox": {"validity": 1, "last": 120}}}
+    mail_state = Column(JSON, default=dict)
+    mail_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1268,6 +1272,36 @@ class EmailMessage(Base):
     sent_at = Column(DateTime, nullable=True)
     replied_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class MailMessage(Base):
+    """One email in a connected mailbox as the Mail screen shows it (a copy of what is on the mail server)."""
+    __tablename__ = "mail_messages"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    mailbox_id = Column(String, ForeignKey("email_mailboxes.id", ondelete="CASCADE"), index=True, nullable=False)
+    folder = Column(String, index=True, default="inbox")  # inbox, sent, drafts, archive, spam, trash
+    remote_folder = Column(String, default="")
+    uid = Column(Integer, default=0)  # the server's number for it in remote_folder (0 = only here, e.g. a draft)
+    message_id = Column(String, index=True, default="")
+    in_reply_to = Column(String, default="")
+    thread_key = Column(String, index=True, default="")
+    from_name = Column(String, default="")
+    from_email = Column(String, index=True, default="")
+    to_list = Column(JSON, default=list)  # [{"name": "", "email": ""}]
+    cc_list = Column(JSON, default=list)
+    bcc_list = Column(JSON, default=list)
+    subject = Column(Text, default="")
+    snippet = Column(Text, default="")
+    body_text = Column(Text, default="")
+    body_html = Column(Text, default="")
+    attachments = Column(JSON, default=list)  # [{"name", "size", "type", "file"}]
+    has_attachments = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False)
+    is_starred = Column(Boolean, default=False)
+    sent_at = Column(DateTime, index=True, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class EmailSuppression(Base):

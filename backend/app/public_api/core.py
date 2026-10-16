@@ -70,6 +70,8 @@ LEGACY_SCOPES: Dict[str, Tuple[str, ...]] = {
 
 def has_scope(ctx: Dict[str, Any], needed: str) -> bool:
     scopes = set(ctx.get("scopes") or ["full_access"])
+    if needed.startswith("mail:"):  # reading, writing and erasing mail are always ticked on purpose, never implied by an older "full access" key
+        return needed in scopes
     if "full_access" in scopes or needed in scopes:
         return True
     return any(needed in LEGACY_SCOPES.get(s, ()) for s in scopes)
@@ -204,70 +206,77 @@ def _json_body(response: Response) -> Any:
         return None
 
 
+async def under_shared_rules(request: Request, call) -> Response:
+    """Runs `call()` (which returns the response) under the rules every public call follows: one error shape, safe retries
+    with Idempotency-Key, rate limits and the audit trail. A route gets this from V1Route; POST /v1/run uses it directly
+    for the work it does itself."""
+    request_id = "req_" + uuid.uuid4().hex[:16]
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    ctx = getattr(request.state, "auth", None) or {}
+    org = ctx.get("org_id") or ""
+    who = ctx.get("key_id") or ctx.get("operator_id") or "anon"
+    write = request.method not in ("GET", "HEAD", "OPTIONS")
+    idem_key = (request.headers.get("idempotency-key") or "").strip()[:200] if write else ""
+    idem = False
+    response: Optional[Response] = None
+    try:
+        wait = check_rate(who, write)
+        if wait:
+            raise ApiError(429, "rate_limited", "Too many requests. Slow down and try again shortly.",
+                           {"retry_after_seconds": wait}, {"Retry-After": str(wait)})
+        if idem_key and org:
+            fingerprint = hashlib.sha256(
+                f"{request.method} {request.url.path}\n".encode() + await request.body()).hexdigest()
+            state, stored = await _idem_begin(org, idem_key, fingerprint)
+            if state == "mismatch":
+                raise ApiError(422, "idempotency_key_reused", "That Idempotency-Key was already used for a different request.")
+            if state == "running":
+                raise ApiError(409, "request_in_progress", "The first request with this Idempotency-Key is still running.",
+                               None, {"Retry-After": "2"})
+            if state == "replay":
+                response = JSONResponse(stored["body"], status_code=stored["status"], headers={"Idempotent-Replay": "true"})
+            else:
+                idem = True
+        if response is None:
+            response = await call()
+    except ApiError as err:
+        response = JSONResponse(error_body(request_id, err.status, err.code, err.message, err.details),
+                                status_code=err.status, headers=err.headers)
+    except RequestValidationError as err:
+        fields = [{"field": ".".join(str(p) for p in e.get("loc", ()) if p != "body"), "problem": e.get("msg", "")}
+                  for e in err.errors()]
+        response = JSONResponse(error_body(request_id, 422, "invalid_request", "Some fields are missing or not valid.",
+                                           {"fields": fields}), status_code=422)
+    except HTTPException as err:
+        d = err.detail
+        message = d.get("message") if isinstance(d, dict) and d.get("message") else (d if isinstance(d, str) else json.dumps(d))
+        code = (d.get("error") if isinstance(d, dict) else None) or _DEFAULT_CODES.get(err.status_code, "error")
+        response = JSONResponse(error_body(request_id, err.status_code, code, message), status_code=err.status_code,
+                                headers=dict(err.headers or {}))
+    except Exception:
+        logger.exception(f"[public-api] {request_id} {request.method} {request.url.path} failed")
+        response = JSONResponse(error_body(request_id, 500, "internal_error",
+                                           "Something went wrong on our side. Quote this request_id if you contact us."),
+                                status_code=500)
+    if idem:
+        body = _json_body(response)
+        # Only an answer that worked is remembered. A request that was refused (a mailbox that doesn't exist, no credits,
+        # a bad field) is not replayed: the caller fixes it and retries with the same key.
+        await _idem_finish(org, idem_key, response.status_code, body, keep=response.status_code < 400 and body is not None)
+    response.headers["X-Request-Id"] = request_id
+    if org:
+        ms = int((time.perf_counter() - started) * 1000)
+        ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
+        _later(_audit(org, ctx.get("key_id") or "", request_id, request.method, request.url.path + getattr(request.state, "audit_action", ""), response.status_code, ms, ip))
+    return response
+
+
 class V1Route(APIRoute):
     def get_route_handler(self):
         original = super().get_route_handler()
 
         async def handler(request: Request) -> Response:
-            request_id = "req_" + uuid.uuid4().hex[:16]
-            request.state.request_id = request_id
-            started = time.perf_counter()
-            ctx = getattr(request.state, "auth", None) or {}
-            org = ctx.get("org_id") or ""
-            who = ctx.get("key_id") or ctx.get("operator_id") or "anon"
-            write = request.method not in ("GET", "HEAD", "OPTIONS")
-            idem_key = (request.headers.get("idempotency-key") or "").strip()[:200] if write else ""
-            idem = False
-            response: Optional[Response] = None
-            try:
-                wait = check_rate(who, write)
-                if wait:
-                    raise ApiError(429, "rate_limited", "Too many requests. Slow down and try again shortly.",
-                                   {"retry_after_seconds": wait}, {"Retry-After": str(wait)})
-                if idem_key and org:
-                    fingerprint = hashlib.sha256(
-                        f"{request.method} {request.url.path}\n".encode() + await request.body()).hexdigest()
-                    state, stored = await _idem_begin(org, idem_key, fingerprint)
-                    if state == "mismatch":
-                        raise ApiError(422, "idempotency_key_reused", "That Idempotency-Key was already used for a different request.")
-                    if state == "running":
-                        raise ApiError(409, "request_in_progress", "The first request with this Idempotency-Key is still running.",
-                                       None, {"Retry-After": "2"})
-                    if state == "replay":
-                        response = JSONResponse(stored["body"], status_code=stored["status"], headers={"Idempotent-Replay": "true"})
-                    else:
-                        idem = True
-                if response is None:
-                    response = await original(request)
-            except ApiError as err:
-                response = JSONResponse(error_body(request_id, err.status, err.code, err.message, err.details),
-                                        status_code=err.status, headers=err.headers)
-            except RequestValidationError as err:
-                fields = [{"field": ".".join(str(p) for p in e.get("loc", ()) if p != "body"), "problem": e.get("msg", "")}
-                          for e in err.errors()]
-                response = JSONResponse(error_body(request_id, 422, "invalid_request", "Some fields are missing or not valid.",
-                                                   {"fields": fields}), status_code=422)
-            except HTTPException as err:
-                d = err.detail
-                message = d.get("message") if isinstance(d, dict) and d.get("message") else (d if isinstance(d, str) else json.dumps(d))
-                code = (d.get("error") if isinstance(d, dict) else None) or _DEFAULT_CODES.get(err.status_code, "error")
-                response = JSONResponse(error_body(request_id, err.status_code, code, message), status_code=err.status_code,
-                                        headers=dict(err.headers or {}))
-            except Exception:
-                logger.exception(f"[public-api] {request_id} {request.method} {request.url.path} failed")
-                response = JSONResponse(error_body(request_id, 500, "internal_error",
-                                                   "Something went wrong on our side. Quote this request_id if you contact us."),
-                                        status_code=500)
-            if idem:
-                body = _json_body(response)
-                # Only an answer that worked is remembered. A request that was refused (a mailbox that doesn't exist, no credits,
-                # a bad field) is not replayed: the caller fixes it and retries with the same key.
-                await _idem_finish(org, idem_key, response.status_code, body, keep=response.status_code < 400 and body is not None)
-            response.headers["X-Request-Id"] = request_id
-            if org:
-                ms = int((time.perf_counter() - started) * 1000)
-                ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
-                _later(_audit(org, ctx.get("key_id") or "", request_id, request.method, request.url.path, response.status_code, ms, ip))
-            return response
+            return await under_shared_rules(request, lambda: original(request))
 
         return handler

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   CalendarClock,
@@ -2305,6 +2305,7 @@ export function SocialWorkspace({
   operator,
   onBackToHub,
   onLogout,
+  accountBar,
   profile,
   setProfile,
   knowledgeSources,
@@ -2373,6 +2374,7 @@ export function SocialWorkspace({
   const nav = useMobileNav(page);
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
+  const socialBar = accountBar ? cloneElement(accountBar, { wallet: pluginLocked ? null : "scheduler", app: "Social", onOpenPlan: () => { setApprovalOpen(false); setPage("subscription"); } }) : null;
   useEffect(() => onRouteChange(() => {
     if (routeHash().includes("/scheduler/subscription")) setPage("subscription");
   }), []);
@@ -3891,7 +3893,10 @@ export function SocialWorkspace({
       </div>
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <MobileTopBar nav={nav} title="Social" />
+        <MobileTopBar nav={nav} title="Social" right={socialBar} />
+        {accountBar ? (
+          <div className="hide-mobile" style={{ display: "flex", justifyContent: "flex-end", padding: "6px 20px", background: "#fff", borderBottom: `1px solid ${C.border}` }}>{socialBar}</div>
+        ) : null}
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />

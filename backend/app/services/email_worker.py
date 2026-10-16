@@ -276,6 +276,19 @@ async def read_inbox(db: AsyncSession, org_id: str, mb: EmailMailbox, now: datet
         await T.rescue_warmup(mailbox_settings(mb), out["warmup_uids"])
 
 
+async def refresh_mail(db: AsyncSession, org_id: str, mb: EmailMailbox, now: datetime) -> None:
+    """Keeps the Mail screen's copy fresh for mailboxes someone has opened there (it is first read when they open it)."""
+    if not mb.mail_state or (mb.mail_synced_at and now - mb.mail_synced_at < INBOX_EVERY):
+        return
+    from app.services import mail_sync
+
+    try:
+        await mail_sync.sync_mailbox(db, org_id, mb, mailbox_settings(mb))
+    except Exception as err:
+        mb.mail_synced_at = now
+        logger.debug(f"mail screen copy not refreshed for {mb.email}: {err}")
+
+
 # ── One company ─────────────────────────────────────────────────────────────
 async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None) -> Dict[str, int]:
     from app.services import platform_mailbox
@@ -306,6 +319,7 @@ async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None)
     for mb in boxes.values():
         if mb.status not in ("disabled",):
             await read_inbox(db, org_id, mb, now)
+            await refresh_mail(db, org_id, mb, now)
     await db.commit()
     return stats
 

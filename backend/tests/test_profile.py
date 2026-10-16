@@ -102,3 +102,14 @@ async def test_devices_list_and_sign_out(client, anon, db):
         assert (await client.post("/api/auth/me/sessions/sign-out-others")).json()["ok"]
     assert (await client.delete("/api/auth/me/sessions/ses_nope")).status_code == 404
     assert (await client.get("/api/auth/me")).status_code == 200  # this device stays signed in
+
+
+async def test_every_app_wallet_shows_at_a_glance_to_anyone(client, anon, db):
+    _, token = await make_user(db, "viewer", "Operator")
+    h = {"Authorization": f"Bearer {token}"}
+    for wallet in ("leadgen", "voice", "scheduler"):
+        r = await anon.get(f"/api/credits/wallet/{wallet}", headers=h)
+        assert r.status_code == 200, (wallet, r.text)
+        assert {"balance", "held", "low", "empty", "used_30d", "rates"} <= set(r.json())
+    assert (await anon.get("/api/credits/wallet/nope", headers=h)).status_code == 400
+    assert (await anon.get("/api/credits/leads", headers=h)).status_code == 200

@@ -3,12 +3,14 @@ import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
 import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
+import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
 import { AppChrome } from "./app/ui";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
 import { AppHome } from "./hub/AppHome";
 import { UniversalCallNotificationBanner } from "./hub/PluginHub";
 import { ProfilePage } from "./hub/ProfilePage";
+import { AccountBar } from "./hub/AccountBar";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CalcomSchedulerPlugin } from "./plugins/calendar/CalcomSchedulerPlugin";
@@ -668,6 +670,23 @@ function MainApp({ onSignedOut }) {
     setPlugin(p);
   };
 
+  // The bell is the same in every app, so the list lives here (Voice adds to it).
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aivhub_calling_v1_notes") || "[]");
+      return dedupeNotifications(Array.isArray(saved) ? saved : []);
+    } catch (_) {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("aivhub_calling_v1_notes", JSON.stringify(dedupeNotifications(notifications))); } catch (_) {}
+  }, [notifications]);
+  const openNotification = (note, meta) => {
+    const page = (meta && meta.page) || callingPageFromTarget(resolveNotificationTarget(note).targetView);
+    navigateHash(`#/voice/${page}`);
+  };
+
   const handleUpdateOperator = (updater) => {
     setOperator((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -683,6 +702,25 @@ function MainApp({ onSignedOut }) {
   };
 
   if (!operator) return null;
+
+  const accountBar = (
+    <AccountBar
+      operator={operator}
+      notifications={notifications}
+      setNotifications={setNotifications}
+      onNavigate={openNotification}
+      menu={{
+        onLogout: handleLogout,
+        commonAi,
+        onOpenCommonAi: platformOrg ? (tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); } : null,
+        onOpenTeamUsers: (tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); },
+        onOpenProfileSettings: () => setShowProfileModal(true),
+        onOpenCalcomAdmin: (tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); },
+        onOpenDeveloperKeys: () => setShowDeveloperKeysModal(true),
+        onOpenConnections: () => { setConnectionsTab(""); setShowConnections(true); },
+      }}
+    />
+  );
   
   return (
     <OrgSettingsProvider>
@@ -717,6 +755,9 @@ function MainApp({ onSignedOut }) {
           {p === "leadgen" && (
             <SafeErrorBoundary label="Leads" onReset={handleBackToHub}>
               <LeadGenerationPlugin
+                accountBar={accountBar}
+                notifications={notifications}
+                setNotifications={setNotifications}
                 operator={operator}
                 onBackToHub={handleBackToHub}
                 onLogout={handleLogout}
@@ -729,6 +770,9 @@ function MainApp({ onSignedOut }) {
           {p === "scheduler" && (
             <SafeErrorBoundary label="Social" onReset={handleBackToHub}>
               <SocialWorkspaceGate
+                accountBar={accountBar}
+                notifications={notifications}
+                setNotifications={setNotifications}
                 operator={operator}
                 onBackToHub={handleBackToHub}
                 onLogout={handleLogout}
@@ -744,6 +788,9 @@ function MainApp({ onSignedOut }) {
           {p === "voice" && (
             <SafeErrorBoundary label="Voice" onReset={handleBackToHub}>
               <CallingRoot
+                accountBar={accountBar}
+                notifications={notifications}
+                setNotifications={setNotifications}
                 operator={operator}
                 onBackToHub={handleBackToHub}
                 onLogout={handleLogout}
@@ -770,6 +817,9 @@ function MainApp({ onSignedOut }) {
           {p === "calcom" && (
             <SafeErrorBoundary label="Cal.com Scheduler" onReset={handleBackToHub}>
               <CalcomSchedulerPlugin
+                accountBar={accountBar}
+                notifications={notifications}
+                setNotifications={setNotifications}
                 operator={operator}
                 onBackToHub={handleBackToHub}
                 onLogout={handleLogout}
