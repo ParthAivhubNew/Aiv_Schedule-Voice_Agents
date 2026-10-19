@@ -71,12 +71,29 @@ def _weekday_parts(date_iso: str):
     return d.strftime("%a"), d.day, d.strftime("%b")
 
 
-def render(week: list, company: str, tz: str, name: str, email: str, notice: str = "", done: Optional[Dict[str, Any]] = None) -> str:
+def _event_lines(event: Optional[Dict[str, Any]]) -> str:
+    """What is being booked: name, length, where it happens, who with, and the event's own description."""
+    if not event:
+        return ""
+    bits = [f"{event['length']} min", event["where"]] + ([f"with {event['host']}"] if event.get("host") else [])
+    desc = f'<p class="cap" style="margin:8px 0 0;font-size:13px">{_esc(event["description"])}</p>' if event.get("description") else ""
+    return (f'<div class="head" style="font-size:16px;margin-bottom:2px">{_esc(event["title"])}</div>'
+            f'<div class="meta">{_esc(" · ".join(bits))}</div>{desc}')
+
+
+def render(week: list, company: str, tz: str, name: str, email: str, notice: str = "", done: Optional[Dict[str, Any]] = None,
+           event: Optional[Dict[str, Any]] = None) -> str:
     if done:
         join = f'<div class="row"><a href="{_esc(done["join_url"])}"><button class="ok" type="button">Open the meeting link</button></a></div>' if done.get("join_url") else ""
+        if done.get("mailed"):
+            mail = f"A confirmation with a calendar invite was emailed to {_esc(done['email'])}, and {_esc(company)} was told too."
+        else:
+            mail = (f"We could not email {_esc(done['email'])} just now. Keep this page: it has everything you need. "
+                    f"{_esc(company)} has been told about your booking.")
         body = (f"<h1>You are booked</h1><div class='sub'>{_esc(company)}</div>"
-                f"<div class='card'><div class='meta'>When</div><div class='head'>{_esc(done['when'])}</div>"
-                f"<div class='meta'>A confirmation is on its way to {_esc(done['email'])}.</div>{join}</div>")
+                f"<div class='card'>{_event_lines(event)}<div class='meta' style='margin-top:12px'>When</div>"
+                f"<div class='head'>{_esc(done['when'])}</div>"
+                f"<div class='meta'>{mail}</div>{join}</div>")
         return _page("Booked", body)
     banner = f'<div class="card" style="border-color:#B45309"><strong>{_esc(notice)}</strong></div>' if notice else ""
     open_days = [d for d in week if d["open"]]
@@ -99,11 +116,14 @@ def render(week: list, company: str, tz: str, name: str, email: str, notice: str
         left = (f'<div class="card"><div class="head">Pick a day and a time</div>'
                 f'<div class="meta">Times are shown in {_esc(tz)}. {len(open_days)} days with free times.</div>'
                 f'<div class="strip" role="group" aria-label="Days">{strip}</div>{panels}</div>')
-        side = (f'<div class="card side"><div class="head">Your details</div>'
-                f'<p class="pick" id="pick" aria-live="polite">Choose a time on the left.</p>'
+        side = (f'<div class="card side"><div class="meta" style="font-weight:700;text-transform:uppercase;letter-spacing:.04em">What you are booking</div>'
+                f'{_event_lines(event)}'
+                f'<p class="pick" id="pick" aria-live="polite" style="margin-top:12px">Choose a time on the left.</p>'
+                f'<div class="head" style="margin-top:4px">Your details</div>'
                 f'<input name="name" required placeholder="Your name" value="{_esc(name)}" {box}>'
                 f'<input name="email" required type="email" placeholder="Your email" value="{_esc(email)}" {box}>'
-                f'<div class="row"><button class="ok" id="go" type="submit" style="width:100%">Book this time</button></div></div>')
+                f'<div class="meta" style="margin:2px 0 0">When you confirm, you and {_esc(company)} both get an email with these details and a calendar invite.</div>'
+                f'<div class="row"><button class="ok" id="go" type="submit" style="width:100%">Confirm booking</button></div></div>')
     script = """<script>
 (function(){var d=document;d.documentElement.className+=' js';
 var days=d.querySelectorAll('.dayb'),panels=d.querySelectorAll('.panel'),pick=d.getElementById('pick'),go=d.getElementById('go');
@@ -115,6 +135,24 @@ d.addEventListener('change',function(e){if(e.target&&e.target.name==='slot'){pic
 </script>"""
     form = f'<form method="post"><div class="bk"><div>{left}</div><div>{side}</div></div></form>'
     return _page("Book a time", f"{BOOK_CSS}<h1>Book a time with {_esc(company)}</h1><div class='sub'>This link needs no sign-in</div>{banner}{form}{script}")
+
+
+async def event_info(db, slug: str) -> Dict[str, Any]:
+    """What a booking link books: the event's name, length, description and where it happens."""
+    from sqlalchemy.future import select
+
+    from app.models.models import MeetingEventType
+    from app.services.calendar_service import calendar_service
+
+    ev = (await db.execute(select(MeetingEventType).where(MeetingEventType.slug == slug))).scalars().first()
+    setting = await calendar_service.get_or_create_settings(db)
+    kind = {"google_meet": "Google Meet video call", "cal_video": "Video call", "zoom": "Zoom video call",
+            "phone": "Phone call", "in_person": "In person"}.get((ev.location_type if ev else "") or "google_meet", "Video call")
+    if ev and ev.location_type == "in_person" and (ev.location_value or "").strip():
+        kind = f"In person, {ev.location_value.strip()}"
+    return {"title": (ev.title if ev else "") or "Meeting", "length": (ev.length if ev else 15) or 15,
+            "description": ((ev.description if ev else "") or "").strip()[:400], "where": kind,
+            "host": (getattr(setting, "host_name", "") or "").strip()}
 
 
 async def view(db, ref: Dict[str, str]):
@@ -143,9 +181,10 @@ async def act(db, org: str, ref: Dict[str, str], form: Dict[str, str], lead, tz:
     if not name or "@" not in email or len(slot) != 3:
         return {"error": "Pick a time and fill in your name and email."}
     date_iso, host_time, shown = slot
+    ev = await event_info(db, ref["slug"])
     res = await calendar_service.create_booking(
         db, prospect_name=name, attendee_email=email, date_str=date_iso, time_str=host_time,
-        event_type_slug=ref["slug"], mission_name="Booking link", prospect_timezone=tz,
+        event_type_slug=ref["slug"], mission_name=ev["title"], prospect_timezone=tz,
         prospect_phone=getattr(lead, "phone", None))
     if not res.get("success"):
         return {"error": res.get("message") or "That time was just taken. Please pick another."}
@@ -164,7 +203,36 @@ async def act(db, org: str, ref: Dict[str, str], form: Dict[str, str], lead, tz:
 
         feed.add(db, f"{name} booked a meeting for {date_iso} at {shown}" + (" from one of your posts." if ref["post_id"] else " from a booking link."), "success")
         await db.commit()
-    return {"when": f"{date_iso} at {shown} ({tz})", "email": email, "join_url": res.get("videoLink") or ""}
+    sent = res.get("emailConfirmationSent") or {}
+    when = f"{date_iso} at {shown} ({tz})"
+    mailed = bool(sent.get("attendee"))
+    if not mailed:  # the calendar mailbox could not send it: use the platform mailbox so the booker still gets one
+        mailed = await _fallback_mail(email, name, ev, when, res.get("videoLink") or "", company_name=await _company(db))
+    if not sent.get("host") and res.get("hostEmail"):
+        await _fallback_mail(res["hostEmail"], res.get("hostName") or "", ev, when, res.get("videoLink") or "", company_name=await _company(db),
+                             host_view=f"{name} ({email}) booked this time.")
+    return {"when": when, "email": email, "join_url": res.get("videoLink") or "", "mailed": mailed, "event": ev}
+
+
+async def _company(db) -> str:
+    from app.services.approval_mail import _company_name
+
+    return await _company_name(db)
+
+
+async def _fallback_mail(to: str, name: str, ev: Dict[str, Any], when: str, join_url: str, company_name: str, host_view: str = "") -> bool:
+    """A plain confirmation from the platform mailbox. Never raises; True when it was sent."""
+    try:
+        from app.core import mailer
+
+        lines = [host_view or f"You are booked: <b>{_esc(ev['title'])}</b> with {_esc(company_name)}.",
+                 f"<b>When:</b> {_esc(when)}<br><b>Length:</b> {ev['length']} min<br><b>Where:</b> {_esc(ev['where'])}"]
+        msg = mailer.render(f"Confirmed: {ev['title']}", lines, {"label": "Open the meeting link", "url": join_url} if join_url else None,
+                            reason=f"You are getting this because a time was booked with {_esc(company_name)}.")
+        res = await mailer.send_system_email(to, f"Confirmed: {ev['title']}, {when}", msg["html"], msg["text"])
+        return bool(res.get("ok"))
+    except Exception:
+        return False
 
 
 async def _lead_from_booking(db, meeting, name: str, email: str, post_id: str) -> None:

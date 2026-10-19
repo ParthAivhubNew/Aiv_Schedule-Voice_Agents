@@ -2285,12 +2285,6 @@ function isLocked(status) {
 // A day cell shows this many posts; the rest sit behind "+N more" so a busy day cannot stretch the grid.
 const DAY_POST_LIMIT = 3;
 
-// Two pages that belong together share one nav entry and a tab bar across the top.
-const PAGE_GROUPS = [
-  [["overview", "Overview"], ["plan", "Calendar"]],
-  [["insights", "Insights"], ["reports", "Reports and history"]],
-];
-
 const LOCAL_ONLY_FIELDS = ["plan", "batchId", "uniqueForChannel", "copyChat", "imageChat", "hook", "hashtags", "imageConcept", "imageHeadline"];
 
 
@@ -2898,7 +2892,7 @@ export function SocialWorkspace({
   const [selectedId, setSelectedId] = useState(null);
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
-  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "overview"));
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
   const nav = useMobileNav(page);
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
@@ -4286,6 +4280,15 @@ export function SocialWorkspace({
     }
   };
 
+  const [ovOpen, setOvOpen] = useState(() => { try { return localStorage.getItem("social_overview_open") !== "0"; } catch (_) { return true; } });
+  const toggleOverview = () => setOvOpen((v) => { try { localStorage.setItem("social_overview_open", v ? "0" : "1"); } catch (_) {} return !v; });
+  // Calendar holds the Overview above it, and Insights holds the Reports panel: both open at the top.
+  useEffect(() => {
+    const target = { overview: "ov-anchor", plan: "ov-anchor", insights: "insights-main", reports: "insights-main" }[page];
+    if (!target) return undefined;
+    const t = window.setTimeout(() => { const el = document.getElementById(target); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" }); }, 80);
+    return () => window.clearTimeout(t);
+  }, [page, approvalOpen]);
   const goPage = (id) => {
     if (pluginLocked && id !== "subscription") { showToast("Choose a plan or buy a top-up to unlock Social."); return; }
     setApprovalOpen(false);
@@ -4310,13 +4313,13 @@ export function SocialWorkspace({
   };
   const navGroups = [
     { label: "Posts", items: [
-      { id: "overview", label: "Overview & calendar", icon: CalendarDays, active: (page === "overview" || page === "plan") && !approvalOpen, locked: pluginLocked, onClick: () => goPage(page === "plan" ? "plan" : "overview") },
+      { id: "plan", label: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "Approvals", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
       { id: "import", label: "Import", icon: Upload, active: page === "import" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("import") },
       { id: "media", label: "Media library", icon: ImageIcon, active: page === "media" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
     ] },
     { label: "Results", items: [
-      { id: "insights", label: "Insights & reports", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage(page === "reports" ? "reports" : "insights") },
+      { id: "insights", label: "Insights", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
       { id: "listening", label: "Listening", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
     ] },
     { label: "Setup", items: [
@@ -4326,13 +4329,13 @@ export function SocialWorkspace({
     ] },
   ];
   const topTitles = {
-    overview: ["Overview", "What needs you today, what goes out next, and how the last week went."],
-    insights: ["Insights", "How your published posts did, read from each network."],
-    reports: ["Reports", "Results reports for clients and managers, by email or link."],
+    overview: ["Calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
+    insights: ["Insights", "How your published posts did, and reports to share with clients or your manager."],
+    reports: ["Insights", "How your published posts did, and reports to share with clients or your manager."],
     listening: ["Listening", "Public posts that mention your brand, products or competitors."],
     media: ["Media library", "Pictures and videos to reuse in posts."],
     import: ["Import", "Add many posts at once from a CSV or Excel file."],
-    plan: ["Calendar", "Plan posts with the AI, see them on a calendar and publish."],
+    plan: ["Calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
     approvals: ["Approvals", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts", "The social accounts your posts go to."],
     audience: ["Audience & ideas", "Who you are talking to, and what to post about."],
@@ -4357,17 +4360,6 @@ export function SocialWorkspace({
             <FlaskConical size={14} aria-hidden="true" />
             <span style={{ flex: "1 1 240px", minWidth: 0 }}><b>Test mode is on.</b> Posts go through approval and publishing, but nothing is sent to any network.</span>
             <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} onClick={() => goPage("accounts")}>Change</button>
-          </div>
-        ) : null}
-        {!pluginLocked && !approvalOpen && PAGE_GROUPS.find((g) => g.some(([id]) => id === page)) ? (
-          <div role="tablist" aria-label="Views" style={{ display: "flex", gap: 6, padding: "10px 20px 0", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
-            {PAGE_GROUPS.find((g) => g.some(([id]) => id === page)).map(([id, label]) => (
-              <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
-                style={{ border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, padding: "8px 12px",
-                  color: page === id ? C.teal : C.slate, borderBottom: `2px solid ${page === id ? C.teal : "transparent"}`, marginBottom: -1 }}>
-                {label}
-              </button>
-            ))}
           </div>
         ) : null}
         {pluginLocked && page !== "subscription" ? (
@@ -4413,23 +4405,12 @@ export function SocialWorkspace({
           <MediaLibraryPage showToast={showToast} />
         ) : page === "import" ? (
           <ImportPage showToast={showToast} onOpenApprovals={() => { refreshPosts(); openApprovals(); }} onOpenCalendar={() => { refreshPosts(); goPage("plan"); }} />
-        ) : page === "reports" ? (
-          <ReportsPage showToast={showToast} />
         ) : page === "listening" ? (
           <ListeningPage showToast={showToast} />
         ) : page === "audience" ? (
           <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
-        ) : page === "overview" ? (
-          <OverviewPage
-            onOpenPost={(id) => openApprovals(id)}
-            onRetry={retryFromOverview}
-            retrying={publishing}
-            onReconnect={() => goPage("accounts")}
-            onOpenApprovals={() => openApprovals()}
-            onOpenInsights={() => goPage("insights")}
-          />
-        ) : page === "insights" ? (
-          <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} />
+        ) : page === "insights" || page === "reports" ? (
+          <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -4482,6 +4463,23 @@ export function SocialWorkspace({
         ) : null}
         <div className="split-view" style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
+            <section id="ov-anchor" aria-label="Overview" style={{ flexShrink: 0, scrollMarginTop: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ovOpen ? 10 : 0 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, flex: 1 }}>Overview</div>
+                <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} aria-expanded={ovOpen} onClick={toggleOverview}>{ovOpen ? "Hide" : "Show"}</button>
+              </div>
+              {ovOpen ? (
+                <OverviewPage embedded
+                  onOpenPost={(id) => openApprovals(id)}
+                  onRetry={retryFromOverview}
+                  retrying={publishing}
+                  onReconnect={() => goPage("accounts")}
+                  onOpenApprovals={() => openApprovals()}
+                  onOpenInsights={() => goPage("insights")}
+                />
+              ) : null}
+            </section>
+            <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn}>
                 <ChevronLeft size={16} />

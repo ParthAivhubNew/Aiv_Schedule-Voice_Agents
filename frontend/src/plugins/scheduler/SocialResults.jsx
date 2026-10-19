@@ -91,7 +91,8 @@ function TrendChart({ data, field, name, height = 180, kind = "area" }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals, onOpenInsights, retrying }) {
+export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals, onOpenInsights, retrying, embedded = false }) {
+  const root = embedded ? {} : page; // embedded: it sits above the calendar and scrolls with it
   const org = useOrg();
   const [data, setData] = useState(null);
   const [state, setState] = useState("loading");
@@ -106,15 +107,15 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
   }, [load]);
   useEffect(() => { if (!retrying) load(); }, [retrying, load]);
 
-  if (state === "loading" && !data) return <div style={page}><Loading what="your overview" /></div>;
-  if (state === "error" && !data) return <div style={page}><Failed what="your overview" onRetry={load} /></div>;
+  if (state === "loading" && !data) return <div style={root}><Loading what="your overview" /></div>;
+  if (state === "error" && !data) return <div style={root}><Failed what="your overview" onRetry={load} /></div>;
   const c = data.counts;
   const attention = data.failed.length + data.reconnect.length;
   const week = data.week;
   const hasResults = week.series.some((d) => d.reach != null || d.engagements != null);
   return (
-    <div style={page}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={root}>
+      <div style={{ maxWidth: embedded ? "none" : 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="overview-tiles" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
           <Tile label="Posts today" value={c.today} />
           <Tile label="Scheduled, next 7 days" value={c.nextSevenDays} />
@@ -217,7 +218,7 @@ function Stat({ label, value, change, accent }) {
 }
 
 // ── Insights ────────────────────────────────────────────────────────────────
-export function InsightsPage({ onOpenPost, showToast }) {
+export function InsightsPage({ onOpenPost, showToast, side }) {
   const [days, setDays] = useState(30);
   const [channel, setChannel] = useState("");
   const [account, setAccount] = useState("");
@@ -249,7 +250,8 @@ export function InsightsPage({ onOpenPost, showToast }) {
   const accountsForChannel = ((data && data.accounts) || []).filter((a) => !channel || a.platform === channel);
   return (
     <div style={page}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ maxWidth: side ? 1560 : 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20 }}>
+      <div id="insights-main" style={{ flex: "1 1 620px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <div role="group" aria-label="Time range" style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden", background: "#fff" }}>
             {[7, 30, 90].map((d) => (
@@ -277,6 +279,8 @@ export function InsightsPage({ onOpenPost, showToast }) {
         {state === "loading" && !data ? <Loading what="results" /> : null}
         {state === "error" ? <Failed what="results" onRetry={load} /> : null}
         {data ? <InsightsBody data={data} onOpenPost={onOpenPost} loading={state === "loading"} /> : null}
+      </div>
+      {side ? <aside id="reports-panel" aria-label="Reports" style={{ flex: "0 1 420px", minWidth: 300, width: "100%", scrollMarginTop: 12 }}>{side}</aside> : null}
       </div>
     </div>
   );

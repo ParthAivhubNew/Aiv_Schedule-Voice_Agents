@@ -208,9 +208,10 @@ async def _handle_book(org: str, ref_raw: str, form: Optional[Dict[str, str]]) -
                 logger.warning(f"booking page failed: {err}")
                 return HTMLResponse(_page("Book a time", "<h1>Booking is not available right now</h1><div class='sub'>Please try again later or reply to the message you received.</div>"), status_code=503)
             company = await _company_name(db)
+            event = (done or {}).get("event") or await book_page.event_info(db, ref["slug"])
     name = (form or {}).get("name") or getattr(lead, "contact_name", "") or ""
     email = (form or {}).get("email") or getattr(lead, "email", "") or ""
-    return HTMLResponse(book_page.render(week, company, tz, name, email, notice, done))
+    return HTMLResponse(book_page.render(week, company, tz, name, email, notice, done, event))
 
 
 async def _handle_call(org: str, call_id: str, form: Optional[Dict[str, str]]) -> HTMLResponse:

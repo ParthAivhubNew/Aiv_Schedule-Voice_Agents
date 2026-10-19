@@ -101,7 +101,7 @@ function Preview({ data, onClose }) {
   );
 }
 
-export function ReportsPage({ showToast }) {
+export function ReportsPage({ showToast, embedded = false }) {
   const [data, setData] = useState(null);
   const [state, setState] = useState("loading");
   const [editing, setEditing] = useState(null);
@@ -109,6 +109,7 @@ export function ReportsPage({ showToast }) {
   const [preview, setPreview] = useState(null);
   const [links, setLinks] = useState({});
   const [runs, setRuns] = useState([]);
+  const [sharing, setSharing] = useState(null); // { id, to }
   const load = useCallback(() => {
     api.listReports().then((d) => { setData(d); setState("ok"); }).catch(() => setState("error"));
     api.getReportHistory().then((d) => setRuns(d.runs || [])).catch(() => {});
@@ -136,99 +137,119 @@ export function ReportsPage({ showToast }) {
     await navigator.clipboard.writeText(link);
     showToast("Link copied. Anyone with it can view the report for 120 days.");
   });
-  const send = (r) => act(r.id, "send", async () => {
-    const res = await api.sendReport(r.id);
+  const openShare = (r) => setSharing({ id: r.id, to: (r.recipients || []).join(", ") });
+  const share = (r) => act(r.id, "send", async () => {
+    const to = sharing.to.split(/[,;\s]+/).filter(Boolean);
+    if (!to.length) throw new Error("Type at least one email address.");
+    const res = await api.sendReport(r.id, to);
     showToast(`Sent to ${res.sent} ${res.sent === 1 ? "person" : "people"}.`);
+    setSharing(null);
     load();
   });
-  const addRecipients = (r) => {
-    setEditing({ ...r, focusRecipients: true });
-    showToast("Type who should get this report, save it, then press Send now.");
-    window.scrollTo?.({ top: 0 });
-  };
   const remove = (r) => {
     if (!window.confirm(`Delete the report “${r.name}”? Its link stops working.`)) return;
     act(r.id, "delete", async () => { await api.deleteReport(r.id); load(); });
   };
+  const mailOff = data && !data.emailReady;
+  const stamp = (iso, opts) => new Date(iso).toLocaleString("en-GB", opts);
 
-  return (
-    <div style={page}>
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+  const body = (
+    <div style={{ display: "flex", flexDirection: "column", gap: embedded ? 12 : 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {embedded ? <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, flex: "1 1 auto" }}>Reports</div> : null}
+        {!embedded ? (
           <div style={{ ...muted, flex: "1 1 320px" }}>
             Share how your social media is doing with a client or your manager: reach, views, engagements, link clicks,
             best posts and followers, from the same numbers as Insights.
           </div>
-          {!editing ? <button type="button" style={primary} onClick={() => setEditing({})}><Plus size={14} /> New report</button> : null}
+        ) : null}
+        {!editing ? <button type="button" style={primary} onClick={() => setEditing({})}><Plus size={14} /> New report</button> : null}
+      </div>
+      {embedded ? <div style={{ ...muted, marginTop: -6 }}>Share these numbers with a client or your manager. Everything sent is listed below.</div> : null}
+      {mailOff ? (
+        <div style={{ ...card, background: C.amberSoft || "#FCEFDA", borderColor: C.amber, fontSize: 12.5 }}>
+          Email sending is not set up for your account yet, so reports cannot be emailed. You can still share each report’s link.
         </div>
-        {data && !data.emailReady ? (
-          <div style={{ ...card, background: C.amberSoft || "#FCEFDA", borderColor: C.amber, fontSize: 12.5 }}>
-            Email sending is not set up for your account yet, so reports cannot be emailed. You can still share each report’s link.
+      ) : null}
+      {editing ? (
+        <ReportForm initial={editing} showToast={showToast} onCancel={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); showToast("Report saved."); }} />
+      ) : null}
+      {state === "loading" ? <div style={muted}>Loading reports…</div> : state === "error" ? (
+        <div style={card}>Could not load reports. <button type="button" style={btn} onClick={load}>Try again</button></div>
+      ) : !data.reports.length && !editing ? (
+        <div style={{ ...card, textAlign: "center", padding: 28, borderStyle: "dashed" }}>
+          <FileText size={22} color={C.slate} />
+          <div style={{ fontWeight: 700, marginTop: 8 }}>No reports yet</div>
+          <div style={{ ...muted, marginTop: 4 }}>Make one per client, then share it now or every month.</div>
+        </div>
+      ) : data.reports.map((r) => (
+        <section key={r.id} style={card} aria-label={r.name}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, overflowWrap: "anywhere" }}>{r.name}</div>
+          <div style={{ ...muted, marginTop: 2 }}>
+            Last {r.days} days · {r.channels.length ? r.channels.map((c) => (CHANNELS.find(([id]) => id === c) || [c, c])[1]).join(", ") : "All channels"}
+            {" · "}{FREQ[r.frequency]}
           </div>
-        ) : null}
-        {editing ? (
-          <ReportForm initial={editing} showToast={showToast} onCancel={() => setEditing(null)}
-            onSaved={() => { setEditing(null); load(); showToast("Report saved."); }} />
-        ) : null}
-        {state === "loading" ? <div style={muted}>Loading reports…</div> : state === "error" ? (
-          <div style={card}>Could not load reports. <button type="button" style={btn} onClick={load}>Try again</button></div>
-        ) : !data.reports.length && !editing ? (
-          <div style={{ ...card, textAlign: "center", padding: 32, borderStyle: "dashed" }}>
-            <FileText size={22} color={C.slate} />
-            <div style={{ fontWeight: 700, marginTop: 8 }}>No reports yet</div>
-            <div style={{ ...muted, marginTop: 4 }}>Make one per client, then send it now or every month.</div>
+          <div style={{ ...muted, fontSize: 12 }}>
+            {r.recipients.length ? `Saved recipients: ${r.recipients.join(", ")}` : "No saved recipients"}
+            {r.lastSentAt ? ` · Last sent ${stamp(r.lastSentAt, { day: "numeric", month: "short", year: "numeric" })}` : ""}
           </div>
-        ) : data.reports.map((r) => (
-          <section key={r.id} style={card} aria-label={r.name}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>{r.name}</div>
-                <div style={{ ...muted, marginTop: 2 }}>
-                  Last {r.days} days · {r.channels.length ? r.channels.map((c) => (CHANNELS.find(([id]) => id === c) || [c, c])[1]).join(", ") : "All channels"}
-                  {" · "}{FREQ[r.frequency]}
-                </div>
-                <div style={{ ...muted, fontSize: 12 }}>
-                  {r.recipients.length ? `To ${r.recipients.join(", ")}` : (
-                    <>Nobody to email yet. <button type="button" onClick={() => addRecipients(r)} className="ui-link"
-                      style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 700, color: C.teal, cursor: "pointer", textDecoration: "underline" }}>Add email addresses</button></>
-                  )}
-                  {r.lastSentAt ? ` · Last sent ${new Date(r.lastSentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                <button type="button" style={btn} disabled={busy === r.id + "preview"} onClick={() => openPreview(r)}><Eye size={13} /> {busy === r.id + "preview" ? "Loading…" : "Preview"}</button>
-                <button type="button" style={btn} disabled={busy === r.id + "link"} onClick={() => copyLink(r)}><Copy size={13} /> Copy link</button>
-                <button type="button" style={btn} disabled={busy === r.id + "send" || (data && !data.emailReady)}
-                  title={data && !data.emailReady ? "Email sending is not set up for your account yet" : undefined} onClick={() => (r.recipients.length ? send(r) : addRecipients(r))}>
-                  <Send size={13} /> {busy === r.id + "send" ? "Sending…" : "Send now"}
-                </button>
-                <button type="button" style={btn} onClick={() => setEditing(r)} aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
-                <button type="button" style={{ ...btn, color: "#B42318", borderColor: "#F3D1CD" }} onClick={() => remove(r)} aria-label={`Delete ${r.name}`}><Trash2 size={13} /></button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+            <button type="button" style={primary} disabled={mailOff} aria-expanded={!!sharing && sharing.id === r.id}
+              title={mailOff ? "Email sending is not set up for your account yet" : "Email this report to somebody now"}
+              onClick={() => (sharing && sharing.id === r.id ? setSharing(null) : openShare(r))}>
+              <Send size={13} /> Share to somebody
+            </button>
+            <button type="button" style={btn} disabled={busy === r.id + "preview"} onClick={() => openPreview(r)}><Eye size={13} /> {busy === r.id + "preview" ? "Loading…" : "Preview"}</button>
+            <button type="button" style={btn} disabled={busy === r.id + "link"} onClick={() => copyLink(r)}><Copy size={13} /> Copy link</button>
+            <button type="button" style={btn} onClick={() => setEditing(r)} aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
+            <button type="button" style={{ ...btn, color: "#B42318", borderColor: "#F3D1CD" }} onClick={() => remove(r)} aria-label={`Delete ${r.name}`}><Trash2 size={13} /></button>
+          </div>
+          {sharing && sharing.id === r.id ? (
+            <div style={{ marginTop: 10, padding: 10, background: HUB_PAPER, borderRadius: 10 }}>
+              <label style={{ ...label, marginTop: 0 }}>Send it to (email addresses, separated by commas)
+                <input style={field} autoFocus type="text" inputMode="email" value={sharing.to} placeholder="client@example.com, manager@example.com"
+                  onChange={(e) => setSharing({ ...sharing, to: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); share(r); } }} />
+              </label>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button type="button" style={primary} disabled={busy === r.id + "send"} onClick={() => share(r)}>{busy === r.id + "send" ? "Sending…" : "Send now"}</button>
+                <button type="button" style={btn} onClick={() => setSharing(null)}>Cancel</button>
               </div>
             </div>
-          </section>
-        ))}
-        {runs.length ? (
-          <section style={card} aria-labelledby="rep-hist">
-            <div id="rep-hist" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Send history</div>
+          ) : null}
+        </section>
+      ))}
+      <section style={card} aria-labelledby="rep-hist">
+        <div id="rep-hist" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Sent so far</div>
+        {!runs.length ? <div style={muted}>Nothing sent yet. When you share a report, or a scheduled one goes out, it is listed here.</div> : (
+          <div style={{ maxHeight: embedded ? 360 : "none", overflowY: "auto" }}>
             {runs.map((h) => (
-              <div key={h.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline", padding: "8px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
-                <span style={{ flex: "0 0 150px", color: C.slate }}>
-                  {new Date(h.at).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </span>
-                <span style={{ flex: "1 1 200px", minWidth: 0, fontWeight: 700, color: C.ink }}>{h.reportName || "Report"}</span>
-                <span style={{ flex: "2 1 260px", minWidth: 0, color: C.slate, overflowWrap: "anywhere" }}>
-                  {h.trigger === "schedule" ? "Scheduled · " : ""}To {h.recipients.join(", ")}
-                </span>
-                <span style={{ color: h.sent ? C.teal : "#B42318", fontWeight: 700 }}>
+              <div key={h.id} style={{ padding: "8px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "space-between" }}>
+                  <b style={{ color: C.ink, overflowWrap: "anywhere" }}>{h.reportName || "Report"}</b>
+                  <span style={{ color: C.slate }}>{stamp(h.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div style={{ color: C.slate, overflowWrap: "anywhere" }}>{h.trigger === "schedule" ? "Scheduled · " : ""}To {h.recipients.join(", ")}</div>
+                <div style={{ color: h.sent ? C.teal : "#B42318", fontWeight: 700 }}>
                   {h.sent ? `Sent to ${h.sent}${h.failed ? `, ${h.failed} failed` : ""}` : (h.error || "Not sent")}
-                </span>
+                </div>
               </div>
             ))}
-          </section>
-        ) : null}
-      </div>
-      <Preview data={preview} onClose={() => setPreview(null)} />
+          </div>
+        )}
+      </section>
     </div>
+  );
+
+  return (
+    <>
+      {embedded ? body : (
+        <div style={page}>
+          <div style={{ maxWidth: 980, margin: "0 auto" }}>{body}</div>
+        </div>
+      )}
+      <Preview data={preview} onClose={() => setPreview(null)} />
+    </>
   );
 }
