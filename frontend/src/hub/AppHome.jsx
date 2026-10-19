@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { C, FONT_BODY } from "../app/constants";
 import { AppChrome } from "../app/ui";
@@ -9,6 +9,9 @@ import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
+import { InstallStepsSheet } from "../components/InstallSteps";
+import { useShowInstallSteps } from "../components/installState";
+import { useBodyClass, usePhone } from "../components/usePhone";
 
 const LIVE_PLAN = ["active", "past_due", "trialing"];
 const line = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, fontVariantNumeric: "tabular-nums", margin: 0 };
@@ -63,9 +66,57 @@ function AppCard({ app, state, unit, onOpen, onPlans }) {
   );
 }
 
+// Phone Home: the three apps as large tiles, two on top and one centred below, on one screen with
+// nothing to scroll. The tiles keep one order (they do not shuffle once plans load under a finger about to tap).
+// Each tile opens its app; plans and credits are in the profile menu and inside the app.
+function PhoneHome({ operator, firstName, needsName, apps, statusOf, onPick, menuProps }) {
+  const [installOpen, setInstallOpen] = useState(false);
+  const installable = useShowInstallSteps();
+  useBodyClass("phone-home-on");
+  return (
+    <div className="phone-home" style={{ display: "flex", flexDirection: "column", background: C.paper, fontFamily: FONT_BODY }}>
+      <AppChrome />
+      <header style={{ height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 16px", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
+        <BrandLockup size={28} />
+        <UserProfileMenu operator={operator} compact {...menuProps} />
+      </header>
+      <main style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "20px 16px calc(16px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+        <h1 style={{ fontWeight: 600, fontSize: 22, color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
+          {firstName && !needsName ? `Welcome back, ${firstName}` : "Welcome back"}
+        </h1>
+        <p style={{ fontSize: 15, color: C.slate, margin: "4px 0 0" }}>Choose an app to open.</p>
+        <BillingReturnBanner />
+        <div className="home-triangle">
+          {apps.map((app, i) => {
+            const Icon = app.icon;
+            const status = statusOf(app);
+            return (
+              <button key={app.id} type="button" className={i === 2 ? "home-tile home-tile--base" : "home-tile"} onClick={() => onPick(app.id)} style={{ "--accent": app.accent }}>
+                <span className="home-tile-icon" style={{ background: `${app.accent}14` }}>
+                  <Icon size={28} color={app.accent} />
+                </span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: C.ink }}>{app.name}</span>
+                <span style={{ fontSize: 14, color: C.slate }}>{app.role}</span>
+                {status ? <span style={{ fontSize: 13, fontWeight: 500, color: status.tone }}>{status.text}</span> : null}
+              </button>
+            );
+          })}
+        </div>
+        {installable ? (
+          <button type="button" onClick={() => setInstallOpen(true)} style={{ minHeight: 48, border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+            <Smartphone size={18} /> Get the app on your phone
+          </button>
+        ) : null}
+        <InstallStepsSheet open={installOpen} onClose={() => setInstallOpen(false)} />
+      </main>
+    </div>
+  );
+}
+
 // Home: the apps of the suite side by side. The ones the organisation has a plan for come first;
 // the others can be opened to try and added at any time.
 export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections }) {
+  const phone = usePhone();
   // Plans and credits are for admins; everyone else simply sees the apps.
   const [billing, setBilling] = useState(null);
   useEffect(() => {
@@ -89,6 +140,19 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
   const firstName = String(operator?.name || "").trim().split(/\s+/)[0];
   // A name that is only the login (admin, the username) is not a real name: ask for one.
   const needsName = !firstName || [operator?.username, "admin", "administrator"].some((n) => n && firstName.toLowerCase() === String(n).toLowerCase());
+
+  const menuProps = { onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections };
+  const statusOf = (app) => {
+    const st = stateOf(app);
+    if (!st.wallet) return null;
+    if (st.wallet.empty) return { text: "Out of credits", tone: C.red };
+    const left = Math.max(st.wallet.balance, 0);
+    if (left > 0) return { text: `${fmt(left)} ${unitOf(app) === "credits" ? "credits" : "minutes"} left`, tone: st.wallet.low ? C.amber : C.slate };
+    return st.plan ? { text: st.plan.name, tone: C.green } : null;
+  };
+  if (phone) {
+    return <PhoneHome operator={operator} firstName={firstName} needsName={needsName} apps={APPS} statusOf={statusOf} onPick={onPick} menuProps={menuProps} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, fontFamily: FONT_BODY }}>

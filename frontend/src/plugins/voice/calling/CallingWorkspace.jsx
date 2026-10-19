@@ -53,6 +53,8 @@ import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
+import { PhoneTabBar } from "../../../hub/PluginShell";
+import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
 import { usePluginAccess } from "../../../components/PluginAccessGate";
@@ -1012,6 +1014,7 @@ export function CallingWorkspace({
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [checkFilter, setCheckFilter] = useState(""); // number-check result filter on the list
   const [histOpen, setHistOpen] = useState(false);
+  const [listPane, setListPane] = useState("main"); // phones: the list or List AI, one at a time
   const [hoverMsg, setHoverMsg] = useState("");
   const [editingId, setEditingId] = useState("");
   const [editText, setEditText] = useState("");
@@ -2597,6 +2600,18 @@ export function CallingWorkspace({
           <LogOut size={16} strokeWidth={1.75} /> Log out
         </button>
       </div>
+      <PhoneTabBar nav={nav} accent={C.cobalt} items={[
+        { id: "list", short: "List", icon: List },
+        { id: "live", short: "Live", icon: Radio, count: activeLive.length || null },
+        { id: "logs", short: "History", icon: FileText },
+        { id: "schedule", short: "Schedule", icon: PhoneCall },
+      ].filter((t) => visiblePages.some((p) => p.id === t.id)).map((t) => ({
+        ...t,
+        label: t.short,
+        active: page === t.id || (t.id === "logs" && page === "whatsapp"),
+        locked: pluginLocked,
+        onClick: () => goPage(t.id),
+      }))} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
         <style>{`
@@ -2712,8 +2727,10 @@ export function CallingWorkspace({
             <PhoneLineSetup isAdmin={!!operator?.is_admin} onGetNumber={() => goPage("numbers")} style={{ marginBottom: 14 }} />
           )}
           {page === "list" && (
-            <div className="list-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", flex: 1, minHeight: 0 }}>
+            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", flex: 1, minHeight: 0 }}>
+              <PaneSwitch value={listPane} onChange={setListPane} panes={[{ id: "main", label: "Contacts", badge: rows.length || "" }, { id: "side", label: "List AI" }]} />
               <div
+                data-pane="main"
                 className="list-main ui-scroll"
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
@@ -3362,7 +3379,7 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              <div className="list-ai" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}` }}>
+              <div data-pane="side" className="list-ai" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 2, height: 48, padding: "0 8px 0 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
                   <Sparkles size={16} color={C.cobalt} />
                   <div style={{ fontWeight: 600, fontSize: 13.5, color: C.textInk, flex: 1, marginLeft: 6 }}>List AI</div>

@@ -43,6 +43,7 @@ import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
 import { PluginCredits } from "../../team/PluginCredits";
 import { AppSwitcher } from "../../hub/AppSwitcher";
+import { PaneSwitch } from "../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileTopBar, useMobileNav } from "../../components/MobileNav";
 import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
@@ -2373,6 +2374,7 @@ export function SocialWorkspace({
   // Home links straight to /scheduler/subscription.
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
   const nav = useMobileNav(page);
+  const [planPane, setPlanPane] = useState("main"); // phones: the calendar or Plan AI, one at a time
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
   const socialBar = accountBar ? cloneElement(accountBar, { wallet: pluginLocked ? null : "scheduler", app: "Social", onOpenPlan: () => { setApprovalOpen(false); setPage("subscription"); } }) : null;
@@ -3755,7 +3757,7 @@ export function SocialWorkspace({
     ] },
     { label: "Setup", items: [
       { id: "accounts", label: "Accounts", icon: Plug, active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
-      { id: "audience", label: "Audience & ideas", icon: Users, active: page === "audience" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("audience") },
+      { id: "audience", label: "Audience & ideas", short: "Audience", icon: Users, active: page === "audience" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("audience") },
       operator?.is_admin ? { id: "subscription", label: "Subscription", icon: CreditCard, active: page === "subscription" && !approvalOpen, onClick: () => goPage("subscription") } : null,
     ] },
   ];
@@ -3772,7 +3774,7 @@ export function SocialWorkspace({
       <MobileNavBackdrop nav={nav} />
       <AppChrome />
       <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} wallet="scheduler" operator={operator}
-        onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} />
+        onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "accounts", "audience"]} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <PluginHeader nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar} />
@@ -3867,8 +3869,9 @@ export function SocialWorkspace({
               : "Some changes are not saved to the server yet. Retrying automatically."}
           </div>
         ) : null}
-        <div className="split-view" style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <div className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="split-view pane-root" data-active={planPane} style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+          <PaneSwitch value={planPane} onChange={setPlanPane} panes={[{ id: "main", label: "Calendar" }, { id: "side", label: "Plan AI" }]} />
+          <div data-pane="main" className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn}>
                 <ChevronLeft size={16} />
@@ -3903,7 +3906,10 @@ export function SocialWorkspace({
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: C.slate }}>Single-click a day to pin it. Double-click to see every post that day. Several days can stay pinned at once.</div>
+              <div style={{ fontSize: 12, color: C.slate }}>
+                <span className="phone-hide">Single-click a day to pin it. Double-click to see every post that day. Several days can stay pinned at once.</span>
+                <span className="phone-only">Tap a day to pin it. Tap it twice quickly to see every post that day.</span>
+              </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
               {weekdayHeaders(org.weekStart).map((d) => (
@@ -3912,7 +3918,7 @@ export function SocialWorkspace({
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
               {cells.map((day, i) => {
-                if (!day) return <div key={"e" + i} style={{ minHeight: 84, minWidth: 0 }} />;
+                if (!day) return <div key={"e" + i} className="cal-day" style={{ minHeight: 84, minWidth: 0 }} />;
                 const key = isoDate(day.getTime());
                 const dayPosts = postsByDay[key] || [];
                 const isToday = todayIso() === key;
@@ -3920,6 +3926,7 @@ export function SocialWorkspace({
                 return (
                   <div
                     key={key}
+                    className="cal-day"
                     role="button"
                     tabIndex={0}
                     onClick={(e) => handleDayOrPostClick(key, null, e)}
@@ -3945,13 +3952,13 @@ export function SocialWorkspace({
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6, display: "flex", justifyContent: "space-between", minWidth: 0 }}>
                       <span>{day.getDate()}</span>
                       {pinned ? (
-                        <button type="button" onClick={(e) => unpinDate(key, e)} title="Click to unpin" style={{ fontSize: 9, fontWeight: 700, color: C.teal, border: "none", background: "transparent", cursor: "pointer", flexShrink: 0 }}>
+                        <button type="button" className="phone-gone" onClick={(e) => unpinDate(key, e)} title="Click to unpin" style={{ fontSize: 9, fontWeight: 700, color: C.teal, border: "none", background: "transparent", cursor: "pointer", flexShrink: 0 }}>
                           PINNED ×
                         </button>
                       ) : null}
                     </div>
                     {dayPosts.length === 0 ? (
-                      <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pinned ? "Pinned" : "Pin this day"}</div>
+                      <div className="phone-gone" style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pinned ? "Pinned" : "Pin this day"}</div>
                     ) : dayPosts.map((p) => (
                       <div
                         key={p.id}
@@ -4052,6 +4059,7 @@ export function SocialWorkspace({
           </div>
 
           <div
+            data-pane="side"
             className="split-side"
             style={{
               width: chatW,
@@ -4437,7 +4445,7 @@ export function SocialWorkspace({
       <style>{`.aiv-hide-scrollbar::-webkit-scrollbar{display:none;height:0;width:0}`}</style>
 
       {toast ? (
-        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, zIndex: 80 }}>
+        <div className="app-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, zIndex: 80 }}>
           {toast}
         </div>
       ) : null}

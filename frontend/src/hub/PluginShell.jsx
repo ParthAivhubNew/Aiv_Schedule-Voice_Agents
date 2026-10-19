@@ -1,15 +1,18 @@
-import React from "react";
-import { LogOut } from "lucide-react";
+import React, { useEffect } from "react";
+import { LogOut, Menu } from "lucide-react";
 import { C } from "../tokens";
 import { MobileNavButton } from "../components/MobileNav";
+import { useBodyClass } from "../components/usePhone";
 import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
 
 // The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
 // the pages in labelled groups, then (at the bottom) the app's credits and Log out.
 // groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
-export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey }) {
+export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey, nav, tabs }) {
+  const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
   return (
+    <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
         <div style={{ width: 32, height: 32, borderRadius: 6, background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -45,6 +48,47 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         <LogOut size={16} strokeWidth={1.75} /> Log out
       </button>
     </div>
+    {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
+    </>
+  );
+}
+
+// Phones: the app's main pages as a bar along the bottom, always in reach of a thumb, and "More"
+// for the drawer with everything else. items: [{ id, label, icon, active, locked, count, onClick }]
+export function PhoneTabBar({ items, nav, accent }) {
+  useBodyClass("has-phone-tabs");
+  // While the keyboard is up the bar steps aside, so a chat box or form keeps the room above the keys.
+  useEffect(() => {
+    const typing = (el) => el && (el.isContentEditable || (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(checkbox|radio|button|submit|range|color|file)$/.test(el.type)));
+    const sync = () => document.body.classList.toggle("phone-typing", Boolean(typing(document.activeElement)));
+    const later = () => setTimeout(sync, 0);
+    document.addEventListener("focusin", sync);
+    document.addEventListener("focusout", later);
+    return () => {
+      document.removeEventListener("focusin", sync);
+      document.removeEventListener("focusout", later);
+      document.body.classList.remove("phone-typing");
+    };
+  }, []);
+  return (
+    <nav className="phone-tabs" aria-label="Main pages" style={{ "--tab-accent": accent || C.cobalt }}>
+      {items.map((it) => {
+        const TabIcon = it.icon;
+        return (
+          <button key={it.id} type="button" className="phone-tab" onClick={it.onClick} aria-current={it.active ? "page" : undefined} data-locked={it.locked ? "true" : undefined}>
+            <span className="phone-tab-icon">
+              <TabIcon size={22} strokeWidth={1.75} />
+              {it.count ? <span className="phone-tab-count">{it.count}</span> : null}
+            </span>
+            <span className="phone-tab-label">{it.short || it.label}</span>
+          </button>
+        );
+      })}
+      <button type="button" className="phone-tab" onClick={nav.toggle} aria-expanded={nav.open} aria-label="More pages and settings">
+        <span className="phone-tab-icon"><Menu size={22} strokeWidth={1.75} /></span>
+        <span className="phone-tab-label">More</span>
+      </button>
+    </nav>
   );
 }
 

@@ -5,6 +5,7 @@ import {
   Link2,
   LogOut,
   Settings2,
+  Smartphone,
   User,
   Users,
 } from "lucide-react";
@@ -13,9 +14,13 @@ import { C, FONT_BODY, FONT_MONO } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
 import { Avatar } from "./Avatar";
+import { InstallStepsSheet } from "../components/InstallSteps";
+import { useShowInstallSteps } from "../components/installState";
 
 export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections, compact }) {
   const [open, setOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const installable = useShowInstallSteps();
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -113,6 +118,10 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
             <MenuItem icon={Link2} title="Connections" sub="How Leads, Voice & Social work together" onClick={() => { setOpen(false); onOpenConnections(); }} />
           ) : null}
 
+          {installable ? (
+            <MenuItem icon={Smartphone} title="Install the app" sub="Add Outreach to your home screen" onClick={() => { setOpen(false); setInstallOpen(true); }} />
+          ) : null}
+
           {/* Admin Controls */}
           {isAdmin && (
             <>
@@ -142,6 +151,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           <MenuItem icon={LogOut} title="Sign out" danger onClick={() => { setOpen(false); onLogout(); }} />
         </div>
       )}
+      <InstallStepsSheet open={installOpen} onClose={() => setInstallOpen(false)} />
     </div>
   );
 }

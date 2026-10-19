@@ -55,23 +55,23 @@ export function PlanStrip({ onOpen }) {
   const pct = Math.min(100, Math.round((c.balance / Math.max(c.balance + c.used_30d, 1)) * 100));
   const small = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
   return (
-    <div className="ui-card" style={{ marginBottom: 16, padding: "10px 16px", display: "grid", gap: open ? 12 : 0 }}>
+    <div className="ui-card plan-strip" style={{ marginBottom: 16, padding: "10px 16px", display: "grid", gap: open ? 12 : 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
           <Coins size={15} color={tone} style={{ alignSelf: "center" }} />
           <strong style={{ fontFamily: FONT_BODY, fontSize: 20, color: tone, fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
           <span style={small}>credits left</span>
         </span>
-        <span aria-hidden style={{ width: 90, height: 5, borderRadius: 3, background: C.border, overflow: "hidden" }}>
+        <span aria-hidden className="phone-gone" style={{ width: 90, height: 5, borderRadius: 3, background: C.border, overflow: "hidden" }}>
           <span style={{ display: "block", width: `${pct}%`, height: "100%", background: tone }} />
         </span>
-        <span style={small}>
+        <span className="phone-gone" style={small}>
           {c.used_30d.toLocaleString()} used in the last 30 days{c.held ? ` · ${c.held.toLocaleString()} on hold` : ""}
           {canBuy ? ` · enough for about ${canBuy.toLocaleString()} web-found companies` : ""}
         </span>
         {c.empty ? <strong style={{ ...small, color: C.red }}>Out of credits</strong> : c.low ? <strong style={{ ...small, color: "#B45309" }}>Running low</strong> : null}
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6 }}>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm phone-gone" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? "Hide prices" : "See prices"}
           </button>
           {onOpen ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="See your plan and top up" onClick={onOpen}>Plan &amp; top up</button> : null}
