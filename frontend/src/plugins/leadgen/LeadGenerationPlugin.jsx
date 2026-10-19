@@ -38,7 +38,6 @@ import { MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
-import { PlanStrip } from "./CreditsChip";
 import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
@@ -238,7 +237,6 @@ export default function LeadGenerationPlugin({
             </div>
           ) : (
             <>
-          {(view === "find_leads" || view === "lists") && <PlanStrip onOpen={operator?.is_admin ? () => setView("subscription") : undefined} />}
           {(findOpened || view === "find_leads") && (
             <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
           )}
@@ -253,7 +251,7 @@ export default function LeadGenerationPlugin({
           {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
 
           {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("mail"); }} />}
-          {view === "business" && <div style={{ maxWidth: 760 }}><ProfileBox page /></div>}
+          {view === "business" && <ProfileBox page />}
 
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
             </>

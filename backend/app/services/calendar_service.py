@@ -10,7 +10,9 @@ import zoneinfo
 import re
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
+from app.core.mailer import LOGO_FILE, LOGO_SRC
 from email.mime.base import MIMEBase
 from email import encoders
 from typing import Dict, Any, Optional, List, Tuple
@@ -1961,6 +1963,19 @@ class CalendarService:
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(text_body or html_lib.unescape(re.sub(r"<[^>]+>", " ", html_body)), "plain", "utf-8"))
             alt.attach(MIMEText(html_body, "html", "utf-8"))
+            if LOGO_SRC in html_body:
+                # the platform design shows the Outreach logo; attach it so it appears with remote images blocked
+                try:
+                    with open(LOGO_FILE, "rb") as fh:
+                        logo = MIMEImage(fh.read(), "png")
+                    logo.add_header("Content-ID", "<brand-logo>")
+                    logo.add_header("Content-Disposition", "inline", filename="outreach.png")
+                    related = MIMEMultipart("related")
+                    related.attach(alt)
+                    related.attach(logo)
+                    alt = related
+                except OSError as err:
+                    logger.warning(f"Logo not attached: {err}")
             msg.attach(alt)
             if ics_text:
                 part = MIMEBase("text", "calendar", method="REQUEST")

@@ -129,7 +129,7 @@ export function SubscriptionPage({ wallet, back }) {
   const keptCredits = (w?.batches || []).filter((b) => !b.expiresAt).reduce((a, b) => a + b.remaining, 0);
 
   return (
-    <div style={{ fontFamily: FONT_BODY, maxWidth: 860 }}>
+    <div style={{ fontFamily: FONT_BODY }}>
       {data.testMode && <div style={{ fontSize: 12, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "6px 10px", borderRadius: 8, marginBottom: 10 }}>Stripe test mode: no real money moves.</div>}
       {notice && (
         <div role="status" style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.teal, background: C.tealSoft, padding: "8px 12px", borderRadius: 10, marginBottom: 10 }}>

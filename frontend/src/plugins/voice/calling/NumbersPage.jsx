@@ -476,7 +476,7 @@ export function NumbersPage() {
   };
 
   return (
-    <div style={{ maxWidth: 900, display: "grid", gap: 16, fontFamily: FONT_BODY }}>
+    <div style={{ display: "grid", gap: 16, fontFamily: FONT_BODY }}>
       <style>{"@keyframes nxSpin{to{transform:rotate(360deg)}} .nx-spin{animation:nxSpin 1s linear infinite}"}</style>
       <div>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink }}>Phone numbers</div>

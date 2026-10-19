@@ -28,7 +28,8 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true 
             <option value="">{isBackup ? "No backup" : "None saved yet"}</option>
             {options.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          <input aria-label={`${kind} ${slot} model override`} placeholder="Model override (empty = use the saved key's model)" value={draft[mf]}
+          <input aria-label={`${kind} ${slot} model override`} value={draft[mf]}
+            placeholder={kind === "video" ? "Video model (needed), e.g. fal-ai/kling-video/v2.1/standard/text-to-video, sora-2, veo-3.0-fast-generate-001" : "Model override (empty = use the saved key's model)"}
             disabled={!canEdit || (isBackup && !draft[pf])}
             onChange={(e) => setDraft({ ...draft, [mf]: e.target.value })} style={{ ...input, minWidth: 260, flex: 1 }} />
         </div>
@@ -48,6 +49,7 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true 
       <div style={{ display: "grid", gap: 12 }}>
         {block(scope === "voice" ? "Conversation AI (Call reasoning)" : scope === "leadgen" ? "Reasoning AI (Enrichment LLM)" : "Writing (captions, posts and Plan AI)", "text", data.textProviders || [])}
         {scope === "scheduler" && block("Images", "image", data.imageProviders || [])}
+        {scope === "scheduler" && block("Video clips (a Fal, OpenAI or Google Gemini key)", "video", data.videoProviders || [])}
       </div>
       {canEdit && (
         <button type="button" style={{ ...btn(true), marginTop: 12, justifySelf: "start" }} onClick={() => run(() => adminApi.setPlatformAi(scope, draft), "Saved.")}>

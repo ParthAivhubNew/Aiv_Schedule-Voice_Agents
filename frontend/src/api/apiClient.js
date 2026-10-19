@@ -471,6 +471,57 @@ export const api = {
   saveSchedule: (id, payload) => apiRequest(`/scheduler/schedules/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }),
   setScheduleStatus: (id, status) => apiRequest(`/scheduler/schedules/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status } }),
   deleteSchedule: (id) => apiRequest(`/scheduler/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getSocialOverview: () => apiRequest('/scheduler/overview'),
+  getSocialInsights: ({ days = 30, channel = '', account = '' } = {}) => apiRequest(`/scheduler/insights?days=${days}&channel=${encodeURIComponent(channel)}&account=${encodeURIComponent(account)}`),
+  syncSocialInsights: () => apiRequest('/scheduler/insights/sync', { method: 'POST', timeoutMs: 120000 }),
+  getPostResults: (postId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/results`),
+  // Media library
+  getMediaLibrary: ({ kind = '', q = '', tag = '' } = {}) => apiRequest(`/scheduler/library?kind=${kind}&q=${encodeURIComponent(q)}&tag=${encodeURIComponent(tag)}`),
+  uploadMedia: (files, tags = '') => {
+    const form = new FormData();
+    Array.from(files).forEach((f) => form.append('files', f));
+    form.append('tags', tags);
+    return apiRequest('/scheduler/library/upload', { method: 'POST', body: form, timeoutMs: 600000 });
+  },
+  importMediaUrl: (url) => apiRequest('/scheduler/library/import-url', { method: 'POST', body: { url }, timeoutMs: 120000 }),
+  editMedia: (id, changes) => apiRequest(`/scheduler/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+  deleteMedia: (id, force = false) => apiRequest(`/scheduler/library/${encodeURIComponent(id)}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
+  // How this company's AI pictures look
+  getImageSettings: () => apiRequest('/scheduler/image-settings'),
+  saveImageSettings: (body) => apiRequest('/scheduler/image-settings', { method: 'PUT', body }),
+  // AI video clips
+  getVideos: (postId = '') => apiRequest(`/scheduler/videos?postId=${encodeURIComponent(postId)}`),
+  makeVideo: (body) => apiRequest('/scheduler/videos', { method: 'POST', body }),
+  getVideo: (id) => apiRequest(`/scheduler/videos/${encodeURIComponent(id)}`),
+  // Bulk import
+  getImportTemplate: () => apiRequest('/scheduler/import/template'),
+  checkImport: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiRequest('/scheduler/import/check', { method: 'POST', body: form, timeoutMs: 60000 });
+  },
+  commitImport: (rows, approve) => apiRequest('/scheduler/import/commit', { method: 'POST', body: { rows, approve }, timeoutMs: 600000 }),
+  // Reports
+  listReports: () => apiRequest('/scheduler/reports'),
+  createReport: (body) => apiRequest('/scheduler/reports', { method: 'POST', body }),
+  saveReport: (id, body) => apiRequest(`/scheduler/reports/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  deleteReport: (id) => apiRequest(`/scheduler/reports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  previewReport: (id) => apiRequest(`/scheduler/reports/${encodeURIComponent(id)}/preview`, { timeoutMs: 60000 }),
+  sendReport: (id, to) => apiRequest(`/scheduler/reports/${encodeURIComponent(id)}/send`, { method: 'POST', body: to ? { to } : {}, timeoutMs: 120000 }),
+  // Listening
+  getListening: () => apiRequest('/scheduler/listening'),
+  createListenTopic: (body) => apiRequest('/scheduler/listening/topics', { method: 'POST', body, timeoutMs: 90000 }),
+  saveListenTopic: (id, body) => apiRequest(`/scheduler/listening/topics/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  deleteListenTopic: (id) => apiRequest(`/scheduler/listening/topics/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  checkListenTopic: (id) => apiRequest(`/scheduler/listening/topics/${encodeURIComponent(id)}/check`, { method: 'POST', timeoutMs: 90000 }),
+  getMentions: ({ topic = '', source = '', status = '' } = {}) => apiRequest(`/scheduler/listening/mentions?topic=${encodeURIComponent(topic)}&source=${source}&status=${status}`),
+  markMentions: (ids, status) => apiRequest('/scheduler/listening/mentions/status', { method: 'POST', body: { ids, status } }),
+  mentionsToLeads: (ids) => apiRequest('/scheduler/listening/mentions/leads', { method: 'POST', body: { ids } }),
+  // Tracked links, test mode, learned style
+  getSocialExtras: () => apiRequest('/scheduler/settings/extras'),
+  saveSocialExtras: (body) => apiRequest('/scheduler/settings/extras', { method: 'PUT', body }),
+  learnBrandStyle: () => apiRequest('/scheduler/brand-voice/learn', { method: 'POST', timeoutMs: 120000 }),
+  saveLearnedStyle: (body) => apiRequest('/scheduler/brand-voice/learned', { method: 'PUT', body }),
   getSocialAccounts: (refresh = false) => apiRequest(`/scheduler/accounts${refresh ? '?refresh=true' : ''}`),
   deleteSocialAccount: (id) => apiRequest(`/scheduler/accounts/${id}`, { method: 'DELETE' }),
   publishPost: (postId, payload) => apiRequest(`/scheduler/posts/${postId}/publish`, { method: 'POST', body: payload || {} }),
@@ -617,6 +668,18 @@ export const api = {
   deleteDeveloperWebhook: (id) => apiRequest(`/developer/webhooks/${id}`, { method: 'DELETE' }),
   testDeveloperWebhook: (id) => apiRequest(`/developer/webhooks/${id}/test`, { method: 'POST' }),
   getDeveloperWebhookLogs: (id) => apiRequest(`/developer/webhooks/${id}/logs`),
+
+  // Partner programme
+  getPartner: () => apiRequest('/partner'),
+  applyPartner: (body) => apiRequest('/partner/apply', { method: 'POST', body }),
+  acceptPartnerTerms: () => apiRequest('/partner/accept-terms', { method: 'POST' }),
+  savePartnerSettings: (body) => apiRequest('/partner/settings', { method: 'PUT', body }),
+  rotatePartnerWebhookSecret: () => apiRequest('/partner/webhook-secret/rotate', { method: 'POST' }),
+  requestPartnerLive: () => apiRequest('/partner/request-live', { method: 'POST' }),
+  getPartnerLinks: (status = '') => apiRequest(`/partner/links${status ? `?status=${status}` : ''}`),
+  disconnectPartnerLink: (id) => apiRequest(`/partner/links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getPartnerConnections: () => apiRequest('/partner/connections'),
+  disconnectPartnerConnection: (id) => apiRequest(`/partner/connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 

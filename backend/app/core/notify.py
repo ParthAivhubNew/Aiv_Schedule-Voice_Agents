@@ -21,6 +21,8 @@ EVENTS = [
     ("call_needs_review", "A call needs a person to follow up", "admins"),
     ("posts_awaiting_approval", "Posts are waiting for approval", "admins"),
     ("posts_ready", "AI writing I started has finished (when it took a while and I'd left)", "everyone"),
+    ("post_failed", "A scheduled post could not be published", "admins"),
+    ("post_published", "A scheduled post went live", "optin"),
     ("low_credits", "Credits are running low", "admins"),
     ("plan_changes", "A plan is cancelled or ends", "admins"),
     ("numbers", "Phone numbers and business verification updates", "admins"),
@@ -31,7 +33,8 @@ EVENT_KEYS = [e[0] for e in EVENTS]
 
 
 def default_prefs(is_admin: bool) -> Dict[str, bool]:
-    return {k: (who == "everyone" or is_admin) for k, _, who in EVENTS}
+    # "optin": off for everyone until they switch it on.
+    return {k: who != "optin" and (who == "everyone" or is_admin) for k, _, who in EVENTS}
 
 
 def effective_prefs(stored: Optional[dict], is_admin: bool) -> Dict[str, bool]:

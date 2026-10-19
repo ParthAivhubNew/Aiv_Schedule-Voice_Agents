@@ -320,7 +320,7 @@ function MeetingApps({ canEdit }) {
   );
 }
 
-const OAUTH_LABELS = { linkedin: "LinkedIn", x: "X", facebook: "Facebook", instagram: "Instagram", threads: "Threads" };
+const OAUTH_LABELS = { linkedin: "LinkedIn", x: "X", facebook: "Facebook", instagram: "Instagram", threads: "Threads", reddit: "Reddit" };
 
 // The one shared developer-app registration (Client ID/Secret) behind every organisation's
 // "Connect LinkedIn/Facebook/..." button -- staff-only. Organisations only ever see whether

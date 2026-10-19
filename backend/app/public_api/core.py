@@ -215,7 +215,8 @@ async def under_shared_rules(request: Request, call) -> Response:
     started = time.perf_counter()
     ctx = getattr(request.state, "auth", None) or {}
     org = ctx.get("org_id") or ""
-    who = ctx.get("key_id") or ctx.get("operator_id") or "anon"
+    ip_for_limit = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "?")
+    who = ctx.get("key_id") or ctx.get("operator_id") or f"ip:{ip_for_limit}"  # no key (the public auth actions): limited per address
     write = request.method not in ("GET", "HEAD", "OPTIONS")
     idem_key = (request.headers.get("idempotency-key") or "").strip()[:200] if write else ""
     idem = False

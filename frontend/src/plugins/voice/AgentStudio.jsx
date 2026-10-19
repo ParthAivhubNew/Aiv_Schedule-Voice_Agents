@@ -103,7 +103,7 @@ export function AgentStudio({ onOpenPage, staff = false }) {
   }
 
   return (
-    <div style={{ display: "grid", gap: 14, maxWidth: 980, fontFamily: FONT_BODY }}>
+    <div style={{ display: "grid", gap: 14, fontFamily: FONT_BODY }}>
       {!data.managed && (
         <div style={{ ...box, background: C.amberSoft, borderColor: C.amber, display: "block", fontSize: 13 }}>
           Your call assistant is being set up by the Outreach team. You can prepare everything here; test calls work once it is on.

@@ -1202,6 +1202,115 @@ async def alert_seen(alert_id: str, request: Request):
     return {"dismissed": n}
 
 
+# ── Partner programme ───────────────────────────────────────────────────────
+class ReviewBody(BaseModel):
+    note: str = ""
+
+
+class PartnerStatusBody(BaseModel):
+    status: str
+
+
+async def _mail_applicant(app_row, subject: str, lines: List[str]) -> None:
+    from app.core.mailer import render, send_system_email
+    import html as _html
+
+    if not app_row.contact_email:
+        return
+    msg = render(subject, [_html.escape(l) for l in lines])
+    await send_system_email(app_row.contact_email, subject, msg["html"], msg["text"])
+
+
+@router.get("/partners")
+async def partners_overview(request: Request):
+    from app.models.models import Partner, PartnerApplication, PartnerLink
+    from app.services import partners as PT
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        apps = (await db.execute(select(PartnerApplication).order_by(PartnerApplication.created_at.desc()).limit(200))).scalars().all()
+        partners = (await db.execute(select(Partner).order_by(Partner.created_at.desc()))).scalars().all()
+        counts = {pid: (n or 0) for pid, n in (await db.execute(
+            select(PartnerLink.partner_id, func.count()).where(PartnerLink.status == "active").group_by(PartnerLink.partner_id))).all()}
+    return {
+        "applications": [{"id": a.id, "ownerOrgId": a.owner_org_id, "company": a.company, "product": a.product, "useCase": a.use_case,
+                          "expectedUsers": a.expected_users, "contactName": a.contact_name, "contactEmail": a.contact_email,
+                          "website": a.website, "status": a.status, "reviewNote": a.review_note or "", "reviewedBy": a.reviewed_by or "",
+                          "createdAt": a.created_at.isoformat() if a.created_at else None} for a in apps],
+        "partners": [{**PT.partner_json(p, secret=False), "ownerOrgId": p.owner_org_id, "activeUsers": counts.get(p.id, 0)} for p in partners],
+        "pending": sum(1 for a in apps if a.status == "pending"),
+    }
+
+
+@router.post("/partners/applications/{app_id}/approve")
+async def partner_approve(app_id: str, body: ReviewBody, request: Request):
+    from app.models.models import Partner, PartnerApplication
+    from app.services import partners as PT
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        a = await db.get(PartnerApplication, app_id)
+        if a is None:
+            raise HTTPException(status_code=404, detail="Application not found.")
+        if a.status != "pending":
+            raise HTTPException(status_code=409, detail=f"This application was already {a.status}.")
+        if (await db.execute(select(Partner).where(Partner.owner_org_id == a.owner_org_id))).scalars().first() is not None:
+            raise HTTPException(status_code=409, detail="This organisation is already a partner.")
+        a.status, a.review_note, a.reviewed_by, a.reviewed_at = "approved", body.note.strip(), staff.get("email", ""), datetime.utcnow()
+        db.add(Partner(owner_org_id=a.owner_org_id, application_id=a.id, client_id=PT.new_client_id(), name=a.company,
+                       status="sandbox", webhook_secret=PT.new_webhook_secret()))
+        await db.commit()
+    await _mail_applicant(a, "You are approved as an Outreach partner", [
+        f"Hi {a.contact_name or 'there'},",
+        f"{a.company} is approved to offer Outreach inside its software. Sign in to Outreach, open the Partner page, accept the partner terms and set up your sandbox.",
+    ])
+    return {"id": app_id, "status": "approved"}
+
+
+@router.post("/partners/applications/{app_id}/reject")
+async def partner_reject(app_id: str, body: ReviewBody, request: Request):
+    from app.models.models import PartnerApplication
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        a = await db.get(PartnerApplication, app_id)
+        if a is None:
+            raise HTTPException(status_code=404, detail="Application not found.")
+        if a.status != "pending":
+            raise HTTPException(status_code=409, detail=f"This application was already {a.status}.")
+        a.status, a.review_note, a.reviewed_by, a.reviewed_at = "rejected", body.note.strip(), staff.get("email", ""), datetime.utcnow()
+        await db.commit()
+    await _mail_applicant(a, "Your Outreach partner application", [
+        f"Hi {a.contact_name or 'there'},",
+        f"We could not approve the partner application for {a.company} this time." + (f" {a.review_note}" if a.review_note else ""),
+    ])
+    return {"id": app_id, "status": "rejected"}
+
+
+@router.post("/partners/{partner_id}/status")
+async def partner_set_status(partner_id: str, body: PartnerStatusBody, request: Request):
+    """sandbox -> live when the integration has been checked; suspended stops every key the partner holds."""
+    from app.models.models import Partner
+    from app.services import partners as PT
+
+    _admin_only(request)
+    if body.status not in ("sandbox", "live", "suspended"):
+        raise HTTPException(status_code=400, detail="Status is sandbox, live or suspended.")
+    async with AsyncSessionLocal() as db:
+        p = await db.get(Partner, partner_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Partner not found.")
+        stopped = 0
+        p.status = body.status
+        if body.status == "live":
+            p.live_requested_at = None
+        if body.status == "suspended":
+            stopped = await PT.stop_all_keys(db, p.id)
+        await db.commit()
+    PT.forget_free_cache()
+    return {"id": partner_id, "status": body.status, "keysStopped": stopped}
+
+
 # ── Platform AI (Post scheduler, Voice, Leadgen) ───────────────────────────
 @router.get("/platform-ai")
 @router.get("/platform-ai/{scope}")
@@ -1224,6 +1333,7 @@ async def get_platform_ai(request: Request, scope: str = "scheduler"):
     # provider list, so there is nothing here that isn't already a stored connection.
     return {"scope": scope, "chosen": chosen, "health": health,
             "textProviders": [k["name"] for k in keys["text"]], "imageProviders": [k["name"] for k in keys["image"]],
+            "videoProviders": list(dict.fromkeys([k["name"] for k in keys["image"]] + [k["name"] for k in keys["text"]])),
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
 
@@ -1236,6 +1346,10 @@ class PlatformAiBody(BaseModel):
     textBackupModel: Optional[str] = None
     imageBackupProvider: Optional[str] = None
     imageBackupModel: Optional[str] = None
+    videoProvider: Optional[str] = None
+    videoModel: Optional[str] = None
+    videoBackupProvider: Optional[str] = None
+    videoBackupModel: Optional[str] = None
 
 
 @router.put("/platform-ai")
@@ -1271,7 +1385,18 @@ async def test_platform_ai(body: PlatformAiTestBody, request: Request, scope: st
 
     _admin_only(request)
     if body.kind not in platform_ai.KINDS or body.slot not in platform_ai.SLOTS:
-        raise HTTPException(status_code=400, detail="Say text or image, main or backup.")
+        raise HTTPException(status_code=400, detail="Say text, image or video, main or backup.")
+    if body.kind == "video":
+        # A test clip costs real money and takes minutes, so only the setup is checked here.
+        from app.services import video_ai
+
+        with org_scope(platform_org()):
+            async with AsyncSessionLocal() as db:
+                ai = await video_ai.find_key(db, body.slot)
+        if not ai:
+            return {"ok": False, "error": "Pick a saved key and fill in the video model for this slot."}
+        return {"ok": True, "error": None, "provider": ai["provider"], "model": ai["model"],
+                "note": "Setup looks right. No test clip was made (each one costs money)."}
     with org_scope(platform_org()):
         async with AsyncSessionLocal() as db:
             provider, model = await platform_ai.choice(db, body.kind, body.slot, scope=scope)

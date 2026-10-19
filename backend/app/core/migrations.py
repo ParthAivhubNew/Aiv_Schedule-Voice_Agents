@@ -752,6 +752,11 @@ async def _api_key_mailboxes(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS mailbox_ids JSON"))
 
 
+async def _org_referred_by_partner(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS referred_by_partner_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_organizations_referred_by_partner_id ON organizations (referred_by_partner_id)"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -799,6 +804,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_08_operator_profile_details", _operator_profile_details),
     ("2026_11_09_mailbox_mail_state", _mailbox_mail_state),
     ("2026_11_10_api_key_mailboxes", _api_key_mailboxes),
+    ("2026_11_11_org_referred_by_partner", _org_referred_by_partner),
 ]
 
 

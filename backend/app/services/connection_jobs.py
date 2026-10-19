@@ -42,8 +42,11 @@ def reminder_text(meeting: Meeting, when_label: str, kind: str) -> Dict[str, str
     soon = "tomorrow" if kind == "rem24" else "in about an hour"
     link = f"\nJoin: {meeting.video_link}" if meeting.video_link else ""
     text = f"Hi {first},\n\nA reminder: your meeting is {soon} ({when_label}).{link}\n\nSee you then."
-    page = (f"<p>Hi {html.escape(first)},</p><p>A reminder: your meeting is {soon} (<b>{html.escape(when_label)}</b>).</p>" +
-            (f'<p><a href="{html.escape(meeting.video_link)}">Join the meeting</a></p>' if meeting.video_link else "") + "<p>See you then.</p>")
+    from app.core.mailer import render
+
+    page = render(f"Your meeting is {soon}", [f"Hi {html.escape(first)}, a reminder: your meeting is {soon} (<b>{html.escape(when_label)}</b>)."],
+                  {"label": "Join the meeting", "url": meeting.video_link} if meeting.video_link else None,
+                  note="See you then.", reason="You are getting this because a meeting was booked with you.")["html"]
     return {"subject": f"Reminder: your meeting {soon}", "text": text, "html": page}
 
 
@@ -117,10 +120,12 @@ async def after_no_show(db: AsyncSession, org_id: str, meeting: Meeting) -> Dict
     if rules["no_show_email"] and meeting.attendee_email and not await C.block_for(db, email=meeting.attendee_email, channel="email"):
         link = book_page.booking_url(org_id, lead_id=lead.id if lead else "")
         first = (meeting.prospect or "there").split()[0]
-        res = await calendar_service.send_outbound_email(
-            db, meeting.attendee_email, "Sorry we missed you",
-            f"<p>Hi {html.escape(first)},</p><p>Sorry we missed you. Pick a new time that suits you: <a href=\"{html.escape(link)}\">choose a time</a>.</p>",
-            text_body=f"Hi {first},\n\nSorry we missed you. Pick a new time that suits you: {link}\n")
+        from app.core.mailer import render
+
+        mail = render("Sorry we missed you", [f"Hi {html.escape(first)}, we missed you at the meeting. Pick a new time that suits you."],
+                      {"label": "Choose a time", "url": link}, reason="You are getting this because a meeting was booked with you.")
+        res = await calendar_service.send_outbound_email(db, meeting.attendee_email, "Sorry we missed you", mail["html"],
+                                                         text_body=f"Hi {first},\n\nSorry we missed you. Pick a new time that suits you: {link}\n")
         done["email"] = bool(res.get("ok"))
     ent = await H.entitled(db, org_id)
     if rules["no_show_call"] and lead and ent.get("voice") and ent.get("leads"):

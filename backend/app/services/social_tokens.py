@@ -6,6 +6,7 @@ Customers connect an account once and expect it to keep working. What each netwo
   refresh token (partner programmes); otherwise the customer must reconnect when it ends.
 - Threads: the long-lived token lasts ~60 days and renews itself while still valid.
 - Facebook / Instagram: Page tokens made from a long-lived login do not expire (no expires_at).
+- Reddit: the access token lasts 1 hour; the permanent refresh token renews it (Reddit keeps the same one).
 
 Refresh happens (1) just before a post is published and (2) in a daily background pass over every
 organisation. Nothing is sent to customers or their approvers: accounts that cannot be renewed are
@@ -50,7 +51,7 @@ def _refresh_token(account) -> str:
 
 def can_refresh(account) -> bool:
     plat = normalize_platform(account.platform)
-    if plat in ("x", "linkedin"):
+    if plat in ("x", "linkedin", "reddit"):
         return bool(_refresh_token(account))
     if plat == "threads":
         return bool(account_access_token(account))
@@ -96,6 +97,15 @@ async def _request_new_token(db: AsyncSession, account) -> Tuple[int, Dict[str, 
             "POST", "https://www.linkedin.com/oauth/v2/accessToken",
             data={"grant_type": "refresh_token", "refresh_token": _refresh_token(account),
                   "client_id": app["clientId"], "client_secret": app["clientSecret"]},
+        )
+    if plat == "reddit":
+        from app.services.social_publisher import reddit_user_agent
+
+        basic = base64.b64encode(f"{app['clientId']}:{app['clientSecret']}".encode()).decode()
+        return await _token_call(
+            "POST", "https://www.reddit.com/api/v1/access_token",
+            data={"grant_type": "refresh_token", "refresh_token": _refresh_token(account)},
+            headers={"Authorization": f"Basic {basic}", "User-Agent": reddit_user_agent()},
         )
     return await _token_call(
         "GET", "https://graph.threads.net/refresh_access_token",

@@ -18,9 +18,10 @@ class Organization(Base):
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, default="active")  # active, inactive, suspended
+    referred_by_partner_id = Column(String, nullable=True, index=True)  # the partner whose sign-up page created this account
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     operators = relationship("Operator", back_populates="organization")
 
 class Operator(Base):
@@ -596,8 +597,15 @@ class SocialPost(Base):
     # Automatic publish retries used, and when the next one is due (epoch ms).
     publish_attempts = Column(Integer, default=0)
     retry_at_ms = Column(Float, nullable=True)
-    # Where the post came from: None = the app, "api" = created through the public API.
+    # Where the post came from: None = the app, "api" = created through the public API, "import" = a file.
     source = Column(String, nullable=True)
+    # Pictures and videos in posting order: [{id, url, kind: image|video, alt, mime, width, height, duration}].
+    # Empty on older rows, where image_url is the one picture. image_url always holds the first picture.
+    media = Column(JSON, default=list)
+    # Links in the text are swapped for tracked short links with UTM tags when this is not False.
+    track_links = Column(Boolean, nullable=True)
+    # Per-network settings, e.g. {"reddit": {"subreddit": "smallbusiness", "flair": ""}}.
+    channel_options = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -614,6 +622,7 @@ class SocialPostVersion(Base):
     copy = Column(Text, default="")
     image_url = Column(Text, nullable=True)
     image_prompt = Column(Text, nullable=True)
+    media = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -1580,6 +1589,168 @@ class ConnectionRules(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SocialPostMetric(Base):
+    """Latest numbers a network reported for one published post on one channel (refreshed every few hours)."""
+    __tablename__ = "social_post_metrics"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # f"{post_id}:{platform}"
+    post_id = Column(String, index=True, nullable=False)
+    platform = Column(String, default="")
+    account_id = Column(String, default="")
+    remote_id = Column(String, default="")
+    published_at = Column(DateTime, nullable=True, index=True)
+    # None = the network did not report it (never shown as 0).
+    reach = Column(Integer, nullable=True)
+    impressions = Column(Integer, nullable=True)
+    likes = Column(Integer, nullable=True)
+    comments = Column(Integer, nullable=True)
+    shares = Column(Integer, nullable=True)
+    saves = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)  # why the numbers could not be read, in plain words
+    fetched_at = Column(DateTime, nullable=True)
+
+
+class SocialAccountStat(Base):
+    """Followers of a connected account on one day (one row per account per day)."""
+    __tablename__ = "social_account_stats"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # f"{account_id}:{YYYY-MM-DD}"
+    account_id = Column(String, index=True, nullable=False)
+    platform = Column(String, default="")
+    day = Column(String, index=True, nullable=False)
+    followers = Column(Integer, nullable=True)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialMedia(Base):
+    """A picture or video in the organisation's media library (uploaded, or drawn by the AI)."""
+    __tablename__ = "social_media"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    kind = Column(String, default="image")  # image | video
+    url = Column(Text, nullable=False)  # /api/scheduler/media/<file>
+    name = Column(String, default="")
+    mime = Column(String, default="")
+    size_bytes = Column(Integer, default=0)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    duration_s = Column(Float, nullable=True)  # videos
+    alt_text = Column(Text, default="")
+    tags = Column(JSON, default=list)
+    source = Column(String, default="upload")  # upload | ai | import
+    created_by = Column(String, default="")
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SocialVideoJob(Base):
+    """One AI video clip being made (it takes minutes), and where it went (library item, post)."""
+    __tablename__ = "social_video_jobs"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    post_id = Column(String, index=True, nullable=True)
+    prompt = Column(Text, default="")
+    shape = Column(String, default="9:16")  # 9:16 | 16:9 | 1:1
+    seconds = Column(Integer, default=5)
+    state = Column(String, default="queued", index=True)  # queued | making | done | failed
+    error = Column(Text, nullable=True)
+    media_id = Column(String, nullable=True)
+    url = Column(Text, nullable=True)
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SocialLink(Base):
+    """A tracked short link put in a post in place of the original link, one per post, channel and link."""
+    __tablename__ = "social_links"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # the short code in /api/l/<code>
+    post_id = Column(String, index=True, nullable=False)
+    platform = Column(String, default="")
+    original_url = Column(Text, nullable=False)
+    target_url = Column(Text, nullable=False)  # original_url with the UTM tags added
+    clicks = Column(Integer, default=0)
+    last_click_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialLinkClick(Base):
+    """One click on a tracked link by a person (link-preview robots are not counted)."""
+    __tablename__ = "social_link_clicks"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    link_id = Column(String, index=True, nullable=False)
+    post_id = Column(String, index=True, nullable=False)
+    platform = Column(String, default="")
+    referrer = Column(String, default="")
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SocialReport(Base):
+    """A results report for a client or manager: sent by email on a schedule and viewable by link."""
+    __tablename__ = "social_reports"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    name = Column(String, default="Social report")
+    days = Column(Integer, default=30)  # 7 | 30 | 90
+    channels = Column(JSON, default=list)  # empty: every channel
+    account_ids = Column(JSON, default=list)  # empty: every account
+    recipients = Column(JSON, default=list)
+    frequency = Column(String, default="none")  # none | weekly | monthly
+    intro = Column(Text, default="")  # a note from the sender shown at the top
+    last_sent_at = Column(DateTime, nullable=True)
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SocialListenTopic(Base):
+    """Words to watch for on the networks that allow searching (brand, product, competitor, topic)."""
+    __tablename__ = "social_listen_topics"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    name = Column(String, default="")
+    keywords = Column(JSON, default=list)
+    exclude = Column(JSON, default=list)
+    sources = Column(JSON, default=lambda: ["reddit"])  # reddit | x | threads | instagram
+    active = Column(Boolean, default=True)
+    checked = Column(JSON, default=dict)  # {source: iso time of the last search}
+    last_error = Column(JSON, default=dict)  # {source: plain-words reason the last search failed}
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SocialMention(Base):
+    """A public post or comment that matched a listening topic."""
+    __tablename__ = "social_mentions"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)  # hash of source + remote id
+    topic_id = Column(String, index=True, nullable=False)
+    source = Column(String, default="")
+    remote_id = Column(String, default="")
+    author = Column(String, default="")
+    author_url = Column(String, default="")
+    title = Column(Text, default="")
+    text = Column(Text, default="")
+    url = Column(Text, default="")
+    where = Column(String, default="")  # subreddit, hashtag ...
+    score = Column(Integer, nullable=True)
+    status = Column(String, default="new", index=True)  # new | seen | ignored
+    lead_id = Column(String, nullable=True)
+    posted_at = Column(DateTime, nullable=True, index=True)
+    found_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SocialEngager(Base):
     """A person who engaged publicly with one of the organisation's posts."""
     __tablename__ = "social_engagers"
@@ -1815,3 +1986,85 @@ class PublicObject(Base):
     data = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PartnerApplication(Base):
+    """A company asking to offer Outreach inside its own software. Staff approve or reject it."""
+    __tablename__ = "partner_applications"
+
+    id = Column(String, primary_key=True, default=lambda: f"papp_{uuid.uuid4().hex[:12]}")
+    owner_org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    company = Column(String, nullable=False)
+    product = Column(String, default="")
+    use_case = Column(Text, default="")
+    expected_users = Column(String, default="")
+    contact_name = Column(String, default="")
+    contact_email = Column(String, default="")
+    website = Column(String, default="")
+    status = Column(String, default="pending", index=True)  # pending | approved | rejected
+    review_note = Column(Text, default="")
+    reviewed_by = Column(String, default="")
+    reviewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Partner(Base):
+    """An approved partner. Its users sign up or log in through the partner's own pages, which call POST /v1/run."""
+    __tablename__ = "partners"
+
+    id = Column(String, primary_key=True, default=lambda: f"ptr_{uuid.uuid4().hex[:12]}")
+    owner_org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    application_id = Column(String, nullable=True)
+    client_id = Column(String, nullable=False, unique=True, index=True)  # public: sent with every sign-up and login
+    name = Column(String, nullable=False)
+    status = Column(String, default="sandbox", index=True)  # sandbox | live | suspended
+    live_requested_at = Column(DateTime, nullable=True)
+    allowed_origins = Column(JSON, default=list)  # web addresses their login page runs on, e.g. https://app.partner.com
+    return_urls = Column(JSON, default=list)  # exact addresses we may send a user back to
+    scopes = Column(JSON, default=lambda: ["voice:calls", "leads:search", "social:publish", "wallets:read"])
+    logo_url = Column(String, default="")
+    accent_color = Column(String, default="")
+    webhook_url = Column(String, default="")
+    webhook_secret = Column(String, default="")  # whsec_...: signs the events sent to webhook_url
+    terms_version = Column(String, default="")
+    terms_accepted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PartnerLink(Base):
+    """One Outreach account a partner may act for, with the consent the user gave and the key issued for it."""
+    __tablename__ = "partner_links"
+
+    id = Column(String, primary_key=True, default=lambda: f"plink_{uuid.uuid4().hex[:12]}")
+    partner_id = Column(String, ForeignKey("partners.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    operator_id = Column(String, default="")
+    created_account = Column(Boolean, default=False)  # true when the account was created through this partner
+    consent_version = Column(String, default="")
+    consented_at = Column(DateTime, nullable=True)
+    key_id = Column(String, default="")  # the API key currently issued to the partner for this account
+    status = Column(String, default="active", index=True)  # active | revoked
+    revoked_by = Column(String, default="")  # user | partner | staff
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("partner_id", "org_id", name="uq_partner_link_org"),)
+
+
+from sqlalchemy import event as _sa_event  # noqa: E402
+
+
+@_sa_event.listens_for(SocialPost.image_url, "set")
+def _cover_follows_image(target, value, oldvalue, initiator):
+    """image_url is the post's first picture. Older code paths (AI redraw, Replace, restore) only set
+    image_url; keep the media list's first picture in step so a carousel never shows a stale cover."""
+    media = target.media if isinstance(target.media, list) else []
+    if not media or not isinstance(media[0], dict) or media[0].get("kind", "image") != "image":
+        return
+    if value and media[0].get("url") != value:
+        same_file = str(value).split("/")[-1] == str(media[0].get("url") or "").split("/")[-1]
+        target.media = [dict(media[0], url=value, **({} if same_file else {"id": None, "width": None, "height": None}))] + media[1:]
+    elif not value and oldvalue and media[0].get("url") == oldvalue:
+        target.media = media[1:]

@@ -437,7 +437,14 @@ button, input, select, textarea {
 .mobile-nav-backdrop {
   display: none !important;
 }
+/* Credits live in the sidebar; the top bar shows them only when the sidebar is a hidden drawer. */
+.acct-credits {
+  display: none;
+}
 @media (max-width: 820px) {
+  .acct-credits {
+    display: inline-flex;
+  }
   .mobile-nav-btn {
     display: inline-flex !important;
     margin-left: -6px;

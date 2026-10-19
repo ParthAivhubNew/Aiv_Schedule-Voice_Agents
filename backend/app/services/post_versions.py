@@ -23,11 +23,20 @@ def content_of(post: SocialPost) -> Dict[str, Any]:
         "copy": post.copy or "",
         "image_url": post.image_url or None,
         "image_prompt": post.image_prompt or None,
+        "media": [{k: m.get(k) for k in MEDIA_KEYS} for m in (getattr(post, "media", None) or [])
+                  if isinstance(m, dict) and m.get("url")] or None,
     }
 
 
+MEDIA_KEYS = ("id", "url", "kind", "alt", "mime", "width", "height", "duration")
+
+
+def _media_urls(c: Dict[str, Any]) -> List[str]:
+    return [m.get("url") for m in (c.get("media") or []) if isinstance(m, dict)]
+
+
 def _same(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    return all((a.get(k) or None) == (b.get(k) or None) for k in ("title", "copy", "image_url"))
+    return all((a.get(k) or None) == (b.get(k) or None) for k in ("title", "copy", "image_url")) and _media_urls(a) == _media_urls(b)
 
 
 def version_dict(v: SocialPostVersion) -> Dict[str, Any]:
@@ -38,6 +47,7 @@ def version_dict(v: SocialPostVersion) -> Dict[str, Any]:
         "title": v.title or "",
         "copy": v.copy or "",
         "imageUrl": v.image_url or "",
+        "media": v.media or [],
         "createdAt": v.created_at.isoformat() + "Z" if v.created_at else None,
     }
 
@@ -73,6 +83,7 @@ async def record_version(
     if amend_ai and latest and latest.source == "ai" and (latest.title or "") == now["title"] and (latest.copy or "") == now["copy"]:
         latest.image_url = now["image_url"]
         latest.image_prompt = now["image_prompt"]
+        latest.media = now["media"]
         return latest
     if not versions and before is not None and (before.get("copy") or before.get("image_url")):
         db.add(SocialPostVersion(id=_vid(), post_id=post.id, source="original", **before))
@@ -85,7 +96,8 @@ async def record_version(
 
 
 def content_of_version(v: SocialPostVersion) -> Dict[str, Any]:
-    return {"title": v.title or "", "copy": v.copy or "", "image_url": v.image_url or None, "image_prompt": v.image_prompt or None}
+    return {"title": v.title or "", "copy": v.copy or "", "image_url": v.image_url or None, "image_prompt": v.image_prompt or None,
+            "media": v.media or None}
 
 
 async def _trim(db: AsyncSession, post_id: str) -> None:

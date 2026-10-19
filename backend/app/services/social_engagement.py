@@ -26,7 +26,7 @@ logger = logging.getLogger("social_engagement")
 GRAPH = "https://graph.facebook.com/v19.0"
 THREADS = "https://graph.threads.net/v1.0"
 LIST_NAME = "Social audience"
-READABLE = ("facebook", "instagram", "threads", "linkedin")
+READABLE = ("facebook", "instagram", "threads", "linkedin", "reddit")
 
 
 def _when(raw: Any) -> Optional[datetime]:
@@ -71,6 +71,21 @@ def parse_linkedin_comments(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def parse_reddit_comments(data: Any) -> List[Dict[str, Any]]:
+    """Top-level comments from Reddit's /comments/<id> reply ([post listing, comment listing])."""
+    listing = data[1] if isinstance(data, list) and len(data) > 1 else {}
+    out = []
+    for c in (listing.get("data") or {}).get("children") or []:
+        d = c.get("data") or {}
+        author = d.get("author") or ""
+        if c.get("kind") != "t1" or not author or author in ("[deleted]", "AutoModerator"):
+            continue
+        at = datetime.utcfromtimestamp(d["created_utc"]) if isinstance(d.get("created_utc"), (int, float)) else None
+        out.append({"handle": f"u/{author}", "name": author, "text": str(d.get("body") or "")[:1000], "kind": "comment",
+                    "at": at, "profile_url": f"https://www.reddit.com/user/{author}"})
+    return out
+
+
 async def fetch_engagers(account: SocialAccount, platform: str, remote_id: str) -> Tuple[List[Dict[str, Any]], str]:
     """(people, error). An error is plain text for the user; people may be empty without one."""
     token = account_access_token(account)
@@ -89,6 +104,14 @@ async def fetch_engagers(account: SocialAccount, platform: str, remote_id: str) 
                 if res.status_code != 200:
                     return [], f"Threads would not share the replies ({res.status_code})."
                 return parse_graph_comments("threads", res.json()), ""
+            if platform == "reddit":
+                from app.services.social_publisher import REDDIT_API, _reddit_headers
+
+                res = await client.get(f"{REDDIT_API}/comments/{remote_id.removeprefix('t3_')}", headers=_reddit_headers(token),
+                                       params={"limit": 100, "depth": 1, "raw_json": 1})
+                if res.status_code != 200:
+                    return [], f"Reddit would not share the comments ({res.status_code})."
+                return parse_reddit_comments(res.json()), ""
             if platform == "linkedin":
                 res = await client.get(f"https://api.linkedin.com/rest/socialActions/{quote(remote_id, safe='')}/comments",
                                        headers={"Authorization": f"Bearer {token}", "Linkedin-Version": "202401", "X-Restli-Protocol-Version": "2.0.0"})

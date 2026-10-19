@@ -4006,7 +4006,7 @@ export function CallingWorkspace({
           )}
 
           {page === "analytics" && canSee(operator, "analytics") && (
-            <div style={{ maxWidth: 1240 }}>
+            <div>
               <AnalyticsTab operator={operator} />
             </div>
           )}

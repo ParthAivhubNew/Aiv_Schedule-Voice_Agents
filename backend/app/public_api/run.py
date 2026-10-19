@@ -61,8 +61,9 @@ ACTIONS: Dict[str, Dict[str, Tuple[str, str, bool]]] = {
         "wallet": ("GET", "/wallets", False),
     },
 }
-# Mail has no URL of its own: its actions are done right here (see _mail), under the same rules as the calls above.
-PLUGINS = [*ACTIONS, "mail"]
+# Mail, auth and numbers have no URL of their own: their actions are done right here (see _mail, _auth, _numbers), under the
+# same rules as the calls above.
+PLUGINS = [*ACTIONS, "mail", "auth", "numbers"]
 
 _ENVELOPE = {"plugin", "action", "id", "data"}
 _PASS_HEADERS = ("authorization", "idempotency-key", "x-forwarded-for", "user-agent")
@@ -108,11 +109,67 @@ async def _mail(request: Request, action: Any, id_: Any, data: Any, query: bool)
     return out
 
 
+async def _auth(request: Request, action: Any, data: Any, query: bool) -> Response:
+    """Sign-up and login for a partner's own pages (public_api/partner_auth.py). Never a link: it carries passwords."""
+    from app.database import AsyncSessionLocal
+    from app.public_api import partner_auth as PA
+    from app.public_api.core import under_shared_rules
+
+    if not isinstance(action, str) or action not in PA.ACTIONS:
+        return _refuse(422, "unknown_action", f"'{action}' is not an action of 'auth'. Use one of: " + ", ".join(PA.ACTIONS) + ".",
+                       plugin="auth", actions=list(PA.ACTIONS))
+    if query:
+        return _refuse(405, "post_only", f"'auth.{action}' must be sent as POST /v1/run.", plugin="auth", action=action)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return _refuse(422, "invalid_request", "'data' must be an object.")
+
+    async def call() -> Response:
+        async with AsyncSessionLocal() as db:
+            return JSONResponse(await PA.handle(request, db, action, data), headers={"Cache-Control": "no-store"})
+
+    out = await under_shared_rules(request, call)
+    out.headers["X-Outreach-Action"] = f"auth.{action}"
+    return out
+
+
+async def _numbers(request: Request, action: Any, id_: Any, data: Any, query: bool) -> Response:
+    """Phone numbers (public_api/numbers.py): the same code as the Numbers screen, under the same rules as every call."""
+    from app.database import AsyncSessionLocal
+    from app.public_api import numbers as NU
+    from app.public_api.core import under_shared_rules
+
+    if not isinstance(action, str) or action not in NU.ACTIONS:
+        return _refuse(422, "unknown_action", f"'{action}' is not an action of 'numbers'. Use one of: " + ", ".join(NU.ACTIONS) + ".",
+                       plugin="numbers", actions=list(NU.ACTIONS))
+    if query and action not in ("list", "search", "verification.requirements", "verification.status"):
+        return _refuse(405, "read_only", f"'numbers.{action}' changes something, so send it as POST /v1/run, not GET.", plugin="numbers", action=action)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return _refuse(422, "invalid_request", "'data' must be an object.")
+    if id_ is not None and not isinstance(id_, str):
+        return _refuse(422, "invalid_request", "'id' must be text.")
+
+    async def call() -> Response:
+        async with AsyncSessionLocal() as db:
+            return JSONResponse(await NU.handle(request, db, action, (id_ or "").strip(), data))
+
+    out = await under_shared_rules(request, call)
+    out.headers["X-Outreach-Action"] = f"numbers.{action}"
+    return out
+
+
 async def _dispatch(request: Request, plugin: Any, action: Any, id_: Any, data: Any, query: bool) -> Response:
     if not isinstance(plugin, str) or plugin not in PLUGINS:
         return _refuse(422, "unknown_plugin", "'plugin' must be one of: " + ", ".join(PLUGINS) + ".", plugins=list(PLUGINS))
     if plugin == "mail":
         return await _mail(request, action, id_, data, query)
+    if plugin == "auth":
+        return await _auth(request, action, data, query)
+    if plugin == "numbers":
+        return await _numbers(request, action, id_, data, query)
     if not isinstance(action, str) or action not in ACTIONS[plugin]:
         return _refuse(422, "unknown_action", f"'{action}' is not an action of '{plugin}'. Use one of: "
                        + ", ".join(sorted(ACTIONS[plugin])) + ".", plugin=plugin, actions=sorted(ACTIONS[plugin]))

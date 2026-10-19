@@ -27,7 +27,7 @@ def linkedin_craft_brief(company_name: str = "", company_pitch: str = "", compan
         f"Offering: {company_pitch.strip()}" if (company_pitch or "").strip() else "",
         (company_context or "").strip(),
     ) if x)
-    brand_visual = f"Discreet {brand} wordmark if useful." if brand else "No invented logo or wordmark."
+    brand_visual = "No logos or wordmarks."
     return f"""You write high-engagement LinkedIn posts. Company facts below are the ONLY business details you may use. Never invent offerings, URLs, customers, or metrics.
 
 {    facts or "No company profile supplied."}
@@ -51,18 +51,21 @@ ONE complete LinkedIn post:
 - 3–6 relevant hashtags (not stuffed into the body).
 - 120–220 words for hook + body (exclude hashtags).
 
-Image: premium, modern, enterprise-ready. ONE clear idea from THIS post. Strong hierarchy. Minimal text (headline max 8 words). {brand_visual} Visual must match the user's plan and the company, not a generic stock industry scene. No stock-photo look. No cluttered fake dashboard UI. No excessive icons. No cliché robots unless the plan is specifically about AI. Readable in 2 seconds on LinkedIn scroll. Clean space for headline overlay. Format 4:5 (1080x1350) or 1:1.
+Image: ONE clear, concrete scene from THIS post that fits what this company actually does (its customers, place, product or work), not a generic office or tech scene. Describe the subject, setting, light and mood. The picture carries no words: no headline, captions, numbers, charts, screens or UI, because image models draw text badly. {brand_visual} No stock-photo handshakes or posed smiles, no icon collages, no robots unless the plan is about AI. Understandable in two seconds while scrolling.
 
 Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics."""
 
+# One coherent look per style (the post's scene comes first; this only sets how it is drawn).
 IMAGE_STYLES = {
-    "modern_saas": "modern sleek SaaS vector illustration, clean UI gradients, professional tech graphics, high quality, 4k",
-    "editorial": "photorealistic editorial corporate photography, natural soft studio lighting, sharp focus, magazine style, 8k",
-    "minimalist_3d": "3d isometric clay style render, smooth pastel lighting, minimalist geometric tech shapes, clean aesthetic",
-    "neon_tech": "dark theme holographic interface, glowing data visualisations, neon accents, futuristic operational intelligence",
-    "b2b_ad": "high contrast corporate B2B marketing visual, modern typography, bold branding, clean negative space, premium graphic design",
-    "cinematic": "cinematic widescreen shot, dramatic volumetric lighting, depth of field, atmospheric, 8k masterpiece"
+    "modern_saas": "Style: clean modern flat illustration with soft gradients, simple confident shapes, crisp edges and a calm, limited colour palette.",
+    "editorial": "Style: natural editorial photograph, real people and places, soft daylight, shallow depth of field, 35mm lens, true-to-life colour.",
+    "minimalist_3d": "Style: soft 3D render, matte clay materials, gentle studio light, few props, pastel colours.",
+    "neon_tech": "Style: dark moody scene with glowing accent light, sleek and futuristic, deep shadows.",
+    "b2b_ad": "Style: bold graphic poster look, strong simple shapes, high contrast, lots of empty space.",
+    "cinematic": "Style: cinematic film still, dramatic natural light, depth of field, rich colour grading.",
 }
+NO_TEXT = "No text, letters, numbers, captions, logos or watermarks anywhere in the image."
+_WANTS_TEXT = re.compile(r"(?i)(\btext\b|\bwords?\b|\bsays\b|\bwritten\b|\blettering\b|\btypograph|[\"“].{2,40}[\"”])")
 
 ASPECT_RATIOS = {
     "1:1": (1080, 1080),
@@ -71,12 +74,13 @@ ASPECT_RATIOS = {
     "4:5": (1080, 1350)
 }
 
+# Ways to show an idea when the writer gave no scene of its own (industry-neutral on purpose).
 IMAGE_SCENE_VARIANTS = [
-    "Premium 4:5 LinkedIn visual: dark navy desk, one clean abstract executive chart in teal light, generous negative space, no readable fake UI, discreet brand wordmark only if a company name was supplied",
-    "Premium 4:5 LinkedIn visual: connected data nodes flowing into a single glass panel, studio lighting, enterprise SaaS, no cluttered dashboard, no stock handshake",
-    "Premium 4:5 LinkedIn visual: split of messy printed reports vs one calm insight surface, high-end editorial graphic, minimal type, no fake spreadsheet cells",
-    "Premium 4:5 LinkedIn visual: leadership table with one shared abstract live view, cinematic soft light, no robots, no icon soup",
-    "Premium 4:5 LinkedIn visual: asking a question of data — luminous query line into a simple chart, modern BI brand, empty space for headline",
+    "a close, candid moment of someone at work on exactly this, natural light, the moment of getting it right",
+    "one simple object that stands for the idea, placed on a clean surface with soft shadows and plenty of space around it",
+    "a before-and-after told by one scene: the messy way on one side, the calm, sorted way on the other",
+    "a small team mid-conversation around the problem, relaxed and real, seen from a natural eye-level angle",
+    "a bright, uncluttered workplace that fits the business, with one clear focal point",
 ]
 
 
@@ -200,8 +204,12 @@ CHANNEL_RULES = {
     "instagram": "Instagram: caption of 80-150 words. The first line must stop the scroll (it shows before 'more'). Short lines with blank lines between. Emojis only if they suit the brand voice. End with 8-15 specific hashtags. The image carries the post, so the image brief matters most. Put the finished caption (with hashtags) in channel_text.",
     "facebook": "Facebook: conversational, 60-120 words, like talking to a local customer or peer. End with a question or a clear next step. 0-3 hashtags. Put the finished post in channel_text.",
     "threads": "Threads: one short, conversational take under 450 characters. At most 1 hashtag. Put the finished post in channel_text.",
+    "reddit": "Reddit: write as a member of the community, not as a brand. Plain, honest and useful: share a specific experience, "
+              "numbers or a lesson, or ask a real question; 80-250 words; short paragraphs (Markdown is fine). No hashtags, no emojis, "
+              "no sales lines and no link unless supplied. The headline is the Reddit title (under 300 characters): a real question "
+              "or a specific statement, never clickbait. Put the finished post body in channel_text.",
 }
-CHANNEL_LIMITS = {"x": 280, "threads": 500, "instagram": 2200, "facebook": 5000}
+CHANNEL_LIMITS = {"x": 280, "threads": 500, "instagram": 2200, "facebook": 5000, "reddit": 40000}
 
 
 def norm_channel(channel: Any) -> str:
@@ -254,28 +262,56 @@ def apply_channel(payload: Dict[str, Any], channel: str) -> Dict[str, Any]:
     return payload
 
 
+_TEXT_ASKS = re.compile(
+    r"(?i)[^.]*\b(headline|caption|typograph|overlay|wordmark|logo|font|lettering|words? on)[^.]*\.?")
+# Sizes and "LinkedIn prompt" labels the writer adds; the scene around them is kept.
+_SIZE_WORDS = re.compile(
+    r"(?i)\b(production[- ]ready\s*)?(\d{1,2}:\d{1,2}|\d{3,4}\s*x\s*\d{3,4}|linkedin)\b(\s*(portrait|landscape|prompt|visual|post|image))*\s*:?")
+
+
+def scene_from_payload(payload: Dict[str, Any], topic: str) -> str:
+    """What the picture shows: the writer's scene, with any request for text, logos or sizes taken out."""
+    raw = (payload.get("imagePrompt") or payload.get("image_prompt") or "").strip()
+    concept = (payload.get("imageConcept") or payload.get("image_concept") or "").strip()
+    scene = raw if len(raw) > 80 else (concept or raw)
+    scene = _SIZE_WORDS.sub(" ", _TEXT_ASKS.sub(" ", scene))
+    scene = re.sub(r"\s+", " ", scene).strip(" .,")
+    if len(scene) < 25:
+        scene = f"{(topic or concept or 'the idea of the post').strip().rstrip('.')}, shown as {pick_image_scene(topic or concept)}"
+    return scene[:1800]
+
+
 def linkedin_image_prompt(payload: Dict[str, Any], topic: str, company: str) -> str:
-    existing = (payload.get("imagePrompt") or payload.get("image_prompt") or "").strip()
-    if len(existing) > 120:
-        return existing
-    headline = (payload.get("imageHeadline") or payload.get("image_headline") or "One source of truth").strip()
-    concept = (payload.get("imageConcept") or payload.get("image_concept") or topic or "").strip().rstrip(".")
+    """The image prompt for a post: one concrete scene, composition that reads on a phone, and no text."""
+    scene = scene_from_payload(payload, topic)
     brand = (company or "").strip()
-    brand_line = (
-        f"Small discreet {brand} wordmark bottom-right. "
-        if brand else
-        "No invented logo or company wordmark. "
-    )
-    for_line = f" for {brand}" if brand else ""
+    fit = f" It should feel right for {brand} and its customers." if brand else ""
     return (
-        f"LinkedIn 4:5 portrait 1080x1350, premium enterprise visual{for_line}. "
-        f"ONE idea: {concept}. Composition: strong hierarchy, generous negative space, subject upper-center, "
-        f"headline overlay max 8 words in clean sans-serif: '{headline}'. "
-        f"{brand_line}Palette: deep navy, teal, warm white. "
-        "Match the user's plan and the company. No readable fake UI text, "
-        "no cluttered dashboards, no stock handshake, no icon soup, no robots unless the plan is about AI. "
-        "Photoreal + editorial graphic hybrid, studio lighting, 8k, understandable in two seconds while scrolling."
+        f"{scene}.{fit} One clear subject, uncluttered background, room around the subject so it reads at a glance "
+        f"on a phone. Realistic proportions and hands, natural details. {NO_TEXT}"
     )
+
+
+CUSTOM_STYLE = "custom:"
+
+
+def style_text(style: str) -> str:
+    """The look to draw in: a preset, or the user's own words ("custom:<their description>")."""
+    s = (style or "").strip()
+    if s.startswith(CUSTOM_STYLE) and s[len(CUSTOM_STYLE):].strip():
+        return "Style: " + s[len(CUSTOM_STYLE):].strip().rstrip(".") + "."
+    return IMAGE_STYLES.get(s, IMAGE_STYLES["modern_saas"])
+
+
+def finish_prompt(prompt: str, style: str) -> str:
+    """Add the chosen look and the no-text rule once, unless the prompt already has them (or asks for words)."""
+    out = (prompt or "").strip().rstrip(".") + "."
+    look = style_text(style)
+    if "Style:" not in out:
+        out += " " + look
+    if NO_TEXT not in out and not _WANTS_TEXT.search(prompt or ""):
+        out += " " + NO_TEXT
+    return out
 
 
 def _user_angle(topic: str, pitch: str = "") -> str:
@@ -348,7 +384,7 @@ def _fallback_linkedin_package(topic: str, company: str, pitch: str = "") -> Dic
         "hook": hook,
         "copy": copy,
         "hashtags": extra_tags or ["#Leadership", "#Operations"],
-        "imageConcept": f"Premium uncluttered visual of this idea: {angle}. Matches {who}.",
+        "imageConcept": f"{angle}, shown as {pick_image_scene(angle)}, in a setting that fits {who}",
         "imageHeadline": " ".join(headline_words) or "One source of truth",
         "_company": brand,
     }
@@ -363,12 +399,9 @@ def _fallback_linkedin_package(topic: str, company: str, pitch: str = "") -> Dic
 
 
 def create_topic_image_prompt(title: str, angle: str = "", theme: str = "Operations", style: str = "modern_saas") -> str:
-    """Creates an evocative image prompt based on the topic title, theme and style."""
+    """An image prompt from a post title alone (redraws and posts drawn just before publishing)."""
     base_concept = title.replace("Why ", "").replace("How ", "").replace("?", "").strip()
-    if style in ("editorial", "modern_saas", "cinematic"):
-        return f"{base_concept}. {pick_image_scene(base_concept)}"
-    style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES["modern_saas"])
-    return f"{base_concept}, {theme.lower()} focus, {style_suffix}"
+    return linkedin_image_prompt({"imageConcept": f"{base_concept}, shown as {pick_image_scene(base_concept)}"}, base_concept, "")
 
 def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 1200, height: int = 675, aspect_ratio: str = "16:9", **_kwargs) -> str:
     """Generates an instant high-resolution AI image URL using Pollinations FLUX/AI image service."""
@@ -383,7 +416,7 @@ def generate_image_url(prompt: str, style: str = "modern_saas", width: int = 120
     if aspect_ratio in ASPECT_RATIOS:
         width, height = ASPECT_RATIOS[aspect_ratio]
         
-    return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}"
+    return f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&model=flux&nologo=true&seed={seed}"
 
 
 def _image_provider_id(raw: Optional[str]) -> str:
@@ -507,6 +540,38 @@ async def resolve_image_credentials(
     return {"provider": prov or "", "api_key": "", "model": mod, "base_url": burl, "missing_key_for": prov or "image"}
 
 
+async def fit_to_shape(image_url: str, aspect_ratio: str) -> Optional[str]:
+    """Centre-crop a drawn picture to the post's exact shape (e.g. 4:5) when the engine returned another one.
+    Returns a data URI, or None when the picture already fits or could not be read."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    want = {"1:1": 1.0, "16:9": 16 / 9, "9:16": 9 / 16, "4:5": 4 / 5}.get(aspect_ratio)
+    if not want:
+        return None
+    from app.services.social_publisher import fetch_image_bytes
+
+    raw, _ = await fetch_image_bytes(image_url)
+    if not raw:
+        return None
+    with Image.open(io.BytesIO(raw)) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        if abs(w / h - want) < 0.02:
+            return None
+        if w / h > want:
+            nw = int(round(h * want))
+            box = ((w - nw) // 2, 0, (w - nw) // 2 + nw, h)
+        else:
+            nh = int(round(w / want))
+            box = (0, (h - nh) // 2, w, (h - nh) // 2 + nh)
+        out = io.BytesIO()
+        im.crop(box).save(out, "JPEG", quality=92, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
+
+
 async def generate_image_with_provider(
     prompt: str,
     provider: Optional[str] = "pollinations",
@@ -519,13 +584,21 @@ async def generate_image_with_provider(
     height: Optional[int] = None,
     db: Any = None,
     scope: str = "scheduler",
+    quality: str = "standard",
 ) -> Dict[str, Any]:
     """Thin wrapper over _generate_image_with_provider: logs real usage (provider/model, one
     call) for every paid render so its real cost can be tracked, whatever provider answered."""
     result = await _generate_image_with_provider(
         prompt, provider=provider, api_key=api_key, model=model, base_url=base_url,
-        style=style, aspect_ratio=aspect_ratio, width=width, height=height, db=db,
+        style=style, aspect_ratio=aspect_ratio, width=width, height=height, db=db, quality=quality,
     )
+    if result.get("status") == "ok" and result.get("imageUrl"):
+        try:
+            fitted = await fit_to_shape(result["imageUrl"], aspect_ratio)
+            if fitted:
+                result["imageUrl"] = fitted
+        except Exception as err:
+            logger.info(f"[post_writer] could not fit the image to {aspect_ratio}: {err}")
     if db is not None and result.get("status") == "ok" and (result.get("provider") or "") not in ("", "pollinations"):
         try:
             from app.services.ai_pricing import record_usage
@@ -547,6 +620,7 @@ async def _generate_image_with_provider(
     width: Optional[int] = None,
     height: Optional[int] = None,
     db: Any = None,
+    quality: str = "standard",
 ) -> Dict[str, Any]:
     """
     Renders an AI image using the saved ChatGPT/OpenAI key when present.
@@ -561,9 +635,8 @@ async def _generate_image_with_provider(
     base_url = creds.get("base_url") or ""
     paid = prov in ("openai", "stability", "fal", "custom") and bool((api_key or "").strip() or (base_url or "").strip())
 
-    clean_prompt = (prompt or "").strip() or "Business intelligence operations dashboard analytics"
-    style_suffix = IMAGE_STYLES.get(style, IMAGE_STYLES.get("modern_saas", ""))
-    full_prompt = f"{clean_prompt}, {style_suffix}, no watermarks, no unreadable UI text".strip(", ")
+    clean_prompt = (prompt or "").strip() or create_topic_image_prompt("A calm, well-run small business")
+    full_prompt = finish_prompt(clean_prompt, style)
 
     def_w, def_h = ASPECT_RATIOS.get(aspect_ratio, (1200, 675))
     w = int(width or def_w)
@@ -580,30 +653,30 @@ async def _generate_image_with_provider(
             "fallback": False,
         }
 
-    # 1. OpenAI (DALL-E 3 / gpt-image-1)
+    # 1. OpenAI, with the model chosen in the owner portal. Tall shapes are drawn tall and cut to the exact shape after.
     if ("openai" in prov or "dall" in prov) and api_key and api_key.strip():
         last_err = ""
-        dalle_size = "1792x1024" if aspect_ratio == "16:9" else ("1024x1792" if aspect_ratio == "9:16" else "1024x1024")
+        tall, wide = aspect_ratio in ("4:5", "9:16"), aspect_ratio == "16:9"
         target_url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/images/generations"
         headers = {
             "Authorization": f"Bearer {api_key.strip()}",
             "Content-Type": "application/json",
         }
-        models_to_try = []
-        for m in (model, "dall-e-3", "gpt-image-1"):
-            if m and m not in models_to_try:
-                models_to_try.append(m)
+        models_to_try = [model or "dall-e-3"]
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=150.0) as client:
                 for target_model in models_to_try:
-                    body = {
-                        "model": target_model,
-                        "prompt": full_prompt[:1000],
-                        "n": 1,
-                        "size": dalle_size,
-                    }
+                    body = {"model": target_model, "prompt": full_prompt[:3900], "n": 1}
+                    # The two OpenAI image families name sizes and quality differently.
                     if target_model.startswith("dall-e"):
-                        body["response_format"] = "b64_json"
+                        body.update({"size": "1024x1792" if tall else ("1792x1024" if wide else "1024x1024"),
+                                     "response_format": "b64_json"})
+                        if quality == "high":
+                            body["quality"] = "hd"
+                    else:
+                        body["size"] = "1024x1536" if tall else ("1536x1024" if wide else "1024x1024")
+                        if quality == "high":
+                            body["quality"] = "high"
                     res = await client.post(target_url, headers=headers, json=body)
                     if res.status_code == 200:
                         row = (res.json().get("data") or [{}])[0]
@@ -649,7 +722,7 @@ async def _generate_image_with_provider(
                 "height": sd_h,
                 "width": sd_w,
                 "samples": 1,
-                "steps": 30
+                "steps": 50 if quality == "high" else 30
             }
             async with httpx.AsyncClient(timeout=40.0) as client:
                 res = await client.post(target_url, headers=headers, json=body)
@@ -677,20 +750,19 @@ async def _generate_image_with_provider(
     elif ("stability" in prov or "sdxl" in prov) and (not api_key or not api_key.strip()):
         fallback_warning = "Stability AI key not provided."
 
-    # 3. Fal.ai (FLUX.1 Pro / Schnell)
+    # 3. Fal.ai, with the model chosen in the owner portal (or the saved key's endpoint).
     elif "fal" in prov and api_key and api_key.strip():
         try:
-            target_url = (base_url or "https://fal.run/fal-ai/flux/schnell").rstrip("/")
+            fal_model = (model or "fal-ai/flux/schnell").strip().strip("/")
+            target_url = (base_url or f"https://fal.run/{fal_model}").rstrip("/")
             headers = {
                 "Authorization": f"Key {api_key.strip()}",
                 "Content-Type": "application/json"
             }
-            fal_size = "landscape_16_9" if aspect_ratio == "16:9" else ("portrait_16_9" if aspect_ratio == "9:16" else "square_hd")
-            body = {
-                "prompt": full_prompt[:1000],
-                "image_size": fal_size
-            }
-            async with httpx.AsyncClient(timeout=40.0) as client:
+            body = {"prompt": full_prompt[:3900], "image_size": {"width": w, "height": h}}
+            if quality == "high" and "schnell" not in fal_model:
+                body["num_inference_steps"] = 40
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 res = await client.post(target_url, headers=headers, json=body)
                 if res.status_code == 200:
                     imgs = res.json().get("images", [])
@@ -700,7 +772,7 @@ async def _generate_image_with_provider(
                             "imageUrl": imgs[0]["url"],
                             "imagePrompt": clean_prompt,
                             "provider": "fal",
-                            "model": model or "flux-schnell",
+                            "model": fal_model,
                             "style": style,
                             "aspect_ratio": aspect_ratio,
                             "width": w,
@@ -807,7 +879,7 @@ async def _generate_image_with_provider(
         }
 
     # Pollinations, only when staff chose it as the image engine.
-    fallback_url = generate_image_url(clean_prompt, style=style, width=w, height=h, aspect_ratio=aspect_ratio)
+    fallback_url = generate_image_url(full_prompt, style="", width=w, height=h, aspect_ratio=aspect_ratio)
     image_url = fallback_url
     try:
         from app.services.social_publisher import fetch_image_bytes
@@ -942,9 +1014,9 @@ Return ONLY valid JSON:
   "hashtags": ["#Tag1", "#Tag2", "#Tag3"],
   "cta": "The closing question already in the post",
   "first_comment": "Useful follow-up, not a sales pitch",
-  "imageConcept": "One concise paragraph describing the visual",
-  "imageHeadline": "Max 8 words on the image",
-  "image_prompt": "Production-ready 4:5 LinkedIn prompt: composition, lighting, style, typography placement, {company_name} branding, 1080x1350. No fake UI.",
+  "imageConcept": "One concise paragraph describing a concrete scene that shows the post's idea for this company: subject, setting, light, mood",
+  "imageHeadline": "Short label for the picture (it is NOT drawn on it)",
+  "image_prompt": "A detailed prompt for an image model: the scene, camera angle and lens or illustration style, lighting and colours that suit {company_name}. Never ask for any text, letters, numbers, logos, charts or screens in the image.",
   "alt_text": "Plain-language image description",
   "recommended_time": "Tue 09:30"
 }}"""
@@ -1091,6 +1163,7 @@ async def render_package_image(
     style: str = "modern_saas",
     aspect_ratio: str = "4:5",
     db: Any = None,
+    quality: str = "standard",
 ) -> Dict[str, Any]:
     """Render the post image. The text-model key is never reused for images: the image
     engine resolves its own key (see resolve_image_credentials)."""
@@ -1107,6 +1180,7 @@ async def render_package_image(
         width=width,
         height=height,
         db=db,
+        quality=quality,
     )
     llm_payload["imageUrl"] = img_res.get("imageUrl")
     llm_payload["imagePrompt"] = img_prompt
@@ -1175,7 +1249,7 @@ Write one complete, distinct post for EACH item below, for that item's channel. 
 Banned: delve, game-changer, revolutionary, synergy, leverage, unlock, in today's fast-paced world, slogan closers, fake statistics.
 
 Return ONLY a valid JSON array with exactly one object per item, in the same order:
-[{{"key": "item key", "postTitle": "Visible headline, max 8 words", "hook": "1-2 line hook", "copy": "LinkedIn: body 120-220 words, short mobile paragraphs, no hashtags. Other channels: the core message in 1-3 sentences", "channel_text": "Other channels only: the finished post exactly as it should be published, following that channel's rule. Empty for LinkedIn", "hashtags": ["#Tag1", "#Tag2", "#Tag3"], "cta": "Closing question in the post", "first_comment": "Useful follow-up", "imageConcept": "One paragraph describing the visual", "imageHeadline": "Max 8 words on the image", "image_prompt": "Production-ready 4:5 prompt, 1080x1350, no fake UI", "alt_text": "Plain image description"}}]"""
+[{{"key": "item key", "postTitle": "Visible headline, max 8 words", "hook": "1-2 line hook", "copy": "LinkedIn: body 120-220 words, short mobile paragraphs, no hashtags. Other channels: the core message in 1-3 sentences", "channel_text": "Other channels only: the finished post exactly as it should be published, following that channel's rule. Empty for LinkedIn", "hashtags": ["#Tag1", "#Tag2", "#Tag3"], "cta": "Closing question in the post", "first_comment": "Useful follow-up", "imageConcept": "One paragraph describing a concrete scene for this company: subject, setting, light, mood", "imageHeadline": "Short label for the picture (not drawn on it)", "image_prompt": "Detailed image-model prompt: scene, camera or illustration style, light, colours. No text, letters, logos, charts or screens in the image", "alt_text": "Plain image description"}}]"""
 
     res = await call_open_chat_llm(
         messages=[{"role": "user", "content": "Items:\n" + "\n".join(lines)}],

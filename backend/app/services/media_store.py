@@ -1,12 +1,13 @@
-"""Persist generated images as public files Instagram / Threads can fetch."""
+"""Persist pictures and videos as public files the networks (Instagram, Threads, Facebook) can fetch."""
 from __future__ import annotations
 
 import base64
 import logging
 import re
+import struct
 import uuid
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from app.config import settings
 
@@ -15,7 +16,13 @@ logger = logging.getLogger("media_store")
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "static" / "generated"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_URL_PREFIX = "/api/scheduler/media"
-_SAFE_NAME = re.compile(r"^[a-fA-F0-9]{8,32}\.(jpg|jpeg|png|webp)$")
+_SAFE_NAME = re.compile(r"^[a-fA-F0-9]{8,32}\.(jpg|jpeg|png|webp|mp4|mov)$")
+IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp"}
+VIDEO_TYPES = {"video/mp4": "mp4", "video/quicktime": "mov"}
+MIME_OF = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp",
+           "mp4": "video/mp4", "mov": "video/quicktime"}
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
 
 
 def public_base_from_request(request=None) -> str:
@@ -72,17 +79,121 @@ def store_image_bytes(raw: bytes, mime: str = "image/jpeg") -> Optional[str]:
     return f"{MEDIA_URL_PREFIX}/{fid}.{ext}"
 
 
+def local_media_path(url: Optional[str]) -> Optional[Path]:
+    """The stored file behind one of our media URLs (relative or absolute), or None."""
+    raw = (url or "").strip()
+    m = re.search(r"/api/scheduler/media/([a-fA-F0-9]{8,32}\.(jpg|jpeg|png|webp|mp4|mov))$", raw, re.I)
+    return safe_media_path(m.group(1) if m else Path(raw).name)
+
+
+def mime_of(path: Path) -> str:
+    return MIME_OF.get(path.suffix.lower().lstrip("."), "application/octet-stream")
+
+
 def local_media_bytes(image_url: Optional[str]) -> Tuple[Optional[bytes], str]:
-    raw = (image_url or "").strip()
-    m = re.search(r"/api/scheduler/media/([a-fA-F0-9]{8,32}\.(jpg|jpeg|png|webp))$", raw, re.I)
-    name = m.group(1) if m else Path(raw).name
-    path = safe_media_path(name)
+    path = local_media_path(image_url)
     if not path:
         return None, "image/jpeg"
-    blob = path.read_bytes()
-    ext = path.suffix.lower()
-    mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
-    return blob, mime
+    return path.read_bytes(), mime_of(path)
+
+
+async def store_upload(upload, mime: str) -> Tuple[str, int]:
+    """Save an uploaded picture or video in chunks. Returns (url, bytes). Raises ValueError in plain words."""
+    mime = (mime or "").lower()
+    ext = IMAGE_TYPES.get(mime) or VIDEO_TYPES.get(mime)
+    if not ext:
+        raise ValueError("Use a PNG, JPG or WebP picture, or an MP4 or MOV video.")
+    limit = MAX_VIDEO_BYTES if mime in VIDEO_TYPES else MAX_IMAGE_BYTES
+    fid = uuid.uuid4().hex[:16]
+    path = MEDIA_DIR / f"{fid}.{ext}"
+    size = 0
+    try:
+        with path.open("wb") as out:
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > limit:
+                    raise ValueError(f"That file is over {limit // (1024 * 1024)} MB. Pick a smaller one.")
+                out.write(chunk)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    if size < 200:
+        path.unlink(missing_ok=True)
+        raise ValueError("That file is empty.")
+    return f"{MEDIA_URL_PREFIX}/{fid}.{ext}", size
+
+
+def probe(path: Path) -> Dict[str, Any]:
+    """Width, height and (videos) length in seconds; values that cannot be read are None."""
+    out: Dict[str, Any] = {"width": None, "height": None, "duration": None}
+    if path.suffix.lower() in (".mp4", ".mov"):
+        try:
+            out.update(_mp4_info(path))
+        except Exception as e:
+            logger.info(f"Could not read video details of {path.name}: {e}")
+        return out
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            out["width"], out["height"] = im.size
+    except Exception as e:
+        logger.info(f"Could not read picture size of {path.name}: {e}")
+    return out
+
+
+def _mp4_info(path: Path) -> Dict[str, Any]:
+    """Length from the movie header (mvhd) and frame size from the first video track header (tkhd)."""
+    info: Dict[str, Any] = {}
+    with path.open("rb") as f:
+        size = path.stat().st_size
+
+        def boxes(start: int, end: int):
+            pos = start
+            while pos + 8 <= end:
+                f.seek(pos)
+                head = f.read(8)
+                if len(head) < 8:
+                    return
+                length, kind = struct.unpack(">I4s", head)
+                header = 8
+                if length == 1:
+                    length = struct.unpack(">Q", f.read(8))[0]
+                    header = 16
+                elif length == 0:
+                    length = end - pos
+                if length < header:
+                    return
+                yield kind, pos + header, pos + length
+                pos += length
+
+        for kind, body, end in boxes(0, size):
+            if kind != b"moov":
+                continue
+            for sub, sbody, send in boxes(body, end):
+                if sub == b"mvhd" and "duration" not in info:
+                    f.seek(sbody)
+                    version = f.read(1)[0]
+                    f.seek(sbody + (20 if version == 1 else 12))
+                    scale = struct.unpack(">I", f.read(4))[0]
+                    dur = struct.unpack(">Q" if version == 1 else ">I", f.read(8 if version == 1 else 4))[0]
+                    if scale:
+                        info["duration"] = round(dur / scale, 2)
+                elif sub == b"trak" and "width" not in info:
+                    for t, tbody, _ in boxes(sbody, send):
+                        if t != b"tkhd":
+                            continue
+                        f.seek(tbody)
+                        version = f.read(1)[0]
+                        f.seek(tbody + (88 if version == 1 else 76))
+                        w, h = struct.unpack(">II", f.read(8))
+                        if w and h:  # audio tracks have no frame size
+                            info["width"], info["height"] = w >> 16, h >> 16
+            break
+    return info
 
 
 def persist_image_url(image_url: Optional[str], public_base: Optional[str] = None) -> Optional[str]:

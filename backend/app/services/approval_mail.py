@@ -45,7 +45,7 @@ URGENT_MS = 30 * 60 * 1000
 MISSED_GRACE_MS = 10 * 60 * 1000
 LINK_TTL_S = 30 * 24 * 3600
 
-CHANNEL_TITLES = {"linkedin": "LinkedIn", "x": "X", "facebook": "Facebook", "instagram": "Instagram", "threads": "Threads"}
+from app.services.social_publisher import TITLES as CHANNEL_TITLES  # noqa: E402
 
 # post id -> when it last became ready for review or changed (in memory; after a restart
 # posts simply wait one more BATCH_WAIT_S).
@@ -138,6 +138,17 @@ async def _send(db: AsyncSession, to: str, subject: str, html_body: str, text_bo
 
         res = await send_system_email(to, subject, html_body, text_body)
     return res
+
+
+def company_mail(company: str, title: str, paragraphs: List[str], button: Optional[Dict[str, str]] = None,
+                 extra_html: str = "", note: str = "", preheader: str = "") -> Dict[str, str]:
+    """A message sent on a company's behalf, in the platform's one email design."""
+    from app.core.mailer import render
+
+    name = _brand_name(company)
+    return render(title, paragraphs, button, footer=f"Sent for {html.escape(name)} by Outreach by Aivhub.", note=note,
+                  preheader=preheader, extra_html=extra_html,
+                  reason=f"You are getting this because you are an approver or contact for {html.escape(name)}.")
 
 
 def _log_row(req_id: str, kind: str, to: str, subject: str, post_ids: List[str], res: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> SocialEmail:
@@ -253,12 +264,13 @@ def _approval_email(company: str, posts: List[SocialPost], link: str, org: Dict[
     if more > 0:
         items.append(f'<tr><td colspan="2" style="padding:10px 0;color:#5B6170">…and {more} more on the review page.</td></tr>')
         lines.append(f"...and {more} more")
-    html_body = f"""<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">
-<h2 style="font-size:18px;margin:0 0 6px">{len(posts)} post{'s' if len(posts) != 1 else ''} waiting for approval</h2>
-<p style="font-size:14px;color:#5B6170;margin:0 0 14px">Nothing goes live until it is approved. Posts not approved by their publish time are skipped.</p>
-<p><a href="{html.escape(link)}" style="display:inline-block;background:#12141C;color:#fff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">Review and approve</a></p>
-<table style="width:100%;border-collapse:collapse">{''.join(items)}</table>
-<p style="font-size:12px;color:#8A8F9C;margin-top:18px">Sent by the {html.escape(company)} post scheduler. Times in {html.escape(org['timezone'])}.</p></div>"""
+    msg = company_mail(
+        company, f"{len(posts)} post{'s' if len(posts) != 1 else ''} waiting for approval",
+        ["Nothing goes live until it is approved. Posts not approved by their publish time are skipped."],
+        {"label": "Review and approve", "url": link},
+        extra_html=f'<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 6px">{"".join(items)}</table>',
+        note=f"Times are in {html.escape(org['timezone'])}.", preheader="Nothing goes live until you approve it.")
+    html_body = msg["html"]
     text_body = (
         f"{len(posts)} post(s) waiting for approval at {company}.\n\nReview and approve: {link}\n\n"
         + "\n".join(lines)
@@ -441,13 +453,12 @@ async def _send_result(db: AsyncSession, email: str, company: str, org: Dict[str
         urls = [str(r.get("url")) for r in (p.publish_results or []) if isinstance(r, dict) and r.get("ok") and r.get("url")]
         return "".join(f' <a href="{html.escape(u)}">View</a>' for u in urls[:3])
 
-    html_body = (
-        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">'
-        + block("Posted", published, "#0F766E", links)
-        + block("Failed", failed, "#B42318", err)
-        + block("Missed: not approved before the publish time", missed, "#B45309", lambda p: "")
-        + '<p style="font-size:12px;color:#8A8F9C;margin-top:18px">Open the post scheduler to retry, reschedule or approve.</p></div>'
-    )
+    html_body = company_mail(
+        company, "How your scheduled posts went",
+        [", ".join(parts).capitalize() + "."],
+        extra_html=(block("Posted", published, "#0F766E", links) + block("Failed", failed, "#B42318", err)
+                    + block("Missed: not approved before the publish time", missed, "#B45309", lambda p: "")),
+        note="Open the post scheduler to retry, reschedule or approve.")["html"]
     text_body = "\n".join(
         [f"Posted: {p.title}" for p in published]
         + [f"Failed: {p.title}" for p in failed]
@@ -474,13 +485,11 @@ async def send_schedule_reminder(db: AsyncSession, s: SocialSchedule, public_bas
     for email in to:
         token = sign({"s": s.id, "e": s.end_date, "m": email, "x": int(time.time()) + LINK_TTL_S})
         link = f"{public_base.rstrip('/')}/api/scheduler/schedule-extend?t={token}"
-        html_body = (
-            '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">'
-            f'<h2 style="font-size:18px;margin:0 0 6px">"{html.escape(s.theme)}" ends on {html.escape(s.end_date or "")}</h2>'
-            '<p style="font-size:14px;color:#5B6170">After that no new posts are made for it. Posts already made stay as they are.</p>'
-            f'<p><a href="{html.escape(link)}" style="display:inline-block;background:#12141C;color:#fff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:10px">Keep it going {EXTEND_MONTHS} more months</a></p>'
-            '<p style="font-size:12px;color:#8A8F9C">Do nothing to let it end. You can also change the end date in the post scheduler.</p></div>'
-        )
+        html_body = company_mail(
+            company, f'"{s.theme}" ends on {s.end_date or ""}',
+            ["After that no new posts are made for it. Posts already made stay as they are."],
+            {"label": f"Keep it going {EXTEND_MONTHS} more months", "url": link},
+            note="Do nothing to let it end. You can also change the end date in the post scheduler.")["html"]
         text_body = f'"{s.theme}" ends on {s.end_date}. Keep it going {EXTEND_MONTHS} more months: {link}\nDo nothing to let it end.'
         res = await _send(db, email, subject, html_body, text_body)
         db.add(_log_row(f"rem_{uuid.uuid4().hex[:16]}", "reminder", email, subject, [], res, {"scheduleId": s.id}))

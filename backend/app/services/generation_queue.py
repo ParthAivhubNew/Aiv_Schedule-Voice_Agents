@@ -485,9 +485,12 @@ async def _run_image(job: Dict[str, Any]) -> None:
             if not url:
                 raise RuntimeError(img.get("warning") or "The image AI returned no image.")
             async with AsyncSessionLocal() as db:
-                await _set_posts(db, job["post_ids"], image_url=url)
                 for post in (await db.execute(select(SocialPost).where(SocialPost.id.in_(job["post_ids"])))).scalars().all():
+                    post.image_url = url  # through the ORM, so a carousel's first picture follows
                     await record_version(db, post, "ai", amend_ai=True)
+                from app.services import social_library
+
+                await social_library.remember(db, url, source="ai", name=(job["headline"] or "AI image")[:120])
                 await db.commit()
         await _charge(job, "ai_image")
         await _finish(job, "done", None, None)

@@ -84,7 +84,7 @@ async def _org_approvers(db: AsyncSession) -> List[str]:
 async def _email_approvers(db: AsyncSession, p: SocialPost, org: str, emails: List[str], reminder: bool) -> None:
     """One email per approver with the preview link. Never raises."""
     try:
-        from app.services.approval_mail import _brand_name, _company_name, _send
+        from app.services.approval_mail import _company_name, _send, company_mail
         from app.services.org_settings import load_org
 
         company = await _company_name(db)
@@ -98,13 +98,9 @@ async def _email_approvers(db: AsyncSession, p: SocialPost, org: str, emails: Li
             subject = f"{company}: a post is waiting for your approval"
             lead = "Nothing goes live until it is approved."
         excerpt = html.escape(approval_mail._excerpt(p.copy, 400))
-        body = (f'<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">'
-                f'<h2 style="font-size:18px;margin:0 0 6px">{html.escape(p.title or "Post")}</h2>'
-                f'<p style="font-size:14px;color:#5B6170;margin:0 0 14px">{lead}</p>'
-                f'<p style="font-size:13px;color:#333">{excerpt}</p>'
-                f'<p><a href="{html.escape(link)}" style="display:inline-block;background:#12141C;color:#fff;text-decoration:none;'
-                f'font-weight:700;padding:11px 18px;border-radius:10px">Review, edit or approve</a></p>'
-                f'<p style="font-size:12px;color:#8A8F9C">This link works for 10 days and needs no sign-in. Sent for {html.escape(_brand_name(company))}.</p></div>')
+        body = company_mail(
+            company, p.title or "Post", [lead, excerpt], {"label": "Review, edit or approve", "url": link},
+            note="This link works for 10 days and needs no sign-in.")["html"]
         text = f"{subject}\n\n{lead}\n\n{approval_mail._excerpt(p.copy, 400)}\n\nReview, edit or approve: {link}\n"
         for to in emails:
             await _send(db, to, subject, body, text)

@@ -91,19 +91,18 @@ async def _email_approvers(db: AsyncSession, camp: EmailCampaign, view: Dict[str
     """One email per approver with the preview link. Never raises."""
     try:
         from app.core.tenancy import current_org
-        from app.services.approval_mail import _company_name, _excerpt, _send
+        from app.services.approval_mail import _company_name, _excerpt, _send, company_mail
 
         company = await _company_name(db)
         link = links.preview_url("campaign", camp.id, current_org())
         first = view["steps"][0] if view["steps"] else {"subject": "", "body": ""}
         subject = f"{company}: an email campaign is waiting for your approval"
-        body = (f'<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12141C;max-width:620px">'
-                f'<h2 style="font-size:18px;margin:0 0 6px">{html.escape(camp.name)}</h2>'
-                f'<p style="font-size:14px;color:#5B6170;margin:0 0 14px">{view["leads"]} people, {len(view["steps"])} emails. Nothing is sent until you approve.</p>'
-                f'<p style="font-size:13px;color:#333"><b>{html.escape(first["subject"])}</b><br>{html.escape(_excerpt(first["body"], 400))}</p>'
-                f'<p><a href="{html.escape(link)}" style="display:inline-block;background:#12141C;color:#fff;text-decoration:none;font-weight:700;'
-                f'padding:11px 18px;border-radius:10px">Review, edit or approve</a></p>'
-                f'<p style="font-size:12px;color:#8A8F9C">This link works for 10 days and needs no sign-in.</p></div>')
+        body = company_mail(
+            company, camp.name,
+            [f'{view["leads"]} people, {len(view["steps"])} emails. Nothing is sent until you approve.',
+             f'<b>{html.escape(first["subject"])}</b><br>{html.escape(_excerpt(first["body"], 400))}'],
+            {"label": "Review, edit or approve", "url": link},
+            note="This link works for 10 days and needs no sign-in.")["html"]
         text = f"{subject}\n\n{camp.name}: {view['leads']} people, {len(view['steps'])} emails.\nReview, edit or approve: {link}\n"
         for to in emails:
             await _send(db, to, subject, body, text)

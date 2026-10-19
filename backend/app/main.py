@@ -35,6 +35,8 @@ from app.api.profile import router as profile_router
 from app.api.connections import router as connections_router
 from app.api.analytics import router as analytics_router
 from app.api.scheduler import router as scheduler_router
+from app.api.scheduler_insights import router as scheduler_insights_router
+from app.api.scheduler_tools import public_router as scheduler_public_router, router as scheduler_tools_router
 from app.api.logs import router as logs_router
 from app.api.sip_webhook import router as sip_webhook_router
 from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
@@ -59,6 +61,7 @@ from app.api.email_outreach import router as email_outreach_router
 from app.api.mail_client import router as mail_client_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
+from app.api.partners import router as partners_router
 from app.api.v1_public import router as v1_public_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
@@ -200,6 +203,39 @@ async def _social_token_refresh_loop():
             raise
         except Exception as loop_err:
             logger.warning(f"[Social Tokens] Daily pass failed: {loop_err}")
+
+
+async def _social_results_loop():
+    """Every hour, per organisation: read published posts' results and followers back from the networks
+    (each channel only when its own refresh interval has passed: 6 hours, X once a day), run Listening
+    searches that are due, send weekly/monthly reports that are due, and refresh the learned brand style
+    once a week. Each job runs on its own, so one failing never stops the others."""
+    from app.database import AsyncSessionLocal
+    from app.core.tenancy import org_scope
+    from app.core.orgs import active_org_ids
+    from app.services import brand_voice, social_listening, social_reports
+    from app.services.social_metrics import sync_org
+
+    jobs = (("results", lambda db, org: sync_org(db)), ("listening", lambda db, org: social_listening.run_due(db)),
+            ("reports", social_reports.send_due), ("learned style", lambda db, org: brand_voice.maybe_relearn(db)))
+    await asyncio.sleep(900)
+    while True:
+        try:
+            for org_id in await active_org_ids():
+                for name, job in jobs:
+                    try:
+                        with org_scope(org_id):
+                            async with AsyncSessionLocal() as db:
+                                await job(db, org_id)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as job_err:
+                        logger.warning(f"[Social] {name} for {org_id} failed: {job_err}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Social Results] Sync cycle failed: {loop_err}")
+        await asyncio.sleep(3600)
 
 
 @asynccontextmanager
@@ -681,10 +717,12 @@ async def lifespan(app: FastAPI):
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
     social_token_task = asyncio.create_task(_social_token_refresh_loop())
+    social_results_task = asyncio.create_task(_social_results_loop())
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
 
     yield
 
+    social_results_task.cancel()
     billing_upkeep_task.cancel()
     email_task.cancel()
     connections_task.cancel()
@@ -798,6 +836,9 @@ app.include_router(connections_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router)  # Direct /connections compatibility
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)
+app.include_router(scheduler_insights_router, prefix=settings.API_PREFIX)
+app.include_router(scheduler_tools_router, prefix=settings.API_PREFIX)
+app.include_router(scheduler_public_router, prefix=settings.API_PREFIX)  # /api/l/<code>, shared report pages
 app.include_router(logs_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(sip_webhook_router)  # Direct /sip-webhook compatibility
@@ -829,6 +870,7 @@ app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(mail_client_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)
+app.include_router(partners_router, prefix=settings.API_PREFIX)
 app.include_router(v1_public_router)  # Direct /v1 API compatibility
 app.include_router(v1_public_router, prefix=settings.API_PREFIX)  # /api/v1 compatibility
 app.include_router(preview_router, prefix=settings.API_PREFIX)  # /api/p/<token>: preview pages, no sign-in
@@ -902,6 +944,44 @@ async def terms_of_service():
 <body>
   <h1>Terms of Service</h1>
   <p>By using Outreach by Aivhub social scheduling and AI voice automation features, you agree to comply with applicable platform policies including Meta Platform Terms and Developer Policies.</p>
+</body></html>""")
+
+@app.get("/build-with-outreach")
+async def build_with_outreach():
+    """The public page for software companies that want to offer Outreach to their own users."""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("""<!doctype html>
+<html lang="en"><head><title>Build with Outreach</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:760px;margin:40px auto;line-height:1.6;padding:0 20px;color:#1b1d24}
+h1{font-size:30px;margin-bottom:6px}h2{font-size:19px;margin-top:32px}code{background:#eaeefc;padding:1px 5px;border-radius:4px;font-size:.9em}
+.lead{color:#555;font-size:17px}a.button{display:inline-block;background:#3457d5;color:#fff;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:600}
+li{margin:4px 0}</style></head>
+<body>
+  <h1>Build with Outreach</h1>
+  <p class="lead">Offer AI calling, lead finding and social posting inside your own software. You build the sign-up and login pages. Your users create an Outreach account or log in to the one they have, and your product uses every feature through one endpoint.</p>
+  <p><a class="button" href="/">Create an account and apply</a></p>
+  <h2>How it works</h2>
+  <ol>
+    <li>Create an Outreach account for your company and apply from <b>Developer API &rarr; Partner programme</b>.</li>
+    <li>We review the application. When you are approved, accept the partner terms.</li>
+    <li>Set your web addresses, return URLs and webhook address, and take your client ID.</li>
+    <li>Build your own sign-up and login pages. They call <code>POST /v1/run</code> with the <code>auth</code> plugin.</li>
+    <li>Test in the sandbox: simulated calls and numbers, nothing charged.</li>
+    <li>Ask to go live. We check the integration and switch it on.</li>
+  </ol>
+  <h2>What your users get</h2>
+  <ul>
+    <li>A normal Outreach account that they own, new or existing.</li>
+    <li>A clear consent step: your software only reaches what they agreed to share.</li>
+    <li>The option to disconnect your software at any time.</li>
+  </ul>
+  <h2>What you get</h2>
+  <ul>
+    <li>One endpoint for voice calls, lead search and email, social posts, mail, phone numbers and balances.</li>
+    <li>A scoped API key for each user, a sandbox with test keys, and signed webhooks for results that arrive later.</li>
+    <li>Free while the programme is new. Pricing will be announced before it changes.</li>
+  </ul>
+  <p style="color:#777;margin-top:32px">Questions? Write to support@aivhub.com.</p>
 </body></html>""")
 
 @app.get("/data-deletion")

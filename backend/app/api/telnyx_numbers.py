@@ -23,6 +23,11 @@ router = APIRouter(prefix="/telnyx", tags=["Numbers"])
 
 def _admin(request: Request) -> Dict[str, Any]:
     ctx = current(request)
+    if ctx.get("type") == "api_key":  # a key may manage numbers when it may make calls (POST /v1/run, plugin "numbers")
+        from app.public_api.core import has_scope
+
+        if has_scope(ctx, "voice:calls"):
+            return ctx
     if not ctx["is_admin"]:
         raise HTTPException(status_code=403, detail="Only admins can manage phone numbers and verification.")
     return ctx
@@ -151,11 +156,7 @@ async def submit_verification(
     addresses: str = Form("{}"),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services import credits as K
-
     ctx = _admin(request)
-    if not await K.can_start(db, "number_setup"):
-        raise HTTPException(status_code=402, detail="Not enough Voice credits for number setup (5 credits required).")
     if entity_type not in ("company", "sole_trader"):
         raise HTTPException(status_code=400, detail="Choose company or sole trader.")
     try:
@@ -169,14 +170,24 @@ async def submit_verification(
         if not key.startswith("doc_") or not hasattr(value, "read"):
             continue
         content = await value.read()
-        ctype = (value.content_type or "").lower()
+        files[key[4:]] = (value.filename or "document", content, (value.content_type or "").lower())
+    return await submit_documents(db, ctx, country, number_type, entity_type, text_values, address_values, files)
+
+
+async def submit_documents(db: AsyncSession, ctx: Dict[str, Any], country: str, number_type: str, entity_type: str,
+                           text_values: Dict[str, str], address_values: Dict[str, Any], files: Dict[str, Any]) -> Dict[str, Any]:
+    """Send the business documents for a country. `files` is {field: (filename, bytes, content type)}."""
+    from app.services import credits as K
+
+    if not await K.can_start(db, "number_setup"):
+        raise HTTPException(status_code=402, detail="Not enough Voice credits for number setup (5 credits required).")
+    for filename, content, ctype in files.values():
         if ctype not in TP.ALLOWED_DOC_TYPES:
-            raise HTTPException(status_code=400, detail=f"{value.filename}: upload a PDF, JPG or PNG.")
+            raise HTTPException(status_code=400, detail=f"{filename}: upload a PDF, JPG or PNG.")
         if len(content) > TP.MAX_DOC_BYTES:
-            raise HTTPException(status_code=400, detail=f"{value.filename}: files must be 10 MB or smaller.")
+            raise HTTPException(status_code=400, detail=f"{filename}: files must be 10 MB or smaller.")
         if not content:
-            raise HTTPException(status_code=400, detail=f"{value.filename} is empty.")
-        files[key[4:]] = (value.filename or "document", content, ctype)
+            raise HTTPException(status_code=400, detail=f"{filename} is empty.")
     _, client = await _ready_client(db, ctx)
     # Charge once per organisation, not once per submission: a client whose documents are
     # rejected and re-uploads (the normal flow per step 4) must not pay the setup fee again for

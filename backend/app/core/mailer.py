@@ -83,7 +83,7 @@ _FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans
 
 
 def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None, footer: str = "",
-           highlights: Optional[list] = None, note: str = "", preheader: str = "", reason: str = "") -> Dict[str, str]:
+           highlights: Optional[list] = None, note: str = "", preheader: str = "", reason: str = "", extra_html: str = "") -> Dict[str, str]:
     """Branded HTML + text versions of a notification, in the platform's one email design.
 
     paragraphs are HTML (the caller escapes anything user-supplied); title is plain text.
@@ -91,7 +91,8 @@ def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None
     button. note: a small line under the button (e.g. when a link expires). preheader: the grey
     preview line some inboxes show beside the subject. Tables and inline styles only, so it
     renders the same in Gmail, Outlook and phone apps; no images to block. reason: the last footer line, why the
-    reader is getting it (the default suits a company's own users)."""
+    reader is getting it (the default suits a company's own users). extra_html: a ready block (a list or table the caller
+    escaped) shown between the paragraphs and the button."""
     e = _html.escape
     body_html = "".join(f'<p style="font-size:15px;line-height:1.65;margin:0 0 16px;color:#3B4252">{p}</p>' for p in paragraphs)
     btn = ""
@@ -140,7 +141,7 @@ def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None
         f'style="margin-top:-34px;background:#FFFFFF;border-radius:18px;box-shadow:0 10px 30px rgba(38,64,158,0.14)">'
         f'<tr><td style="padding:36px 34px 34px;font-family:{_FONT}">'
         f'<h1 style="font-size:24px;line-height:1.3;margin:0 0 18px;color:#12141C;letter-spacing:-0.4px">{e(title)}</h1>'
-        f'{body_html}{btn}{note_html}{link_help}{tiles}'
+        f'{body_html}{extra_html}{btn}{note_html}{link_help}{tiles}'
         '</td></tr></table></td></tr>'
         # footer
         f'<tr><td align="center" style="padding:26px 24px 8px;font-family:{_FONT};font-size:12px;line-height:1.7;color:#8A8F9C">'

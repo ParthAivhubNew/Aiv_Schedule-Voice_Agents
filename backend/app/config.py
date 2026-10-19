@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     INSTAGRAM_OAUTH_CONFIG_ID: Optional[str] = os.getenv("INSTAGRAM_OAUTH_CONFIG_ID", None) or os.getenv("FACEBOOK_OAUTH_CONFIG_ID", None)
     THREADS_OAUTH_CLIENT_ID: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_ID", None)
     THREADS_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("THREADS_OAUTH_CLIENT_SECRET", None)
+    REDDIT_OAUTH_CLIENT_ID: Optional[str] = os.getenv("REDDIT_OAUTH_CLIENT_ID", None)
+    REDDIT_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("REDDIT_OAUTH_CLIENT_SECRET", None)
+    # Optional custom domain for tracked short links (e.g. https://go.example.com); default PUBLIC_BASE_URL.
+    SHORT_LINK_BASE_URL: str = os.getenv("SHORT_LINK_BASE_URL", "")
 
     # Meeting-room apps (Google Meet, Microsoft Teams, Zoom). One platform app each; every
     # organisation then connects its own account with a Connect button.

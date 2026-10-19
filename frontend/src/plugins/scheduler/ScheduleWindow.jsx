@@ -162,11 +162,25 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
     }
   }, []);
 
+  // The company's best posting slot from its own results (none until enough posts have numbers).
+  const [bestSlot, setBestSlot] = useState(null);
+
   useEffect(() => {
     if (!open) return;
     loadList();
     setMessage("");
+    api.getSocialInsights({ days: 90 })
+      .then((d) => setBestSlot((d && d.bestTimes && d.bestTimes.top && d.bestTimes.top[0]) || null))
+      .catch(() => setBestSlot(null));
   }, [open, loadList]);
+
+  const bestTime = bestSlot ? String(bestSlot.hour).padStart(2, "0") + ":00" : "";
+  const bestHint = bestSlot && form.time !== bestTime ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: C.slate }}>
+      Your posts do best around {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][bestSlot.weekday]} {bestTime}.
+      <button type="button" onClick={() => set({ time: bestTime })} style={{ ...secBtn, height: 28, fontSize: 12 }}>Use {bestTime}</button>
+    </div>
+  ) : null;
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
@@ -501,6 +515,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                       <Field label="Time"><input type="time" aria-label="Time" value={form.time} onChange={(e) => set({ time: e.target.value })} style={input} /></Field>
                     </Row>
                   ) : null}
+                  {form.frequency === "once" ? bestHint : null}
                   {form.frequency === "recurring" ? (
                     <>
                       <Field label="Pattern">
@@ -578,6 +593,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                         ) : null}
                         <Field label="Time"><input type="time" aria-label="Time" value={form.time} onChange={(e) => set({ time: e.target.value })} style={input} /></Field>
                       </Row>
+                      {bestHint}
                       <Note>Two weeks before the end you get an email to keep it going. If you do nothing, it ends on its end date.</Note>
                     </>
                   ) : null}

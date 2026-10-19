@@ -250,21 +250,61 @@ async def recap_post(body: RecapIn, request: Request, db: AsyncSession = Depends
 
 
 # ── Topic ideas and best times (SL-4, SV-6) ─────────────────────────────────
+async def _sector_names(db: AsyncSession, raws: List[str]) -> Dict[str, str]:
+    """Industry codes saved on leads (e.g. 45212) as the words the company register uses
+    ("Sale of used cars and light motor vehicles"). Text that is not a code is kept as it is."""
+    import re
+
+    from app.models.models import BusinessRecord
+
+    out: Dict[str, str] = {}
+    for raw in raws:
+        code = raw.strip()
+        if not re.fullmatch(r"\d{4,5}", code):
+            out[raw] = raw
+            continue
+        try:
+            text = (await db.execute(select(BusinessRecord.sic_text).where(BusinessRecord.sic_codes.like(f"%|{code}|%"))
+                                     .limit(1))).scalar() or ""
+        except Exception:
+            text = ""
+        m = re.search(code + r"\s*-\s*([^|;,\d][^|;\d]*)", text)
+        out[raw] = m.group(1).strip().rstrip(".") if m else ""
+    return out
+
+
+def _short(name: str) -> str:
+    """A register description short enough for a headline: the part before any "and"/"other" tail."""
+    name = name.strip()
+    for cut in (" n.e.c", " not elsewhere", ", except", " (", " except "):
+        if cut in name:
+            name = name.split(cut)[0]
+    return name[:60].strip(" ,")
+
+
 @router.get("/social/topic-ideas")
 async def topic_ideas(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Ideas from the sectors and towns the organisation is actually prospecting."""
     await need(db, "social", "leads")
     leads = (await db.execute(select(LeadAccount))).scalars().all()
-    sectors = Counter(a.industry.strip().title() for a in leads if (a.industry or "").strip())
+    sectors = Counter(a.industry.strip() for a in leads if (a.industry or "").strip())
     regions = Counter(a.region.strip().title() for a in leads if (a.region or "").strip())
+    names = await _sector_names(db, [s for s, _ in sectors.most_common(4)])
+    town = regions.most_common(1)[0][0] if regions else ""
+    where = f" in {town}" if town else ""
     ideas = []
-    for sector, n in sectors.most_common(4):
-        town = regions.most_common(1)[0][0] if regions else ""
-        where = f" in {town}" if town else ""
-        ideas.append({"title": f"What {sector.lower()} businesses{where} ask us most", "why": f"{n} of your saved companies are in {sector.lower()}.", "sector": sector})
-        ideas.append({"title": f"3 things {sector.lower()} owners get wrong about phone and email follow-up", "why": f"{sector} is your biggest group.", "sector": sector})
-    for town, n in regions.most_common(2):
-        ideas.append({"title": f"Working with businesses in {town}", "why": f"{n} saved companies are in {town}.", "sector": ""})
+    for raw, n in sectors.most_common(4):
+        name = _short(names.get(raw) or "")
+        if not name:
+            continue  # an industry code we cannot put into words would make a meaningless headline
+        low = name[0].lower() + name[1:] if not name[:2].isupper() else name
+        ideas.append({"title": f"What {low} businesses{where} ask us most", "why": f"{n} of your saved companies work in {low}.",
+                      "sector": name, "kind": "sector", "count": n})
+        ideas.append({"title": f"3 things {low} owners get wrong about following up with customers",
+                      "why": f"{low[0].upper() + low[1:]} is one of your biggest groups of saved companies.", "sector": name, "kind": "sector", "count": n})
+    for t, n in regions.most_common(2):
+        ideas.append({"title": f"Working with businesses in {t}", "why": f"{n} of your saved companies are in {t}.", "sector": "",
+                      "kind": "town", "count": n})
     return {"ideas": ideas[:8]}
 
 

@@ -6,6 +6,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  BarChart3,
+  Home,
   Copy,
   CreditCard,
   History,
@@ -27,6 +29,11 @@ import {
   Globe,
   Users,
   X,
+  Ear,
+  FileText,
+  Film,
+  FlaskConical,
+  Upload,
 } from "lucide-react";
 import { AppChrome } from "../../app/ui";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
@@ -48,6 +55,12 @@ import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
 import { SocialConnect } from "./SocialConnect";
+import { InsightsPage, OverviewPage, plainError } from "./SocialResults";
+import { MediaLibraryPage, MediaPicker, MediaThumb, VideoMaker } from "./SocialMedia";
+import { ImportPage } from "./SocialImport";
+import { DrawOptions, PictureSettings } from "./SocialPictures";
+import { ReportsPage } from "./SocialReports";
+import { ListeningPage } from "./SocialListening";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -68,6 +81,7 @@ const CHANNELS = [
   { id: "facebook", label: "Facebook", color: "#1877F2", soft: "#E7F0FE", mark: "f" },
   { id: "instagram", label: "Instagram", color: "#E4405F", soft: "#FDECEE", mark: "Ig" },
   { id: "threads", label: "Threads", color: "#000000", soft: "#F4F4F5", mark: "@" },
+  { id: "reddit", label: "Reddit", color: "#D93A00", soft: "#FFF0E8", mark: "r/" },
 ];
 
 function useElementWidth() {
@@ -264,8 +278,72 @@ function BrandVoicePanel({ onClose, onSaved }) {
           <button type="button" disabled={busy} onClick={save} style={{ marginTop: 10, width: "100%", height: 34, border: "none", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
             {busy ? "Saving…" : "Save brand voice"}
           </button>
+          <LearnedStyle learned={v.learned} onChange={(l) => set("learned", l)} />
         </>
       )}
+    </div>
+  );
+}
+
+// Style rules learned from how the team edits AI drafts, the best posts and approvers' notes.
+// They join the brand voice in every prompt while switched on; any rule can be removed.
+function LearnedStyle({ learned, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const learn = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      onChange((await api.learnBrandStyle()).learned);
+    } catch (e) {
+      setErr(e.message || "Could not learn right now. Try again later.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const update = async (body) => {
+    setErr("");
+    try {
+      onChange((await api.saveLearnedStyle(body)).learned);
+    } catch (e) {
+      setErr(e.message || "Could not save.");
+    }
+  };
+  const based = learned && learned.basedOn;
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 12.5, flex: 1 }}>Learned from your edits and results</div>
+        {learned ? (
+          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!learned.on} onChange={(e) => update({ on: e.target.checked })} /> Use
+          </label>
+        ) : null}
+      </div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2, lineHeight: 1.45 }}>
+        How your team rewrites AI drafts, which posts did best and why approvers rejected posts. Refreshed weekly when there is more to go on.
+      </div>
+      {learned && (learned.rules || []).length ? (
+        <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0", display: "flex", flexDirection: "column", gap: 4 }}>
+          {learned.rules.map((r, i) => (
+            <li key={r} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 12, color: learned.on ? C.ink : C.slate, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
+              <span style={{ flex: 1 }}>{r}</span>
+              <button type="button" aria-label={`Remove rule: ${r}`} onClick={() => update({ rules: learned.rules.filter((_, j) => j !== i) })}
+                style={{ border: "none", background: "none", cursor: "pointer", color: C.slate, padding: 2 }}><X size={12} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {based ? (
+        <div style={{ fontSize: 11, color: C.slate, marginTop: 6 }}>
+          From {based.edits} edit{based.edits === 1 ? "" : "s"}, {based.top} top post{based.top === 1 ? "" : "s"} and {based.notes} approver note{based.notes === 1 ? "" : "s"}
+          {learned.updatedAt ? " · " + new Date(learned.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}
+        </div>
+      ) : null}
+      {err ? <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{err}</div> : null}
+      <button type="button" onClick={learn} disabled={busy} style={{ ...secBtn, width: "100%", justifyContent: "center", marginTop: 8 }}>
+        <Sparkles size={13} /> {busy ? "Learning…" : learned ? "Learn again" : "Learn my style"}
+      </button>
     </div>
   );
 }
@@ -614,6 +692,301 @@ function ApprovalMailLine() {
   );
 }
 
+// Longest post each network accepts (same numbers the server checks before publishing).
+const TEXT_LIMITS = { x: 280, threads: 500, instagram: 2200, linkedin: 3000, facebook: 63206, reddit: 40000 };
+// Most pictures (or pictures and videos) each network takes in one post.
+const MEDIA_MAX = { x: 4, instagram: 10, threads: 20, facebook: 10, linkedin: 9, reddit: 20 };
+
+function channelTitle(id) {
+  const ch = CHANNELS.find((c) => c.id === String(id || "").toLowerCase());
+  return ch ? ch.label : id;
+}
+
+function overLimit(post) {
+  const limit = TEXT_LIMITS[String((post && post.channel) || "").toLowerCase()];
+  return !!limit && String(post.caption || "").length > limit;
+}
+
+// Problems the server found that stop the post going out (pictures/video the network refuses, a missing
+// subreddit). Length is checked live from the caption instead, so typing clears it at once.
+function serverProblems(post) {
+  if (!post) return [];
+  const out = (post.issues || []).filter((i) => i.kind === "media");
+  // Checked here as well, so the message clears the moment the field is filled.
+  if (String(post.channel || "").toLowerCase() === "reddit") {
+    if (!((post.channelOptions || {}).reddit || {}).subreddit) out.push({ kind: "setup", problem: "Pick the subreddit to post in." });
+    const len = String(post.headline || "").length;
+    if (len > 300) out.push({ kind: "length", problem: `The Reddit title is ${len} characters; the limit is 300.` });
+  }
+  return out;
+}
+
+function blocked(post) {
+  return overLimit(post) || serverProblems(post).length > 0;
+}
+
+function quickChanges(post) {
+  const ch = channelTitle(post.channel);
+  const limit = TEXT_LIMITS[String(post.channel || "").toLowerCase()];
+  return [
+    { label: "Shorten", ask: `Make the caption about half as long${limit ? ` and well under ${limit} characters` : ""}. Keep the main point and the call to action.` },
+    { label: "Add hashtags", ask: `Add 3 to 5 relevant hashtags that suit ${ch}. Keep the caption text as it is.` },
+    { label: `Rewrite for ${ch}`, ask: `Rewrite the caption so it reads like a strong ${ch} post: the length, line breaks and tone that work on ${ch}.` },
+    { label: "Make it punchier", ask: "Make the opening line grab attention and cut filler words. Keep the facts the same." },
+  ];
+}
+
+// Live length check for the post's channel, plus what the network needs before it can go out.
+function ChannelFit({ post }) {
+  const id = String(post.channel || "").toLowerCase();
+  const limit = TEXT_LIMITS[id];
+  const len = String(post.caption || "").length;
+  const over = !!limit && len > limit;
+  const needsPicture = id === "instagram" && !post.imageUrl && !(post.media || []).length;
+  const problems = serverProblems(post);
+  if (!limit && !needsPicture && !problems.length) return null;
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }} aria-live="polite">
+      {limit ? (
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: over ? C.red : C.slate }}>
+          {channelTitle(id)}: {len.toLocaleString()} / {limit.toLocaleString()} characters
+          {over ? ` · ${(len - limit).toLocaleString()} too many. Shorten it before approving.` : ""}
+        </div>
+      ) : null}
+      {needsPicture ? (
+        <div style={{ fontSize: 11.5, color: C.amberInk || "#92400E" }}>
+          Instagram needs a picture. Add one, or one is drawn when it posts (1 image credit).
+        </div>
+      ) : null}
+      {problems.map((i) => (
+        <div key={i.problem} style={{ fontSize: 11.5, fontWeight: 700, color: C.red }}>{i.problem}</div>
+      ))}
+    </div>
+  );
+}
+
+// Sent with the post but not reviewed as content: alt text for the picture, and a first comment
+// posted under it (links and extra hashtags often go there).
+function PostExtras({ post, canEdit, onSave, trackDefault }) {
+  const id = String(post.channel || "").toLowerCase();
+  const showAlt = !!post.imageUrl && id !== "facebook";
+  const hasLink = /https?:\/\//i.test(`${post.caption || ""} ${post.firstComment || ""}`);
+  const tracking = post.trackLinks == null ? trackDefault !== false : !!post.trackLinks;
+  const reddit = (post.channelOptions && post.channelOptions.reddit) || {};
+  if (!canEdit && !post.altText && !post.firstComment && id !== "reddit") return null;
+  return (
+    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+      {id === "reddit" ? (
+        <div>
+          <div style={labelStyle}>Subreddit</div>
+          {canEdit ? (
+            <EditableText
+              label="Subreddit"
+              value={reddit.subreddit ? "r/" + reddit.subreddit : ""}
+              placeholder="Where to post, e.g. r/smallbusiness. Check its rules on self-promotion first."
+              onSave={(v) => onSave({ channelOptions: { reddit: { ...reddit, subreddit: v } } })}
+              textStyle={{ fontSize: 13, color: C.textInk }}
+            />
+          ) : (
+            <div style={{ fontSize: 13, color: C.textInk }}>{reddit.subreddit ? "r/" + reddit.subreddit : "None picked"}</div>
+          )}
+          {canEdit ? (
+            <>
+              <div style={{ ...labelStyle, marginTop: 10 }}>Flair ID</div>
+              <EditableText
+                label="Flair ID"
+                value={reddit.flair || ""}
+                placeholder="Only if the subreddit requires a flair."
+                onSave={(v) => onSave({ channelOptions: { reddit: { ...reddit, flair: v } } })}
+                textStyle={{ fontSize: 13, color: C.textInk }}
+              />
+            </>
+          ) : null}
+          <div style={{ fontSize: 11.5, color: C.slate, marginTop: 6 }}>The headline is the Reddit title. Pictures go up as an image post with the text as your first comment.</div>
+        </div>
+      ) : null}
+      {hasLink ? (
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: C.ink, cursor: canEdit ? "pointer" : "default" }}>
+          <input type="checkbox" disabled={!canEdit} checked={tracking} onChange={(e) => onSave({ trackLinks: e.target.checked })} style={{ marginTop: 3 }} />
+          <span>
+            Track clicks on links
+            <span style={{ display: "block", fontSize: 11.5, color: C.slate, lineHeight: 1.45 }}>
+              Links go out as short links with UTM tags, so clicks show in Results and visits in your own analytics.
+              {id === "instagram" ? " Instagram captions cannot hold clickable links, so they stay as written." : ""}
+            </span>
+          </span>
+        </label>
+      ) : null}
+      <div>
+        <div style={labelStyle}>First comment</div>
+        {canEdit ? (
+          <EditableText
+            multiline
+            label="First comment"
+            value={post.firstComment || ""}
+            placeholder="Optional. Posted as the first comment right after the post goes live."
+            onSave={(v) => onSave({ firstComment: v })}
+            textStyle={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}
+          />
+        ) : (
+          <div style={{ fontSize: 13, color: C.textInk, whiteSpace: "pre-wrap" }}>{post.firstComment}</div>
+        )}
+      </div>
+      {showAlt ? (
+        <div>
+          <div style={labelStyle}>Picture description (alt text)</div>
+          {canEdit ? (
+            <EditableText
+              label="Alt text"
+              value={post.altText || ""}
+              placeholder="What the picture shows, for people using screen readers."
+              onSave={(v) => onSave({ altText: v })}
+              textStyle={{ fontSize: 13, color: C.textInk }}
+            />
+          ) : (
+            <div style={{ fontSize: 13, color: C.textInk }}>{post.altText}</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// The post's pictures and videos in posting order: add from the media library, reorder, remove.
+function MediaStrip({ post, canEdit, onSave, showToast, onRefresh }) {
+  const [picker, setPicker] = useState(false);
+  const [video, setVideo] = useState(false);
+  const items = post.media && post.media.length ? post.media : (post.imageUrl ? [{ url: post.imageUrl, kind: "image", alt: post.altText || "" }] : []);
+  const ch = String(post.channel || "").toLowerCase();
+  const max = MEDIA_MAX[ch] || 10;
+  if (!canEdit && items.length < 2) return null;
+  const save = (next) => onSave({ media: next });
+  const move = (i, d) => {
+    const next = items.slice();
+    const [x] = next.splice(i, 1);
+    next.splice(i + d, 0, x);
+    save(next);
+  };
+  return (
+    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: items.length ? 8 : 4, flexWrap: "wrap" }}>
+        <div style={{ ...labelStyle, margin: 0, flex: 1 }}>{items.length > 1 ? `Carousel · ${items.length} files` : "Pictures and video"}</div>
+        {canEdit ? (
+          <>
+            <button type="button" onClick={() => setVideo(true)} disabled={items.length >= max || ch === "reddit"} style={{ ...secBtn, height: 30, fontSize: 11.5 }}
+              title={ch === "reddit" ? "Reddit posts from here can't include a video." : undefined}>
+              <Film size={12} /> Make a video
+            </button>
+            <button type="button" onClick={() => setPicker(true)} disabled={items.length >= max} style={{ ...secBtn, height: 30, fontSize: 11.5 }}
+              title={items.length >= max ? `${channelTitle(ch)} takes up to ${max} in one post.` : undefined}>
+              <Plus size={12} /> Add from library
+            </button>
+          </>
+        ) : null}
+      </div>
+      {items.length ? (
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }} role="list" aria-label="Pictures and videos in this post">
+          {items.map((m, i) => (
+            <div key={(m.id || m.url) + ":" + i} role="listitem" style={{ width: 92, flexShrink: 0 }}>
+              <MediaThumb item={m} height={92} order={items.length > 1 ? i + 1 : 0} />
+              {canEdit ? (
+                <div style={{ display: "flex", gap: 2, marginTop: 4, justifyContent: "center" }}>
+                  <button type="button" aria-label={`Move file ${i + 1} earlier`} disabled={i === 0} onClick={() => move(i, -1)} style={iconMini}><ChevronLeft size={13} /></button>
+                  <button type="button" aria-label={`Move file ${i + 1} later`} disabled={i === items.length - 1} onClick={() => move(i, 1)} style={iconMini}><ChevronRight size={13} /></button>
+                  <button type="button" aria-label={`Remove file ${i + 1}`} onClick={() => save(items.filter((_, j) => j !== i))} style={{ ...iconMini, color: "#B42318" }}><X size={13} /></button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>Add several pictures for a carousel, or a video. {channelTitle(ch)} takes up to {max}.</div>
+      )}
+      <MediaPicker open={picker} onClose={() => setPicker(false)} max={max} current={items} showToast={showToast}
+        onPick={(picked) => save([...items, ...picked])} />
+      <VideoMaker open={video} onClose={() => setVideo(false)} postId={post.id} showToast={showToast}
+        defaultPrompt={`${post.headline || ""}. ${String(post.caption || "").slice(0, 280)}`.trim()}
+        onDone={() => onRefresh && onRefresh()} />
+    </div>
+  );
+}
+
+const RESULT_FIELDS = [
+  ["reach", "Reach"], ["impressions", "Views"], ["likes", "Likes"], ["comments", "Comments"],
+  ["shares", "Shares"], ["saves", "Saves"], ["clicks", "Clicks"],
+];
+
+// What a published post achieved: the network's own numbers, plus leads and meetings it brought in.
+function PostResults({ post }) {
+  const [data, setData] = useState(null);
+  const [state, setState] = useState("loading");
+  useEffect(() => {
+    let live = true;
+    setState("loading");
+    api.getPostResults(post.id)
+      .then((d) => { if (live) { setData(d); setState("ok"); } })
+      .catch(() => { if (live) setState("error"); });
+    return () => { live = false; };
+  }, [post.id]);
+  const links = (data && data.links && data.links.length ? data.links : post.links || []).filter((l) => l.url);
+  const totals = data && data.totals;
+  const shown = totals ? RESULT_FIELDS.filter(([k]) => totals[k] != null) : [];
+  const note = data && (data.channels || []).map((c) => c.error).find(Boolean);
+  return (
+    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, flex: 1 }}>Results</div>
+        {links.map((l) => (
+          <a key={l.platform + l.url} href={l.url} target="_blank" rel="noreferrer" className="ui-link" style={{ fontSize: 12, fontWeight: 700 }}>
+            View on {channelTitle(l.platform)}
+          </a>
+        ))}
+      </div>
+      {state === "loading" ? <div style={{ fontSize: 12, color: C.slate }}>Loading results…</div> : null}
+      {state === "error" ? <div style={{ fontSize: 12, color: C.slate }}>Results could not be loaded. Try again later.</div> : null}
+      {state === "ok" && data.test ? (
+        <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+          Posted in test mode: it was not sent to any network, so it has no results.{data.linkClicks ? ` Tracked link clicks so far: ${data.linkClicks}.` : ""}
+        </div>
+      ) : null}
+      {state === "ok" && !data.test ? (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
+            {shown.map(([k, label]) => (
+              <div key={k}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{Number(totals[k]).toLocaleString()}</div>
+                <div style={{ fontSize: 11, color: C.slate }}>{label}</div>
+              </div>
+            ))}
+            {[["linkClicks", "Tracked link clicks"], ["leads", "Leads"], ["meetings", "Meetings booked"]].map(([k, label]) => (data[k] ? (
+              <div key={k}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.teal, fontVariantNumeric: "tabular-nums" }}>{data[k]}</div>
+                <div style={{ fontSize: 11, color: C.slate }}>{label}</div>
+              </div>
+            ) : null))}
+          </div>
+          {(data.trackedLinks || []).length ? (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
+              {data.trackedLinks.map((l) => (
+                <div key={l.code} style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={l.url}>
+                  {channelTitle(l.platform)}: {l.clicks} click{l.clicks === 1 ? "" : "s"} · {l.url}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {!shown.length && !data.linkClicks ? (
+            <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>
+              {note || "No numbers yet. They are read from the network every few hours after the post goes live."}
+            </div>
+          ) : note ? (
+            <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8 }}>{note}</div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function ApprovalsBoard({
   waitingList,
   doneList,
@@ -645,6 +1018,9 @@ function ApprovalsBoard({
   retryGeneration,
   scheduleNames,
   showToast,
+  onReconnect,
+  trackDefault,
+  onRefresh,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -668,6 +1044,7 @@ function ApprovalsBoard({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [versionsKey, setVersionsKey] = useState(0);
   const [promptDraft, setPromptDraft] = useState("");
+  const [drawLook, setDrawLook] = useState({});
   const handEditAt = useRef(0);
   const uploadRef = useRef(null);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
@@ -736,6 +1113,9 @@ function ApprovalsBoard({
   const aiWriting = expandedPost && (expandedPost.genState === "queued" || expandedPost.genState === "writing");
   const canType = canEdit && !aiWriting;
   const expandedProg = expandedPost ? ((genProgress && genProgress[expandedPost.id]) || queueProgress(expandedPost)) : null;
+  const firstMedia = expandedPost && expandedPost.media && expandedPost.media[0];
+  const showVideo = !!firstMedia && firstMedia.kind === "video";
+  const mediaCount = expandedPost && expandedPost.media ? expandedPost.media.length : 0;
   const chMeta = expandedPost
     ? (CHANNELS.find((c) => c.id === String(expandedPost.channel || "").toLowerCase()) || { label: expandedPost.channel, color: C.ink, soft: HUB_PAPER, mark: "?" })
     : null;
@@ -1069,6 +1449,8 @@ function ApprovalsBoard({
                             <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: ch.soft, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                               {p.imageUrl ? (
                                 <img src={p.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              ) : p.media && p.media[0] && p.media[0].kind === "video" ? (
+                                <Film size={16} color={C.slate} aria-label="Video" />
                               ) : (
                                 <span style={{ fontSize: 10, color: C.slate, fontWeight: 700 }}>
                                   {prog ? (Math.round(prog.pct) + "%") : (p.enriching ? "…" : "—")}
@@ -1080,7 +1462,7 @@ function ApprovalsBoard({
                                 {p.headline || "Draft post"}
                               </div>
                               <div style={{ fontSize: 11, color: p.status === "failed" ? C.red : C.slate, marginTop: 2 }}>
-                                {formatOrgTime(p.time || "09:00", org.timeFormat)} · {statusLabel(p.status)}
+                                {formatOrgTime(p.time || "09:00", org.timeFormat)} · {statusLabel(p.status)}{p.test ? " (test)" : ""}
                                 {p.syncError ? " · not saved to server" : ""}
                               </div>
                             </div>
@@ -1231,7 +1613,18 @@ function ApprovalsBoard({
                   {expandedPost.status === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed.</strong> {expandedPost.lastError || "The network rejected the post."}
-                      <div style={{ color: C.slate, marginTop: 4 }}>Fix the cause (usually Accounts → Reconnect), then Retry. It will not retry by itself.</div>
+                      <div style={{ color: C.slate, marginTop: 4 }}>
+                        {expandedPost.failKind === "login"
+                          ? "The account needs reconnecting. Reconnect it, then press Retry now."
+                          : expandedPost.failKind === "temporary"
+                            ? "The network was busy or unreachable and the automatic retries ran out. Retry now usually works."
+                            : "Change what the network refused, then press Retry now."}
+                      </div>
+                      {expandedPost.failKind === "login" && onReconnect ? (
+                        <button type="button" onClick={onReconnect} style={{ ...secBtn, height: 30, fontSize: 12, marginTop: 8 }}>
+                          <Plug size={13} /> Reconnect account
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                   <div style={{
@@ -1279,8 +1672,16 @@ function ApprovalsBoard({
 
                     <input ref={uploadRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onUploadPicked} style={{ display: "none" }} />
                     <div style={{ position: "relative", background: "#0f1115", ...flashStyle(flash.image) }}>
-                      {expandedPost.imageUrl ? (
+                      {showVideo ? (
+                        <video src={firstMedia.url} controls playsInline preload="metadata"
+                          style={{ width: "100%", maxHeight: editMode ? 320 : 420, display: "block", background: "#0f1115" }} />
+                      ) : expandedPost.imageUrl ? (
                         <>
+                          {mediaCount > 1 ? (
+                            <span style={{ position: "absolute", left: 10, top: 10, background: "rgba(0,0,0,0.72)", color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 8, padding: "3px 8px", zIndex: 1 }}>
+                              1 of {mediaCount}
+                            </span>
+                          ) : null}
                           <img
                             src={expandedPost.imageUrl}
                             alt=""
@@ -1396,8 +1797,13 @@ function ApprovalsBoard({
                           {aiWriting ? "The AI is writing this post. You can edit it when it finishes." : "Click the headline or caption to change it. Changes save by themselves."}
                         </div>
                       ) : null}
+                      {canEdit ? <ChannelFit post={expandedPost} /> : null}
                     </div>
                   </div>
+
+                  <MediaStrip post={expandedPost} canEdit={canType} onSave={saveField} showToast={showToast} onRefresh={onRefresh} />
+                  <PostExtras post={expandedPost} canEdit={canType} onSave={saveField} trackDefault={trackDefault} />
+                  {expandedPost.status === "posted" ? <PostResults post={expandedPost} /> : null}
 
                   {historyOpen ? (
                     <VersionHistory
@@ -1488,6 +1894,19 @@ function ApprovalsBoard({
 
                     {editTab === "copy" ? (
                       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }} role="group" aria-label="Quick changes">
+                          {quickChanges(expandedPost).map((q) => (
+                            <button
+                              key={q.label}
+                              type="button"
+                              disabled={copyBusy === expandedPost.id || expandedPost.enriching}
+                              onClick={() => sendCopyChat(expandedPost, q.ask)}
+                              style={{ ...chipBtn, height: 30 }}
+                            >
+                              {q.label}
+                            </button>
+                          ))}
+                        </div>
                         <MiniChat
                           messages={expandedPost.copyChat}
                           busyLabel={
@@ -1521,6 +1940,7 @@ function ApprovalsBoard({
                           placeholder="Describe the image change…"
                         />
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <DrawOptions value={drawLook} onChange={setDrawLook} />
                           <label style={labelStyle}>Image prompt</label>
                           <textarea
                             aria-label="Image prompt"
@@ -1534,7 +1954,7 @@ function ApprovalsBoard({
                             disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
                             onClick={async () => {
                               if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
-                              regenImage({ ...expandedPost, imagePrompt: promptDraft });
+                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "", drawLook);
                             }}
                             style={{ ...secBtn, width: "100%", justifyContent: "center" }}
                           >
@@ -1543,7 +1963,7 @@ function ApprovalsBoard({
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
                           </button>
-                          <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <button type="button" onClick={() => regenImage(expandedPost, "", drawLook)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
                               : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
@@ -1611,7 +2031,14 @@ function ApprovalsBoard({
                 ) : null}
                 <div style={{ flex: 1 }} />
                 {!expandedDone ? (
-                  <button type="button" disabled={!!publishing} onClick={() => approveOne(expandedPost)} style={priBtn}>
+                  <button
+                    type="button"
+                    disabled={!!publishing || blocked(expandedPost)}
+                    title={overLimit(expandedPost) ? "Shorten the caption to fit " + channelTitle(expandedPost.channel) + " first."
+                      : blocked(expandedPost) ? serverProblems(expandedPost)[0].problem : undefined}
+                    onClick={() => approveOne(expandedPost)}
+                    style={{ ...priBtn, opacity: blocked(expandedPost) ? 0.5 : 1, cursor: blocked(expandedPost) ? "not-allowed" : "pointer" }}
+                  >
                     <Check size={14} /> {publishing === expandedPost.id
                       ? "Posting…"
                       : expandedPost.status === "failed"
@@ -1621,7 +2048,7 @@ function ApprovalsBoard({
                 ) : expandedPost.status === "publishing" ? (
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>Publishing…</span>
                 ) : expandedPost.status === "posted" ? (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.teal }}>Posted — live on channel</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.teal }}>{expandedPost.test ? "Posted in test mode: not sent to any network" : "Posted — live on channel"}</span>
                 ) : expandedPost.status === "scheduled" || expandedPost.status === "approved" ? (
                   <span style={{ fontSize: 12, color: C.slate }}>
                     {expandedPost.status === "scheduled" ? "Scheduled" : "Approved"}
@@ -1879,6 +2306,15 @@ function fromServerPost(p, local) {
     serverStatus: p.status || "",
     approvedBy: p.approvedBy || "",
     reviewNote: p.reviewNote || "",
+    altText: p.altText || "",
+    firstComment: p.firstComment || "",
+    failKind: p.failKind || "",
+    links: p.links || [],
+    media: p.media || [],
+    trackLinks: p.trackLinks == null ? null : !!p.trackLinks,
+    channelOptions: p.channelOptions || {},
+    test: !!p.test,
+    issues: p.issues || [],
     synced: true,
     syncError: false,
     enriching: false,
@@ -2157,6 +2593,63 @@ function SimpleCompanyKnowledge({ profile, setProfile, knowledgeSources, setKnow
   );
 }
 
+// Test mode (the whole flow, nothing posted) and the account-wide default for tracked links.
+function SocialExtrasPanel({ extras, onChange, showToast }) {
+  const [busy, setBusy] = useState(false);
+  if (!extras) return null;
+  const save = async (body) => {
+    setBusy(true);
+    try {
+      onChange(await api.saveSocialExtras(body));
+    } catch (e) {
+      showToast(e.message || "Could not save.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const tm = extras.testMode || { on: false, outcome: "ok" };
+  const box = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 22 }}>
+      <section style={{ ...box, borderColor: tm.on ? C.amber : C.border }} aria-labelledby="tm-h">
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={tm.on} disabled={busy} onChange={(e) => save({ testMode: { on: e.target.checked } })} style={{ marginTop: 3 }} />
+          <span>
+            <span id="tm-h" style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}><FlaskConical size={14} /> Test mode</span>
+            <span style={{ display: "block", fontSize: 12, color: C.slate, lineHeight: 1.45, marginTop: 2 }}>
+              Try the whole flow (approval, scheduling, publishing, alerts) without posting anything. No account needs to be connected, and test posts are left out of Insights.
+            </span>
+          </span>
+        </label>
+        {tm.on ? (
+          <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginTop: 10 }}>
+            When a post goes out
+            <select value={tm.outcome} disabled={busy} onChange={(e) => save({ testMode: { outcome: e.target.value } })}
+              style={{ display: "block", width: "100%", height: 34, marginTop: 4, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}>
+              <option value="ok">It posts (pretend)</option>
+              <option value="login">The network refuses the login</option>
+              <option value="busy">The network is busy (tests automatic retries)</option>
+              <option value="refused">The network refuses the post</option>
+            </select>
+          </label>
+        ) : null}
+      </section>
+      <section style={box} aria-labelledby="tl-h">
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!extras.trackLinks} disabled={busy} onChange={(e) => save({ trackLinks: e.target.checked })} style={{ marginTop: 3 }} />
+          <span>
+            <span id="tl-h" style={{ fontWeight: 700, fontSize: 14 }}>Track clicks on links</span>
+            <span style={{ display: "block", fontSize: 12, color: C.slate, lineHeight: 1.45, marginTop: 2 }}>
+              Links in posts go out as short links ({String(extras.shortLinkBase || "").replace(/^https?:\/\//, "")}/…) with UTM tags.
+              Clicks show in Results; visits show in your own analytics. You can switch it off for any post.
+            </span>
+          </span>
+        </label>
+      </section>
+    </div>
+  );
+}
+
 function SimpleAccountsPage({
   accounts,
   connecting,
@@ -2168,6 +2661,8 @@ function SimpleAccountsPage({
   knowledgeSources,
   setKnowledgeSources,
   operator,
+  extras,
+  onExtrasChange,
 }) {
   // Whether each network's shared app (Client ID/Secret) is set up -- read-only here. Staff set
   // that up once for the whole platform from the owner portal's Social OAuth Apps screen;
@@ -2186,7 +2681,7 @@ function SimpleAccountsPage({
 
   const displayName = (a) => {
     const h = String((a && a.handle) || "").trim();
-    const lab = String((a && a.label) || "").replace(/^(LinkedIn|X|Facebook|Instagram|Threads)\s*[·•-]\s*/i, "").trim();
+    const lab = String((a && a.label) || "").replace(/^(LinkedIn|X|Facebook|Instagram|Threads|Reddit)\s*[·•-]\s*/i, "").trim();
     return h || lab;
   };
 
@@ -2243,6 +2738,17 @@ function SimpleAccountsPage({
                               {displayName(acc) || ch.label}
                             </div>
                             <div style={{ fontSize: 10.5, color: live ? C.teal : "#B45309" }}>{statusLabel(acc)}</div>
+                            {acc.followers != null ? (
+                              <div style={{ fontSize: 10.5, color: C.slate }}>
+                                {Number(acc.followers).toLocaleString()} followers
+                                {acc.followersChange30d ? ` (${acc.followersChange30d > 0 ? "+" : ""}${acc.followersChange30d.toLocaleString()} in 30 days)` : ""}
+                              </div>
+                            ) : null}
+                            {!live && acc.lastError ? (
+                              <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35, marginTop: 2 }} title={acc.lastError}>
+                                {plainError(acc.lastError)}
+                              </div>
+                            ) : null}
                           </div>
                           {!live ? (
                             <button
@@ -2283,6 +2789,11 @@ function SimpleAccountsPage({
             );
           })}
         </div>
+
+        <PictureSettings showToast={showToast} />
+
+        <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 10 }}>Testing and links</div>
+        <SocialExtrasPanel extras={extras} onChange={onExtrasChange} showToast={showToast} />
 
         <SimpleCompanyKnowledge
           profile={profile}
@@ -2371,7 +2882,7 @@ export function SocialWorkspace({
   const [selectedId, setSelectedId] = useState(null);
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
-  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "overview"));
   const nav = useMobileNav(page);
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
@@ -2538,6 +3049,9 @@ export function SocialWorkspace({
   useEffect(() => {
     if (chatEnd.current) chatEnd.current.scrollIntoView({ behavior: "smooth" });
   }, [chat, typing]);
+
+  const [extras, setExtras] = useState(null);
+  useEffect(() => { api.getSocialExtras().then(setExtras).catch(() => {}); }, []);
 
   const refreshAccounts = useCallback((syncNames = false) => {
     api.getSocialAccounts(syncNames)
@@ -2965,7 +3479,7 @@ export function SocialWorkspace({
     openDayList(key);
   };
 
-  const regenImage = async (p, note) => {
+  const regenImage = async (p, note, look) => {
     if (!p || imageBusy) return;
     setImageBusy(p.id);
     startGenProgress([p.id], { kind: "image" });
@@ -2979,6 +3493,8 @@ export function SocialWorkspace({
         prompt,
         title: p.headline,
         theme: p.headline,
+        ...(look && look.style ? { style: look.style } : {}),
+        ...(look && look.quality ? { quality: look.quality } : {}),
       });
       if (res && res.imageUrl) {
         if (res.warning) showToast(res.warning);
@@ -3030,10 +3546,11 @@ export function SocialWorkspace({
     await regenImage(seeded, text);
   };
 
-  const sendCopyChat = (p) => {
-    const text = String((copyNote && copyNote[p.id]) || "").trim();
+  // preset: one of the one-click changes (Shorten, Add hashtags...) instead of the typed request.
+  const sendCopyChat = (p, preset) => {
+    const text = String(preset || (copyNote && copyNote[p.id]) || "").trim();
     if (!text || !p || copyBusy === p.id || p.enriching) return;
-    setCopyNote((m) => ({ ...m, [p.id]: "" }));
+    if (!preset) setCopyNote((m) => ({ ...m, [p.id]: "" }));
     const split = wantsPerChannelDiff(text);
     const userTurn = { id: "cp_" + Date.now(), who: "user", text };
     const nextChat = [...(p.copyChat || []), userTurn];
@@ -3049,13 +3566,18 @@ export function SocialWorkspace({
   const editPostFields = async (id, changes) => {
     const row = postsRef.current.find((p) => p.id === id);
     if (!row || isLocked(row.status)) return false;
-    const contentEdit = ["headline", "caption", "imageUrl", "imagePrompt"].some((k) => k in changes);
+    const contentEdit = ["headline", "caption", "imageUrl", "imagePrompt", "media"].some((k) => k in changes);
     const body = {};
     if ("headline" in changes) body.title = changes.headline;
     if ("caption" in changes) body.copy = changes.caption;
     if ("imageUrl" in changes) body.imageUrl = changes.imageUrl;
     if ("imagePrompt" in changes) body.imagePrompt = changes.imagePrompt;
     if ("channel" in changes) body.channel = changes.channel;
+    if ("altText" in changes) body.altText = changes.altText;
+    if ("firstComment" in changes) body.firstComment = changes.firstComment;
+    if ("media" in changes) body.media = (changes.media || []).map((m) => (m.id ? { id: m.id, alt: m.alt } : { url: m.url, alt: m.alt }));
+    if ("trackLinks" in changes) body.trackLinks = changes.trackLinks;
+    if ("channelOptions" in changes) body.channelOptions = changes.channelOptions;
     if ("date" in changes || "time" in changes) {
       body.date = changes.date || row.date;
       body.time = changes.time || row.time || "09:00";
@@ -3063,6 +3585,10 @@ export function SocialWorkspace({
     const local = { ...changes };
     if (typeof local.imageUrl === "string" && local.imageUrl.startsWith("data:")) delete local.imageUrl;
     if ("channel" in changes) local.channels = [changes.channel];
+    if ("media" in changes) {
+      const first = (changes.media || []).find((m) => m.kind === "image");
+      local.imageUrl = first ? first.url : "";
+    }
     setPosts((ps) => ps.map((p) => (p.id === id
       ? { ...p, ...local, ...(contentEdit ? { uniqueForChannel: true, editedByUser: true } : {}) }
       : p)));
@@ -3748,10 +4274,35 @@ export function SocialWorkspace({
     setApprovalOpen(false);
     setPage(id);
   };
+  const retryFromOverview = async (id) => {
+    const row = posts.find((p) => p.id === id);
+    if (row) {
+      await approveOne(row);
+      return;
+    }
+    setPublishing(id);
+    try {
+      const res = await api.publishPost(id, {});
+      showToast(res && res.status === "ok" ? "Posted." : "Publish failed: " + ((res && res.error) || "check Accounts"));
+    } catch (e) {
+      showToast("Publish failed: " + (e.message || "error"));
+    } finally {
+      setPublishing("");
+      refreshPosts();
+    }
+  };
   const navGroups = [
     { label: "Posts", items: [
+      { id: "overview", label: "Overview", icon: Home, active: page === "overview" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("overview") },
       { id: "plan", label: "Calendar", icon: CalendarDays, active: page === "plan" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "Approvals", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+      { id: "import", label: "Import", icon: Upload, active: page === "import" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("import") },
+      { id: "media", label: "Media library", icon: ImageIcon, active: page === "media" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
+    ] },
+    { label: "Results", items: [
+      { id: "insights", label: "Insights", icon: BarChart3, active: page === "insights" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
+      { id: "reports", label: "Reports", icon: FileText, active: page === "reports" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("reports") },
+      { id: "listening", label: "Listening", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
     ] },
     { label: "Setup", items: [
       { id: "accounts", label: "Accounts", icon: Plug, active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
@@ -3760,6 +4311,12 @@ export function SocialWorkspace({
     ] },
   ];
   const topTitles = {
+    overview: ["Overview", "What needs you today, what goes out next, and how the last week went."],
+    insights: ["Insights", "How your published posts did, read from each network."],
+    reports: ["Reports", "Results reports for clients and managers, by email or link."],
+    listening: ["Listening", "Public posts that mention your brand, products or competitors."],
+    media: ["Media library", "Pictures and videos to reuse in posts."],
+    import: ["Import", "Add many posts at once from a CSV or Excel file."],
     plan: ["Calendar", "Plan posts with the AI, see them on a calendar and publish."],
     approvals: ["Approvals", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts", "The social accounts your posts go to."],
@@ -3780,6 +4337,13 @@ export function SocialWorkspace({
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
         <BatchProgress batches={batchProgress.batches} tips={batchProgress.tips} />
+        {extras && extras.testMode && extras.testMode.on && !pluginLocked ? (
+          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "10px 16px 0", padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.amber}`, background: C.amberSoft || "#FCEFDA", fontSize: 12.5, color: C.ink }}>
+            <FlaskConical size={14} aria-hidden="true" />
+            <span style={{ flex: "1 1 240px", minWidth: 0 }}><b>Test mode is on.</b> Posts go through approval and publishing, but nothing is sent to any network.</span>
+            <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} onClick={() => goPage("accounts")}>Change</button>
+          </div>
+        ) : null}
         {pluginLocked && page !== "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div
@@ -3816,14 +4380,37 @@ export function SocialWorkspace({
             knowledgeSources={knowledgeSources}
             setKnowledgeSources={setKnowledgeSources}
             operator={operator}
+            extras={extras}
+            onExtrasChange={setExtras}
           />
+        ) : page === "media" ? (
+          <MediaLibraryPage showToast={showToast} />
+        ) : page === "import" ? (
+          <ImportPage showToast={showToast} onOpenApprovals={() => { refreshPosts(); openApprovals(); }} onOpenCalendar={() => { refreshPosts(); goPage("plan"); }} />
+        ) : page === "reports" ? (
+          <ReportsPage showToast={showToast} />
+        ) : page === "listening" ? (
+          <ListeningPage showToast={showToast} />
         ) : page === "audience" ? (
           <SocialConnect showToast={showToast} />
+        ) : page === "overview" ? (
+          <OverviewPage
+            onOpenPost={(id) => openApprovals(id)}
+            onRetry={retryFromOverview}
+            retrying={publishing}
+            onReconnect={() => goPage("accounts")}
+            onOpenApprovals={() => openApprovals()}
+            onOpenInsights={() => goPage("insights")}
+          />
+        ) : page === "insights" ? (
+          <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} />
         ) : page === "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>
-            <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your Social plan and credits. Change plan, top up, or cancel.</div>
-            <SubscriptionPage wallet="scheduler" back="/scheduler" />
+            <div style={{ maxWidth: 980, margin: "0 auto" }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>
+              <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your Social plan and credits. Change plan, top up, or cancel.</div>
+              <SubscriptionPage wallet="scheduler" back="/scheduler" />
+            </div>
           </div>
         ) : (
         <>
@@ -4428,6 +5015,9 @@ export function SocialWorkspace({
                 scheduleNames={scheduleNames}
                 retryGeneration={retryGeneration}
                 showToast={showToast}
+                onReconnect={() => { closeApprovals(); setPage("accounts"); }}
+                trackDefault={extras ? extras.trackLinks : true}
+                onRefresh={refreshPosts}
               />
             </div>
           </div>

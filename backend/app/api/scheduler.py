@@ -17,7 +17,12 @@ from app.services.post_writer import (
     ASPECT_RATIOS,
 )
 from app.services.social_publisher import (
+    NEEDS_IMAGE,
+    TITLES as PLATFORM_TITLES,
     account_public_dict,
+    post_media,
+    channel_issues,
+    failure_kind,
     test_account,
     publish_post_to_accounts,
     normalize_platform,
@@ -77,6 +82,9 @@ _SOCIAL_POST_EXTRA_COLS = [
     ("publish_attempts", "INTEGER"),
     ("retry_at_ms", "FLOAT"),
     ("source", "VARCHAR"),
+    ("media", "JSON"),
+    ("track_links", "BOOLEAN"),
+    ("channel_options", "JSON"),
 ]
 
 # social_schedules predates the Schedule window (weekday/time/theme/focus/channels only).
@@ -122,6 +130,9 @@ async def ensure_social_schema() -> None:
     except Exception as e:
         logger.warning(f"Could not release stuck publishing posts: {e}")
     await _drop_retired_table("social_topics")
+    from app.services import video_ai
+
+    await video_ai.fail_interrupted()
 
 
 async def _drop_retired_table(table: str) -> None:
@@ -141,7 +152,8 @@ async def _drop_retired_table(table: str) -> None:
 
 async def _repair_social_posts_schema() -> None:
     async with engine.begin() as conn:
-        for table, cols in (("social_posts", _SOCIAL_POST_EXTRA_COLS), ("social_schedules", _SOCIAL_SCHEDULE_EXTRA_COLS)):
+        for table, cols in (("social_posts", _SOCIAL_POST_EXTRA_COLS), ("social_schedules", _SOCIAL_SCHEDULE_EXTRA_COLS),
+                            ("social_post_versions", [("media", "JSON")])):
             for col, col_type in cols:
                 try:
                     await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"))
@@ -176,6 +188,10 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "tone": p.tone or "Professional",
         "imageUrl": p.image_url,
         "imagePrompt": p.image_prompt,
+        "media": _media(p),
+        "trackLinks": p.track_links,
+        "channelOptions": p.channel_options or {},
+        "test": _is_test(p),
         "adaptPerChannel": bool(getattr(p, "adapt_per_channel", False)),
         "publishResults": p.publish_results or [],
         "publishedAt": p.published_at,
@@ -193,8 +209,41 @@ def _serialize_post(p: SocialPost) -> Dict[str, Any]:
         "retryAtMs": getattr(p, "retry_at_ms", None),
         "publishAttempts": getattr(p, "publish_attempts", None) or 0,
         "lastError": _last_error(p),
+        "failKind": _fail_kind(p),
+        "issues": _issues(p),
+        "links": [{"platform": normalize_platform(r.get("platform")), "url": r.get("url")}
+                  for r in (p.publish_results or []) if isinstance(r, dict) and r.get("ok") and r.get("url")],
         "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
+
+
+def _media(p: SocialPost) -> List[Dict[str, Any]]:
+    try:
+        return post_media(p)
+    except Exception:
+        logger.exception("Reading the media of %s failed", p.id)
+        return []
+
+
+def _is_test(p: SocialPost) -> bool:
+    res = [r for r in (p.publish_results or []) if isinstance(r, dict)]
+    return bool(res) and all(r.get("test") for r in res)
+
+
+def _issues(p: SocialPost) -> List[Dict[str, str]]:
+    try:
+        return channel_issues(p)
+    except Exception:
+        logger.exception("Checking channel limits failed for %s", p.id)
+        return []
+
+
+def _fail_kind(p: SocialPost) -> str:
+    """login | temporary | permanent for the first channel that refused the post ("" when none did)."""
+    for r in p.publish_results or []:
+        if isinstance(r, dict) and not r.get("ok") and r.get("error"):
+            return r.get("kind") or failure_kind(r)
+    return ""
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -203,7 +252,7 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
 
 def _last_error(p: SocialPost) -> str:
     errs = [
-        f"{(r.get('platform') or '').title()}: {r.get('error')}".strip(": ")
+        f"{PLATFORM_TITLES.get(normalize_platform(r.get('platform')), (r.get('platform') or '').title())}: {r.get('error')}".strip(": ")
         for r in (p.publish_results or [])
         if isinstance(r, dict) and not r.get("ok") and r.get("error")
     ]
@@ -256,6 +305,16 @@ def _apply_package_fields(post: SocialPost, payload: Dict[str, Any]):
         post.adapt_per_channel = bool(adapt)
 
 
+async def _apply_extras(db: AsyncSession, post: SocialPost, payload: Dict[str, Any]) -> None:
+    """Media, link tracking and per-network options, when the save carries them."""
+    if "media" in payload:
+        await _apply_media(db, post, payload.get("media"))
+    if "trackLinks" in payload:
+        post.track_links = None if payload.get("trackLinks") is None else bool(payload.get("trackLinks"))
+    if "channelOptions" in payload:
+        post.channel_options = _clean_channel_options(payload.get("channelOptions"), post.channel_options)
+
+
 def _host_image(image_url, request=None):
     from app.services.media_store import persist_image_url, public_base_from_request
     return persist_image_url(image_url, public_base_from_request(request))
@@ -294,7 +353,10 @@ DEFAULT_AI_SETTINGS: Dict[str, Any] = {
     "imageModel": "",
     "imageStyle": "modern_saas",
     "imageAspectRatio": "4:5",
+    "imageQuality": "standard",
+    "imageStyleCustom": "",
 }
+IMAGE_QUALITIES = ("standard", "high")
 
 
 def _auto_none(value: Optional[str]) -> Optional[str]:
@@ -302,9 +364,10 @@ def _auto_none(value: Optional[str]) -> Optional[str]:
     return None if not v or v == "auto" else v
 
 
-# Per-company choices that are design, not AI: how images look. The AI itself (provider,
-# model, keys) is chosen by Outreach staff in the admin portal for every company.
-ORG_IMAGE_PREFS = ("imageStyle", "imageAspectRatio")
+# Per-company choices that are design, not AI: how pictures look (a preset look or the company's own
+# description), their shape and quality. The AI itself (provider, model, keys) is chosen by Outreach
+# staff in the admin portal for every company.
+ORG_IMAGE_PREFS = ("imageStyle", "imageAspectRatio", "imageQuality", "imageStyleCustom")
 NO_TEXT_AI = "The writing AI is not available right now. Please try again later or contact Outreach support."
 NO_IMAGE_AI = "The image AI is not available right now. Please try again later or contact Outreach support."
 
@@ -403,9 +466,21 @@ async def _resolve_image_prefs(db: AsyncSession, payload: Optional[Dict[str, Any
         "api_key": None,
         "model": prefs.get("imageModel") or None,
         "base_url": None,
-        "style": payload.get("style") or payload.get("imageStyle") or prefs.get("imageStyle") or "modern_saas",
+        "style": _style_choice(payload, prefs),
         "aspect_ratio": payload.get("aspect_ratio") or payload.get("aspectRatio") or prefs.get("imageAspectRatio") or "4:5",
+        "quality": payload.get("quality") if payload.get("quality") in IMAGE_QUALITIES else (prefs.get("imageQuality") or "standard"),
     }
+
+
+def _style_choice(payload: Dict[str, Any], prefs: Dict[str, Any]) -> str:
+    """A preset look, or "custom:<the company's own description>" when they wrote one."""
+    from app.services.post_writer import CUSTOM_STYLE
+
+    style = payload.get("style") or payload.get("imageStyle") or prefs.get("imageStyle") or "modern_saas"
+    if style == "custom":
+        text = str(payload.get("styleCustom") or prefs.get("imageStyleCustom") or "").strip()
+        return CUSTOM_STYLE + text if text else "modern_saas"
+    return style
 
 
 async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: str, **size) -> Dict[str, Any]:
@@ -417,13 +492,51 @@ async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: 
         p = await _resolve_image_prefs(db, payload, slot)
         img = await generate_image_with_provider(
             prompt=prompt, provider=p["provider"], model=p["model"], style=p["style"],
-            aspect_ratio=p["aspect_ratio"], db=db, **size,
+            aspect_ratio=p["aspect_ratio"], quality=p["quality"], db=db, **size,
         )
         if not img.get("imageUrl") or (img.get("status") or "ok") != "ok":
             raise platform_ai.AIUnavailable(img.get("warning") or "The image AI returned no image.")
         return img
 
     return await platform_ai.run_with_backup(db, "image", attempt)
+
+
+@router.get("/image-settings")
+async def get_image_settings(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """How this company's pictures are drawn: look, own description, shape and quality."""
+    from app.services.post_writer import ASPECT_RATIOS, IMAGE_STYLES
+
+    prefs = await _load_ai_settings(db)
+    return {"style": prefs.get("imageStyle") or "modern_saas", "styleCustom": prefs.get("imageStyleCustom") or "",
+            "aspectRatio": prefs.get("imageAspectRatio") or "4:5", "quality": prefs.get("imageQuality") or "standard",
+            "styles": list(IMAGE_STYLES) + ["custom"], "aspectRatios": list(ASPECT_RATIOS), "qualities": list(IMAGE_QUALITIES)}
+
+
+@router.put("/image-settings")
+async def put_image_settings(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.services.post_writer import ASPECT_RATIOS, IMAGE_STYLES
+
+    style = str(payload.get("style") or "modern_saas")
+    custom = str(payload.get("styleCustom") or "").strip()[:400]
+    if style not in IMAGE_STYLES and style != "custom":
+        raise HTTPException(status_code=400, detail="Pick one of the looks, or describe your own.")
+    if style == "custom" and len(custom) < 5:
+        raise HTTPException(status_code=400, detail="Describe the look you want, for example: watercolour, soft pastel colours.")
+    shape = str(payload.get("aspectRatio") or "4:5")
+    if shape not in ASPECT_RATIOS:
+        raise HTTPException(status_code=400, detail="Pick a picture shape.")
+    quality = str(payload.get("quality") or "standard")
+    if quality not in IMAGE_QUALITIES:
+        raise HTTPException(status_code=400, detail="Pick standard or high quality.")
+    row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
+    if not row:
+        row = SchedulerSetting(id="default", data={})
+        db.add(row)
+    data = dict(row.data or {})
+    data.update({"imageStyle": style, "imageStyleCustom": custom, "imageAspectRatio": shape, "imageQuality": quality})
+    row.data = data
+    await db.commit()
+    return await get_image_settings(db)
 
 
 @router.get("/media/{filename}")
@@ -698,6 +811,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             if image_prompt is not None and not writing:
                 existing_post.image_prompt = image_prompt
             _apply_package_fields(existing_post, payload)
+            await _apply_extras(db, existing_post, payload)
             _apply_due(existing_post, payload, tz)
             changed = await post_versions.record_version(db, existing_post, "ai" if payload.get("editSource") == "ai" else "update", before=before)
             _after_status_change(existing_post, before_status, content_changed=bool(changed))
@@ -715,6 +829,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
             image_prompt=image_prompt,
         )
         _apply_package_fields(new_post, payload)
+        await _apply_extras(db, new_post, payload)
         _apply_due(new_post, payload, tz)
         _after_status_change(new_post, None, content_changed=False)
         db.add(new_post)
@@ -770,7 +885,7 @@ async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db:
         raise HTTPException(status_code=404, detail="Post not found. Save it first.")
     if post.status in LOCKED_STATUSES:
         raise HTTPException(status_code=409, detail="This post is live (or going live) and can no longer be edited.")
-    content_keys = [k for k in ("title", "copy", "imageUrl", "imagePrompt") if k in payload]
+    content_keys = [k for k in ("title", "copy", "imageUrl", "imagePrompt", "media") if k in payload]
     if content_keys and post.gen_state in _WRITING_STATES:
         raise HTTPException(status_code=409, detail="The AI is still writing this post. Edit it when it finishes.")
 
@@ -787,8 +902,18 @@ async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db:
         if raw.startswith("data:"):
             raw = _checked_upload(raw)
         post.image_url = _host_image(raw, request) if raw else None
+        if post.image_url:
+            from app.services import social_library
+
+            await social_library.remember(db, post.image_url, source="upload", name=post.title or "")
     if "imagePrompt" in payload:
         post.image_prompt = str(payload.get("imagePrompt") or "")[:4000] or None
+    await _apply_extras(db, post, payload)
+    # Sent with the post but not part of what approvers review: changing them keeps the approval.
+    if "altText" in payload:
+        post.alt_text = str(payload.get("altText") or "").strip()[:1000] or None
+    if "firstComment" in payload:
+        post.first_comment = str(payload.get("firstComment") or "").strip()[:2000] or None
     if "channel" in payload:
         channel = normalize_platform(payload.get("channel"))
         if channel not in PLATFORM_TITLES:
@@ -847,7 +972,39 @@ def _after_status_change(post: SocialPost, before_status: Optional[str], content
 
 
 def _same_content(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    return all((a.get(k) or None) == (b.get(k) or None) for k in ("title", "copy", "image_url", "image_prompt"))
+    urls = lambda c: [m.get("url") for m in (c.get("media") or []) if isinstance(m, dict)]  # noqa: E731
+    return all((a.get(k) or None) == (b.get(k) or None) for k in ("title", "copy", "image_url", "image_prompt")) and urls(a) == urls(b)
+
+
+async def _apply_media(db: AsyncSession, post: SocialPost, raw: Any) -> None:
+    """Set the pictures and videos of a post from library items; the first picture becomes image_url."""
+    from app.services import social_library
+
+    try:
+        items = await social_library.resolve(db, raw or [])
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    post.media = items
+    first = next((m["url"] for m in items if m["kind"] == "image"), None)
+    if (post.image_url or None) != first:
+        post.image_url = first
+    if items and items[0].get("alt"):
+        post.alt_text = items[0]["alt"]
+
+
+def _clean_channel_options(raw: Any, current: Any) -> Dict[str, Any]:
+    from app.services.social_publisher import subreddit_name
+
+    out = dict(current or {}) if isinstance(current, dict) else {}
+    if not isinstance(raw, dict):
+        return out
+    red = raw.get("reddit")
+    if isinstance(red, dict):
+        sub = subreddit_name(red.get("subreddit"))
+        if sub and not re.match(r"^[A-Za-z0-9_]{2,21}$", sub):
+            raise HTTPException(status_code=400, detail="That subreddit name is not valid. Use the name after r/, for example smallbusiness.")
+        out["reddit"] = {"subreddit": sub, "flair": str(red.get("flair") or "").strip()[:64]}
+    return out
 
 
 @router.get("/posts/{post_id}/versions")
@@ -873,6 +1030,8 @@ async def post_version_restore(post_id: str, version_id: str, db: AsyncSession =
     post.copy = content["copy"]
     post.image_url = content["image_url"]
     post.image_prompt = content["image_prompt"]
+    if content.get("media") is not None or post.media:
+        post.media = content.get("media") or []
     post.edited_by_user = version.source == "you"
     await post_versions.record_version(db, post, "restore")
     await db.commit()
@@ -1061,15 +1220,6 @@ async def delete_post_endpoint(post_id: str, db: AsyncSession = Depends(get_db))
     return {"status": "ok", "message": f"Post {post_id} deleted."}
 
 
-PLATFORM_TITLES = {
-    "linkedin": "LinkedIn",
-    "x": "X",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
-    "threads": "Threads",
-}
-
-
 def _apply_live_profile(acc: SocialAccount, test: Dict[str, Any]) -> None:
     acc.last_tested_at = datetime.utcnow().isoformat()
     if test.get("ok"):
@@ -1104,7 +1254,26 @@ async def list_accounts(refresh: bool = False, db: AsyncSession = Depends(get_db
                 logger.exception("Live name refresh failed for %s", acc.id)
         if changed:
             await db.commit()
-    return [account_public_dict(a) for a in accounts]
+    from app.models.models import SocialAccountStat, SocialPostMetric
+    from sqlalchemy import func as sa_func
+
+    latest: Dict[str, List[SocialAccountStat]] = {}
+    since = (datetime.utcnow() - timedelta(days=31)).strftime("%Y-%m-%d")
+    for s in (await db.execute(select(SocialAccountStat).where(SocialAccountStat.day >= since)
+                               .order_by(SocialAccountStat.day))).scalars().all():
+        latest.setdefault(s.account_id, []).append(s)
+    synced = dict((await db.execute(select(SocialPostMetric.account_id, sa_func.max(SocialPostMetric.fetched_at))
+                                    .group_by(SocialPostMetric.account_id))).all())
+    out = []
+    for a in accounts:
+        row = account_public_dict(a)
+        hist = latest.get(a.id) or []
+        row["followers"] = hist[-1].followers if hist else None
+        row["followersChange30d"] = (hist[-1].followers - hist[0].followers) if len(hist) > 1 else None
+        last = synced.get(a.id)
+        row["resultsSyncedAt"] = last.isoformat() + "Z" if last else None
+        out.append(row)
+    return out
 
 
 @router.get("/oauth/apps")
@@ -1202,16 +1371,67 @@ async def _renew_expiring_logins(db: AsyncSession, post: SocialPost, accounts: L
             await db.rollback()
 
 
+async def _draw_missing_image(db: AsyncSession, post: SocialPost, request: Optional[Request]) -> None:
+    """Draw a picture for a post that has none. Charged like any AI image; with no credits left,
+    or when drawing fails, the post keeps no picture (and a channel that needs one says so)."""
+    from app.services.post_writer import create_topic_image_prompt
+    from app.services import credits
+
+    prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
+    ref = f"pubimg:{post.id}:{uuid.uuid4().hex[:8]}"
+    ok, _ = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image before publishing"}])
+    await db.commit()
+    img = {}
+    if ok:
+        try:
+            img = await asyncio.wait_for(_image_with_backup(db, {}, prompt), timeout=gen_queue.IMAGE_TIMEOUT_SECS)
+        except Exception:
+            logger.exception("Image generation before publish failed for %s", post.id)
+    hosted = _host_image(img["imageUrl"], request) if img.get("imageUrl") else None
+    if hosted:
+        from app.services import social_library
+
+        post.image_prompt = img.get("imagePrompt") or prompt
+        post.image_url = hosted
+        await social_library.remember(db, hosted, source="ai", name=post.title or "")
+        await db.commit()
+        await credits.confirm_safely(db, ref, "ai_image", 1, "AI image before publishing")
+    elif ok:
+        await credits.release(db, [ref])
+        await db.commit()
+
+
+def _needs_image(post: SocialPost) -> bool:
+    chans = [post.channels] if isinstance(post.channels, str) else (post.channels or [])
+    return not post_media(post) and any(normalize_platform(c) in NEEDS_IMAGE for c in chans)
+
+
+_FIX_HINT = {"length": " Shorten it, then post again.", "media": " Change the pictures or video, then post again.",
+             "setup": " Fix it in the post, then post again.", "missing_media": " Add one, then post again."}
+
+
 async def _publish_claimed(db: AsyncSession, post: SocialPost, request: Optional[Request]) -> Dict[str, Any]:
     """Publish a post already claimed via _claim_for_publish. Always leaves it published or failed."""
-    try:
-        acc_res = await db.execute(select(SocialAccount))
-        accounts = acc_res.scalars().all()
-        await _renew_expiring_logins(db, post, accounts)
-        bundled = await publish_post_to_accounts(post, accounts, _public_base(request))
-    except Exception as e:
-        logger.exception("Publishing %s crashed", post.id)
-        bundled = {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "", "error": str(e)}]}
+    from app.services import social_links, social_test_mode
+
+    test = await social_test_mode.active(db)
+    blocking = [i for i in _issues(post) if not (test and i.get("kind") == "missing_media")]
+    if blocking:
+        # Sent as is, the network would cut it mid-sentence or refuse it: stop and say why.
+        bundled = {"ok": False, "allOk": False, "results": [
+            {"ok": False, "platform": i["channel"], "error": i["problem"] + _FIX_HINT.get(i.get("kind"), ""), "kind": "permanent"}
+            for i in blocking]}
+    else:
+        try:
+            acc_res = await db.execute(select(SocialAccount))
+            accounts = acc_res.scalars().all()
+            if not test:
+                await _renew_expiring_logins(db, post, accounts)
+            rewrite = await social_links.rewriter(db, post)
+            bundled = await publish_post_to_accounts(post, accounts, _public_base(request), rewrite=rewrite, test=test)
+        except Exception as e:
+            logger.exception("Publishing %s crashed", post.id)
+            bundled = {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "", "error": str(e), "kind": "temporary"}]}
     post.publish_results = bundled.get("results") or []
     if bundled.get("ok"):
         post.status = "published"
@@ -1311,30 +1531,10 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
     if image_url and image_url != post.image_url:
         post.image_url = image_url
         await db.commit()
-    if not (post.image_url or "").strip():
-        from app.services.post_writer import create_topic_image_prompt
-        prompt = post.image_prompt or create_topic_image_prompt(post.title or "operations dashboard", theme=post.theme or "Operations")
-        from app.services import credits
+    from app.services import social_test_mode
 
-        # Drawn and charged like any AI image; with no credits left the post goes out without one.
-        ref = f"pubimg:{post.id}:{uuid.uuid4().hex[:8]}"
-        ok, _ = await credits.hold(db, [{"ref": ref, "item": "ai_image", "quantity": 1, "note": "AI image before publishing"}])
-        await db.commit()
-        img = {}
-        if ok:
-            try:
-                img = await asyncio.wait_for(_image_with_backup(db, {}, prompt), timeout=gen_queue.IMAGE_TIMEOUT_SECS)
-            except Exception:
-                logger.exception("Image generation before publish failed for %s", post.id)
-        hosted = _host_image(img["imageUrl"], request) if img.get("imageUrl") else None
-        if hosted:
-            post.image_prompt = img.get("imagePrompt") or prompt
-            post.image_url = hosted
-            await db.commit()
-            await credits.confirm_safely(db, ref, "ai_image", 1, "AI image before publishing")
-        elif ok:
-            await credits.release(db, [ref])
-            await db.commit()
+    if not post_media(post) and not await social_test_mode.active(db):
+        await _draw_missing_image(db, post, request)
 
     bundled = await _publish_claimed(db, post, request)
     return {
@@ -1373,6 +1573,8 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     is retried as its schedule says (default once, 5 minutes later), and only when no
     channel took it, so a retry can never post twice; after that it stays 'failed'.
     """
+    from app.services import social_test_mode
+
     now_ms = time.time() * 1000
     tz = await org_timezone(db)
     due_of = lambda p: _due_ms(p, tz)  # noqa: E731
@@ -1425,6 +1627,8 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
             hosted = None
         if hosted:
             post.image_url = hosted
+        if _needs_image(post) and not await social_test_mode.active(db):
+            await _draw_missing_image(db, post, request)
         bundled = await _publish_claimed(db, post, request)
         if not bundled.get("ok") and await _schedule_retry(db, post, now_ms):
             retrying.append(post.id)
@@ -1445,6 +1649,7 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
     except Exception:
         logger.exception("Sending results email failed")
         await db.rollback()
+    await _notify_outcomes(db, done_posts)
     from app.public_api import events
 
     await events.tick(db, now_ms, due_of)  # tell the customer's webhooks; remind approvers (API posts and campaigns only)
@@ -1455,22 +1660,75 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
 ASAP_WAIT_MS = 24 * 3600 * 1000
 
 
+async def _notify_outcomes(db: AsyncSession, posts: List[SocialPost]) -> None:
+    """Tell the team about scheduled posts that went live or could not: an in-app note for a failure,
+    and email to whoever wants it (Profile → Notifications)."""
+    import html
+    from app.config import settings
+    from app.core.notify import notify
+    from app.models.models import Notification
+
+    failed = [p for p in posts if p.status == "failed"]
+    live = [p for p in posts if p.status == "published"]
+    button = {"label": "Open Social", "url": (settings.FRONTEND_URL or "").rstrip("/") + "/#/scheduler"}
+    try:
+        if failed:
+            lines = []
+            for p in failed[:10]:
+                reason = _last_error(p)[:200] or "The network did not accept it."
+                if _is_test(p):
+                    reason = "Test mode: " + reason
+                fix = {"login": " Reconnect the account under Accounts, then retry.",
+                       "temporary": " The network was busy. Retry it from Overview."}.get(_fail_kind(p), "")
+                lines.append(f"<b>{html.escape(p.title or 'A post')}</b>: {html.escape(reason)}{fix}")
+            n = len(failed)
+            subject = f"{n} post{'s' if n != 1 else ''} could not be published"
+            db.add(Notification(id=f"n_{uuid.uuid4().hex[:8]}", text=subject + ". Open Social to see why.", type="alert"))
+            await db.commit()
+            await notify("post_failed", subject, lines, button)
+        if live:
+            lines = []
+            for p in live[:10]:
+                link = next((r.get("url") for r in p.publish_results or [] if isinstance(r, dict) and r.get("url")), "")
+                lines.append(f"<b>{html.escape(p.title or 'A post')}</b>"
+                             + (": test mode, not sent to the network" if _is_test(p) else "")
+                             + (f': <a href="{html.escape(link, quote=True)}">view the post</a>' if link else ""))
+            n = len(live)
+            await notify("post_published", f"{n} post{'s' if n != 1 else ''} went live", lines, button)
+    except Exception:
+        logger.exception("Post outcome notifications failed")
+        await db.rollback()
+
+
+TEMPORARY_RETRIES = 3  # a busy or unreachable network is retried at least this often
+
+
 async def _schedule_retry(db: AsyncSession, post: SocialPost, now_ms: float) -> bool:
     """Put a failed post back for another try later, if its retries allow. Never when any
-    channel already took it (that would post twice)."""
-    if any(isinstance(r, dict) and r.get("ok") for r in post.publish_results or []):
+    channel already took it (that would post twice), and never for a failure a retry cannot
+    fix (a login to reconnect, a post the network refused): those wait for the user.
+    Each retry waits twice as long as the one before."""
+    results = [r for r in post.publish_results or [] if isinstance(r, dict)]
+    if any(r.get("ok") for r in results):
+        return False
+    kinds = {r.get("kind") or failure_kind(r) for r in results if not r.get("ok")}
+    if kinds and kinds != {"temporary"}:
         return False
     sched = None
     if post.schedule_id:
         sched = (await db.execute(select(SocialSchedule).where(SocialSchedule.id == post.schedule_id))).scalars().first()
     count, delay_min = schedule_engine.retry_policy(sched)
-    if (post.publish_attempts or 0) >= count:
+    if not (sched and count == 0):  # a schedule set to "no retries" keeps that
+        count = max(count, TEMPORARY_RETRIES)
+    attempt = post.publish_attempts or 0
+    if attempt >= count:
         return False
-    post.publish_attempts = (post.publish_attempts or 0) + 1
-    post.retry_at_ms = now_ms + delay_min * 60 * 1000
+    wait_min = delay_min * (2 ** attempt)
+    post.publish_attempts = attempt + 1
+    post.retry_at_ms = now_ms + wait_min * 60 * 1000
     post.status = "approved"
     await db.commit()
-    logger.info(f"Publishing {post.id} failed; retry {post.publish_attempts}/{count} in {delay_min} min.")
+    logger.info(f"Publishing {post.id} failed (busy network); retry {post.publish_attempts}/{count} in {wait_min} min.")
     return True
 
 
@@ -1826,6 +2084,19 @@ If they want a calendar / plan / captions, write captions that could ship today.
         kb_note = ""
 
     shared_pages = await _shared_pages(_last_user_text(chat_msgs))
+    best_note = ""
+    try:
+        from app.api.scheduler_insights import best_slots
+
+        slots = await best_slots(db)
+        if slots:
+            names = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+            best_note = ("Best posting times from this company's own results (" + org_tz + "): "
+                         + "; ".join(f"{names[s['weekday']]} {s['hour']:02d}:00" for s in slots)
+                         + ". Use these times when the user gives none, and say so in one short line.")
+    except Exception as best_err:
+        logger.info(f"[Scheduler Chat] best times not loaded: {best_err}")
+        await db.rollback()
 
     system_prompt += f"""
 
@@ -1853,6 +2124,7 @@ Rules:
 {("Selected channels: " + ", ".join(selected_channels) + ". Use these platforms unless the user names others.") if selected_channels else ""}
 {("Revise post id " + focus_post_id + " in place. Keep its id.") if focus_post_id else ""}
 {kb_note}
+{best_note}
 {("Recent post openings:" + chr(10) + _recent_openings(current_plan)) if isinstance(current_plan, dict) and _recent_openings(current_plan) else ""}
 {shared_pages}
 Current calendar (id | date time | channel | status | headline):

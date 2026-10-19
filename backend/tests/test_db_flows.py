@@ -103,8 +103,10 @@ async def test_missed_approval_and_publish_retry(client, db, sent_mail, monkeypa
     await _post(client, "v2_miss", date=past)
     await _post(client, "v2_pub", date=past, status="approved")
 
-    async def always_fail(post, accounts, base):
-        return {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "linkedin", "error": "token expired"}]}
+    error = {"text": "503: Service Unavailable"}  # a busy network: retried
+
+    async def always_fail(post, accounts, base, **kw):
+        return {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "linkedin", "error": error["text"]}]}
 
     monkeypatch.setattr(scheduler, "publish_post_to_accounts", always_fail)
     res = await scheduler.run_publish_due(db)
@@ -113,11 +115,13 @@ async def test_missed_approval_and_publish_retry(client, db, sent_mail, monkeypa
     await db.refresh(post)
     assert post.status == "approved" and post.publish_attempts == 1 and post.retry_at_ms > time.time() * 1000
 
+    # The network then says the login has expired: retrying cannot fix that, so it stops at once.
+    error["text"] = "401: token expired"
     post.retry_at_ms = time.time() * 1000 - 1000  # the retry is due
     await db.commit()
     res = await scheduler.run_publish_due(db)
     await db.refresh(post)
-    assert post.status == "failed" and res["retrying"] == []
+    assert post.status == "failed" and res["retrying"] == [] and post.publish_attempts == 1
     assert any("failed" in m["subject"] for m in sent_mail)
 
 

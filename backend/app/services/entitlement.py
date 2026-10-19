@@ -63,6 +63,10 @@ async def get_org_entitlements(db: AsyncSession, org_id: str) -> Dict[str, bool]
     """
     if is_platform_exempt(org_id):
         return {"voice": True, "leads": True, "social": True}
+    from app.services.partners import is_free_account
+
+    if await is_free_account(org_id):  # created through a partner: free while the partner programme is free
+        return {"voice": True, "leads": True, "social": True}
 
     wallets_dict = await K.wallets(db)
     sub = await B.subscription_row(db)

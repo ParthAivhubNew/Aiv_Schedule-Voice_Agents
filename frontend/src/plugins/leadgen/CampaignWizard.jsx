@@ -98,7 +98,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 760 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>

@@ -146,7 +146,7 @@ export function WorkingHoursTab({ operator }) {
   const lateCalls = custom && DAYS.some((d) => rules.schedule.days[d].open && (mins(rules.schedule.days[d].start) < mins("08:00") || mins(rules.schedule.days[d].end) > mins("21:00")));
 
   return (
-    <div style={{ fontFamily: FONT_BODY, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, maxWidth: 860 }}>
+    <div style={{ fontFamily: FONT_BODY, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
       {!canEdit && <div style={{ fontSize: 12.5, color: C.slate }}>You can view these hours. Only admins or people with Company profile: Full access can change them.</div>}
       {error && <div style={{ color: C.red, background: C.redSoft, padding: "8px 12px", borderRadius: 8, fontSize: 13 }}>{error}</div>}
       {msg && <div style={{ color: C.green, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><Check size={14} /> {msg}</div>}

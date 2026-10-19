@@ -204,22 +204,36 @@ async def _seed_company(org_id: str, company: str) -> None:
         logging.getLogger("signup").warning(f"[signup] starter credits for {org_id} failed: {err}")  # created lazily on first use otherwise
 
 
-async def _send_verification(op: Operator) -> bool:
+async def _send_verification(op: Operator, ret: str = "", partner_name: str = "") -> bool:
     from app.core.mailer import render, send_system_email
 
-    token = _sign({"typ": "verify_email", "sub": op.id, "email": (op.email or "").lower()}, VERIFY_TTL_S)
+    claims = {"typ": "verify_email", "sub": op.id, "email": (op.email or "").lower()}
+    if ret:
+        claims["ret"] = ret  # the partner address to send the user back to; it was checked when the sign-up came in
+    token = _sign(claims, VERIFY_TTL_S)
     link = f"{_base_url()}/api/auth/verify-email?t={token}"
-    subject = "Confirm your email for Outreach by Aivhub"
     first = html.escape((op.name or "").split(" ")[0] or "there")
-    msg = render("Welcome aboard! One last step", [
-        f"Hi {first} &#128075;",
-        "Thanks for creating your Outreach by Aivhub account. Confirm your email address and your workspace is ready to go.",
-    ], {"label": "Confirm my email", "url": link},
-        note="This link works for 3 days. If you didn't sign up, you can safely ignore this email.",
-        highlights=[("AI calling", "Let an AI assistant make and answer calls for you."),
-                    ("Lead finding", "Find and check the companies worth contacting."),
-                    ("Post scheduling", "Plan and publish your social posts.")],
-        preheader="Confirm your email to start using your Outreach by Aivhub workspace.")
+    if partner_name:
+        who = html.escape(partner_name)
+        subject = f"Confirm your email for {partner_name}"
+        msg = render(f"Confirm your email for {partner_name}", [
+            f"Hi {first} &#128075;",
+            f"You created an Outreach account from {who}. Confirm your email address and you can start using it.",
+        ], {"label": "Confirm my email", "url": link},
+            note="This link works for 3 days. If you didn't sign up, you can safely ignore this email.",
+            preheader=f"Confirm your email to start using Outreach in {partner_name}.",
+            footer=f"Sent for {who} by {html.escape('Outreach by Aivhub')}.")
+    else:
+        subject = "Confirm your email for Outreach by Aivhub"
+        msg = render("Welcome aboard! One last step", [
+            f"Hi {first} &#128075;",
+            "Thanks for creating your Outreach by Aivhub account. Confirm your email address and your workspace is ready to go.",
+        ], {"label": "Confirm my email", "url": link},
+            note="This link works for 3 days. If you didn't sign up, you can safely ignore this email.",
+            highlights=[("AI calling", "Let an AI assistant make and answer calls for you."),
+                        ("Lead finding", "Find and check the companies worth contacting."),
+                        ("Post scheduling", "Plan and publish your social posts.")],
+            preheader="Confirm your email to start using your Outreach by Aivhub workspace.")
     res = await send_system_email(op.email or "", subject, msg["html"], msg["text"])
     return bool(res.get("ok"))
 
@@ -239,19 +253,20 @@ class SignupBody(BaseModel):
     website: Optional[str] = ""  # honeypot: people never fill it
 
 
-@router.post("/signup")
-async def signup(body: SignupBody, request: Request, db: AsyncSession = Depends(get_db)):
+async def register(db: AsyncSession, request: Request, *, company: str, name: str, email: str, password: str,
+                   website: str = "", partner: Any = None, return_url: str = "") -> Dict[str, Any]:
+    """Create a company and its owner. Used by the sign-up page and, with a partner, by POST /v1/run auth.signup."""
     if not signup_allowed():
         raise HTTPException(status_code=404, detail="Not found")
     _limit("signup", request)
-    if (body.website or "").strip():
+    if (website or "").strip():
         raise HTTPException(status_code=400, detail="Could not create the account.")
-    company, name, email = body.company.strip()[:120], body.name.strip()[:120], body.email.strip()
+    company, name, email = company.strip()[:120], name.strip()[:120], email.strip()
     if not company or not name:
         raise HTTPException(status_code=400, detail="Company and your name are required.")
     if not _EMAIL_RE.match(email) or len(email) > 254:
         raise HTTPException(status_code=400, detail="That email address does not look right.")
-    problem = password_problem(body.password)
+    problem = password_problem(password)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
     if await _email_taken(db, email):
@@ -260,25 +275,39 @@ async def signup(body: SignupBody, request: Request, db: AsyncSession = Depends(
     from app.core.mailer import configured
 
     verify = configured()
-    op = await _create_org(db, company, name, email, body.password, PENDING if verify else "active")
-    sent = await _send_verification(op) if verify else False
-    return {"ok": True, "username": op.username, "verifyEmail": verify, "emailed": sent}
+    op = await _create_org(db, company, name, email, password, PENDING if verify else "active")
+    if partner is not None:
+        from app.services import partners as PT
+
+        await PT.attach_new_account(db, partner, op)
+    sent = await _send_verification(op, ret=return_url, partner_name=partner.name if partner is not None else "") if verify else False
+    return {"ok": True, "username": op.username, "verifyEmail": verify, "emailed": sent, "operator": op}
+
+
+@router.post("/signup")
+async def signup(body: SignupBody, request: Request, db: AsyncSession = Depends(get_db)):
+    out = await register(db, request, company=body.company, name=body.name, email=body.email, password=body.password,
+                         website=body.website or "")
+    return {k: v for k, v in out.items() if k != "operator"}
 
 
 @router.get("/verify-email")
 async def verify_email(t: str = "", db: AsyncSession = Depends(get_db)):
     claims = _read(t, "verify_email")
+    ret = str((claims or {}).get("ret") or "")
+    home = ret or f"{_base_url()}/"
+    joiner = "&" if "?" in home else "?"
     if not claims:
         return RedirectResponse(f"{_base_url()}/?verified=expired", status_code=303)
     op = (await db.execute(select(Operator).where(Operator.id == claims["sub"]))).scalars().first()
     if not op or (op.email or "").lower() != claims.get("email"):
-        return RedirectResponse(f"{_base_url()}/?verified=expired", status_code=303)
+        return RedirectResponse(f"{home}{joiner}verified=expired", status_code=303)
     op.email_verified = True
     org = (await db.execute(select(Organization).where(Organization.id == op.org_id))).scalars().first()
     if org and org.status == PENDING:
         org.status = "active"
     await db.commit()
-    return RedirectResponse(f"{_base_url()}/?verified=1", status_code=303)
+    return RedirectResponse(f"{home}{joiner}verified=1", status_code=303)
 
 
 class ResendBody(BaseModel):

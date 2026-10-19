@@ -1,4 +1,4 @@
-"""OAuth 2.0 connect-flow for X, LinkedIn, Facebook, Instagram, and Threads."""
+"""OAuth 2.0 connect-flow for X, LinkedIn, Facebook, Instagram, Threads and Reddit."""
 from __future__ import annotations
 
 import base64
@@ -22,16 +22,21 @@ from app.services.social_publisher import normalize_platform, test_account
 
 logger = logging.getLogger("social_oauth")
 
-PLATFORMS = ("linkedin", "x", "facebook", "instagram", "threads")
+PLATFORMS = ("linkedin", "x", "facebook", "instagram", "threads", "reddit")
 
 # Meta only accepts scopes added to your app's Use Case(s) with status "Ready for testing".
 # See: https://developers.facebook.com/docs/permissions/
+# Results (insights) and first comments need the *_insights / *_comments / read_insights scopes;
+# accounts connected before they were added keep working and gain results after a reconnect.
 SCOPES = {
-    "x": "tweet.read tweet.write users.read offline.access",
+    "x": "tweet.read tweet.write users.read media.write offline.access",
     "linkedin": "openid profile email w_member_social",
-    "facebook": "pages_show_list,pages_read_engagement,pages_manage_posts",
-    "instagram": "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish",
-    "threads": "threads_basic,threads_content_publish,threads_manage_replies",
+    "facebook": "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,read_insights",
+    "instagram": "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,"
+                 "instagram_manage_insights,instagram_manage_comments",
+    "threads": "threads_basic,threads_content_publish,threads_manage_replies,threads_manage_insights,threads_read_replies",
+    # identity: who connected; submit: post and comment; read: post results and Listening searches.
+    "reddit": "identity submit read",
 }
 
 
@@ -47,6 +52,14 @@ def _oauth_scope(platform: str) -> str:
         if override:
             return override.replace(" ", "")
     return SCOPES.get(plat, "")
+
+
+def _threads_scope() -> str:
+    """Listening on Threads needs threads_keyword_search, which Meta grants only after App Review.
+    Asking for a permission the app lacks fails the whole login, so it is added only once
+    THREADS_KEYWORD_SEARCH=true says the app has it."""
+    extra = ",threads_keyword_search" if (os.getenv("THREADS_KEYWORD_SEARCH") or "").lower() in ("1", "true", "yes") else ""
+    return SCOPES["threads"] + extra
 
 
 def _oauth_config_id(platform: str, row_config: str = "") -> str:
@@ -82,6 +95,7 @@ ENV_KEYS = {
     "facebook": ("FACEBOOK_OAUTH_CLIENT_ID", "FACEBOOK_OAUTH_CLIENT_SECRET"),
     "instagram": ("FACEBOOK_OAUTH_CLIENT_ID", "FACEBOOK_OAUTH_CLIENT_SECRET"),
     "threads": ("THREADS_OAUTH_CLIENT_ID", "THREADS_OAUTH_CLIENT_SECRET"),
+    "reddit": ("REDDIT_OAUTH_CLIENT_ID", "REDDIT_OAUTH_CLIENT_SECRET"),
 }
 
 
@@ -261,11 +275,21 @@ async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "") -
         q = {
             "client_id": cid,
             "redirect_uri": redirect,
-            "scope": SCOPES["threads"],
+            "scope": _threads_scope(),
             "response_type": "code",
             "state": state_id,
         }
         url = "https://threads.net/oauth/authorize?" + urllib.parse.urlencode(q)
+    elif plat == "reddit":
+        q = {
+            "client_id": cid,
+            "response_type": "code",
+            "state": state_id,
+            "redirect_uri": redirect,
+            "duration": "permanent",  # a refresh token, so the 1-hour login renews itself
+            "scope": SCOPES["reddit"],
+        }
+        url = "https://www.reddit.com/api/v1/authorize?" + urllib.parse.urlencode(q)
     else:
         # Facebook Login for Business apps should use config_id (not scope). See Meta docs.
         config_id = app.get("configId") or _oauth_config_id(plat)
@@ -532,6 +556,35 @@ async def _exchange_threads(app, code) -> Dict[str, Any]:
         }
 
 
+async def _exchange_reddit(app, code) -> Dict[str, Any]:
+    from app.services.social_publisher import REDDIT_API, reddit_user_agent
+
+    basic = base64.b64encode(f"{app['clientId']}:{app['clientSecret']}".encode()).decode()
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        res = await client.post(
+            "https://www.reddit.com/api/v1/access_token",
+            data={"grant_type": "authorization_code", "code": code, "redirect_uri": app["redirectUri"] or app["callbackUrl"]},
+            headers={"Authorization": f"Basic {basic}", "User-Agent": reddit_user_agent()},
+        )
+        tok = res.json() if res.status_code == 200 else {}
+        access = tok.get("access_token") or ""
+        if not access:
+            return {"ok": False, "error": f"Reddit token {res.status_code}: {(tok.get('error') if tok else res.text[:300])}"}
+        me = await client.get(f"{REDDIT_API}/api/v1/me", headers={"Authorization": f"bearer {access}", "User-Agent": reddit_user_agent()})
+        name = (me.json() or {}).get("name") if me.status_code == 200 else ""
+        return {
+            "ok": True,
+            "platform": "reddit",
+            "access_token": access,
+            "refresh_token": tok.get("refresh_token") or "",
+            "expires_in": tok.get("expires_in"),
+            "account_id": (me.json() or {}).get("id") if me.status_code == 200 else "",
+            "handle": f"u/{name}" if name else "Reddit",
+            "label": f"Reddit · u/{name}" if name else "Reddit",
+            "extra": {"authType": "oauth2", "scope": tok.get("scope") or SCOPES["reddit"]},
+        }
+
+
 def _expiry_from(expires_in: Any) -> Optional[datetime]:
     """UTC moment a token stops working, from the provider's expires_in seconds; None if unknown."""
     try:
@@ -620,6 +673,8 @@ async def finish_oauth(db: AsyncSession, platform: str, code: str, state: str) -
         payload = await _exchange_linkedin(app, code)
     elif plat == "threads":
         payload = await _exchange_threads(app, code)
+    elif plat == "reddit":
+        payload = await _exchange_reddit(app, code)
     elif plat == "instagram":
         payload = await _exchange_facebook(app, code, want_instagram=True)
     else:

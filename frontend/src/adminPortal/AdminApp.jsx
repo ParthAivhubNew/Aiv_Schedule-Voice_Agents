@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, KeyRound, Plug, LayoutDashboard, LogOut, Mail, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
+import { ClipboardList, Coins, Handshake, KeyRound, Plug, LayoutDashboard, LogOut, Mail, PoundSterling, ScrollText, ShieldCheck, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
@@ -11,6 +11,7 @@ import { Dashboard } from "./Dashboard";
 import { Logs } from "./Logs";
 import { PlatformKeys } from "./PlatformKeys";
 import { PlatformMailbox } from "./PlatformMailbox";
+import { Partners } from "./Partners";
 import { Revenue } from "./Revenue";
 import { Queue } from "./Queue";
 import { SignIn } from "./SignIn";
@@ -27,6 +28,7 @@ const PAGES = [
   { id: "keys", label: "Platform keys", icon: KeyRound },
   { id: "mailbox", label: "Mailbox", icon: Mail },
   { id: "api", label: "API access", icon: Plug },
+  { id: "partners", label: "Partners", icon: Handshake },
   { id: "logs", label: "Logs", icon: ScrollText },
   { id: "staff", label: "Staff", icon: UserCog },
 ];
@@ -124,6 +126,7 @@ export function AdminApp() {
           </>
         )}
         {page === "api" && <ApiAccess canEdit={canEdit} />}
+        {page === "partners" && <Partners canEdit={canEdit} />}
         {page === "logs" && <Logs />}
         {page === "staff" && <Staff me={staff} canEdit={canEdit} />}
       </main>

@@ -2,7 +2,7 @@
 
 Stored once for the whole platform (app_settings "platform_ai"). Every company, Aivhub
 included, writes and draws with this choice; no company can see or change it. Keys live only
-in the platform record (see llm_gateway / post_writer). Each kind (text, image) has a main
+in the platform record (see llm_gateway / post_writer). Each kind (text, image, video) has a main
 provider and an optional backup: when the main fails and a backup is filled in, the backup is
 used straight away; an empty backup means the main alone is used.
 """
@@ -17,8 +17,9 @@ logger = logging.getLogger("platform_ai")
 KEY = "platform_ai"
 HEALTH_KEY = "platform_ai_health"
 FIELDS = ("textProvider", "textModel", "imageProvider", "imageModel",
-          "textBackupProvider", "textBackupModel", "imageBackupProvider", "imageBackupModel")
-KINDS = ("text", "image")
+          "textBackupProvider", "textBackupModel", "imageBackupProvider", "imageBackupModel",
+          "videoProvider", "videoModel", "videoBackupProvider", "videoBackupModel")
+KINDS = ("text", "image", "video")
 SLOTS = ("main", "backup")
 
 T = TypeVar("T")
@@ -53,10 +54,13 @@ async def put(db, patch: Dict[str, Any], scope: str = "scheduler") -> Dict[str, 
     keys = await _saved_ai_keys(db, scope=scope)
     available = {"text": {k["name"].strip().lower() for k in keys["text"]},
                  "image": {k["name"].strip().lower() for k in keys["image"]}}
+    # Video runs on a key saved for writing or pictures (the same companies sell both).
+    available["video"] = available["text"] | available["image"]
     for f in FIELDS:
         if f in patch and patch[f] is not None:
             value = str(patch[f]).strip()[:120]
-            if f.endswith("Provider") and value and value.lower() not in available["image" if f.startswith("image") else "text"]:
+            kind = next(k for k in KINDS if f.startswith(k))
+            if f.endswith("Provider") and value and value.lower() not in available[kind]:
                 raise ValueError(f'Save a key named "{value}" for this plugin before picking it.')
             current[f] = value
     for kind in KINDS:

@@ -17,7 +17,9 @@ def _as(token):
 async def test_defaults_admin_gets_all_operator_only_security(client, db):
     r = await client.get("/api/auth/me/notifications")
     assert r.status_code == 200, r.text
-    assert all(e["on"] for e in r.json()["events"])
+    # Admins get every event except the opt-in ones (each published post would be too many emails).
+    events = {e["key"]: e["on"] for e in r.json()["events"]}
+    assert events.pop("post_published") is False and all(events.values())
 
     _, tok = await make_user(db, "olly", "Operator")
     async with _as(tok) as c:

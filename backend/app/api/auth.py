@@ -205,9 +205,9 @@ async def _security_notice(db: AsyncSession, ctx: Dict[str, Any], line: str, ski
 
 
 # ── Sign in / out ───────────────────────────────────────────────────────────
-@router.post("/login")
-async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(get_db)):
-    username = (body.username or "").strip()
+async def check_credentials(db: AsyncSession, username: str, password: str, request: Request) -> Operator:
+    """The user behind a username (or email) and password, or the sign-in error. Counts failures and locks after too many."""
+    username = (username or "").strip()
     key = _fail_key(username, request)
     if _locked(key):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
@@ -216,7 +216,7 @@ async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(ge
     )).scalars().first()
     if not op and "@" in username:
         op = (await db.execute(select(Operator).where(func.lower(Operator.email) == username.lower()))).scalars().first()
-    ok, upgrade = verify_password(body.password or "", op.hashed_password if op else None) if op else (False, False)
+    ok, upgrade = verify_password(password or "", op.hashed_password if op else None) if op else (False, False)
     if not op or not ok:
         _FAILS[key].append(time.time())
         raise HTTPException(status_code=401, detail={"message": "Wrong email or password.", "code": "bad_credentials"})
@@ -224,10 +224,29 @@ async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=403, detail="This account is disabled. Ask your admin.")
     _FAILS.pop(key, None)
     if upgrade:
-        op.hashed_password = hash_password(body.password)
+        op.hashed_password = hash_password(password)
         from app.core.security import WEAK_LEGACY_PASSWORDS
-        if body.password in WEAK_LEGACY_PASSWORDS:
+        if password in WEAK_LEGACY_PASSWORDS:
             op.must_change_password = True
+    return op
+
+
+async def assert_can_sign_in(db: AsyncSession, op: Operator) -> None:
+    """Raises the sign-in error when the user's account or organisation is switched off or not confirmed yet."""
+    from app.models.models import Organization
+
+    if op.is_active is False:
+        raise HTTPException(status_code=403, detail="This account is disabled. Ask your admin.")
+    org = (await db.execute(select(Organization).where(Organization.id == org_of(op)))).scalars().first()
+    if org and org.status == "pending_verification":
+        raise HTTPException(status_code=403, detail={"message": "Confirm your email first: open the link we sent you.", "code": "email_not_verified"})
+    if org and org.status == "suspended":
+        raise HTTPException(status_code=403, detail="This organisation is suspended. Contact support.")
+
+
+@router.post("/login")
+async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(get_db)):
+    op = await check_credentials(db, body.username, body.password, request)
     return await sign_in_as(db, op, request)
 
 

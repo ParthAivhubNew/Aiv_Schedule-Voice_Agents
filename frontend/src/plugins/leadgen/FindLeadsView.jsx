@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Search, Sparkles, Users, X } from "lucide-react";
+import { ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -12,7 +12,7 @@ import { CallButton, useCallDialog } from "./CallFlow";
 import { useConnection } from "../../hooks/useConnections";
 
 const FAVOURITES = "Favourites";
-const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Set filters above, or just tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters, so what I find and what you see always match. Say \"remove X\" to drop a company." };
+const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters as the Filters panel, so what I find and what you see always match. Say \"remove X\" to drop a company." };
 const CHECK_TIPS = {
   hasWebsite: "Only companies we already hold a website for",
   hasPhone: "Only companies we already hold a phone number for",
@@ -318,10 +318,10 @@ function FindLeadsSearch({ store, listsStore }) {
   const [paused, setPaused] = useState(false);
 
   const [source, setSource] = useState("register"); // where this search looks: the company register, or the open web
-  const credits = useLeadCredits();
-  const webRate = credits?.rates?.lead_lookup?.credits;
+  const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [chat, setChat] = useState(() => [CHAT_INTRO]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -690,6 +690,7 @@ function FindLeadsSearch({ store, listsStore }) {
     });
   };
 
+  const filterCount = Object.keys(formToFilters(form)).length;
   const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 180px", minWidth: 0 };
   const label = { ...text, fontSize: 12, fontWeight: 600, color: C.slate };
   const check = (k, t) => (
@@ -718,6 +719,49 @@ function FindLeadsSearch({ store, listsStore }) {
         </div>
       </div>
       {source === "register" ? (<>
+      <div className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ position: "relative", flex: "1 1 320px", minWidth: 0 }}>
+            <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 13 }} />
+            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
+              placeholder='Tell the AI who you are after, like "small accountants in Leeds trading 5+ years"' style={{ width: "100%", height: 40, paddingLeft: 34 }}
+              title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
+          </div>
+          <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 40 }} title="Send to the AI">
+            {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Search
+          </button>
+          <button type="button" className={`ui-btn ${filtersOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} style={{ height: 40 }} aria-expanded={filtersOpen}
+            title="Set the filters yourself instead: industry, town, size, age and more" onClick={() => setFiltersOpen((o) => !o)}>
+            <SlidersHorizontal size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""} <ChevronDown size={13} style={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />
+          </button>
+        </form>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
+          {IDEAS.map(([name, patch]) => (
+            <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
+          ))}
+          {chat.length > 1 ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title="Clear the conversation and start again. Your results stay as they are"
+              onClick={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); setChat([CHAT_INTRO]); setChatInput(""); }}><RotateCcw size={13} /> New chat</button>
+          ) : null}
+        </div>
+        {chat.length > 1 || chatBusy ? (
+          <div className="ui-scroll" style={{ maxHeight: 300, overflowY: "auto", padding: "6px 2px", display: "flex", flexDirection: "column", gap: 12, borderTop: `1px solid ${C.borderLight}` }}>
+            {chat.filter((m) => m.id !== CHAT_INTRO.id).map((m) => (
+              <div key={m.id} style={m.role === "user"
+                ? { alignSelf: "flex-end", maxWidth: "80%", background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)", padding: "8px 12px", borderRadius: 8, ...text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
+                : { maxWidth: "90%" }}>
+                {m.role === "user" ? m.text : (
+                  <div style={{ ...text, fontSize: 13, lineHeight: 1.55, color: C.textInk, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.text}</div>
+                )}
+              </div>
+            ))}
+            {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
+            <div ref={scrollRef} />
+          </div>
+        ) : null}
+      </div>
+      {filtersOpen ? (
       <form onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Industry or company name</span>
@@ -759,14 +803,9 @@ function FindLeadsSearch({ store, listsStore }) {
             {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : "Find companies"}
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
-          {IDEAS.map(([name, patch]) => (
-            <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
-          ))}
-        </div>
-        <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. You can also draw an area on the map to see the companies inside it. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
+        <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
       </form>
+      ) : null}
 
       {busy ? (
         <SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
@@ -908,35 +947,6 @@ function FindLeadsSearch({ store, listsStore }) {
         </div>
       ) : null}
 
-      <div className="ui-card" style={{ display: "flex", flexDirection: "column", height: 360, overflow: "hidden" }}>
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-          <Sparkles size={14} color="#8B5CF6" />
-          <span style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>Ask the AI: it uses the same filters as the panel</span>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Clear the conversation and start again. Your results stay as they are"
-            onClick={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); setChat([CHAT_INTRO]); setChatInput(""); }}><RotateCcw size={13} /> New chat</button>
-        </div>
-        <div className="ui-scroll" style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px", display: "flex", flexDirection: "column", gap: 12 }}>
-          {chat.map((m) => (
-            <div key={m.id} style={m.role === "user"
-              ? { alignSelf: "flex-end", maxWidth: "80%", background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)", padding: "8px 12px", borderRadius: 8, ...text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
-              : { maxWidth: "90%" }}>
-              {m.role === "user" ? m.text : (
-                <div style={{ ...text, fontSize: 13, lineHeight: 1.55, color: C.textInk, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.text}</div>
-              )}
-            </div>
-          ))}
-          {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
-          <div ref={scrollRef} />
-        </div>
-        <form onSubmit={sendChat} style={{ padding: 10, borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
-          <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="e.g. only ones in Leeds, or remove Corner Cafe, or include closed ones"
-            aria-label="Message the AI" className="ui-input" style={{ flex: 1 }} title="Say who you are after, or what to change. Searching is free" />
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ width: 36, padding: 0 }} aria-label="Send" title="Send to the AI">
-            <ArrowUp size={15} />
-          </button>
-        </form>
-      </div>
-
       </>) : (
       <div className="ui-card" style={{ padding: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -952,7 +962,6 @@ function FindLeadsSearch({ store, listsStore }) {
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap", background: "var(--ui-accent-soft)", borderRadius: 10, padding: "9px 13px", ...text, fontSize: 12.5, color: C.textInk }}>
             <span>You get: <strong>name, usually a website and phone, sometimes more</strong></span>
             <span>Cost: <strong>{webRate == null ? "1 credit" : creditWord(webRate)} per company found</strong>, nothing if none</span>
-            {credits ? <span>You have: <strong>{credits.balance.toLocaleString()} credits</strong></span> : null}
           </div>
           {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." paused={webHold.paused} holding onPause={webHold.pause} onResume={webHold.resume} onCancel={cancelWeb} /> : null}
           <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified. Registry results are the reliable ones.</div>

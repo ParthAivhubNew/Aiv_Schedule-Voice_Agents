@@ -33,12 +33,14 @@ import {
   ChevronDown,
   Mail,
   Calendar,
+  Handshake,
 } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { navigateHash } from "../utils/route";
 import { DeveloperDocs } from "./DeveloperDocs";
 import BuildAndTestRequest from "./BuildAndTestRequest";
+import { PartnerProgram } from "./PartnerProgram";
 import { GROUPS, ENDPOINTS, defaultData, endpointKey, pluginAction, runRequest } from "./developerCatalog";
 import { buildSnippet } from "./developerSnippets";
 
@@ -153,7 +155,7 @@ const formatScopePills = (scopes = []) => {
 };
 
 export function DeveloperApiKeysModal({ open, onClose }) {
-  const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs"
+  const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs" | "partner"
   const [keys, setKeys] = useState([]);
   const [availableScopes, setAvailableScopes] = useState([]);
   const [entitlements, setEntitlements] = useState({ voice: false, leads: false, social: false });
@@ -581,6 +583,25 @@ export function DeveloperApiKeysModal({ open, onClose }) {
             }}
           >
             <BookOpen size={15} /> Documentation & SDKs
+          </button>
+
+          <button
+            onClick={() => setActiveTab("partner")}
+            style={{
+              padding: "12px 4px",
+              border: "none",
+              background: "none",
+              borderBottom: activeTab === "partner" ? `2px solid ${C.cobalt}` : "2px solid transparent",
+              color: activeTab === "partner" ? C.cobalt : C.slate,
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Handshake size={15} /> Partner programme
           </button>
         </div>
 
@@ -1442,6 +1463,9 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               webhookSecret={webhooks && webhooks[0] ? webhooks[0].secret : ""}
             />
           )}
+
+          {/* TAB 5: PARTNER PROGRAMME */}
+          {activeTab === "partner" && <PartnerProgram />}
         </div>
 
         {/* Footer */}

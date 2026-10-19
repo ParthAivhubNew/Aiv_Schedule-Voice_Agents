@@ -28,7 +28,7 @@ _OPT_API = r"^/(?:api/)?"
 PUBLIC_HTTP = [re.compile(p) for p in (
     r"^/$",
     r"^/health$",
-    r"^/(privacy|privacy-policy|terms|terms-of-service|data-deletion)$",
+    r"^/(privacy|privacy-policy|terms|terms-of-service|data-deletion|build-with-outreach)$",
     _OPT_API + r"auth/(login|refresh|signup|signup-config|verify-email|resend-verification|forgot-password|reset-password)$",
     _OPT_API + r"auth/firebase$",  # Google sign-in through Firebase
     # Carrier / provider webhooks (verified by their own signatures inside the handlers)
@@ -42,7 +42,8 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"telnyx/(webhook|messaging-webhook)$",
     _OPT_API + r"billing/webhook$",  # Stripe-signed; checked in the handler  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page
-    _OPT_API + r"scheduler/(review|schedule-extend)$",
+    _OPT_API + r"scheduler/(review|schedule-extend|report-view)$",
+    _OPT_API + r"l/[A-Za-z0-9]{4,12}$",  # tracked short links in published posts
     _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"email/o/[A-Za-z0-9_.-]+$",  # the open marker in a cold email (signed)
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
@@ -131,6 +132,44 @@ async def _carrier_webhook_in_org(app, scope, receive, send):
         with org_scope(org):
             return await app(scope, replay, send)
     return await app(scope, replay, send)
+
+# POST /v1/run needs a key, except the few `auth` actions a partner's sign-up and login pages call (see public_api/partner_auth.py).
+_V1_RUN = re.compile(r"^/v1/run$")
+_ANON_RUN_MAX = 64 * 1024
+
+
+async def _anonymous_run(app, scope, receive, send):
+    """A /v1/run call without a key: let it through only when it is one of the public `auth` actions; read the body once and replay it."""
+    from app.public_api.partner_auth import PUBLIC_ACTIONS
+
+    chunks, size, more = [], 0, True
+    while more:
+        msg = await receive()
+        if msg["type"] != "http.request":
+            break
+        chunks.append(msg.get("body", b""))
+        size += len(chunks[-1])
+        more = msg.get("more_body", False)
+        if size > _ANON_RUN_MAX:
+            return await _deny(scope, receive, send, 413, "That request is too large.", code="too_large")
+    body = b"".join(chunks)
+    try:
+        doc = json.loads(body or b"{}")
+    except ValueError:
+        doc = None
+    if not (isinstance(doc, dict) and doc.get("plugin") == "auth" and doc.get("action") in PUBLIC_ACTIONS):
+        return await _deny(scope, receive, send, 401, "Sign in required.")
+    sent = False
+
+    async def replay():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return await receive()
+
+    return await app(scope, replay, send)
+
 
 # operator id -> (expires_at, context). Short cache so role changes apply within seconds.
 _CTX_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
@@ -252,6 +291,9 @@ class AuthMiddleware:
             if not websocket and method == "POST" and CARRIER_WEBHOOK.search(path):
                 return await _carrier_webhook_in_org(self.app, scope, receive, send)
             return await self.app(scope, receive, send)
+
+        if not websocket and method == "POST" and _V1_RUN.match(api_path(path)) and not _has_bearer(scope):
+            return await _anonymous_run(self.app, scope, receive, send)
 
         has_auth_header = _has_bearer(scope)
         token = _token_from(scope)

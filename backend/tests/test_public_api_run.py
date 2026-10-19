@@ -107,7 +107,7 @@ async def test_a_mistyped_request_says_what_is_allowed(db):
     async with _http(keys["all"]) as c:
         r = await c.post("/v1/run", json={"plugin": "fax", "action": "send"})
         assert r.status_code == 422 and r.json()["error"]["code"] == "unknown_plugin"
-        assert r.json()["error"]["details"]["plugins"] == ["voice", "leads", "social", "account", "mail"]
+        assert r.json()["error"]["details"]["plugins"] == ["voice", "leads", "social", "account", "mail", "auth", "numbers"]
         r = await c.post("/v1/run", json={"plugin": "voice", "action": "dial"})
         assert r.json()["error"]["code"] == "unknown_action" and "call.start" in r.json()["error"]["details"]["actions"]
         r = await c.post("/v1/run", json={"plugin": "voice", "action": "call.get"})
