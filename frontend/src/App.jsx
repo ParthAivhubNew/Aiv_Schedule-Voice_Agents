@@ -682,6 +682,30 @@ function MainApp({ onSignedOut }) {
   useEffect(() => {
     try { localStorage.setItem("aivhub_calling_v1_notes", JSON.stringify(dedupeNotifications(notifications))); } catch (_) {}
   }, [notifications]);
+  // Things that happen on the server (posts going live, comments, videos, bookings) reach the bell here, in every app.
+  // Each server note is added once; ones already seen stay gone after "Clear all".
+  useEffect(() => {
+    if (!operator) return undefined;
+    const KEY = "aivhub_seen_server_notes";
+    const pull = () => {
+      api.getNotifications().then((list) => {
+        if (!Array.isArray(list)) return;
+        let seen = null;
+        try { seen = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (_) {}
+        const firstRun = !Array.isArray(seen);
+        const known = new Set(firstRun ? [] : seen);
+        const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
+        const fresh = list.filter((n) => n && n.id && !known.has(n.id) && (!firstRun || !n.at || Date.parse(n.at) > cutoff));
+        list.forEach((n) => n && n.id && known.add(n.id));
+        try { localStorage.setItem(KEY, JSON.stringify([...known].slice(-400))); } catch (_) {}
+        if (!fresh.length) return;
+        setNotifications((prev) => dedupeNotifications([...fresh.map((n) => ({ ...n, unread: true })), ...prev]).slice(0, 80));
+      }).catch(() => {});
+    };
+    pull();
+    const t = window.setInterval(pull, 60000);
+    return () => window.clearInterval(t);
+  }, [operator && operator.id]);
   const openNotification = (note, meta) => {
     const page = (meta && meta.page) || callingPageFromTarget(resolveNotificationTarget(note).targetView);
     navigateHash(`#/voice/${page}`);

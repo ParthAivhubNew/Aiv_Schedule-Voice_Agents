@@ -161,6 +161,10 @@ async def refresh_post(db: AsyncSession, post: SocialPost) -> Dict[str, Any]:
             errors.append(err)
         new += await save_engagers(db, post.id, platform, people)
     await link_warm(db, post.id)
+    if new:
+        from app.services import feed
+
+        feed.add(db, f"{feed.plural(new, 'new person', 'new people')} commented on or replied to “{(post.title or 'your post')[:60]}”. See who engaged under Audience & ideas.", "info")
     return {"new": new, "errors": errors}
 
 

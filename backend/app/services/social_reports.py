@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import logging
+import uuid
 import zoneinfo
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -16,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.models.models import CompanyProfile, SocialPostMetric, SocialReport
+from app.models.models import CompanyProfile, SocialPostMetric, SocialReport, SocialReportRun
 from app.services.social_publisher import TITLES, normalize_platform
 
 logger = logging.getLogger("social_reports")
@@ -188,8 +189,8 @@ def sections(rep: SocialReport, data: Dict[str, Any]) -> str:
                 f'<tr><th {th}>Account</th><th {th}>Followers</th><th {th}>Change</th></tr>{body}</table>')
     if not top and not data.get("perChannel"):
         out += '<p style="font-size:14px;color:#6B7280">No published posts with results in this period yet.</p>'
-    notes = ["— means the network does not share that number."] + list(data.get("notes") or [])[:4]
-    out += "".join(f'<p style="font-size:12px;color:#8A8F9C;margin:10px 0 0">{e(n)}</p>' for n in notes)
+    # Connection problems (reconnect this account, a network error) are for the account owner and stay on Insights.
+    out += '<p style="font-size:12px;color:#8A8F9C;margin:10px 0 0">— means the network does not share that number.</p>'
     return out
 
 
@@ -227,11 +228,33 @@ def share_url(rep: SocialReport, org_id: str) -> str:
     return f"{links.public_base()}/api/scheduler/report-view?t={links.make_token('social_report', rep.id, org_id, LINK_TTL_S)}"
 
 
-async def send(db: AsyncSession, rep: SocialReport, org_id: str, to: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Email the report. Returns {sent, failed, error}."""
+def run_view(r: SocialReportRun) -> Dict[str, Any]:
+    return {"id": r.id, "reportId": r.report_id, "reportName": r.report_name or "", "recipients": r.recipients or [],
+            "sent": r.sent or 0, "failed": r.failed or 0, "error": r.error or "", "trigger": r.trigger or "manual",
+            "at": r.created_at.isoformat() + "Z" if r.created_at else None}
+
+
+async def send(db: AsyncSession, rep: SocialReport, org_id: str, to: Optional[List[str]] = None, trigger: str = "manual") -> Dict[str, Any]:
+    """Email the report and note the attempt in its history. Returns {sent, failed, error}."""
+    recipients = to if to is not None else list(rep.recipients or [])
+    res = await _deliver(db, rep, org_id, recipients)
+    if recipients:
+        db.add(SocialReportRun(id=f"run_{uuid.uuid4().hex[:10]}", report_id=rep.id, report_name=rep.name or "", recipients=recipients,
+                               sent=res["sent"], failed=res["failed"], error=res["error"], trigger=trigger))
+        from app.services import feed
+
+        who = "Scheduled report" if trigger == "schedule" else "Report"
+        if res["sent"]:
+            feed.add(db, f"{who} “{rep.name}” was emailed to {feed.plural(res['sent'], 'person', 'people')}.", "success")
+        else:
+            feed.add(db, f"{who} “{rep.name}” could not be sent. {res['error']}", "alert")
+        await db.commit()
+    return res
+
+
+async def _deliver(db: AsyncSession, rep: SocialReport, org_id: str, recipients: List[str]) -> Dict[str, Any]:
     from app.core import mailer
 
-    recipients = to if to is not None else list(rep.recipients or [])
     if not recipients:
         return {"sent": 0, "failed": 0, "error": "Add who should get the report first."}
     if not mailer.configured():
@@ -287,7 +310,7 @@ async def send_due(db: AsyncSession, org_id: str) -> int:
         if created >= slot_utc or (rep.last_sent_at and rep.last_sent_at >= slot_utc):
             continue
         try:
-            res = await send(db, rep, org_id)
+            res = await send(db, rep, org_id, trigger="schedule")
             sent += 1 if res.get("sent") else 0
         except Exception:
             logger.exception("Sending report %s failed", rep.id)

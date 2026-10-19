@@ -457,7 +457,7 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
 
 
 async def _run_image(job: Dict[str, Any]) -> None:
-    from app.api.scheduler import _host_image, _image_with_backup, _resolve_image_prefs
+    from app.api.scheduler import _host_image, _image_with_backup, _resolve_image_prefs, _with_prompt_look
     from app.services import ai_errors
     from app.services.post_writer import ASPECT_RATIOS
 
@@ -470,13 +470,14 @@ async def _run_image(job: Dict[str, Any]) -> None:
     try:
         async with IMAGE_SLOTS.slot(job["priority"]):
             async with AsyncSessionLocal() as db:
-                prefs = await _resolve_image_prefs(db, {})
                 post = (await db.execute(select(SocialPost).where(SocialPost.id.in_(job["post_ids"])))).scalars().first()
                 prompt = ((post.image_prompt if post else "") or job["plan"] or job["headline"]).strip()
+                asked = _with_prompt_look({}, f"{job['plan']} {prompt}")  # what the post request itself says about the picture
+                prefs = await _resolve_image_prefs(db, asked)
                 width, height = ASPECT_RATIOS.get(prefs["aspect_ratio"], (1080, 1350))
                 started = time.monotonic()
                 try:
-                    img = await asyncio.wait_for(_image_with_backup(db, {}, prompt, width=width, height=height),
+                    img = await asyncio.wait_for(_image_with_backup(db, asked, prompt, width=width, height=height),
                                                  timeout=IMAGE_TIMEOUT_SECS)
                 except asyncio.TimeoutError:
                     raise RuntimeError(f"No image within {IMAGE_TIMEOUT_SECS // 60} minutes.")

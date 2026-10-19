@@ -30,6 +30,7 @@ from app.models.models import (
     MeetingEventType,
     SocialEngager,
     SocialPost,
+    SocialPostMetric,
 )
 from app.public_api import book_page
 from app.services import connection_handlers as H
@@ -151,14 +152,53 @@ async def booking_credit(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
 
 
 # ── Drafts: event, objection and recap posts (SV-4, SV-2, SV-5) ─────────────
-async def _draft(db: AsyncSession, request: Request, post_id: str, title: str, copy: str, channels: Optional[List[str]] = None) -> Dict[str, Any]:
-    """A post waiting for approval, like any post: the user reads it, edits it and approves it."""
+async def _default_channel(db: AsyncSession) -> str:
+    """The network a draft goes to when the user did not pick one: LinkedIn if it is connected, else the first connected one."""
+    from app.models.models import SocialAccount
+
+    have = [str(a.platform or "").lower() for a in (await db.execute(select(SocialAccount).where(SocialAccount.status == "connected"))).scalars().all()]
+    for pref in ("linkedin", "facebook", "instagram", "x", "threads"):
+        if pref in have:
+            return pref
+    return have[0] if have else "linkedin"
+
+
+async def _start_writing(db: AsyncSession, request: Request, post_id: str, title: str, copy: str, channel: str, brief: str, keep: str = "") -> Dict[str, Any]:
+    """Ask the post writer to turn the starting text into a finished post. The draft exists either way, so a refusal
+    (no credits, no company name) leaves a usable draft and says why."""
+    from app.models.models import CompanyProfile
+    from app.services import generation_queue as Q
+    from app.services.credits import can_start
+
+    prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
+    if not prof or not (prof.name or "").strip():
+        return {"started": False, "why": "Add your company name under Accounts so the AI knows who is posting."}
+    ok, why = await can_start(db, "ai_post", extra=[("ai_image", 1)])
+    if not ok:
+        return {"started": False, "why": why}
+    note = (f"{brief} Write the finished post, ready to publish, in the company's own voice."
+            + (f" Keep this link exactly as written, on its own line near the end: {keep}" if keep else "")
+            + " Never invent facts, figures, prices, customers or results: use only what the company profile and knowledge base say,"
+              " and leave a claim out rather than guess.")
+    by = (getattr(request.state, "auth", None) or {}).get("operator_id", "")
+    await Q.enqueue(db, [{"post_ids": [post_id], "plan": title, "headline": title, "channel": channel, "date": "", "revision_note": note,
+                          "existing_copy": copy, "skip_image": False}], priority=Q.PRIORITY_INTERACTIVE,
+                    options={"batch": f"b_{uuid.uuid4().hex[:10]}", "by": by, "started": datetime.utcnow().isoformat()})
+    await db.commit()
+    return {"started": True, "why": ""}
+
+
+async def _draft(db: AsyncSession, request: Request, post_id: str, title: str, copy: str, channels: Optional[List[str]] = None,
+                 brief: str = "", keep: str = "") -> Dict[str, Any]:
+    """A post waiting for approval, like any post: the user reads it, edits it and approves it. With a brief, the AI writes it first."""
     from app.api.scheduler import create_post_endpoint
 
-    payload = {"id": post_id, "title": title[:140], "copy": copy, "channels": channels or ["linkedin"], "status": "awaiting_approval",
+    channels = channels or [await _default_channel(db)]
+    payload = {"id": post_id, "title": title[:140], "copy": copy, "channels": channels, "status": "awaiting_approval",
                "slotDateMs": time.time() * 1000 + 2 * 86400000, "time": "10:00", "theme": "Connected"}
     res = await create_post_endpoint(payload, request, db)
-    return res.get("post") or {"id": post_id}
+    ai = await _start_writing(db, request, post_id, title[:140], copy, channels[0], brief, keep) if brief else {"started": False, "why": ""}
+    return {"post": res.get("post") or {"id": post_id}, "ai": ai}
 
 
 class EventPostIn(BaseModel):
@@ -180,7 +220,9 @@ async def event_post(body: EventPostIn, request: Request, db: AsyncSession = Dep
     when = f" {body.when.strip()}." if body.when.strip() else ""
     desc = (ev.description or "").strip()
     copy = (f"Join us: {ev.title} ({ev.length} min).{when}\n\n" + (desc + "\n\n" if desc else "") + f"Pick a time that suits you: {link}")
-    return {"post": await _draft(db, request, post_id, f"Join us: {ev.title}", copy, body.channels or None), "link": link}
+    brief = (f"Announce this event to our followers and invite them to book: {ev.title} ({ev.length} minutes)."
+             + (f" When: {body.when.strip()}." if body.when.strip() else ""))
+    return {**await _draft(db, request, post_id, f"Join us: {ev.title}", copy, body.channels or None, brief=brief, keep=link), "link": link}
 
 
 OBJECTIONS: Dict[str, Dict[str, Any]] = {
@@ -192,6 +234,14 @@ OBJECTIONS: Dict[str, Dict[str, Any]] = {
                      "title": "Already have someone? Here is what to compare", "angle": "Give a fair checklist for comparing without saying anyone is wrong."},
     "send_info": {"label": "Send me information", "pattern": r"send (me )?(an? )?(email|info|details)|email me",
                   "title": "The short version", "angle": "A plain summary of what you do, who it is for and what happens next."},
+    "how_it_works": {"label": "How does it work?", "pattern": r"how does (that|it|this) work|what (is|does) (this|that)|what do you (do|offer|sell)|tell me more|what('s| is) this (about|regarding)",
+                     "title": "How it works, in plain words", "angle": "Explain what you do and what happens first, step by step, without jargon."},
+    "trust": {"label": "Who are you, and how did you get my details?", "pattern": r"who (are you|is this)|how did you get my|where did you get my|is this a scam|spam",
+              "title": "Who we are and why we got in touch", "angle": "Introduce the company, who it helps and how it finds the people it contacts, openly."},
+    "results": {"label": "Proof and results", "pattern": r"case stud|references|reviews|proof|results|work for (us|someone like)|does it (really )?work",
+                "title": "What results to expect", "angle": "Say what customers can expect, using only real results the company can stand behind."},
+    "contract": {"label": "Contracts and commitment", "pattern": r"contract|lock.?in|minimum term|cancel|commitment|tied in",
+                 "title": "Contracts, commitment and leaving", "angle": "Say plainly how long it lasts and how to stop, with no small print."},
     "wrong_person": {"label": "Not the right person", "pattern": r"not my department|decision.?maker|not the right person|speak to",
                      "title": "Who should hear about this at your company?", "angle": "Say who usually decides, and give them something to forward."},
 }
@@ -204,12 +254,14 @@ async def objections(request: Request, days: int = 60, db: AsyncSession = Depend
     since = datetime.utcnow() - timedelta(days=max(7, min(days, 365)))
     logs = (await db.execute(select(CallLog).where(CallLog.created_at >= since).order_by(CallLog.created_at.desc()).limit(400))).scalars().all()
     counts: Counter = Counter()
+    talked = 0
     for l in logs:
         said = " ".join(C.their_lines(l.transcript or [])).lower()
+        talked += 1 if said.strip() else 0
         for key, o in OBJECTIONS.items():
             if re.search(o["pattern"], said):
                 counts[key] += 1
-    return {"days": days, "calls": len(logs), "objections": [
+    return {"days": days, "calls": len(logs), "talked": talked, "objections": [
         {"key": k, "label": OBJECTIONS[k]["label"], "calls": n, "title": OBJECTIONS[k]["title"], "angle": OBJECTIONS[k]["angle"]} for k, n in counts.most_common()]}
 
 
@@ -226,7 +278,8 @@ async def objection_post(body: ObjectionPostIn, request: Request, db: AsyncSessi
         raise HTTPException(status_code=400, detail="Unknown question.")
     copy = (f"{o['title']}\n\nWe hear this a lot: {o['label'].lower()}.\n\n[Write your honest answer here. {o['angle']}]\n\n"
             "Questions? Reply and we will answer them.")
-    return {"post": await _draft(db, request, f"post_{uuid.uuid4().hex[:8]}", o["title"], copy, body.channels or None)}
+    brief = f"People often raise this when we speak to them: \"{o['label']}\". Write a post that answers it. {o['angle']}"
+    return await _draft(db, request, f"post_{uuid.uuid4().hex[:8]}", o["title"], copy, body.channels or None, brief=brief)
 
 
 class RecapIn(BaseModel):
@@ -245,8 +298,38 @@ async def recap_post(body: RecapIn, request: Request, db: AsyncSession = Depends
     who = f" {m.prospect}" if body.permission and m.prospect else " a customer"
     note = (m.outcome or m.prep or "").strip()
     copy = f"Thank you to{who} for their time this week.\n\n" + (f"{note[:400]}\n\n" if note else "") + "[Add what you took from the conversation.]"
-    return {"post": await _draft(db, request, f"post_{uuid.uuid4().hex[:8]}", "Thank you", copy, body.channels or None),
+    brief = ("Write a short thank-you post after a meeting with a customer or prospect."
+             + (f" Mention {m.prospect} by name; they agreed." if body.permission and m.prospect else " Do not name the person or their company.")
+             + (f" What came out of it: {note[:400]}" if note else ""))
+    return {**await _draft(db, request, f"post_{uuid.uuid4().hex[:8]}", "Thank you", copy, body.channels or None, brief=brief),
             "named": bool(body.permission)}
+
+
+class TopicPostIn(BaseModel):
+    title: str
+    why: str = ""
+    post_id: str = ""     # the post an idea builds on (best post, or the post people commented on)
+    channels: List[str] = []
+
+
+@router.post("/social/topic-post")
+async def topic_post(body: TopicPostIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """A draft from one of the ideas drawn from the user's saved companies."""
+    await need(db, "social", "leads")
+    title = body.title.strip()[:140]
+    if not title:
+        raise HTTPException(status_code=400, detail="Pick an idea first.")
+    copy = f"{title}\n\n[The AI is writing this post.]"
+    brief = f"Write a post with this headline: \"{title}\"." + (f" Why it fits our audience: {body.why.strip()[:300]}" if body.why.strip() else "")
+    if body.post_id:
+        src = await db.get(SocialPost, body.post_id)
+        if src:
+            said = [e.text.strip()[:200] for e in (await db.execute(select(SocialEngager).where(SocialEngager.post_id == src.id)
+                                                                    .order_by(SocialEngager.at.desc()).limit(8))).scalars().all() if (e.text or "").strip()]
+            brief += f" It builds on our earlier post: \"{(src.copy or src.title or '')[:600]}\"."
+            if said:
+                brief += " People wrote under it: " + " | ".join(said) + ". Answer these without naming anyone."
+    return await _draft(db, request, f"post_{uuid.uuid4().hex[:8]}", title, copy, body.channels or None, brief=brief)
 
 
 # ── Topic ideas and best times (SL-4, SV-6) ─────────────────────────────────
@@ -282,30 +365,107 @@ def _short(name: str) -> str:
     return name[:60].strip(" ,")
 
 
+def _words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z]{4,}", (text or "").lower())}
+
+
+def _similar(a: str, b: str, bar: float = 0.75) -> bool:
+    wa, wb = _words(a), _words(b)
+    return bool(wa and wb) and len(wa & wb) / min(len(wa), len(wb)) >= bar
+
+
+# Headlines that state no fact about the company, so the AI has to fill them from the real profile.
+SECTOR_IDEAS = [
+    "What {s} businesses{where} ask us most",
+    "3 things {s} owners get wrong about following up with customers",
+    "A short checklist for {s} businesses{where}",
+    "Questions {s} owners should ask before choosing a supplier",
+    "How we help {s} businesses{where}",
+]
+TOWN_IDEAS = ["Working with businesses in {t}", "What businesses in {t} ask us most"]
+
+
 @router.get("/social/topic-ideas")
 async def topic_ideas(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    """Ideas from the sectors and towns the organisation is actually prospecting."""
+    """What to post next, from this organisation's own data: how its posts performed, what people said under them,
+    and the sectors and towns it prospects. Ideas it has already posted about lately are left out, and the
+    order rotates each day (steady within a day, so a reload shows the same list)."""
+    import random
+
     await need(db, "social", "leads")
+    now = datetime.utcnow()
+    recent = (await db.execute(select(SocialPost).where(SocialPost.created_at >= now - timedelta(days=45)))).scalars().all()
+    recent_titles = [(p.title or "", p.created_at) for p in recent if (p.title or "").strip()]
+
+    def posted(title: str, key: str = "", days: int = 45) -> bool:
+        keyw = _words(key)
+        for t, at in recent_titles:
+            if _similar(title, t):
+                return True
+            if keyw and at and at >= now - timedelta(days=min(days, 14)) and keyw <= _words(t):
+                return True
+        return False
+
+    # 1. From results: the posts that did best, and the posts people talked under.
+    engaged: List[Dict[str, Any]] = []
+    since = now - timedelta(days=60)
+    score: Counter = Counter()
+    for m in (await db.execute(select(SocialPostMetric).where(SocialPostMetric.published_at >= since))).scalars().all():
+        score[m.post_id] += (m.likes or 0) + 2 * (m.comments or 0) + 3 * (m.shares or 0) + (m.clicks or 0)
+    titles = {}
+    ids = [pid for pid, n in score.most_common(3) if n > 0]
+    talk = Counter(e.post_id for e in (await db.execute(select(SocialEngager).where(SocialEngager.at >= since))).scalars().all())
+    ids_talk = [pid for pid, n in talk.most_common(3) if n >= 2]
+    if ids or ids_talk:
+        titles = {p.id: p.title for p in (await db.execute(select(SocialPost).where(SocialPost.id.in_(set(ids) | set(ids_talk))))).scalars().all()}
+    for pid in ids:
+        t = (titles.get(pid) or "").strip()
+        title = f"More on “{t[:70]}”: the follow-up your audience is ready for"
+        if t and not posted(title):
+            engaged.append({"title": title, "why": f"One of your best posts lately ({score[pid]} reactions, comments, shares and clicks).",
+                            "kind": "best_post", "count": score[pid], "post_id": pid})
+    for pid in ids_talk:
+        t = (titles.get(pid) or "").strip()
+        title = f"You asked, we answer: what people said about “{t[:70]}”"
+        if t and not posted(title):
+            engaged.append({"title": title, "why": f"{talk[pid]} people commented or replied on it.", "kind": "engagement",
+                            "count": talk[pid], "post_id": pid})
+
+    # 2. From who the organisation is prospecting.
     leads = (await db.execute(select(LeadAccount))).scalars().all()
     sectors = Counter(a.industry.strip() for a in leads if (a.industry or "").strip())
     regions = Counter(a.region.strip().title() for a in leads if (a.region or "").strip())
-    names = await _sector_names(db, [s for s, _ in sectors.most_common(4)])
+    names = await _sector_names(db, [s for s, _ in sectors.most_common(5)])
     town = regions.most_common(1)[0][0] if regions else ""
     where = f" in {town}" if town else ""
-    ideas = []
-    for raw, n in sectors.most_common(4):
+    audience: List[Dict[str, Any]] = []
+    for raw, n in sectors.most_common(5):
         name = _short(names.get(raw) or "")
         if not name:
             continue  # an industry code we cannot put into words would make a meaningless headline
         low = name[0].lower() + name[1:] if not name[:2].isupper() else name
-        ideas.append({"title": f"What {low} businesses{where} ask us most", "why": f"{n} of your saved companies work in {low}.",
-                      "sector": name, "kind": "sector", "count": n})
-        ideas.append({"title": f"3 things {low} owners get wrong about following up with customers",
-                      "why": f"{low[0].upper() + low[1:]} is one of your biggest groups of saved companies.", "sector": name, "kind": "sector", "count": n})
+        for tpl in SECTOR_IDEAS:
+            title = tpl.format(s=low, where=where)
+            if not posted(title, key=low):
+                audience.append({"title": title, "why": f"{n} of your saved companies work in {low}.", "sector": name, "kind": "sector", "count": n})
     for t, n in regions.most_common(2):
-        ideas.append({"title": f"Working with businesses in {t}", "why": f"{n} of your saved companies are in {t}.", "sector": "",
-                      "kind": "town", "count": n})
-    return {"ideas": ideas[:8]}
+        for tpl in TOWN_IDEAS:
+            title = tpl.format(t=t)
+            if not posted(title, key=t):
+                audience.append({"title": title, "why": f"{n} of your saved companies are in {t}.", "sector": "", "kind": "town", "count": n})
+
+    # Same order all day, a different one tomorrow, and different for each organisation.
+    rng = random.Random(f"{current_org()}:{now.date().isoformat()}")
+    rng.shuffle(engaged)
+    rng.shuffle(audience)
+    ideas, seen_kind = engaged[:3], Counter()
+    for i in audience:  # no more than two of one kind in a row of results, so the list stays varied
+        key = (i["kind"], i.get("sector") or i["title"].split(" in ")[-1])
+        if seen_kind[key] >= 2:
+            continue
+        seen_kind[key] += 1
+        ideas.append(i)
+    return {"ideas": ideas[:8], "day": now.date().isoformat()}
 
 
 @router.get("/social/best-times")
@@ -344,6 +504,40 @@ async def proof_blocks(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
 class ShareIn(BaseModel):
     list_id: str
     note: str = ""
+    lead_ids: List[str] = []  # only these people from the list; empty means everyone on it
+
+
+async def _share_audience(db: AsyncSession, list_id: str):
+    """Everyone on a list, split into those who would get the email and those left out (and why)."""
+    from app.api import lead_lists as L
+
+    hit = next((l for l in await L._load(db) if l["id"] == list_id), None)
+    if not hit:
+        raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
+    leads = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(hit["ids"])))).scalars().all()
+    people, seen = [], set()
+    for a in leads:
+        addr = (a.email or "").strip().lower()
+        why = ""
+        if not addr:
+            why = "No email address"
+        elif addr in seen:
+            why = "Duplicate address"
+        elif await C.block_for(db, email=addr, registry_id=a.registry_id or "", channel="email"):
+            why = "On the do-not-contact list"
+        else:
+            seen.add(addr)
+        people.append({"lead": a, "email": addr, "skip": why})
+    return hit, people
+
+
+@router.get("/social/share-preview")
+async def share_preview(list_id: str, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Who a list email would go to, so the user can see the whole list before making the draft."""
+    await need(db, "social", "leads")
+    hit, people = await _share_audience(db, list_id)
+    return {"name": hit["name"], "people": [{"id": p["lead"].id, "name": (p["lead"].contact_name or "").strip(), "company": p["lead"].name or "",
+                                             "email": p["email"], "skip": p["skip"]} for p in people]}
 
 
 @router.post("/social/posts/{post_id}/share-to-list")
@@ -352,16 +546,15 @@ async def share_post_to_list(post_id: str, body: ShareIn, request: Request, db: 
     and the normal sender then spreads it over mailboxes, hours and daily limits."""
     require(request, "email", "full")
     await need(db, "social", "leads")
-    from app.api import lead_lists as L
 
     post = await _post(db, post_id)
     url = post_url(post)
     if not url:
         raise HTTPException(status_code=400, detail="This post isn't published yet, so there is no link to share.")
-    hit = next((l for l in await L._load(db) if l["id"] == body.list_id), None)
-    if not hit:
-        raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
-    leads = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(hit["ids"])))).scalars().all()
+    _hit, audience = await _share_audience(db, body.list_id)
+    if body.lead_ids:
+        chosen = set(body.lead_ids)
+        audience = [p for p in audience if p["lead"].id in chosen]
     camp = EmailCampaign(id=f"cp_{uuid.uuid4().hex[:12]}", name=f"Share: {post.title[:80]}", status="draft", mailbox_ids=[], alias_map={}, timezone_policy="org")
     db.add(camp)
     await db.flush()
@@ -369,13 +562,11 @@ async def share_post_to_list(post_id: str, body: ShareIn, request: Request, db: 
     db.add(EmailSequenceStep(id=f"st_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, step_number=1, channel="email", delay_days=0, delay_hours=0,
                              subject=post.title[:200] or "Something we shared", body_template=f"Hi {{{{first_name}}}},\n\n{note}\n\n{post.title}\n{url}\n\nThanks"))
     added, skipped = 0, 0
-    seen = set()
-    for a in leads:
-        addr = (a.email or "").strip().lower()
-        if not addr or addr in seen or await C.block_for(db, email=addr, registry_id=a.registry_id or "", channel="email"):
+    for p in audience:
+        a, addr = p["lead"], p["email"]
+        if p["skip"]:
             skipped += 1
             continue
-        seen.add(addr)
         first = (a.contact_name or "").split()[0] if (a.contact_name or "").strip() else ""
         db.add(EmailEnrollment(id=f"en_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, lead_id=a.id, email=addr, first_name=first,
                                company=a.name[:160], current_step=1, status="active", next_action_at=datetime.utcnow()))

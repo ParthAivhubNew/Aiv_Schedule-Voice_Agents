@@ -58,7 +58,8 @@ import { SocialConnect } from "./SocialConnect";
 import { InsightsPage, OverviewPage, plainError } from "./SocialResults";
 import { MediaLibraryPage, MediaPicker, MediaThumb, VideoMaker } from "./SocialMedia";
 import { ImportPage } from "./SocialImport";
-import { DrawOptions, PictureSettings } from "./SocialPictures";
+import { PictureSettings } from "./SocialPictures";
+import { VideoPanel } from "./SocialVideoPanel";
 import { ReportsPage } from "./SocialReports";
 import { ListeningPage } from "./SocialListening";
 
@@ -369,9 +370,9 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
         <div
           ref={scrollerRef}
           style={{
-            maxHeight: 160,
+            maxHeight: "min(340px, 38vh)",
             overflowY: "auto",
-            padding: "8px 10px",
+            padding: "10px 12px",
             borderRadius: 10,
             border: `1px solid ${C.border}`,
             background: HUB_PAPER,
@@ -404,8 +405,9 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
           disabled={disabled}
           style={{ flex: 1, height: 38, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff", boxSizing: "border-box" }}
         />
-        <button type="submit" disabled={disabled || !(value || "").trim()} style={{ ...priBtn, height: 38, width: 38, padding: 0, displayContent: "center", background: C.teal }}>
-          <Send size={14} />
+        <button type="submit" aria-label="Send" disabled={disabled || !(value || "").trim()}
+          style={{ ...priBtn, height: 38, width: 38, flexShrink: 0, padding: 0, justifyContent: "center", background: C.teal, opacity: disabled || !(value || "").trim() ? 0.5 : 1, cursor: disabled || !(value || "").trim() ? "default" : "pointer" }}>
+          <Send size={15} aria-hidden="true" />
         </button>
       </form>
     </div>
@@ -1037,14 +1039,13 @@ function ApprovalsBoard({
   const [dateTab, setDateTab] = useState("");
   const [scope, setScope] = useState("waiting"); // waiting | approved | posted | all
   const [editMode, setEditMode] = useState(false);
-  const [editTab, setEditTab] = useState("copy"); // copy | image
+  const [editTab, setEditTab] = useState("copy"); // copy | image | video
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedDraft, setSchedDraft] = useState({ date: "", time: "" });
   const [lightbox, setLightbox] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [versionsKey, setVersionsKey] = useState(0);
   const [promptDraft, setPromptDraft] = useState("");
-  const [drawLook, setDrawLook] = useState({});
   const handEditAt = useRef(0);
   const uploadRef = useRef(null);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
@@ -1373,7 +1374,7 @@ function ApprovalsBoard({
       </div>
 
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, position: "relative", padding: "0 16px 16px", display: wide ? "flex" : "block", gap: 16 }}>
-        <div style={wide ? { flex: "0 0 40%", maxWidth: 520, minWidth: 300, minHeight: 0, height: "100%" } : { height: "100%" }}>
+        <div style={wide ? { flex: "0 0 28%", maxWidth: 420, minWidth: 280, minHeight: 0, height: "100%" } : { height: "100%" }}>
         {!dateTabs.length ? (
           <div style={{ padding: 28, color: C.slate, fontSize: 13, border: `1px dashed ${C.border}`, borderRadius: 12, textAlign: "center" }}>
             No posts yet. Generate a draft first.
@@ -1855,8 +1856,9 @@ function ApprovalsBoard({
                 {/* Edit chat — only when Edit pressed */}
                 {editMode && canEdit ? (
                   <div style={{
-                    width: 300,
+                    width: "clamp(340px, 36%, 460px)",
                     flexShrink: 0,
+                    overflowY: "auto",
                     borderLeft: `1px solid ${C.border}`,
                     background: "#fff",
                     display: "flex",
@@ -1869,6 +1871,7 @@ function ApprovalsBoard({
                       {[
                         { id: "copy", label: "Caption" },
                         { id: "image", label: "Image" },
+                        { id: "video", label: "Video" },
                       ].map((t) => (
                         <button
                           key={t.id}
@@ -1924,6 +1927,8 @@ function ApprovalsBoard({
                           <Sparkles size={14} /> Fresh rewrite
                         </button>
                       </div>
+                    ) : editTab === "video" ? (
+                      <VideoPanel post={expandedPost} canEdit={canEdit} Chat={MiniChat} showToast={showToast} onRefresh={onRefresh} />
                     ) : (
                       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                         <MiniChat
@@ -1940,21 +1945,23 @@ function ApprovalsBoard({
                           placeholder="Describe the image change…"
                         />
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <DrawOptions value={drawLook} onChange={setDrawLook} />
-                          <label style={labelStyle}>Image prompt</label>
+                          <label style={labelStyle} htmlFor={"ip_" + expandedPost.id}>Image prompt</label>
                           <textarea
-                            aria-label="Image prompt"
+                            id={"ip_" + expandedPost.id}
                             value={promptDraft}
                             onChange={(e) => setPromptDraft(e.target.value)}
                             rows={4}
                             style={{ width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical" }}
                           />
+                          <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.4, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
+                            Say the look, shape or quality in the prompt, for example "cinematic", "square" or "high quality". Otherwise your picture settings apply.
+                          </div>
                           <button
                             type="button"
                             disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
                             onClick={async () => {
                               if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
-                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "", drawLook);
+                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "");
                             }}
                             style={{ ...secBtn, width: "100%", justifyContent: "center" }}
                           >
@@ -1963,7 +1970,7 @@ function ApprovalsBoard({
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
                           </button>
-                          <button type="button" onClick={() => regenImage(expandedPost, "", drawLook)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <button type="button" onClick={() => regenImage(expandedPost, "")} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
                               : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
@@ -2275,6 +2282,15 @@ function isLocked(status) {
 }
 
 // Fields that only exist in the browser (drafting context), kept when the server copy wins.
+// A day cell shows this many posts; the rest sit behind "+N more" so a busy day cannot stretch the grid.
+const DAY_POST_LIMIT = 3;
+
+// Two pages that belong together share one nav entry and a tab bar across the top.
+const PAGE_GROUPS = [
+  [["overview", "Overview"], ["plan", "Calendar"]],
+  [["insights", "Insights"], ["reports", "Reports and history"]],
+];
+
 const LOCAL_ONLY_FIELDS = ["plan", "batchId", "uniqueForChannel", "copyChat", "imageChat", "hook", "hashtags", "imageConcept", "imageHeadline"];
 
 
@@ -3495,6 +3511,7 @@ export function SocialWorkspace({
         theme: p.headline,
         ...(look && look.style ? { style: look.style } : {}),
         ...(look && look.quality ? { quality: look.quality } : {}),
+        ...(look && look.aspectRatio ? { aspectRatio: look.aspectRatio } : {}),
       });
       if (res && res.imageUrl) {
         if (res.warning) showToast(res.warning);
@@ -4293,15 +4310,13 @@ export function SocialWorkspace({
   };
   const navGroups = [
     { label: "Posts", items: [
-      { id: "overview", label: "Overview", icon: Home, active: page === "overview" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("overview") },
-      { id: "plan", label: "Calendar", icon: CalendarDays, active: page === "plan" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
+      { id: "overview", label: "Overview & calendar", icon: CalendarDays, active: (page === "overview" || page === "plan") && !approvalOpen, locked: pluginLocked, onClick: () => goPage(page === "plan" ? "plan" : "overview") },
       { id: "approvals", label: "Approvals", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
       { id: "import", label: "Import", icon: Upload, active: page === "import" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("import") },
       { id: "media", label: "Media library", icon: ImageIcon, active: page === "media" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
     ] },
     { label: "Results", items: [
-      { id: "insights", label: "Insights", icon: BarChart3, active: page === "insights" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
-      { id: "reports", label: "Reports", icon: FileText, active: page === "reports" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("reports") },
+      { id: "insights", label: "Insights & reports", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage(page === "reports" ? "reports" : "insights") },
       { id: "listening", label: "Listening", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
     ] },
     { label: "Setup", items: [
@@ -4342,6 +4357,17 @@ export function SocialWorkspace({
             <FlaskConical size={14} aria-hidden="true" />
             <span style={{ flex: "1 1 240px", minWidth: 0 }}><b>Test mode is on.</b> Posts go through approval and publishing, but nothing is sent to any network.</span>
             <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} onClick={() => goPage("accounts")}>Change</button>
+          </div>
+        ) : null}
+        {!pluginLocked && !approvalOpen && PAGE_GROUPS.find((g) => g.some(([id]) => id === page)) ? (
+          <div role="tablist" aria-label="Views" style={{ display: "flex", gap: 6, padding: "10px 20px 0", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
+            {PAGE_GROUPS.find((g) => g.some(([id]) => id === page)).map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                style={{ border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, padding: "8px 12px",
+                  color: page === id ? C.teal : C.slate, borderBottom: `2px solid ${page === id ? C.teal : "transparent"}`, marginBottom: -1 }}>
+                {label}
+              </button>
+            ))}
           </div>
         ) : null}
         {pluginLocked && page !== "subscription" ? (
@@ -4392,7 +4418,7 @@ export function SocialWorkspace({
         ) : page === "listening" ? (
           <ListeningPage showToast={showToast} />
         ) : page === "audience" ? (
-          <SocialConnect showToast={showToast} />
+          <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
         ) : page === "overview" ? (
           <OverviewPage
             onOpenPost={(id) => openApprovals(id)}
@@ -4539,7 +4565,7 @@ export function SocialWorkspace({
                     </div>
                     {dayPosts.length === 0 ? (
                       <div style={{ fontSize: 10.5, color: C.slate, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pinned ? "Pinned" : "Pin this day"}</div>
-                    ) : dayPosts.map((p) => (
+                    ) : dayPosts.slice(0, DAY_POST_LIMIT).map((p) => (
                       <div
                         key={p.id}
                         role="button"
@@ -4626,6 +4652,15 @@ export function SocialWorkspace({
                         ) : null}
                       </div>
                     ))}
+                    {dayPosts.length > DAY_POST_LIMIT ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDayOrPostDoubleClick(key, null, e); }}
+                        style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, fontSize: 11, cursor: "pointer", padding: "2px 0", textAlign: "left", fontFamily: FONT_BODY }}
+                      >
+                        +{dayPosts.length - DAY_POST_LIMIT} more
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
@@ -4934,12 +4969,12 @@ export function SocialWorkspace({
         }}
       />
       {approvalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 20 }} onClick={closeApprovals}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 12 }} onClick={closeApprovals}>
           <div
             style={{
-              width: "min(1400px, 94vw)",
+              width: "min(1760px, 97vw)",
               maxWidth: "100%",
-              height: "min(860px, calc(100vh - 40px))",
+              height: "min(1040px, calc(100vh - 24px))",
               background: HUB_PAPER,
               borderRadius: 16,
               display: "flex",

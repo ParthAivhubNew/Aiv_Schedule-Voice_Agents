@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Check, Image as ImageIcon } from "lucide-react";
 import { api } from "../../api/apiClient";
-import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
+import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 
 // How this company's AI pictures look: a ready look or their own description, the shape and the quality.
 // The picture AI itself is chosen by Outreach; these choices only shape what it is asked to draw.
@@ -71,7 +71,7 @@ export function PictureSettings({ showToast }) {
         <h3 id="pics-h" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, margin: 0, color: C.ink }}>AI pictures</h3>
       </div>
       <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2, lineHeight: 1.45 }}>
-        How the pictures the AI draws for your posts look. You can still change the look and quality for any single picture in the post editor.
+        Your defaults for the pictures the AI draws. If a post request or picture prompt asks for something else, such as "cinematic" or "square", that wins. You can also pick the look, shape and quality for any single picture in the post editor.
       </div>
       <Choices legend="Look" items={LOOKS} value={s.style} onChange={(v) => set("style", v)} />
       {s.style === "custom" ? (
@@ -91,27 +91,5 @@ export function PictureSettings({ showToast }) {
         {!changed ? <span style={{ fontSize: 12, color: C.slate }}>Saved</span> : null}
       </div>
     </section>
-  );
-}
-
-// The look and quality for one redraw, in the post editor. Empty value = the company setting.
-export function DrawOptions({ value, onChange }) {
-  const sel = { width: "100%", height: 32, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 12, background: "#fff", marginTop: 3 };
-  const v = value || {};
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, background: HUB_PAPER, borderRadius: 10, padding: 8 }}>
-      <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Look
-        <select style={sel} value={v.style || ""} onChange={(e) => onChange({ ...v, style: e.target.value })}>
-          <option value="">My usual look</option>
-          {LOOKS.filter(([id]) => id !== "custom").map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-      </label>
-      <label style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>Quality
-        <select style={sel} value={v.quality || ""} onChange={(e) => onChange({ ...v, quality: e.target.value })}>
-          <option value="">My usual quality</option>
-          {QUALITIES.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-      </label>
-    </div>
   );
 }

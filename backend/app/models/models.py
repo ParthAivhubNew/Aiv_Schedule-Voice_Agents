@@ -1713,6 +1713,22 @@ class SocialReport(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SocialReportRun(Base):
+    """One time a report was emailed: who got it and whether it went through."""
+    __tablename__ = "social_report_runs"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    report_id = Column(String, index=True, nullable=False)
+    report_name = Column(String, default="")
+    recipients = Column(JSON, default=list)
+    sent = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    error = Column(String, default="")
+    trigger = Column(String, default="manual")  # manual | schedule
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class SocialListenTopic(Base):
     """Words to watch for on the networks that allow searching (brand, product, competitor, topic)."""
     __tablename__ = "social_listen_topics"

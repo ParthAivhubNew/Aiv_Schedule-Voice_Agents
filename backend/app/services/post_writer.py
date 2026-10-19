@@ -294,6 +294,40 @@ def linkedin_image_prompt(payload: Dict[str, Any], topic: str, company: str) -> 
 
 CUSTOM_STYLE = "custom:"
 
+# What a person writes in a post request or picture prompt, mapped to the picture settings.
+_LOOK_WORDS = (
+    ("editorial", r"photo(?:graph|realistic)?s?\b|realistic|real people|natural light|editorial"),
+    ("minimalist_3d", r"\b3d\b|clay|render(?:ed)?\b"),
+    ("cinematic", r"cinematic|film still|movie[- ]like"),
+    ("b2b_ad", r"bold poster|poster|high contrast"),
+    ("neon_tech", r"neon|dark and glowing|glowing|futuristic|cyberpunk"),
+    ("modern_saas", r"illustration|illustrated|flat design|vector|cartoon"),
+)
+_SHAPE_WORDS = (
+    ("9:16", r"9\s*:\s*16|\bstor(?:y|ies)\b|\breels?\b|\btiktok\b|vertical video|\btall\b"),
+    ("16:9", r"16\s*:\s*9|\bwide\b|landscape|banner"),
+    ("1:1", r"1\s*:\s*1|\bsquare\b"),
+    ("4:5", r"4\s*:\s*5|\bportrait\b"),
+)
+_HIGH_QUALITY = re.compile(r"(?i)\b(high[- ](?:quality|res(?:olution)?)|hd|4k|ultra|sharp(?:er)?|highly detailed|best quality)\b")
+
+
+def infer_image_prefs(text: str) -> Dict[str, str]:
+    """The look, shape and quality a person asked for in their own words. Only what they said is returned."""
+    t = text or ""
+    out: Dict[str, str] = {}
+    for key, pat in _LOOK_WORDS:
+        if re.search(pat, t, re.I):
+            out["style"] = key
+            break
+    for key, pat in _SHAPE_WORDS:
+        if re.search(pat, t, re.I):
+            out["aspect_ratio"] = key
+            break
+    if _HIGH_QUALITY.search(t):
+        out["quality"] = "high"
+    return out
+
 
 def style_text(style: str) -> str:
     """The look to draw in: a preset, or the user's own words ("custom:<their description>")."""

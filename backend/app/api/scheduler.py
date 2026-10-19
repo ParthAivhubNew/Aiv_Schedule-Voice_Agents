@@ -483,10 +483,27 @@ def _style_choice(payload: Dict[str, Any], prefs: Dict[str, Any]) -> str:
     return style
 
 
+def _with_prompt_look(payload: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+    """Order of say: a choice made for this picture, then what the prompt itself asks for, then the company setting."""
+    from app.services.post_writer import infer_image_prefs
+
+    out = dict(payload or {})
+    said = infer_image_prefs(prompt)
+    if not (out.get("style") or out.get("imageStyle")) and said.get("style"):
+        out["style"] = said["style"]
+    if not (out.get("aspect_ratio") or out.get("aspectRatio")) and said.get("aspect_ratio"):
+        out["aspect_ratio"] = said["aspect_ratio"]
+    if out.get("quality") not in IMAGE_QUALITIES and said.get("quality"):
+        out["quality"] = said["quality"]
+    return out
+
+
 async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: str, **size) -> Dict[str, Any]:
     """Draw with the main image AI; on failure use the backup when staff set one.
     Returns the generator's result for the slot that worked; raises AIUnavailable otherwise."""
     from app.services import platform_ai
+
+    payload = _with_prompt_look(payload, prompt)
 
     async def attempt(slot: str) -> Dict[str, Any]:
         p = await _resolve_image_prefs(db, payload, slot)
@@ -577,7 +594,7 @@ async def generate_image_endpoint(payload: Dict[str, Any], request: Request, db:
     prompt = payload.get("prompt", "")
     title = payload.get("title", "")
     theme = payload.get("theme", "Operations")
-    look = await _resolve_image_prefs(db, payload)  # only the look comes from the request
+    look = await _resolve_image_prefs(db, _with_prompt_look(payload, prompt))  # only the look comes from the request
     style = look["style"]
     w, h = ASPECT_RATIOS.get(look["aspect_ratio"], (1200, 675))
     width = int(payload.get("width", w))
@@ -1596,6 +1613,10 @@ async def run_publish_due(db: AsyncSession, request: Optional[Request] = None) -
             post.status = approval_mail.MISSED
             missed_posts.append(post)
     if missed_posts:
+        from app.services import feed
+
+        feed.add(db, f"{feed.plural(len(missed_posts), 'post')} missed {'its' if len(missed_posts) == 1 else 'their'} time because nobody approved "
+                     f"{'it' if len(missed_posts) == 1 else 'them'}: " + ", ".join(f"“{(p.title or 'A post')[:50]}”" for p in missed_posts[:3]) + ".", "alert")
         await db.commit()
 
     try:
@@ -1694,6 +1715,11 @@ async def _notify_outcomes(db: AsyncSession, posts: List[SocialPost]) -> None:
                              + (": test mode, not sent to the network" if _is_test(p) else "")
                              + (f': <a href="{html.escape(link, quote=True)}">view the post</a>' if link else ""))
             n = len(live)
+            from app.services import feed
+
+            names = ", ".join(f"“{(p.title or 'A post')[:50]}”" for p in live[:3]) + (f" and {n - 3} more" if n > 3 else "")
+            feed.add(db, f"{feed.plural(n, 'post')} went live: {names}.", "success")
+            await db.commit()
             await notify("post_published", f"{n} post{'s' if n != 1 else ''} went live", lines, button)
     except Exception:
         logger.exception("Post outcome notifications failed")

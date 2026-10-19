@@ -68,6 +68,16 @@ function PostRow({ post, toast, lists, meetings }) {
     try { setData(await api.getPostEngagers(post.id)); } catch (e) { toast(e.message || "Couldn't load who engaged."); }
   }, [post.id, toast]);
   useEffect(() => { if (open) load(); }, [open, load]);
+  const [preview, setPreview] = useState(null);
+  const shareList = share && share.listId;
+  const sendable = preview ? preview.people.filter((p) => !p.skip) : [];
+  useEffect(() => {
+    setPreview(null);
+    if (!shareList) return undefined;
+    let live = true;
+    api.getSharePreview(shareList).then((d) => { if (live) setPreview(d); }).catch((e) => { if (live) { setPreview({ people: [] }); toast(e.message || "Couldn't load that list."); } });
+    return () => { live = false; };
+  }, [shareList]);
 
   const run = async (key, fn) => {
     setBusy(key);
@@ -96,7 +106,7 @@ function PostRow({ post, toast, lists, meetings }) {
     try { await navigator.clipboard.writeText(r.url); toast("Booking link copied. Paste it into this post or its comments."); } catch (_) { toast(r.url); }
   });
   const doShare = () => run("share", async () => {
-    const r = await api.sharePostToList(post.id, share.listId, share.note);
+    const r = await api.sharePostToList(post.id, share.listId, share.note, share.chosen ? [...share.chosen] : []);
     toast(`Draft campaign made for ${r.people} ${r.people === 1 ? "person" : "people"}${r.skipped ? ` (${r.skipped} skipped)` : ""}. Check it under Campaigns in Lead Gen, then start it.`);
     setShare(null);
   });
@@ -137,16 +147,45 @@ function PostRow({ post, toast, lists, meetings }) {
       </div>
 
       {share ? (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 14px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
-          <span style={{ ...muted, color: C.ink, fontWeight: 600 }}>Email this post to</span>
-          {lists.length ? (
-            <select className="ui-input" aria-label="List" style={{ width: "auto" }} value={share.listId} onChange={(e) => setShare({ ...share, listId: e.target.value })}>
-              {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.ids.length})</option>)}
-            </select>
-          ) : <span style={muted}>No lists yet. Make one in Lead Gen first.</span>}
-          <input className="ui-input" aria-label="A line to go with it" style={{ flex: 1, minWidth: 200 }} placeholder="A line to go with it (optional)" maxLength={300} value={share.note} onChange={(e) => setShare({ ...share, note: e.target.value })} />
-          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!share.listId || busy === "share"} onClick={doShare}>Make a draft campaign</button>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare(null)}>Cancel</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
+          {!lists.length ? <span style={muted}>No lists yet. Make one in Lead Gen first.</span> : (
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ ...muted, color: C.ink, fontWeight: 600 }}>Email this post to</span>
+                <select className="ui-input" aria-label="List" style={{ width: "auto", maxWidth: 220 }} value={share.listId} onChange={(e) => setShare({ ...share, listId: e.target.value, chosen: null, pick: false })}>
+                  {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.ids.length})</option>)}
+                </select>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" aria-expanded={Boolean(share.pick)} disabled={!preview || !sendable.length}
+                  onClick={() => setShare({ ...share, pick: !share.pick, chosen: share.chosen || new Set(sendable.map((p) => p.id)) })}>
+                  <Users size={13} /> {!preview ? "Loading…" : share.chosen ? `${share.chosen.size} of ${sendable.length} chosen` : `Everyone (${sendable.length})`}
+                </button>
+                <input className="ui-input" aria-label="A line to go with it" style={{ flex: 1, minWidth: 160 }} placeholder="A line to go with it (optional)" maxLength={300} value={share.note} onChange={(e) => setShare({ ...share, note: e.target.value })} />
+                <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!share.listId || busy === "share" || !preview || (share.chosen && !share.chosen.size)} onClick={doShare}>Make a draft campaign</button>
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare(null)}>Cancel</button>
+              </div>
+              {share.pick && preview ? (
+                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 8 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                    <input className="ui-input" aria-label="Search the list" placeholder="Search name, company or email" style={{ flex: 1, minWidth: 160, height: 30 }} value={share.q || ""} onChange={(e) => setShare({ ...share, q: e.target.value })} />
+                    <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare({ ...share, chosen: new Set(sendable.map((p) => p.id)) })}>All</button>
+                    <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare({ ...share, chosen: new Set() })}>None</button>
+                  </div>
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 170, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "2px 10px" }}>
+                    {preview.people.filter((p) => !p.skip && `${p.name} ${p.company} ${p.email}`.toLowerCase().includes((share.q || "").trim().toLowerCase())).map((p) => (
+                      <li key={p.id}>
+                        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, padding: "3px 2px", cursor: "pointer", minWidth: 0 }}>
+                          <input type="checkbox" style={{ accentColor: TEAL }} checked={share.chosen.has(p.id)}
+                            onChange={(ev) => { const n = new Set(share.chosen); if (ev.target.checked) n.add(p.id); else n.delete(p.id); setShare({ ...share, chosen: n }); }} />
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.email}>{p.name || p.company}{p.name && p.company ? <span style={muted}> · {p.company}</span> : null}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  {preview.people.some((p) => p.skip) ? <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{preview.people.filter((p) => p.skip).length} left out: no email, duplicate, or do-not-contact.</div> : null}
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -243,7 +282,7 @@ function IdeaRow({ title, why, tag, busy, onDraft, label = "Write a draft" }) {
   );
 }
 
-function Ideas({ toast }) {
+function Ideas({ toast, onDrafted, onOpenApprovals }) {
   const topics = useConnection("social_audience");
   const voice = useConnection("objections_to_posts");
   const [ideas, setIdeas] = useState(null);
@@ -259,24 +298,42 @@ function Ideas({ toast }) {
     api.getObjections().then((r) => setObjections(r)).catch(() => setObjections({ objections: [], calls: 0 }));
     api.getBestTimes().then((r) => setTimes(r)).catch(() => setTimes(null));
     api.getCalcomEventTypes().then((r) => setEvents(Array.isArray(r) ? r : r.eventTypes || [])).catch(() => setEvents([]));
-    api.getMeetings().then((r) => setMeetings((r || []).slice(0, 6))).catch(() => setMeetings([]));
+    api.getMeetings().then((r) => setMeetings((r || []).filter((m) => !/health check|test/i.test(m.prospect || "")).slice(0, 6))).catch(() => setMeetings([]));
   }, [voice.available]);
-  const make = async (key, fn, done) => {
+  const [made, setMade] = useState(null);
+  // Every idea becomes a real draft in Approvals; the AI then writes it, which takes a minute or two.
+  const make = async (key, fn, what) => {
     setBusy(key);
-    try { await fn(); toast(done); } catch (e) { toast(e.message || "Couldn't make the draft."); } finally { setBusy(""); }
+    try {
+      const r = await fn();
+      setMade({ what, ai: r && r.ai ? r.ai : { started: false, why: "" } });
+      if (onDrafted) onDrafted();
+    } catch (e) { toast(e.message || "Couldn't make the draft."); } finally { setBusy(""); }
   };
-  const draft = (title, why) => make(`i:${title}`, () => api.createPost({ id: `post_${Math.random().toString(36).slice(2, 10)}`, title, copy: `${title}\n\n[Write your post here. ${why}]`, channels: ["linkedin"], status: "awaiting_approval", slotDateMs: Date.now() + 2 * 86400000, time: "10:00", theme: "Ideas" }), "A draft is waiting under Approvals.");
+  const draft = (title, why, postId) => make(`i:${title}`, () => api.makeTopicPost(title, why, postId), "Your draft");
   return (
+    <>
+    {made ? (
+      <div role="status" style={{ ...card, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14, background: TEAL_SOFT, borderColor: "#C7E9E3", padding: "10px 14px" }}>
+        <span style={{ ...text, flex: "1 1 260px", minWidth: 0, color: C.ink, fontSize: 13 }}>
+          <b>{made.what} is in Approvals.</b>{" "}
+          {made.ai.started ? "The AI is writing it now; it usually takes a minute or two, and the text appears there when it is ready."
+            : (made.ai.why ? `The AI did not start: ${made.ai.why} The draft has a starting text you can edit.` : "It has a starting text you can edit.")}
+        </span>
+        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={onOpenApprovals}>Open Approvals</button>
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setMade(null)}>Dismiss</button>
+      </div>
+    ) : null}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))", gap: 14, alignItems: "start" }}>
-      <IdeaCard icon={Lightbulb} title="From the companies you target" about="Topics from the industries and towns of the companies you saved in Lead Gen."
+      <IdeaCard icon={Lightbulb} title="From the companies you target" about="Fresh each day, from how your posts did, what people said under them, and the industries and towns of your saved companies. Topics you posted lately are left out."
         lockLink="social_audience" lockWhat="Ideas from your leads">
         {topics.available ? (!ideas ? <div style={muted}>Loading…</div> : !ideas.length ? (
           <div style={muted}>Save companies in Lead Gen with an industry and a town, and ideas appear here.</div>
         ) : (
           <div>
             {ideas.map((i) => (
-              <IdeaRow key={i.title} title={i.title} why={i.why} tag={i.kind === "town" ? "Town" : "Industry"}
-                busy={busy === `i:${i.title}`} onDraft={() => draft(i.title, i.why)} />
+              <IdeaRow key={i.title} title={i.title} why={i.why} tag={{ town: "Town", sector: "Industry", best_post: "Your best post", engagement: "Your audience" }[i.kind] || "Idea"}
+                busy={busy === `i:${i.title}`} onDraft={() => draft(i.title, i.why, i.post_id)} />
             ))}
           </div>
         )) : null}
@@ -286,13 +343,17 @@ function Ideas({ toast }) {
         lockLink="objections_to_posts" lockWhat="Ideas from your calls">
         {voice.available ? (!objections ? <div style={muted}>Loading…</div> : !objections.objections.length ? (
           <div style={{ ...muted, background: HUB_PAPER, borderRadius: 10, padding: 12 }}>
-            Nothing has come up often enough yet ({objections.calls} call{objections.calls === 1 ? "" : "s"} so far). Ideas appear here once the same question is heard on several calls.
+            {objections.calls ? `Looked at ${objections.calls} call${objections.calls === 1 ? "" : "s"} from the last ${objections.days} days. ` : "No calls yet. "}
+            {objections.calls && !objections.talked
+              ? "In none of them did the other person say anything (no answer, voicemail or test calls), so there is nothing to learn from yet. "
+              : objections.talked ? `${objections.talked} had a real conversation, but none raised a common doubt (price, timing, an existing supplier, how it works, trust, results or contracts). ` : ""}
+            Ideas appear here as soon as one is heard on a call.
           </div>
         ) : (
           <div>
             {objections.objections.map((o) => (
               <IdeaRow key={o.key} title={o.label} why={o.angle} tag={`${o.calls} call${o.calls === 1 ? "" : "s"}`}
-                busy={busy === o.key} onDraft={() => make(o.key, () => api.makeObjectionPost(o.key), "A draft is waiting under Approvals.")} />
+                busy={busy === o.key} onDraft={() => make(o.key, () => api.makeObjectionPost(o.key), "Your draft")} />
             ))}
           </div>
         )) : null}
@@ -312,7 +373,7 @@ function Ideas({ toast }) {
               <input className="ui-input" style={{ marginTop: 4, width: "100%" }} placeholder="e.g. every Tuesday in November" maxLength={80} value={ev.when} onChange={(e) => setEv({ ...ev, when: e.target.value })} />
             </label>
             <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ alignSelf: "flex-start" }} disabled={busy === "event"}
-              onClick={() => make("event", () => api.makeEventPost(ev), "A draft with a sign-up link is waiting under Approvals.")}>
+              onClick={() => make("event", () => api.makeEventPost(ev), "Your event post")}>
               <Sparkles size={13} /> {busy === "event" ? "Making…" : "Write the event post"}
             </button>
           </div>
@@ -335,16 +396,17 @@ function Ideas({ toast }) {
             ) : null}
             {!(meetings || []).length ? <div style={{ ...muted, marginTop: 6 }}>No recent meetings yet.</div> : meetings.map((m) => (
               <IdeaRow key={m.id} title={m.prospect || "A meeting"} why={m.date ? `Met ${when(m.date + "T12:00:00")}` : ""} label="Write a thank-you"
-                busy={busy === m.id} onDraft={() => make(m.id, () => api.makeRecapPost(m.id, false), "A thank-you draft is waiting under Approvals.")} />
+                busy={busy === m.id} onDraft={() => make(m.id, () => api.makeRecapPost(m.id, false), "Your thank-you post")} />
             ))}
           </div>
         ) : null}
       </IdeaCard>
     </div>
+    </>
   );
 }
 
-export function SocialConnect({ showToast }) {
+export function SocialConnect({ showToast, onDrafted, onOpenApprovals }) {
   const [posts, setPosts] = useState(null);
   const [lists, setLists] = useState([]);
   const [credit, setCredit] = useState(null);
@@ -411,7 +473,7 @@ export function SocialConnect({ showToast }) {
           </section>
         ) : (
           <section role="tabpanel" aria-label="Post ideas">
-            <Ideas toast={showToast} />
+            <Ideas toast={showToast} onDrafted={onDrafted} onOpenApprovals={onOpenApprovals} />
           </section>
         )}
       </div>

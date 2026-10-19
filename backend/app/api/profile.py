@@ -345,14 +345,15 @@ async def save_faqs(payload: Dict[str, Any], db: AsyncSession = Depends(get_db))
 # Notifications
 @router.get("/notifications", response_model=list[dict])
 async def list_notifications(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Notification).order_by(Notification.created_at.desc()))
+    result = await db.execute(select(Notification).order_by(Notification.created_at.desc()).limit(100))
     notifs = result.scalars().all()
     return [{
         "id": n.id,
         "text": n.text,
         "time": n.time,
         "unread": n.unread,
-        "type": n.type
+        "type": n.type,
+        "at": n.created_at.isoformat() + "Z" if n.created_at else None,
     } for n in notifs]
 
 

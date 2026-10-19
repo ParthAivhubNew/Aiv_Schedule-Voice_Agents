@@ -47,7 +47,7 @@ TENANT_TABLES: List[str] = [
     "public_api_idempotency", "public_api_audit", "public_objects", "meeting_providers",
     "contact_events", "do_not_contact", "connection_rules", "social_engagers",
     "social_post_metrics", "social_account_stats", "social_media", "social_links", "social_link_clicks",
-    "social_reports", "social_listen_topics", "social_mentions", "social_video_jobs",
+    "social_reports", "social_report_runs", "social_listen_topics", "social_mentions", "social_video_jobs",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.

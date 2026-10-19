@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
@@ -181,14 +182,37 @@ PROVIDERS = {"fal": _fal, "openai": _openai, "gemini": _gemini}
 
 
 # ── Jobs ────────────────────────────────────────────────────────────────────
+_SHAPE_WORDS = (
+    ("16:9", r"16\s*:\s*9|\bwide\b|landscape|youtube|linkedin"),
+    ("1:1", r"1\s*:\s*1|\bsquare\b"),
+    ("9:16", r"9\s*:\s*16|\btall\b|vertical|portrait|\bstor(?:y|ies)\b|\breels?\b|\bshorts?\b|tiktok"),
+)
+
+
+def infer_clip(prompt: str) -> Dict[str, Any]:
+    """The shape and length a person asked for in their own words. Only what they said is returned."""
+    out: Dict[str, Any] = {}
+    for key, pat in _SHAPE_WORDS:
+        if re.search(pat, prompt, re.I):
+            out["shape"] = key
+            break
+    m = re.search(r"\b(\d{1,2})\s*(?:s\b|sec(?:ond)?s?\b)", prompt, re.I)
+    if m:
+        out["seconds"] = 8 if int(m.group(1)) > 5 else 5
+    elif re.search(r"\blonger\b|\bextended\b", prompt, re.I):
+        out["seconds"] = 8
+    return out
+
+
 def clean(payload: Dict[str, Any]) -> Tuple[str, str, int]:
     prompt = " ".join(str(payload.get("prompt") or "").split())[:1500]
     if len(prompt) < 10:
         raise ValueError("Describe the clip in a sentence or two, for example: a barista pouring latte art, slow motion, warm light.")
-    shape = str(payload.get("shape") or "9:16")
+    said = infer_clip(prompt)
+    shape = str(payload.get("shape") or said.get("shape") or "9:16")
     if shape not in SHAPES:
         raise ValueError("Pick tall, wide or square.")
-    seconds = int(payload.get("seconds") or 5)
+    seconds = int(payload.get("seconds") or said.get("seconds") or 5)
     if seconds not in LENGTHS:
         raise ValueError("Pick 5 or 8 seconds.")
     return prompt, shape, seconds
@@ -254,6 +278,9 @@ async def _run(org_id: str, job_id: str) -> None:
                 job.state, job.media_id, job.url = "done", row.id, url
                 if job.post_id:
                     await _attach(db, job.post_id, social_library.item(row))
+                from app.services import feed
+
+                feed.add(db, "Your AI video is ready" + (" and was added to its post." if job.post_id else ". Find it in the Media library."), "success")
                 await db.commit()
                 try:
                     from app.services.ai_pricing import record_usage
@@ -270,6 +297,9 @@ async def _run(org_id: str, job_id: str) -> None:
                 job = await db.get(SocialVideoJob, job_id)
                 if job:
                     job.state, job.error = "failed", msg
+                    from app.services import feed
+
+                    feed.add(db, f"An AI video could not be made. {msg}", "alert")
                 await credits.release(db, [job_id])  # a failed clip is free
                 await db.commit()
         finally:

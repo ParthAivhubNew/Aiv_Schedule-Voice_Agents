@@ -12,7 +12,7 @@ const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background
 const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
-  display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8,
+  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8,
   border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
 };
 const primary = { ...btn, background: C.ink, color: "#fff", borderColor: C.ink };
@@ -29,7 +29,8 @@ function ReportForm({ initial, onSaved, onCancel, showToast }) {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    const body = { ...f, recipients: f.recipients.split(/[,;\s]+/).filter(Boolean) };
+    const { focusRecipients, ...rest } = f;
+    const body = { ...rest, recipients: f.recipients.split(/[,;\s]+/).filter(Boolean) };
     try {
       const res = initial && initial.id ? await api.saveReport(initial.id, body) : await api.createReport(body);
       onSaved(res.report);
@@ -67,7 +68,7 @@ function ReportForm({ initial, onSaved, onCancel, showToast }) {
         </div>
       </fieldset>
       <label style={label}>Who gets it (email addresses, separated by commas)
-        <input style={field} value={f.recipients} placeholder="client@example.com, manager@example.com" onChange={(e) => set("recipients", e.target.value)} />
+        <input style={field} autoFocus={!!(initial && initial.focusRecipients)} type="text" inputMode="email" value={f.recipients} placeholder="client@example.com, manager@example.com" onChange={(e) => set("recipients", e.target.value)} />
       </label>
       <label style={label}>Note at the top (optional)
         <textarea style={{ ...field, height: 72, padding: 8, resize: "vertical" }} value={f.intro} maxLength={2000}
@@ -107,8 +108,10 @@ export function ReportsPage({ showToast }) {
   const [busy, setBusy] = useState("");
   const [preview, setPreview] = useState(null);
   const [links, setLinks] = useState({});
+  const [runs, setRuns] = useState([]);
   const load = useCallback(() => {
     api.listReports().then((d) => { setData(d); setState("ok"); }).catch(() => setState("error"));
+    api.getReportHistory().then((d) => setRuns(d.runs || [])).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -138,6 +141,11 @@ export function ReportsPage({ showToast }) {
     showToast(`Sent to ${res.sent} ${res.sent === 1 ? "person" : "people"}.`);
     load();
   });
+  const addRecipients = (r) => {
+    setEditing({ ...r, focusRecipients: true });
+    showToast("Type who should get this report, save it, then press Send now.");
+    window.scrollTo?.({ top: 0 });
+  };
   const remove = (r) => {
     if (!window.confirm(`Delete the report “${r.name}”? Its link stops working.`)) return;
     act(r.id, "delete", async () => { await api.deleteReport(r.id); load(); });
@@ -172,7 +180,7 @@ export function ReportsPage({ showToast }) {
           </div>
         ) : data.reports.map((r) => (
           <section key={r.id} style={card} aria-label={r.name}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>{r.name}</div>
                 <div style={{ ...muted, marginTop: 2 }}>
@@ -180,15 +188,18 @@ export function ReportsPage({ showToast }) {
                   {" · "}{FREQ[r.frequency]}
                 </div>
                 <div style={{ ...muted, fontSize: 12 }}>
-                  {r.recipients.length ? `To ${r.recipients.join(", ")}` : "Nobody to email yet"}
+                  {r.recipients.length ? `To ${r.recipients.join(", ")}` : (
+                    <>Nobody to email yet. <button type="button" onClick={() => addRecipients(r)} className="ui-link"
+                      style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 700, color: C.teal, cursor: "pointer", textDecoration: "underline" }}>Add email addresses</button></>
+                  )}
                   {r.lastSentAt ? ` · Last sent ${new Date(r.lastSentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                 <button type="button" style={btn} disabled={busy === r.id + "preview"} onClick={() => openPreview(r)}><Eye size={13} /> {busy === r.id + "preview" ? "Loading…" : "Preview"}</button>
                 <button type="button" style={btn} disabled={busy === r.id + "link"} onClick={() => copyLink(r)}><Copy size={13} /> Copy link</button>
-                <button type="button" style={btn} disabled={!r.recipients.length || busy === r.id + "send" || (data && !data.emailReady)}
-                  title={!r.recipients.length ? "Add who gets it first" : undefined} onClick={() => send(r)}>
+                <button type="button" style={btn} disabled={busy === r.id + "send" || (data && !data.emailReady)}
+                  title={data && !data.emailReady ? "Email sending is not set up for your account yet" : undefined} onClick={() => (r.recipients.length ? send(r) : addRecipients(r))}>
                   <Send size={13} /> {busy === r.id + "send" ? "Sending…" : "Send now"}
                 </button>
                 <button type="button" style={btn} onClick={() => setEditing(r)} aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
@@ -197,6 +208,25 @@ export function ReportsPage({ showToast }) {
             </div>
           </section>
         ))}
+        {runs.length ? (
+          <section style={card} aria-labelledby="rep-hist">
+            <div id="rep-hist" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Send history</div>
+            {runs.map((h) => (
+              <div key={h.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline", padding: "8px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                <span style={{ flex: "0 0 150px", color: C.slate }}>
+                  {new Date(h.at).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span style={{ flex: "1 1 200px", minWidth: 0, fontWeight: 700, color: C.ink }}>{h.reportName || "Report"}</span>
+                <span style={{ flex: "2 1 260px", minWidth: 0, color: C.slate, overflowWrap: "anywhere" }}>
+                  {h.trigger === "schedule" ? "Scheduled · " : ""}To {h.recipients.join(", ")}
+                </span>
+                <span style={{ color: h.sent ? C.teal : "#B42318", fontWeight: 700 }}>
+                  {h.sent ? `Sent to ${h.sent}${h.failed ? `, ${h.failed} failed` : ""}` : (h.error || "Not sent")}
+                </span>
+              </div>
+            ))}
+          </section>
+        ) : null}
       </div>
       <Preview data={preview} onClose={() => setPreview(null)} />
     </div>

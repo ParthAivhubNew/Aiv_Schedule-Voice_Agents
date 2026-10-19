@@ -1221,15 +1221,18 @@ class CalendarService:
         days: int = 5,
         event_type_slug: str = "15-min-discovery",
         prospect_tz: Optional[str] = None,
+        max_slots: int = 8,
+        scan_days: int = 14,
     ) -> List[Dict[str, Any]]:
-        """Open slots for the next N working days, using host calendar + working hours."""
+        """Open slots for the next N working days, using host calendar + working hours.
+        The voice agent reads a few slots aloud (max_slots 8); the booking page asks for all of them."""
         setting = await self.get_or_create_settings(db)
         host_tz = await org_timezone(db)
         stamp = start or now_in(host_tz)
         out = []
         scanned = 0
         day = stamp
-        while len(out) < days and scanned < 14:
+        while len(out) < days and scanned < scan_days:
             scanned += 1
             date_iso = day.strftime("%Y-%m-%d")
             slots = await self.get_available_slots(db, date_iso, event_type_slug, prospect_tz=prospect_tz)
@@ -1244,7 +1247,7 @@ class CalendarService:
                         "time": s.get("prospectTime") or s["time"],
                         "hostTime": s.get("hostTime") or s["time"],
                         "display": s.get("spoken") or s.get("displayTime") or s["time"],
-                    } for s in open_slots[:8]],
+                    } for s in open_slots[:max_slots]],
                     "openCount": len(open_slots),
                 })
             day = day + timedelta(days=1)

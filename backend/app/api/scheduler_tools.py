@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.database import get_db
-from app.models.models import SocialListenTopic, SocialMedia, SocialMention, SocialPost, SocialReport
+from app.models.models import SocialListenTopic, SocialMedia, SocialMention, SocialPost, SocialReport, SocialReportRun
 from app.services import social_import as SI
 from app.services import social_library as SL
 from app.services import social_listening as LS
@@ -225,6 +225,12 @@ async def reports_list(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     from app.core import mailer
 
     return {"reports": [SR.view(r) for r in rows], "emailReady": mailer.configured()}
+
+
+@router.get("/reports/history")
+async def reports_history(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    rows = (await db.execute(select(SocialReportRun).order_by(SocialReportRun.created_at.desc()).limit(100))).scalars().all()
+    return {"runs": [SR.run_view(r) for r in rows]}
 
 
 @router.post("/reports")

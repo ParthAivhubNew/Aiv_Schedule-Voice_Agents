@@ -143,12 +143,16 @@ export function ImportPage({ showToast, onOpenApprovals, onOpenCalendar }) {
               </div>
             </div>
             <details style={{ marginTop: 14 }}>
-              <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>The columns</summary>
-              <dl style={{ margin: "8px 0 0", display: "grid", gridTemplateColumns: "max-content 1fr", gap: "4px 12px", fontSize: 12.5 }}>
-                {COLUMNS.map(([k, v]) => (
-                  <React.Fragment key={k}><dt style={{ fontWeight: 700 }}>{k}</dt><dd style={{ margin: 0, color: C.slate }}>{v}</dd></React.Fragment>
+              <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>What goes in each column</summary>
+              <ul style={{ listStyle: "none", margin: "10px 0 0", padding: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {COLUMNS.map(([k, v], i) => (
+                  <li key={k} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 150px) minmax(0, 1fr)", gap: "2px 14px", alignItems: "baseline", padding: "9px 12px", borderTop: i ? `1px solid ${C.border}` : "none", background: i % 2 ? "#FAFAF8" : "#fff" }}>
+                    <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, fontWeight: 700, color: C.ink }}>{k}</span>
+                    <span style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>{v}</span>
+                  </li>
                 ))}
-              </dl>
+              </ul>
+              <div style={{ ...muted, fontSize: 12, marginTop: 8 }}>Only <b style={{ color: C.ink }}>channels</b> and either <b style={{ color: C.ink }}>text</b> or <b style={{ color: C.ink }}>topic</b> are needed. The rest are optional.</div>
             </details>
           </section>
         ) : (
