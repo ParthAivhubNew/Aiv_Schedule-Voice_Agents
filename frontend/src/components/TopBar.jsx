@@ -78,9 +78,13 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
     if (!open || !bellRef.current) return;
     const place = () => {
       const r = bellRef.current.getBoundingClientRect();
+      // Lined up with the bell, but never past the left edge: on a phone the bell sits too far
+      // left for a 360px panel to fit beside it.
+      const width = Math.min(360, window.innerWidth - 16);
       setPanelPos({
         top: Math.round(r.bottom + 8),
-        right: Math.max(8, Math.round(window.innerWidth - r.right)),
+        right: Math.max(8, Math.min(Math.round(window.innerWidth - r.right), window.innerWidth - width - 8)),
+        width,
       });
     };
     place();
@@ -190,9 +194,9 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               position: "fixed",
               top: panelPos.top,
               right: panelPos.right,
-              width: 360,
+              width: panelPos.width || 360,
               maxWidth: "calc(100vw - 16px)",
-              maxHeight: "min(70vh, 480px)",
+              maxHeight: "min(70dvh, 480px)",
               background: "#fff",
               borderRadius: 14,
               border: `1px solid ${C.border}`,

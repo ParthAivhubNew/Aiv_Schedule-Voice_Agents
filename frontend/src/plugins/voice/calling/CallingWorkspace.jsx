@@ -2773,7 +2773,7 @@ export function CallingWorkspace({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13.5, color: C.textInk, marginRight: 6, whiteSpace: "nowrap" }}>
                       <Phone size={16} color={C.slate} /> Call anyone
                     </div>
-                    <div className="ui-field" style={{
+                    <div className="ui-field cc-field" style={{
                       display: "flex",
                       alignItems: "center",
                       border: `1px solid ${C.border}`,
@@ -3216,9 +3216,9 @@ export function CallingWorkspace({
                   )}
 
                 {!rows.length ? (
-                  <div style={{ flex: 1, display: "grid", placeItems: "center", padding: "28px 16px" }}>
+                  <div className="list-empty" style={{ flex: 1, display: "grid", placeItems: "center", padding: "28px 16px" }}>
                     <div style={{ width: "min(100%, 540px)", boxSizing: "border-box", border: `1.5px dashed ${isDragging ? C.cobalt : "#CBD1D9"}`, borderRadius: 8, padding: "36px 24px 28px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, background: isDragging ? "var(--ui-accent-soft)" : "var(--ui-sunken)" }}>
-                      <div style={{ width: 44, height: 44, display: "grid", placeItems: "center", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, color: C.cobalt, boxShadow: "var(--ui-shadow)" }}>
+                      <div className="list-empty-icon" style={{ width: 44, height: 44, display: "grid", placeItems: "center", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, color: C.cobalt, boxShadow: "var(--ui-shadow)" }}>
                         <FileSpreadsheet size={20} />
                       </div>
                       <div style={{ fontSize: 15, fontWeight: 600, color: C.textInk, marginTop: 4 }}>No contacts yet</div>
@@ -3233,7 +3233,7 @@ export function CallingWorkspace({
                           <Plus size={15} /> Add a row
                         </button>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
+                      <div className="list-empty-exts" style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
                         {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
                           <span key={ext} style={{ fontFamily: FONT_MONO, fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
                         ))}

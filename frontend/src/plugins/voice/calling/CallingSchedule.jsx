@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -63,6 +64,46 @@ function fieldStyle() {
     background: "#fff",
     boxSizing: "border-box",
   };
+}
+
+// Phones: the booking filter as our own menu. The phone's built-in picker for a <select> left the
+// bottom tab bar blank on Android until something else repainted the page.
+function FilterMenu({ value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const current = options.find(([id]) => id === value) || options[0];
+  return (
+    <div ref={ref} className="phone-only" style={{ position: "relative", flex: "1 1 140px", minWidth: 0 }}>
+      <button type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+        style={{ ...fieldStyle(), width: "100%", height: 44, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textAlign: "left" }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current[1]}</span>
+        <ChevronDown size={16} color={C.slate} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open ? (
+        <div role="listbox" aria-label="Show" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 18px 50px rgba(18,20,28,0.16)", padding: 6 }}>
+          {options.map(([id, label]) => (
+            <button key={id} type="button" role="option" aria-selected={id === value}
+              onClick={() => { onChange(id); setOpen(false); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 44, padding: "0 10px", border: "none", borderRadius: 8, background: id === value ? C.paperSoft : "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 15, fontWeight: id === value ? 700 : 500, textAlign: "left", cursor: "pointer" }}>
+              <span style={{ flex: 1 }}>{label}</span>
+              {id === value ? <Check size={16} color={C.ink} /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function card() {
@@ -817,15 +858,18 @@ export function CallingSchedule({
 
       <div data-pane="main" style={{ display: "grid", gap: 12, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <select className="phone-only" aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value)}
-            style={{ ...fieldStyle(), flex: "1 1 140px", width: "auto", height: 40 }}>
-            <option value="all">All bookings ({counts.all})</option>
-            <option value="today">Today ({counts.today})</option>
-            <option value="calls">Calls</option>
-            <option value="video">Video ({counts.video})</option>
-            <option value="notified">WhatsApp sent ({counts.notified})</option>
-            <option value="list">As a list ({(meetings || []).length})</option>
-          </select>
+          <FilterMenu
+            value={filter}
+            onChange={setFilter}
+            options={[
+              ["all", `All bookings (${counts.all})`],
+              ["today", `Today (${counts.today})`],
+              ["calls", "Calls"],
+              ["video", `Video (${counts.video})`],
+              ["notified", `WhatsApp sent (${counts.notified})`],
+              ["list", `As a list (${(meetings || []).length})`],
+            ]}
+          />
           <span className="phone-hide">
           {[
             ["all", `All (${counts.all})`],

@@ -130,6 +130,7 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
           {chip("published this month", c.publishedThisMonth)}
           {hasResults ? chip("people reached, last 7 days", fmt(week.totals.reach ?? week.totals.impressions)) : null}
           <span style={{ flex: 1 }} />
+          {!attention ? <span style={{ fontSize: 12.5, color: C.slate }}>Nothing needs you right now.</span> : null}
           <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 14px", fontSize: 12.5, color: C.slate, minWidth: 0 }}>
@@ -139,7 +140,6 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
           {data.failed.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={() => onOpenPost(data.failed[0].id)}><AlertTriangle size={12} color={C.red} /> {data.failed.length} failed, fix</button>
           ) : null}
-          {!attention ? <span>Nothing needs you right now.</span> : null}
           <span style={{ flex: 1 }} />
           {next ? (
             <button type="button" onClick={() => onOpenPost(next.id)} title={next.title}

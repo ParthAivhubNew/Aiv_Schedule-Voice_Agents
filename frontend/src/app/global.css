@@ -10,6 +10,12 @@ html, body, #root {
   margin: 0;
 }
 
+/* Android paints its own see-through tint over anything tapped (green on some phones) before
+   the tap lands. Buttons show their own pressed state instead. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Buttons and fields do not inherit the page font by themselves: they fall back to the
    browser's own, which is why some menu items looked different from the rest. */
 button, input, select, textarea {
@@ -675,6 +681,28 @@ button, input, select, textarea {
     width: 40px !important;
     height: 40px !important;
   }
+  button:not(:disabled):active {
+    opacity: 0.75;
+  }
+  /* The country button is phone-height, so the field around it has to be too. */
+  .cc-field {
+    height: 44px !important;
+  }
+  .cc-field > div:first-child > button {
+    min-height: 0;
+  }
+  /* An empty list fits on one screen, without scrolling to reach its buttons. */
+  .list-empty {
+    padding: 4px 0 !important;
+  }
+  .list-empty > div {
+    padding: 18px 14px !important;
+    gap: 8px !important;
+  }
+  .list-empty-icon,
+  .list-empty-exts {
+    display: none !important;
+  }
   /* 100vh on iOS Safari is taller than the visible page (the address bar), which pushed the
      bottom of each app, including the chat input, off screen. */
   .plugin-frame,
@@ -698,6 +726,8 @@ button, input, select, textarea {
     background: #FFFFFF;
     border-top: 1px solid var(--ui-line, #E3E6EB);
     padding-bottom: env(safe-area-inset-bottom);
+    /* Its own layer, so a pop-up closing over it cannot leave it unpainted. */
+    transform: translateZ(0);
   }
   .phone-tab {
     flex: 1;
