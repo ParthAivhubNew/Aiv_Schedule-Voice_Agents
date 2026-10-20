@@ -129,7 +129,7 @@ export function Balances({ canEdit }) {
         </div>
 
         <div style={{ ...card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 600, fontSize: 12 }}>
@@ -254,7 +254,7 @@ function ModelPricing() {
         <div style={{ ...card, color: C.slate, fontSize: 13 }}>No AI usage recorded yet.</div>
       ) : (
         <div style={{ ...card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 600, fontSize: 12 }}>
@@ -342,7 +342,7 @@ function VendorSpend() {
       <Note error>{error}</Note>
       {data && (
         <div style={{ ...card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: `1px solid ${C.border}`, color: C.slate, fontWeight: 600, fontSize: 12 }}>

@@ -403,12 +403,13 @@ async def _saved_ai_keys(db: AsyncSession, scope: str = "scheduler") -> Dict[str
     from app.services.secret_box import config_get_secret, mask_secret
     text_keys: Dict[str, Dict[str, Any]] = {}
     image_keys: Dict[str, Dict[str, Any]] = {}
+    video_keys: Dict[str, Dict[str, Any]] = {}
     from app.core.platform import platform_org_id
 
     # Images are Post Scheduler-only today -- no IMAGE:voice/IMAGE:leadgen groups exist, so other
     # scopes simply don't query for one rather than falling back to Scheduler's image keys.
     text_group = f"LLM:{scope}"
-    groups = [text_group, "LLM"] + ([f"IMAGE:{scope}", "IMAGE"] if scope == "scheduler" else [])
+    groups = [text_group, "LLM"] + ([f"IMAGE:{scope}", "IMAGE", f"VIDEO:{scope}"] if scope == "scheduler" else [])
     res = await db.execute(select(Connection).where(
         Connection.group_name.in_(groups), Connection.org_id == platform_org_id()))
     for c in res.scalars().all():
@@ -418,7 +419,8 @@ async def _saved_ai_keys(db: AsyncSession, scope: str = "scheduler") -> Dict[str
         if not k and not is_self_hosted(burl):
             continue
         prov_slug = str(cfg.get("provider") or c.name or "").strip().lower()
-        bucket = text_keys if c.group_name in (text_group, "LLM") else image_keys
+        bucket = (text_keys if c.group_name in (text_group, "LLM") else
+                  video_keys if c.group_name.startswith("VIDEO") else image_keys)
         bucket[c.name] = {
             "id": c.id,
             "provider": prov_slug or c.name,
@@ -428,7 +430,7 @@ async def _saved_ai_keys(db: AsyncSession, scope: str = "scheduler") -> Dict[str
             "masked": c.api_key_masked or (mask_secret(k) if k else "No key needed"),
             "status": c.status or "connected",
         }
-    return {"text": list(text_keys.values()), "image": list(image_keys.values())}
+    return {"text": list(text_keys.values()), "image": list(image_keys.values()), "video": list(video_keys.values())}
 
 
 async def _resolve_text_ai(db: AsyncSession, payload: Optional[Dict[str, Any]] = None, slot: str = "main") -> Dict[str, Any]:

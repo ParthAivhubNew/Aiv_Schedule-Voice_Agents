@@ -278,6 +278,7 @@ async def sync_post(db: AsyncSession, post: SocialPost, accounts: List[SocialAcc
             row.error = None
             done += 1
         except NotShared as e:
+            logger.warning(f"[metrics] {post.id} {platform}: {e}")
             row.error = str(e)
         except Exception as e:
             logger.warning(f"[metrics] {post.id} {platform}: {e}")

@@ -30,7 +30,7 @@ export function PageTitle({ title, sub, right }) {
 
 export function Table({ head, children, minWidth = 640 }) {
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff", overflowX: "auto" }}>
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "hidden" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth }}>
         <thead><tr>{head.map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
         <tbody>{children}</tbody>

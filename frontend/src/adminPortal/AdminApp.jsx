@@ -75,7 +75,7 @@ export function AdminApp() {
     <div className="admin-shell" style={{ minHeight: "100vh", background: C.paper, fontFamily: FONT_BODY, color: C.textInk }}>
       <style>{`
         .admin-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-        .admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
+        .admin-nav { position: sticky; top: 0; height: 100vh; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; }
         .admin-nav-links { display: flex; flex-direction: column; gap: 2px; }
         @media (max-width: 760px) {
           .admin-shell { grid-template-columns: minmax(0, 1fr); }

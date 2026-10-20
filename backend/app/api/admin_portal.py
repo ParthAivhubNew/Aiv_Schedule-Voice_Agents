@@ -1333,7 +1333,8 @@ async def get_platform_ai(request: Request, scope: str = "scheduler"):
     # provider list, so there is nothing here that isn't already a stored connection.
     return {"scope": scope, "chosen": chosen, "health": health,
             "textProviders": [k["name"] for k in keys["text"]], "imageProviders": [k["name"] for k in keys["image"]],
-            "videoProviders": list(dict.fromkeys([k["name"] for k in keys["image"]] + [k["name"] for k in keys["text"]])),
+            # Video keys first; image and writing keys stay selectable so a setup made before the Video section keeps working.
+            "videoProviders": list(dict.fromkeys([k["name"] for k in keys["video"]] + [k["name"] for k in keys["image"]] + [k["name"] for k in keys["text"]])),
             "keys": {"text": [k["provider"] for k in keys["text"]], "image": [k["provider"] for k in keys["image"]]}}
 
 

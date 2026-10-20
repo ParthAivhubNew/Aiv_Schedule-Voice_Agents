@@ -113,6 +113,47 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
   const attention = data.failed.length + data.reconnect.length;
   const week = data.week;
   const hasResults = week.series.some((d) => d.reach != null || d.engagements != null);
+  if (embedded) {
+    const next = data.upcoming[0];
+    const chip = (label, value, tone) => (
+      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5, whiteSpace: "nowrap" }}>
+        <b style={{ fontSize: 16, color: tone === "alert" ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</b>
+        <span style={{ fontSize: 11.5, color: C.slate }}>{label}</span>
+      </span>
+    );
+    return (
+      <div style={{ ...card, padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }} aria-label="Overview">
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 18px" }}>
+          {chip("today", c.today)}
+          {chip("next 7 days", c.nextSevenDays)}
+          {chip("failed", c.failed, c.failed ? "alert" : "")}
+          {chip("published this month", c.publishedThisMonth)}
+          {hasResults ? chip("reach, 7 days", fmt(week.totals.reach ?? week.totals.impressions)) : null}
+          <span style={{ flex: 1 }} />
+          <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 14px", fontSize: 12.5, color: C.slate, minWidth: 0 }}>
+          {c.waiting ? (
+            <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={onOpenApprovals}><Clock size={12} color={C.amber} /> {c.waiting} waiting for approval</button>
+          ) : null}
+          {data.reconnect.length ? (
+            <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={onReconnect}><Plug size={12} color={C.red} /> {data.reconnect.length} to reconnect</button>
+          ) : null}
+          {data.failed.length ? (
+            <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={() => onOpenPost(data.failed[0].id)}><AlertTriangle size={12} color={C.red} /> {data.failed.length} failed, fix</button>
+          ) : null}
+          {!attention && !c.waiting ? <span>Nothing needs you right now.</span> : null}
+          <span style={{ flex: 1 }} />
+          {next ? (
+            <button type="button" onClick={() => onOpenPost(next.id)} title={next.title}
+              style={{ border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>
+              <span style={{ color: C.slate }}>Up next: {when(next.dueAtMs, org)} · </span>{next.title}
+            </button>
+          ) : <span>Nothing scheduled yet.</span>}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={root}>
       <div style={{ maxWidth: embedded ? "none" : 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -376,14 +417,6 @@ function InsightsBody({ data, onOpenPost, loading }) {
         </section>
       </div>
 
-      {data.notes.length ? (
-        <section style={card} aria-labelledby="in-notes">
-          <h2 id="in-notes" style={h2}>Why some numbers are missing</h2>
-          <ul style={{ margin: 0, paddingLeft: 18, ...muted }}>
-            {data.notes.map((n) => <li key={n}>{n}</li>)}
-          </ul>
-        </section>
-      ) : null}
     </div>
   );
 }

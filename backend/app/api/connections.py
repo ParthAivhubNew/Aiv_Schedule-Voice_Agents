@@ -546,6 +546,8 @@ async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
         prefs = await _resolve_image_prefs(db, {})
         if not prefs.get("provider") or same(prefs.get("provider")):
             uses.append("Social: post images")
+    elif group.startswith("VIDEO"):
+        uses.append("Social: video clips")
     elif group == "Text-to-Speech" and same(stack.get("tts")):
         uses.append("Voice calls: the speaking voice")
     elif group == "Speech-to-Text" and same(stack.get("stt")):

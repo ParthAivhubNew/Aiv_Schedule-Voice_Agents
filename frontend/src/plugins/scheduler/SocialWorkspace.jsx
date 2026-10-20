@@ -4280,8 +4280,6 @@ export function SocialWorkspace({
     }
   };
 
-  const [ovOpen, setOvOpen] = useState(() => { try { return localStorage.getItem("social_overview_open") !== "0"; } catch (_) { return true; } });
-  const toggleOverview = () => setOvOpen((v) => { try { localStorage.setItem("social_overview_open", v ? "0" : "1"); } catch (_) {} return !v; });
   // Calendar holds the Overview above it, and Insights holds the Reports panel: both open at the top.
   useEffect(() => {
     const target = { overview: "ov-anchor", plan: "ov-anchor", insights: "insights-main", reports: "insights-main" }[page];
@@ -4464,20 +4462,14 @@ export function SocialWorkspace({
         <div className="split-view" style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <section id="ov-anchor" aria-label="Overview" style={{ flexShrink: 0, scrollMarginTop: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ovOpen ? 10 : 0 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, flex: 1 }}>Overview</div>
-                <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} aria-expanded={ovOpen} onClick={toggleOverview}>{ovOpen ? "Hide" : "Show"}</button>
-              </div>
-              {ovOpen ? (
-                <OverviewPage embedded
-                  onOpenPost={(id) => openApprovals(id)}
-                  onRetry={retryFromOverview}
-                  retrying={publishing}
-                  onReconnect={() => goPage("accounts")}
-                  onOpenApprovals={() => openApprovals()}
-                  onOpenInsights={() => goPage("insights")}
-                />
-              ) : null}
+              <OverviewPage embedded
+                onOpenPost={(id) => openApprovals(id)}
+                onRetry={retryFromOverview}
+                retrying={publishing}
+                onReconnect={() => goPage("accounts")}
+                onOpenApprovals={() => openApprovals()}
+                onOpenInsights={() => goPage("insights")}
+              />
             </section>
             <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

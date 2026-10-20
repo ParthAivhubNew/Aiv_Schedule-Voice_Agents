@@ -55,7 +55,7 @@ SHARED_PROVIDER_GROUPS = ["LLM", "Speech-to-Text", "Text-to-Speech", "Voice Orch
                           "Business Discovery", "Messaging", "IMAGE", "Telnyx AI Assistant", "Email Finder",
                           # Per-plugin LLM/IMAGE keys (Platform Keys page, one tab per plugin); the
                           # bare "LLM"/"IMAGE" above stay listed too as the legacy fallback group.
-                          "LLM:voice", "LLM:leadgen", "LLM:scheduler", "IMAGE:scheduler"]
+                          "LLM:voice", "LLM:leadgen", "LLM:scheduler", "IMAGE:scheduler", "VIDEO:scheduler"]
 PER_ORG_SINGLETONS = ["company_profile", "calcom_settings", "scheduler_settings", "conversation_templates"]
 
 ORG_DEFAULT_SQL = f"coalesce(nullif(current_setting('app.org_id', true), ''), '{DEFAULT_ORG}')"

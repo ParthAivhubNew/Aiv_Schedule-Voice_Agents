@@ -110,7 +110,7 @@ export function DataSourceFiles({ source, canEdit, onChanged }) {
             </div>
           )}
           {preview.rows.length > 0 && (
-            <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+            <div style={{ overflowX: "auto", overflowY: "hidden", border: `1px solid ${C.border}`, borderRadius: 8 }}>
               <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
                 <thead><tr>{["name", "registration_number", "industry", "region", "postcode", "status", "phone", "website"].map((h) => <th key={h} style={th}>{h.replace("_", " ")}</th>)}<th style={th}>search fields derived</th></tr></thead>
                 <tbody>

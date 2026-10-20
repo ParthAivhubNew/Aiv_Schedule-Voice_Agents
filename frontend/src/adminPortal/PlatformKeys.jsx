@@ -16,14 +16,15 @@ const isTelnyx = (name) => (name || "").toLowerCase().includes("telnyx");
 // gets its own block below instead of appearing as "one more provider" inside these groups.
 const VOICE_GROUPS = ["Telephony", "Speech-to-Text", "Text-to-Speech", "Voice Orchestration", "Embeddings", "Messaging", "LLM:voice"];
 const LEADGEN_GROUPS = ["Email Finder", "Business Discovery", "LLM:leadgen"];
-const SCHEDULER_GROUPS = ["LLM:scheduler", "IMAGE:scheduler"];
+const SCHEDULER_GROUPS = ["LLM:scheduler", "IMAGE:scheduler", "VIDEO:scheduler"];
 // group -> the other plugins' groups sharing the same base name, for the "Copy from" button.
 const COPY_SIBLINGS = {
   "LLM:voice": [["LLM:leadgen", "Leads"], ["LLM:scheduler", "Social"]],
   "LLM:leadgen": [["LLM:voice", "Voice"], ["LLM:scheduler", "Social"]],
   "LLM:scheduler": [["LLM:voice", "Voice"], ["LLM:leadgen", "Leads"]],
 };
-const friendlyGroupName = (g) => g.replace(/:(voice|leadgen|scheduler)$/, (_, s) => ` (${s[0].toUpperCase()}${s.slice(1)}-only)`);
+const GROUP_TITLES = { "LLM:scheduler": "Writing keys (Social)", "IMAGE:scheduler": "Image keys (Social)", "VIDEO:scheduler": "Video keys (Social)" };
+const friendlyGroupName = (g) => GROUP_TITLES[g] || g.replace(/:(voice|leadgen|scheduler)$/, (_, s) => ` (${s[0].toUpperCase()}${s.slice(1)}-only)`);
 
 export function PlatformKeys({ canEdit }) {
   const [activeTab, setActiveTab] = useState("voice");
@@ -110,7 +111,8 @@ export function PlatformKeys({ canEdit }) {
     return (
       <div style={{ display: "grid", gap: 12 }}>
         {groups.map((g) => {
-          const items = g.items.filter((it) => !isTelnyx(it.name));
+          // Only keys that were actually saved: unset preset names are not shown, so nothing implies a fixed provider list.
+          const items = g.items.filter((it) => !isTelnyx(it.name) && it.status === "connected");
           return (
             <div key={g.group} style={card}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -126,6 +128,7 @@ export function PlatformKeys({ canEdit }) {
                   </button>
                 ))}
               </div>
+              {!items.length && open !== `${g.group}|+` ? <div style={{ fontSize: 12.5, color: C.slate, marginTop: 6 }}>No key saved yet. Add the provider you use.</div> : null}
               {items.map((it) => keyRow(g.group, it))}
               {canEdit && (open === `${g.group}|+` ? (
                 <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
@@ -251,7 +254,7 @@ export function PlatformKeys({ canEdit }) {
           <div style={heading}>Social AI</div>
           <PlatformAi canEdit={canEdit} scope="scheduler" showCatalogue={false} showKeys={false} />
 
-          <div style={heading}>Writing & Image Keys</div>
+          <div style={heading}>Writing, Image & Video Keys</div>
           {renderGroupCards(SCHEDULER_GROUPS)}
 
           <div style={heading}>Social OAuth Apps</div>
@@ -766,7 +769,7 @@ function BusinessRecordsBrowser() {
         </div>
       )}
       {loading ? <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div> : (
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto", overflowY: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ textAlign: "left", borderBottom: `1px solid ${C.border}` }}>
