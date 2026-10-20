@@ -1061,6 +1061,8 @@ export function CallingWorkspace({
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
   const shownRows = useMemo(() => filterRows(rows, checkFilter), [rows, checkFilter]);
+  // Phones show each contact as a card; this one has its fields open for editing.
+  const [editRowId, setEditRowId] = useState("");
   const showChecks = useMemo(() => hasChecks(rows), [rows]);
   useEffect(() => { if (checkFilter && rows.length && !shownRows.length) setCheckFilter(""); }, [checkFilter, rows.length, shownRows.length]);
   // Every column of the list as plain text, for the CSV export.
@@ -3079,7 +3081,7 @@ export function CallingWorkspace({
                   ) : null}
                 </div>
 
-                <div className="ui-card" style={{ flex: 1, minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div className="ui-card list-card" style={{ flex: 1, minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json" hidden onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
                   {rows.length ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 10px 16px", minHeight: 54, boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", flexShrink: 0, background: selectedDialable ? "var(--ui-accent-soft)" : undefined }}>
@@ -3244,8 +3246,59 @@ export function CallingWorkspace({
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="calling-scroll" style={{ flex: 1, minHeight: 180 }}>
+                ) : (<>
+                  <div className="contact-cards">
+                    {shownRows.map((r) => {
+                      const phone = rowPhone(r);
+                      const canDial = digitsInPhone(phone).length >= 7;
+                      const checked = selectedIds.has(r.id);
+                      const who = r.contact || r.name || "";
+                      const open = editRowId === r.id;
+                      return (
+                        <div key={r.id} className={`contact-card${checked ? " is-selected" : ""}`}>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                            <input type="checkbox" disabled={!canDial} checked={checked} onChange={() => toggleSelect(r.id)}
+                              aria-label={`Select ${r.company || who || "contact"}`} style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: C.textInk, overflowWrap: "anywhere" }}>{r.company || who || "No name"}</div>
+                              {r.company && who ? <div style={{ fontSize: 13, color: C.slate }}>{who}</div> : null}
+                              <div style={{ fontSize: 13.5, color: canDial ? C.textInk : C.slateLight, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{phone || "No phone number"}</div>
+                              {r.email ? <div style={{ fontSize: 12.5, color: C.slate, overflowWrap: "anywhere" }}>{r.email}</div> : null}
+                              <div style={{ fontSize: 12, color: r.lastOutcome ? C.textInk : C.slateLight, marginTop: 4 }}>
+                                {r.lastOutcome || "Not called"}{r.callTimes ? ` · ${r.callTimes} call${r.callTimes === 1 ? "" : "s"}` : ""}
+                              </div>
+                            </div>
+                          </div>
+                          {open ? (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {[["company", "Company"], ["contact", "Contact"], ["phone", "Phone"], ["email", "Email"]].map(([field, label]) => (
+                                <label key={field} style={{ display: "grid", gap: 3, fontSize: 12, fontWeight: 600, color: C.slate }}>{label}
+                                  <input className="ui-input" value={field === "phone" ? phone : (r[field] || "")} onChange={(e) => patchRowField(r.id, field, e.target.value)}
+                                    inputMode={field === "phone" ? "tel" : field === "email" ? "email" : undefined} />
+                                </label>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="contact-card-actions">
+                            {canDial ? (
+                              <>
+                                <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "direct" || needNumber} onClick={() => callOneRow({ ...r, phone })} title={needNumber ? "Get a phone number first" : "Call now"}>
+                                  <Phone size={15} /> Call
+                                </button>
+                                <button type="button" className="ui-icon-btn" onClick={() => openChannel("sms", phone, who, r.company || brandForMsg())} title="Send a text" aria-label="Send a text"><MessageSquare size={17} /></button>
+                                <button type="button" className="ui-icon-btn" onClick={() => openChannel("whatsapp", phone, who, r.company || brandForMsg())} title="WhatsApp" aria-label="WhatsApp"><MessageCircle size={17} /></button>
+                              </>
+                            ) : null}
+                            <button type="button" className="ui-icon-btn" style={{ marginLeft: "auto" }} aria-pressed={open} onClick={() => setEditRowId(open ? "" : r.id)} title={open ? "Done editing" : "Edit"} aria-label={open ? "Done editing" : "Edit"}>
+                              {open ? <Check size={17} /> : <Pencil size={17} />}
+                            </button>
+                            <button type="button" className="ui-icon-btn" onClick={() => removeRow(r.id)} title="Remove from the list" aria-label="Remove from the list"><Trash2 size={17} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="calling-scroll phone-gone" style={{ flex: 1, minHeight: 180 }}>
                     <table className="ui-table">
                       <thead>
                         <tr>
@@ -3375,7 +3428,7 @@ export function CallingWorkspace({
                       </tbody>
                     </table>
                   </div>
-                )}
+                </>)}
                 </div>
               </div>
 

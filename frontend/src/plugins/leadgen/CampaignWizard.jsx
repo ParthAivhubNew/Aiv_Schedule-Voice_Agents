@@ -100,6 +100,10 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <span className="phone-only" style={{ ...text, fontSize: 14, fontWeight: 700, color: C.ink, alignItems: "center", gap: 8 }}>
+          Step {step + 1} of {STEPS.length}<span style={{ fontWeight: 500, color: C.slate }}>· {STEPS[step]}</span>
+        </span>
+        <span className="phone-hide">
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>
             <span style={{ ...text, fontSize: 12.5, fontWeight: 600, padding: "4px 10px", borderRadius: 999, display: "inline-flex", gap: 4, alignItems: "center",
@@ -108,6 +112,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             </span>
           </React.Fragment>
         ))}
+        </span>
         <span style={{ flex: 1 }} />
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Clear everything you've entered and go back to step 1" disabled={busy}
           onClick={async () => {
@@ -117,6 +122,11 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
             setSched({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 }); setAliasMap({}); setLines({}); setPersonalise(true); setError("");
           }}>Start over</button>
         <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
+      </div>
+
+      <div className="phone-only" role="progressbar" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1} aria-label="Campaign steps"
+        style={{ gap: 4, marginTop: -8 }}>
+        {STEPS.map((s, i) => <span key={s} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--ui-accent)" : C.paperSoft }} />)}
       </div>
 
       <div className="ui-card" style={{ padding: 18, display: "grid", gap: 14 }}>

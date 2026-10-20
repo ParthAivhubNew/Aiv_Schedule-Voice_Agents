@@ -4,6 +4,7 @@ import { api } from "../../api/apiClient";
 import { Note, Pill, btn as baseBtn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
 import { useConnection } from "../../hooks/useConnections";
+import { ArrowLeft, ChevronRight, Mail, MoreHorizontal, Phone, Plus, Trash2 } from "lucide-react";
 
 // "Reply with times": the free times in their own time zone and a booking link, as the body of a reply.
 function ReplyWithTimes({ r }) {
@@ -418,6 +419,8 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   const [added, setAdded] = useState("");
   const [editing, setEditing] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState(false);
   if (!data) return <Note error>{err}</Note>;
   const c = data.campaign;
   if (editing) {
@@ -428,17 +431,36 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       {findOpen && <FindEmailDrawer outreach={outreach} defaultTarget={c.id} onClose={() => { setFindOpen(false); reload(); }} />}
-      <div style={row}>
-        <button title="Back to all campaigns" type="button" style={btn(false)} onClick={onBack}>← All campaigns</button>
-        <strong style={{ fontSize: 16 }}>{c.name}</strong>
-        <Pill tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status] || c.status}</Pill>
-        <span style={{ marginLeft: "auto", ...row }}>
-          {c.status !== "running" ? <button title="Start sending this campaign" type="button" style={btn(true)} onClick={() => run(() => api.emailCampaignStatus(c.id, "running"), "Running. Emails go out during its sending hours.")}>Start</button>
-            : <button title="Hold this. Nothing more is spent until you resume" type="button" style={btn(false)} onClick={() => run(() => api.emailCampaignStatus(c.id, "paused"), "Paused.")}>Pause</button>}
-          <button title="Look for a person's work email from their name and company" type="button" style={btn(false)} onClick={() => setFindOpen(true)}>Find a work email</button>
-          <button title="Change this campaign's emails and schedule" type="button" style={btn(false)} onClick={() => setEditing(true)}>Edit</button>
-          <button title="Delete this campaign permanently" type="button" style={btn(false)} onClick={async () => { if (await askConfirm({ title: `Delete ${c.name}?`, body: "Its leads and emails are deleted with it.", confirm: "Delete campaign", danger: true })) run(() => api.emailDeleteCampaign(c.id).then(onBack)); }}>Delete</button>
-        </span>
+      <div style={{ display: "grid", gap: 10 }}>
+        <button title="Back to all campaigns" type="button" onClick={onBack}
+          style={{ justifySelf: "start", display: "inline-flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: "4px 0", color: C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <ArrowLeft size={15} /> All campaigns
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <strong style={{ fontSize: 18, lineHeight: 1.25, overflowWrap: "anywhere" }}>{c.name}</strong>
+          <Pill tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status] || c.status}</Pill>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {c.status !== "running" ? <button title="Start sending this campaign" type="button" style={{ ...btn(true), flex: "1 1 auto", maxWidth: 220, minHeight: 40 }} onClick={() => run(() => api.emailCampaignStatus(c.id, "running"), "Running. Emails go out during its sending hours.")}>Start sending</button>
+            : <button title="Hold this. Nothing more is spent until you resume" type="button" style={{ ...btn(false), flex: "1 1 auto", maxWidth: 220, minHeight: 40 }} onClick={() => run(() => api.emailCampaignStatus(c.id, "paused"), "Paused.")}>Pause</button>}
+          <button title="Change this campaign's emails and schedule" type="button" style={{ ...btn(false), minHeight: 40 }} onClick={() => setEditing(true)}>Edit</button>
+          <span style={{ position: "relative" }}>
+            <button type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}
+              style={{ ...btn(false), minHeight: 40, minWidth: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 8px" }}><MoreHorizontal size={17} /></button>
+            {menu ? (
+              <>
+                <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
+                <div className="ui-menu" role="menu" style={{ zIndex: 80 }}>
+                  <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); setFindOpen(true); }}><Mail size={15} /> Find a work email</button>
+                  <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }}
+                    onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${c.name}?`, body: "Its leads and emails are deleted with it.", confirm: "Delete campaign", danger: true })) run(() => api.emailDeleteCampaign(c.id).then(onBack)); }}>
+                    <Trash2 size={15} /> Delete campaign
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </span>
+        </div>
       </div>
       <Note error={msg.error}>{msg.text}</Note>
       {c.status === "running" && (c.lead_status?.active || 0) > 0 && (c.why || []).length ? (
@@ -452,44 +474,106 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
           ))}
         </div>
       ) : null}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-        {[["Leads", c.leads], ["Emails sent", c.sent], ["Replies", c.replied], ["Reply rate", `${c.reply_rate}%`], ["Bounced", c.bounced]].map(([k, v]) => (
-          <div key={k} style={card}><div style={small}>{k}</div><div style={{ fontSize: 20, fontWeight: 700 }}>{v}</div></div>
-        ))}
-      </div>
-      <div style={{ ...card, display: "grid", gap: 8 }}>
-        <strong style={{ fontSize: 13 }}>Add leads</strong>
-        <div style={small}>Paste one per line: email, first name, last name, company (or a CSV with those column headers). Addresses on your do-not-email list are skipped.</div>
-        <textarea style={{ ...input, minHeight: 90, fontFamily: "monospace" }} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={"ann@client.com, Ann, Lee, Client Ltd"} />
-        <div style={row}>
-          <button title="Add these people to the campaign" type="button" style={btn(true, !leads.length)} disabled={!leads.length} onClick={() => run(async () => {
-            const out = await api.emailAddLeads(c.id, leads);
-            setPaste("");
-            const s = out.skipped;
-            setAdded(`${out.added} added. Skipped: ${s.duplicate} already in, ${s.do_not_email} on the do-not-email list, ${s.invalid} not valid.`);
-          })}>Add {leads.length || ""} lead{leads.length === 1 ? "" : "s"}</button>
-          {added && <span style={small}>{added}</span>}
+      {!c.mailbox_ids.length ? (
+        <div role="status" style={{ fontSize: 12.5, lineHeight: 1.5, color: TONES.amber.ink, background: TONES.amber.bg, borderRadius: 10, padding: "9px 12px" }}>
+          No mailbox picked, so nothing can be sent yet. Choose one under Edit.
         </div>
+      ) : null}
+      <CampaignStats c={c} />
+      <div style={{ ...card, display: "grid", gap: 10 }}>
+        <strong style={{ fontSize: 14 }}>Steps</strong>
+        <SequenceSteps steps={c.steps} />
       </div>
-      <div style={{ ...card, padding: 0, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr>{["Lead", "Company", "Status", "Email", "Next email"].map((h) => <th key={h} style={th}>{h}</th>)}<th style={th} /></tr></thead>
-          <tbody>
-            {(c.lead_list || []).map((l) => (
-              <tr key={l.id}>
-                <td style={cell}>{`${l.first_name} ${l.last_name}`.trim() || "—"}<div style={small}>{l.email}</div></td>
-                <td style={cell}>{l.company || "—"}</td>
-                <td style={cell}>{l.status}</td>
-                <td style={cell}>{l.status === "active" ? `${l.step} of ${c.steps.length}` : "—"}</td>
-                <td style={cell} title="When this person is next due an email. It goes out at the next sending window after this time">{l.next_at ? `Due ${when(l.next_at)}` : "—"}</td>
-                <td style={cell}><button title="Take this person out of the campaign" type="button" style={btn(false)} onClick={() => run(() => api.emailRemoveLead(c.id, l.id))}>Remove</button></td>
-              </tr>
-            ))}
-            {!(c.lead_list || []).length && <tr><td style={cell} colSpan={6}>No leads yet.</td></tr>}
-          </tbody>
-        </table>
+      <div style={{ ...card, padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", flexWrap: "wrap" }}>
+          <strong style={{ fontSize: 14, marginRight: "auto" }}>Leads <span style={{ ...small, fontWeight: 500 }}>{c.leads}</span></strong>
+          <button title="Add people to this campaign" type="button" aria-expanded={adding} style={{ ...btn(false), minHeight: 40, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setAdding((a) => !a)}>
+            <Plus size={15} /> Add leads
+          </button>
+        </div>
+        {adding ? (
+          <div style={{ display: "grid", gap: 8, padding: "0 14px 14px" }}>
+            <div style={small}>Paste one per line: email, first name, last name, company (or a CSV with those column headers). Addresses on your do-not-email list are skipped.</div>
+            <textarea style={{ ...input, minHeight: 90, fontFamily: "monospace" }} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={"ann@client.com, Ann, Lee, Client Ltd"} />
+            <div style={row}>
+              <button title="Add these people to the campaign" type="button" style={btn(true, !leads.length)} disabled={!leads.length} onClick={() => run(async () => {
+                const out = await api.emailAddLeads(c.id, leads);
+                setPaste("");
+                setAdding(false);
+                const s = out.skipped;
+                setAdded(`${out.added} added. Skipped: ${s.duplicate} already in, ${s.do_not_email} on the do-not-email list, ${s.invalid} not valid.`);
+              })}>Add {leads.length || ""} lead{leads.length === 1 ? "" : "s"}</button>
+            </div>
+          </div>
+        ) : null}
+        {added ? <div style={{ ...small, padding: "0 14px 10px" }}>{added}</div> : null}
+        {(c.lead_list || []).map((l) => (
+          <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderTop: `1px solid ${C.borderLight}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, overflowWrap: "anywhere" }}>{`${l.first_name} ${l.last_name}`.trim() || l.email}</div>
+              <div style={{ ...small, overflowWrap: "anywhere" }}>{[l.email, l.company].filter(Boolean).join(" · ")}</div>
+              <div style={{ ...small, marginTop: 3 }} title="When this person is next due an email. It goes out at the next sending window after this time">
+                {LEAD_TEXT[l.status] || l.status}{l.status === "active" ? ` · step ${l.step} of ${c.steps.length}` : ""}{l.next_at ? ` · due ${when(l.next_at)}` : ""}
+              </div>
+            </div>
+            <button title="Take this person out of the campaign" aria-label={`Remove ${l.email}`} type="button" onClick={() => run(() => api.emailRemoveLead(c.id, l.id))}
+              style={{ ...btn(false), minWidth: 40, minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}><Trash2 size={15} /></button>
+          </div>
+        ))}
+        {!(c.lead_list || []).length && <div style={{ ...small, padding: "12px 14px", borderTop: `1px solid ${C.borderLight}` }}>No leads yet. Add some, then start sending.</div>}
       </div>
     </div>
+  );
+}
+
+const LEAD_TEXT = { active: "Getting emails", replied: "Replied", bounced: "Bounced", unsubscribed: "Unsubscribed", completed: "Finished", paused: "Paused" };
+
+// "2 emails, then a call": what a campaign does, in words.
+function stepsSummary(steps) {
+  const emails = steps.filter((s) => s.channel !== "call").length;
+  const calls = steps.length - emails;
+  if (!steps.length) return "No steps yet";
+  return `${emails} email${emails === 1 ? "" : "s"}${calls ? `, then ${calls === 1 ? "a call" : `${calls} calls`}` : ""}`;
+}
+
+// The campaign's numbers in one strip; on a list card it sits inside the card without its own border.
+function CampaignStats({ c, bare = false }) {
+  const items = [["Leads", c.leads], ["Sent", c.sent], ["Replies", c.replied, c.sent ? `${c.reply_rate}%` : ""], ["Bounced", c.bounced]];
+  return (
+    <div style={{ ...(bare ? { borderTop: `1px solid ${C.borderLight}`, paddingTop: 10 } : card), display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+      {items.map(([k, v, extra]) => (
+        <div key={k} style={{ minWidth: 0 }}>
+          <div style={{ fontSize: bare ? 17 : 20, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: C.ink }}>
+            {v}{extra ? <span style={{ fontSize: 12, fontWeight: 600, color: C.slate }}> {extra}</span> : null}
+          </div>
+          <div style={small}>{k}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Each step in order: what is sent, and when, counted from the step before.
+function SequenceSteps({ steps }) {
+  if (!steps.length) return <div style={small}>No steps yet. Add the first email under Edit.</div>;
+  return (
+    <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
+      {steps.map((s, i) => {
+        const call = s.channel === "call";
+        const Icon = call ? Phone : Mail;
+        const delay = i === 0 ? "Straight away" : `${s.delay_days || 0} day${s.delay_days === 1 ? "" : "s"} later`;
+        const cond = call && s.condition === "no_reply" ? ", if no reply" : call && s.condition === "opened_no_reply" ? ", if opened but no reply" : "";
+        return (
+          <li key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "grid", placeItems: "center", background: call ? C.tealSoft : C.cobaltSoft, color: call ? C.teal : C.cobalt }}><Icon size={14} /></span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{call ? "Phone call" : s.subject || "Email with no subject"}</div>
+              <div style={small}>{delay}{cond}</div>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -514,10 +598,21 @@ export function CampaignsView({ outreach, onNew }) {
       </div>
       {camps.length === 0 && <div style={{ ...card, ...small }}>No campaigns yet. Create one, add leads, then start it.</div>}
       {camps.map((c) => (
-        <button type="button" title="Open this campaign" key={c.id} onClick={() => setOpen(c.id)} style={{ ...card, textAlign: "left", cursor: "pointer", display: "grid", gap: 6 }}>
-          <div style={row}><strong>{c.name}</strong><Pill tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status] || c.status}</Pill>
-            <span style={{ ...small, marginLeft: "auto" }}>{c.steps.filter((s) => s.channel !== "call").length} email{c.steps.filter((s) => s.channel !== "call").length === 1 ? "" : "s"}{c.steps.some((s) => s.channel === "call") ? ` · ${c.steps.filter((s) => s.channel === "call").length} call${c.steps.filter((s) => s.channel === "call").length === 1 ? "" : "s"}` : ""} · {c.mailbox_ids.length} mailbox{c.mailbox_ids.length === 1 ? "" : "es"}</span></div>
-          <div style={small}>{c.leads} leads · {c.sent} sent · {c.replied} replies ({c.reply_rate}%) · {c.bounced} bounced</div>
+        <button type="button" title="Open this campaign" key={c.id} onClick={() => setOpen(c.id)} style={{ ...card, textAlign: "left", cursor: "pointer", display: "grid", gap: 10, width: "100%" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <strong style={{ fontSize: 15, overflowWrap: "anywhere" }}>{c.name}</strong>
+                <Pill tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status] || c.status}</Pill>
+              </div>
+              <div style={small}>
+                {stepsSummary(c.steps)}
+                {c.mailbox_ids.length ? ` · ${c.mailbox_ids.length} mailbox${c.mailbox_ids.length === 1 ? "" : "es"}` : <span style={{ color: TONES.amber.ink }}> · no mailbox yet</span>}
+              </div>
+            </div>
+            <ChevronRight size={18} color={C.slate} style={{ flexShrink: 0, marginTop: 2 }} />
+          </div>
+          <CampaignStats c={c} bare />
         </button>
       ))}
     </div>

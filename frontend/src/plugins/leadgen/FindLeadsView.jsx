@@ -293,7 +293,7 @@ function FindLeadsSearch({ store, listsStore }) {
   const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // Phones: which pane shows (Ask AI, Filters or Results). The AI comes first.
+  // Phones: which pane shows. Search holds the AI chat and the Filters drop-down; Results holds the companies.
   const [pane, setPane] = useState("chat");
 
   const [view, setView] = useState("list");
@@ -325,6 +325,11 @@ function FindLeadsSearch({ store, listsStore }) {
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // The filters open under the chat; bring them into view so the tap shows something on a phone.
+  const filtersRef = useRef(null);
+  useEffect(() => {
+    if (filtersOpen && filtersRef.current) filtersRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [filtersOpen]);
   const [chat, setChat] = useState(() => [CHAT_INTRO]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -708,13 +713,13 @@ function FindLeadsSearch({ store, listsStore }) {
   );
 
   return (
-    <div className="pane-root" data-active={source === "register" ? pane : "filters"} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="pane-root" data-active={source === "register" ? pane : "chat"} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {call.dialog}
       {source === "register" ? (
         <PaneSwitch value={pane} onChange={setPane}
-          panes={[{ id: "chat", label: "Ask AI" }, { id: "filters", label: "Filters" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
+          panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       ) : null}
-      <div data-pane="filters" className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div data-pane="chat" className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
         <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", alignSelf: "flex-start", background: C.bgSoft || "#F4F5F9", border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3, flexWrap: "wrap" }}>
           {[["register", "Company register", "Free"], ["web", "Open web", webRate == null ? "" : `${creditWord(webRate)} per company found`]].map(([id, name, price]) => (
             <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
@@ -774,7 +779,7 @@ function FindLeadsSearch({ store, listsStore }) {
         ) : null}
       </div>
       {filtersOpen ? (
-      <form data-pane="filters" onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+      <form ref={filtersRef} data-pane="chat" onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Industry or company name</span>
             <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
@@ -830,7 +835,7 @@ function FindLeadsSearch({ store, listsStore }) {
           <div style={{ ...muted, fontSize: 14 }}>Ask the AI who you're after, or set the filters. The companies you find show here.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={() => setPane("chat")}><Sparkles size={15} /> Ask AI</button>
-            <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => setPane("filters")}>Set filters</button>
+            <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { setPane("chat"); setFiltersOpen(true); }}>Set filters</button>
           </div>
         </div>
       ) : null}
@@ -971,7 +976,7 @@ function FindLeadsSearch({ store, listsStore }) {
 
 
       </>) : (
-      <div data-pane="filters" className="ui-card" style={{ padding: 16 }}>
+      <div data-pane="chat" className="ui-card" style={{ padding: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input title="Describe the kind of business and the place" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />

@@ -51,6 +51,7 @@ import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, t
 import { PluginCredits } from "../../team/PluginCredits";
 import { AppSwitcher } from "../../hub/AppSwitcher";
 import { PaneSwitch } from "../../components/PaneSwitch";
+import { usePhone } from "../../components/usePhone";
 import { MobileNavBackdrop, MobileTopBar, useMobileNav } from "../../components/MobileNav";
 import { onRouteChange, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
@@ -1060,6 +1061,9 @@ function ApprovalsBoard({
   const [bodyRef, bodyWidth] = useElementWidth();
   // Wide window: list on the left, the open post beside it instead of on top of the list.
   const wide = bodyWidth >= 820;
+  // A phone opens the post over the whole screen: inside the list area it got a strip too short
+  // to read the post or reach its buttons.
+  const fullScreen = usePhone() && !wide;
 
   useEffect(() => {
     if (requestedScope && requestedScope.scope) setScope(requestedScope.scope);
@@ -1212,6 +1216,16 @@ function ApprovalsBoard({
     const t = window.setTimeout(() => setFlash({ caption: false, headline: false, image: false }), 2800);
     return () => window.clearTimeout(t);
   }, [expandedPost && expandedPost.caption, expandedPost && expandedPost.headline, expandedPost && expandedPost.imageUrl, expandedPost && expandedPost.id]);
+
+  // Schedule and Versions open at the end of a long post; bring them into view so the tap visibly does something.
+  const schedPanelRef = useRef(null);
+  const historyPanelRef = useRef(null);
+  useEffect(() => {
+    if (scheduleOpen && schedPanelRef.current) schedPanelRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [scheduleOpen]);
+  useEffect(() => {
+    if (historyOpen && historyPanelRef.current) historyPanelRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [historyOpen]);
 
   const closePreview = () => {
     setExpandedId("");
@@ -1512,10 +1526,20 @@ function ApprovalsBoard({
         ) : null}
 
         {expandedPost ? (
+          <OnTop when={fullScreen}>
           <div
             role="presentation"
             onClick={wide ? undefined : closePreview}
-            style={wide ? { flex: 1, minWidth: 0, minHeight: 0, display: "flex" } : {
+            style={wide ? { flex: 1, minWidth: 0, minHeight: 0, display: "flex" } : fullScreen ? {
+              position: "fixed",
+              inset: 0,
+              zIndex: 400,
+              background: "#fff",
+              fontFamily: FONT_BODY,
+              display: "flex",
+              paddingTop: "env(safe-area-inset-top)",
+              paddingBottom: "env(safe-area-inset-bottom)",
+            } : {
               position: "absolute",
               inset: 0,
               background: "rgba(248,247,244,0.78)",
@@ -1545,9 +1569,10 @@ function ApprovalsBoard({
               transition: previewDragging ? "none" : "max-width 0.2s ease",
               transform: wide ? "none" : `translate(${previewPos.x}px, ${previewPos.y}px)`,
               cursor: "default",
+              ...(fullScreen ? { maxWidth: "none", border: "none", borderRadius: 0, boxShadow: "none", transform: "none" } : {}),
             }}>
               <div
-                onMouseDown={wide ? undefined : onPreviewHeaderDown}
+                onMouseDown={wide || fullScreen ? undefined : onPreviewHeaderDown}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -1557,10 +1582,10 @@ function ApprovalsBoard({
                   alignItems: "center",
                   flexShrink: 0,
                   background: "#fff",
-                  cursor: wide ? "default" : (previewDragging ? "grabbing" : "grab"),
+                  cursor: wide || fullScreen ? "default" : (previewDragging ? "grabbing" : "grab"),
                   userSelect: "none",
                 }}
-                title={wide ? undefined : "Drag to move"}
+                title={wide || fullScreen ? undefined : "Drag to move"}
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: C.slate, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1588,7 +1613,7 @@ function ApprovalsBoard({
 
               <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
                 {/* Live post preview only */}
-                <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 14, background: HUB_PAPER }}>
+                <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 14, background: HUB_PAPER, display: fullScreen && editMode && canEdit ? "none" : undefined }}>
                   {expandedPost.genState === "failed" ? (
                     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.redSoft || "#FDECEC", border: `1px solid ${C.red}` }}>
                       <GenFailed post={expandedPost} onRetry={retryGeneration} />
@@ -1815,16 +1840,18 @@ function ApprovalsBoard({
                   {expandedPost.status === "posted" ? <PostResults post={expandedPost} /> : null}
 
                   {historyOpen ? (
+                    <div ref={historyPanelRef}>
                     <VersionHistory
                       post={expandedPost}
                       reloadKey={versionsKey}
                       onRestore={onRestore}
                       onClose={() => setHistoryOpen(false)}
                     />
+                    </div>
                   ) : null}
 
                   {scheduleOpen ? (
-                    <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : "#fff" }}>
+                    <div ref={schedPanelRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : "#fff" }}>
                       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
                         <Clock size={14} color={schedIsPast ? C.amber : C.teal} /> Change schedule
                       </div>
@@ -1843,7 +1870,7 @@ function ApprovalsBoard({
                             style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
                           />
                         </div>
-                        <div style={{ width: 120 }}>
+                        <div style={{ flex: "1 1 110px", minWidth: 0 }}>
                           <label style={labelStyle}>Time</label>
                           <input
                             type="time"
@@ -1852,7 +1879,7 @@ function ApprovalsBoard({
                             style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
                           />
                         </div>
-                        <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36, background: schedIsPast ? C.amber : undefined }}>
+                        <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36, ...(schedIsPast ? { background: C.amber } : {}) }}>
                           {schedIsPast ? "Save & post now" : "Save"}
                         </button>
                         <button type="button" onClick={() => setScheduleOpen(false)} style={{ ...secBtn, height: 36 }}>Cancel</button>
@@ -1864,10 +1891,10 @@ function ApprovalsBoard({
                 {/* Edit chat — only when Edit pressed */}
                 {editMode && canEdit ? (
                   <div style={{
-                    width: "clamp(340px, 36%, 460px)",
+                    width: fullScreen ? "100%" : "clamp(340px, 36%, 460px)",
                     flexShrink: 0,
                     overflowY: "auto",
-                    borderLeft: `1px solid ${C.border}`,
+                    borderLeft: fullScreen ? "none" : `1px solid ${C.border}`,
                     background: "#fff",
                     display: "flex",
                     flexDirection: "column",
@@ -2020,12 +2047,12 @@ function ApprovalsBoard({
                   </button>
                 ) : null}
                 {canEdit ? (
-                  <button type="button" onClick={() => { setScheduleOpen((v) => !v); setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" }); }} style={secBtn}>
+                  <button type="button" aria-expanded={scheduleOpen} onClick={() => { setEditMode(false); setScheduleOpen((v) => !v); setSchedDraft({ date: expandedPost.date || "", time: expandedPost.time || "09:00" }); }} style={secBtn}>
                     <Clock size={13} /> Schedule
                   </button>
                 ) : null}
                 {expandedPost.synced ? (
-                  <button type="button" onClick={() => setHistoryOpen((v) => !v)} style={secBtn} title="Earlier versions of this post (last 10)">
+                  <button type="button" aria-expanded={historyOpen} onClick={() => { setEditMode(false); setHistoryOpen((v) => !v); }} style={secBtn} title="Earlier versions of this post (last 10)">
                     <History size={13} /> Versions
                   </button>
                 ) : null}
@@ -2114,10 +2141,16 @@ function ApprovalsBoard({
               )
               : null}
           </div>
+          </OnTop>
         ) : null}
       </div>
     </div>
   );
+}
+
+// Renders the children on <body> when asked, so a full-screen layer is not clipped by the panel it opened from.
+function OnTop({ when, children }) {
+  return when && typeof document !== "undefined" ? createPortal(children, document.body) : children;
 }
 
 
@@ -2903,6 +2936,9 @@ export function SocialWorkspace({
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
   const nav = useMobileNav(page);
   const [planPane, setPlanPane] = useState("main"); // phones: the calendar or Plan AI, one at a time
+  // Phones: a tap shows that day's posts under the month (no pinning, no double-tap).
+  const phone = usePhone();
+  const [phoneDay, setPhoneDay] = useState(() => todayIso());
   const { hasPlan: schedulerHasPlan, loading: schedulerPlanLoading } = usePluginAccess("scheduler");
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
   const socialBar = accountBar ? cloneElement(accountBar, { wallet: pluginLocked ? null : "scheduler", app: "Social", onOpenPlan: () => { setApprovalOpen(false); setPage("subscription"); } }) : null;
@@ -4518,7 +4554,7 @@ export function SocialWorkspace({
             ) : (
               <div style={{ fontSize: 12, color: C.slate }}>
                 <span className="phone-hide">Single-click a day to pin it. Double-click to see every post that day. Several days can stay pinned at once.</span>
-                <span className="phone-only">Tap a day to pin it. Tap it twice quickly to see every post that day.</span>
+                <span className="phone-only">Tap a day to see its posts.</span>
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
@@ -4539,7 +4575,9 @@ export function SocialWorkspace({
                     className="cal-day"
                     role="button"
                     tabIndex={0}
-                    onClick={(e) => handleDayOrPostClick(key, null, e)}
+                    aria-pressed={phone ? phoneDay === key : undefined}
+                    aria-label={phone ? `${dayLabel(key)}, ${dayPosts.length ? `${dayPosts.length} post${dayPosts.length === 1 ? "" : "s"}` : "no posts"}` : undefined}
+                    onClick={(e) => (phone ? setPhoneDay(key) : handleDayOrPostClick(key, null, e))}
                     onDoubleClick={(e) => handleDayOrPostDoubleClick(key, null, e)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pinned ? unpinDate(key) : pinDay(key); } }}
                     title={pinned ? "Single-click to unpin · Double-click to see all posts that day" : "Single-click to pin · Double-click to see all posts that day"}
@@ -4561,6 +4599,11 @@ export function SocialWorkspace({
                   >
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6, display: "flex", justifyContent: "space-between", minWidth: 0 }}>
                       <span>{day.getDate()}</span>
+                      {phone && dayPosts.length ? (
+                        <span className="cal-dots" aria-hidden="true">
+                          {dayPosts.slice(0, 4).map((p) => <i key={p.id} style={{ background: statusColor(p.status) }} />)}
+                        </span>
+                      ) : null}
                       {pinned ? (
                         <button type="button" className="phone-gone" onClick={(e) => unpinDate(key, e)} title="Click to unpin" style={{ fontSize: 9, fontWeight: 700, color: C.teal, border: "none", background: "transparent", cursor: "pointer", flexShrink: 0 }}>
                           PINNED ×
@@ -4572,6 +4615,7 @@ export function SocialWorkspace({
                     ) : dayPosts.slice(0, DAY_POST_LIMIT).map((p) => (
                       <div
                         key={p.id}
+                        className="cal-post"
                         role="button"
                         tabIndex={0}
                         onClick={(e) => {
@@ -4659,6 +4703,7 @@ export function SocialWorkspace({
                     {dayPosts.length > DAY_POST_LIMIT ? (
                       <button
                         type="button"
+                        className="cal-post"
                         onClick={(e) => { e.stopPropagation(); handleDayOrPostDoubleClick(key, null, e); }}
                         style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, fontSize: 11, cursor: "pointer", padding: "2px 0", textAlign: "left", fontFamily: FONT_BODY }}
                       >
@@ -4669,6 +4714,38 @@ export function SocialWorkspace({
                 );
               })}
             </div>
+
+            {phone ? (() => {
+              const list = (postsByDay[phoneDay] || []).slice().sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+              return (
+                <section aria-label="Posts on the chosen day" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, display: "grid", gap: 10, flexShrink: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.ink, marginRight: "auto" }}>{phoneDay === todayIso() ? "Today" : dayLabel(phoneDay)}</strong>
+                    <span style={{ fontSize: 12.5, color: C.slate }}>{list.length ? `${list.length} post${list.length === 1 ? "" : "s"}` : ""}</span>
+                  </div>
+                  {list.length ? list.map((p) => {
+                    const ch = CHANNELS.find((c) => c.id === String(p.channel || "").toLowerCase()) || { label: p.channel, color: C.ink, soft: HUB_PAPER, mark: "?" };
+                    return (
+                      <button key={p.id} type="button" onClick={() => openApprovals(p.id, p.date)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, padding: "10px 12px", textAlign: "left", border: `1px solid ${C.border}`, borderRadius: 10, background: "#fff", cursor: "pointer", fontFamily: FONT_BODY }}>
+                        <span aria-label={ch.label} style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "grid", placeItems: "center", background: ch.soft, color: ch.color, fontSize: 11, fontWeight: 800 }}>{ch.mark}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.enriching ? "Writing…" : p.headline || "Draft post"}</span>
+                          <span style={{ display: "block", fontSize: 12.5, color: C.slate, marginTop: 2 }}>
+                            {formatOrgTime(p.time || "09:00", org.timeFormat)} · <span style={{ color: statusColor(p.status), fontWeight: 600 }}>{statusLabel(p.status)}</span>
+                          </span>
+                        </span>
+                        <ChevronRight size={16} color={C.slate} style={{ flexShrink: 0 }} />
+                      </button>
+                    );
+                  }) : <div style={{ fontSize: 13, color: C.slate }}>Nothing planned for this day.</div>}
+                  <button type="button" onClick={() => { if (!pinnedDates.includes(phoneDay)) pinDay(phoneDay); setPlanPane("side"); }}
+                    style={{ ...secBtn, justifyContent: "center", width: "100%", minHeight: 44 }}>
+                    <Sparkles size={14} /> Plan a post for this day
+                  </button>
+                </section>
+              );
+            })() : null}
 
             {drafts.length ? (
               <button type="button" onClick={() => openApprovals()} style={{ ...secBtn, justifyContent: "center", width: "100%" }}>
