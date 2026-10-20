@@ -133,16 +133,13 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
           <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 14px", fontSize: 12.5, color: C.slate, minWidth: 0 }}>
-          {c.waiting ? (
-            <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={onOpenApprovals}><Clock size={12} color={C.amber} /> {c.waiting} waiting for approval</button>
-          ) : null}
           {data.reconnect.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={onReconnect}><Plug size={12} color={C.red} /> {data.reconnect.length} to reconnect</button>
           ) : null}
           {data.failed.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={() => onOpenPost(data.failed[0].id)}><AlertTriangle size={12} color={C.red} /> {data.failed.length} failed, fix</button>
           ) : null}
-          {!attention && !c.waiting ? <span>Nothing needs you right now.</span> : null}
+          {!attention ? <span>Nothing needs you right now.</span> : null}
           <span style={{ flex: 1 }} />
           {next ? (
             <button type="button" onClick={() => onOpenPost(next.id)} title={next.title}

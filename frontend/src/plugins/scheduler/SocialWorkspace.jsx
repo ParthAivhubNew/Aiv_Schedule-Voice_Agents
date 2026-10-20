@@ -1079,8 +1079,15 @@ function ApprovalsBoard({
     setDateTab((cur) => {
       if (cur && dateTabs.some((t) => t.date === cur)) return cur;
       if (userPickedDate.current) return cur || dateTabs[0].date;
-      const withWaiting = dateTabs.find((t) => t.waiting > 0);
-      return (withWaiting && withWaiting.date) || dateTabs[0].date;
+      // Open on today; otherwise the next day with posts, else the most recent one.
+      const now = new Date();
+      const today = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+      const dated = dateTabs.filter((t) => t.date !== "undated");
+      const pick = dated.find((t) => t.date === today)
+        || dated.find((t) => t.date > today)
+        || dated[dated.length - 1]
+        || dateTabs[0];
+      return pick.date;
     });
   }, [dateTabs, initialDate]);
 
