@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, ArrowRight, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, ArrowRight, ArrowLeft, Smartphone } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
 import { BrandLockup } from "./BrandMark";
 import { AuthShowcase } from "./AuthShowcase";
 import { googleErrorText, googleIdToken } from "./firebaseGoogle";
+import { InstallStepsSheet } from "../components/InstallSteps";
+import { useShowInstallSteps } from "../components/installState";
 
 // Mode from the address: /signup, /reset-password?t=..., anything else signs in.
 function initialMode() {
@@ -75,6 +77,8 @@ const TITLES = {
 };
 
 export function LoginScreen({ onLogin }) {
+  const installable = useShowInstallSteps();
+  const [installOpen, setInstallOpen] = useState(false);
   const [mode, setModeRaw] = useState(initialMode);
   const [config, setConfig] = useState(null); // null until the server says what is on
   const [username, setUsername] = useState("");
@@ -359,6 +363,14 @@ export function LoginScreen({ onLogin }) {
               )}
             </form>
           )}
+          {installable && mode === "signin" ? (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+              <button type="button" className="auth-link" style={{ minHeight: 44, fontSize: 15, fontWeight: 600 }} onClick={() => setInstallOpen(true)}>
+                <Smartphone size={16} /> Get the app on your phone
+              </button>
+            </div>
+          ) : null}
+          <InstallStepsSheet open={installOpen} onClose={() => setInstallOpen(false)} />
           <nav className="auth-legal" aria-label="Legal">
             <a href="/terms" target="_blank" rel="noreferrer">Terms</a>
             <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a>

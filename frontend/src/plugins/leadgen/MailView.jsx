@@ -472,7 +472,7 @@ export function MailView({ operator, outreach, start }) {
         </section>
         </>)}
       </div>
-      {note ? <div role="status" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "9px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, zIndex: 140 }}>{note}</div> : null}
+      {note ? <div role="status" className="app-toast" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "9px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, zIndex: 140 }}>{note}</div> : null}
       {compose ? (
         <Compose boxes={boxes || []} start={compose}
           onClose={() => { setCompose(null); loadList(); loadCounts(); }}

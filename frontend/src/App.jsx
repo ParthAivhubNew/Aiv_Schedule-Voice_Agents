@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
 import { WebSocketClient } from "./api/wsClient";
@@ -13,18 +13,48 @@ import { ProfilePage } from "./hub/ProfilePage";
 import { AccountBar } from "./hub/AccountBar";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
-import { CalcomSchedulerPlugin } from "./plugins/calendar/CalcomSchedulerPlugin";
-import LeadGenerationPlugin from "./plugins/leadgen/LeadGenerationPlugin";
-import { SocialWorkspaceGate } from "./plugins/scheduler/SocialWorkspace";
-import { CompanyProfileView } from "./plugins/voice/CompanyProfileView";
-import { CallingWorkspace } from "./plugins/voice/calling/CallingWorkspace";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
 import { DeveloperApiKeysModal } from "./settings/DeveloperApiKeysModal";
 import { ConnectionsSettingsModal } from "./connections/ConnectionsSettings";
 import { InstallPrompt } from "./components/InstallPrompt";
-import { ProviderConfigView } from "./settings/ProviderConfigView";
 import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
+
+// Each app's code loads the first time it is opened, so sign-in and Home come up fast on a phone.
+// A release made while this page was open replaces those files: reload once to fetch the new ones.
+const RELOADED = "outreach_app_reload";
+function lazyApp(load, name) {
+  return lazy(() => load().then(
+    (m) => {
+      try { sessionStorage.removeItem(RELOADED); } catch (_) {}
+      return { default: name ? m[name] : m.default };
+    },
+    (err) => {
+      let again = false;
+      try { again = !sessionStorage.getItem(RELOADED); sessionStorage.setItem(RELOADED, "1"); } catch (_) {}
+      if (again) {
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      throw err;
+    },
+  ));
+}
+const LeadGenerationPlugin = lazyApp(() => import("./plugins/leadgen/LeadGenerationPlugin"));
+const SocialWorkspaceGate = lazyApp(() => import("./plugins/scheduler/SocialWorkspace"), "SocialWorkspaceGate");
+const CallingWorkspace = lazyApp(() => import("./plugins/voice/calling/CallingWorkspace"), "CallingWorkspace");
+const CompanyProfileView = lazyApp(() => import("./plugins/voice/CompanyProfileView"), "CompanyProfileView");
+const ProviderConfigView = lazyApp(() => import("./settings/ProviderConfigView"), "ProviderConfigView");
+const CalcomSchedulerPlugin = lazyApp(() => import("./plugins/calendar/CalcomSchedulerPlugin"), "CalcomSchedulerPlugin");
+
+function AppLoading() {
+  return (
+    <div role="status" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#4B5260", fontSize: 15 }}>
+      <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid #D5D9E0", borderTopColor: "#3457D5", animation: "ui-spin 0.8s linear infinite" }} />
+      Opening…
+    </div>
+  );
+}
 
 function CallingRoot(props) {
   // AI and carrier keys are run by Outreach: only its own organisation sees that page.
@@ -32,6 +62,7 @@ function CallingRoot(props) {
     <CallingWorkspace
       {...props}
       aiKeysPanel={props.operator?.is_platform_org && (
+        <Suspense fallback={<AppLoading />}>
         <ProviderConfigView
           embedded
           notifications={props.notifications || []}
@@ -41,8 +72,10 @@ function CallingRoot(props) {
           profile={props.profile}
           setProfile={props.setProfile}
         />
+        </Suspense>
       )}
       companyPanel={
+        <Suspense fallback={<AppLoading />}>
         <CompanyProfileView
           embedded
           profile={props.profile}
@@ -56,6 +89,7 @@ function CallingRoot(props) {
           faq={props.faq}
           setFaq={props.setFaq}
         />
+        </Suspense>
       }
     />
   );
@@ -776,6 +810,7 @@ function MainApp({ onSignedOut }) {
             overflow: "hidden",
           }}
         >
+          <Suspense fallback={<AppLoading />}>
           {p === "leadgen" && (
             <SafeErrorBoundary label="Leads" onReset={handleBackToHub}>
               <LeadGenerationPlugin
@@ -853,6 +888,7 @@ function MainApp({ onSignedOut }) {
               />
             </SafeErrorBoundary>
           )}
+          </Suspense>
         </div>
       ))}
 

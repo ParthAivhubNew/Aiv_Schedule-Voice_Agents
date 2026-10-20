@@ -568,6 +568,46 @@ button, input, select, textarea {
     border-left: none !important;
     border-top: 1px solid #E3E6EB;
   }
+  /* The list page shows the contacts or List AI, one at a time, each filling the screen. */
+  .app-page.app-page--flush {
+    overflow-y: hidden !important;
+  }
+  .list-grid.pane-root {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+  .list-grid.pane-root > .pane-switch {
+    margin: 12px 14px 0;
+    flex-shrink: 0;
+  }
+  .list-grid.pane-root > .list-main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto !important;
+  }
+  .list-grid.pane-root > .list-ai {
+    flex: 1;
+    min-height: 0 !important;
+  }
+  /* Social's plan page: the calendar or Plan AI, one at a time. */
+  .split-view.pane-root {
+    overflow: hidden !important;
+  }
+  .split-view.pane-root > .pane-switch {
+    margin: 12px 14px 0;
+    flex-shrink: 0;
+  }
+  .split-view.pane-root > .split-main {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+  }
+  .split-view.pane-root > .split-side {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
   /* Working hours: the day, then Open/Closed, then the times on a line of their own. */
   .day-row {
     grid-template-columns: 96px minmax(0, 1fr) !important;
@@ -600,6 +640,22 @@ button, input, select, textarea {
 @keyframes imp-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 @media (prefers-reduced-motion: reduce) { .imp-step--run, .imp-pop, .imp-note, .imp-bar--live > span, .imp-dots::after { animation: none; } }
 
+/* Phone tab bar: an app's main pages along the bottom; "More" opens the full menu drawer. */
+.phone-tabs {
+  display: none;
+}
+.phone-hide {
+  display: contents;
+}
+.pane-switch,
+.phone-only {
+  display: none;
+}
+.phone-home {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* Touch phones: fields at 16px so iPhones do not zoom the page on focus, buttons tall enough to
    hit, and room for the home-bar and rounded corners when the app is installed. */
 @media (max-width: 820px) and (pointer: coarse) {
@@ -623,5 +679,261 @@ button, input, select, textarea {
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+  .phone-tabs {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Under every pop-up and menu (the lowest sits at 60), over the page itself. */
+    z-index: 55;
+    background: #FFFFFF;
+    border-top: 1px solid var(--ui-line, #E3E6EB);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .phone-tab {
+    flex: 1;
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 2px;
+    border: none;
+    background: transparent;
+    color: #4B5260;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .phone-tab[aria-current="page"] {
+    color: var(--tab-accent);
+  }
+  .phone-tab[aria-current="page"] .phone-tab-icon {
+    background: rgba(52, 87, 213, 0.12);
+    background: color-mix(in srgb, var(--tab-accent) 14%, transparent);
+  }
+  .phone-tab:active .phone-tab-icon {
+    background: rgba(16, 24, 40, 0.06);
+  }
+  .phone-tab[data-locked="true"] {
+    opacity: 0.55;
+  }
+  .phone-tab-icon {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .phone-tab-label {
+    max-width: 100%;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .phone-tab-count {
+    position: absolute;
+    top: -3px;
+    right: 6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #D92D20;
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The tab bar takes the bottom of the screen, home-bar inset included, so the app ends above it
+     and #root does not add the inset a second time (that made every app scroll by the inset). */
+  .has-phone-tabs .app-main {
+    padding-bottom: calc(58px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  .has-phone-tabs #root,
+  .phone-home-on #root {
+    padding-bottom: 0;
+  }
+  .has-phone-tabs .mobile-nav-btn {
+    display: none !important;
+  }
+  .phone-typing .phone-tabs {
+    display: none;
+  }
+  /* Notes and the install card sit above the tab bar, not over it. */
+  .has-phone-tabs .app-toast {
+    bottom: calc(70px + env(safe-area-inset-bottom)) !important;
+    left: 16px !important;
+    right: 16px !important;
+    transform: none !important;
+    text-align: center;
+  }
+  /* Home has its own "Get the app" button; the floating card would sit over the bottom tile. */
+  .phone-home-on .install-card {
+    display: none !important;
+  }
+  .has-phone-tabs .install-card {
+    bottom: calc(70px + env(safe-area-inset-bottom)) !important;
+  }
+  .phone-only {
+    display: inline-flex !important;
+  }
+  /* Social calendar: a compact month (the day number and its posts), so all of it fits on screen. */
+  .cal-day {
+    min-height: 52px !important;
+    padding: 6px 4px !important;
+    touch-action: manipulation;
+  }
+  .chat-send {
+    width: 44px !important;
+    min-height: 44px;
+  }
+  /* Credits on Find Leads and Lists: one slim row, so the page below starts high. */
+  .plan-strip {
+    padding: 6px 8px 6px 12px !important;
+    margin-bottom: 12px !important;
+  }
+  .plan-strip > div:first-child {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+  }
+  .plan-strip strong {
+    font-size: 17px !important;
+  }
+  .phone-hide,
+  .phone-gone {
+    display: none !important;
+  }
+  /* One pane of a busy screen at a time (components/PaneSwitch.jsx). */
+  .pane-switch {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: #F0F2F5;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .pane-switch button {
+    flex: 1;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: #4B5260;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .pane-switch button[aria-selected="true"] {
+    background: #FFFFFF;
+    color: #1B1D24;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.14);
+  }
+  .pane-badge {
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #EAEEFC;
+    color: #3457D5;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .pane-root[data-active="chat"] > [data-pane]:not([data-pane="chat"]),
+  .pane-root[data-active="filters"] > [data-pane]:not([data-pane="filters"]),
+  .pane-root[data-active="results"] > [data-pane]:not([data-pane="results"]),
+  .pane-root[data-active="main"] > [data-pane]:not([data-pane="main"]),
+  .pane-root[data-active="side"] > [data-pane]:not([data-pane="side"]) {
+    display: none !important;
+  }
+  /* The AI chat takes the whole screen between the top bar, the pane switch and the tab bar. */
+  .pane-fill {
+    height: calc(100dvh - 330px - env(safe-area-inset-bottom)) !important;
+    min-height: 280px;
+  }
+}
+
+.home-triangle {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: minmax(0, 220px);
+  align-content: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.home-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px 8px;
+  text-align: center;
+  background: #FFFFFF;
+  border: 1px solid var(--ui-line, #E3E6EB);
+  border-radius: 16px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.home-tile:active {
+  transform: scale(0.98);
+  border-color: var(--accent);
+}
+.home-tile--base {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc(50% - 6px);
+}
+.home-tile-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+/* The narrowest phones (320px): tile text one size down so names and lines do not wrap. */
+@media (max-width: 359px) {
+  .home-tile {
+    padding: 12px 6px;
+  }
+  .home-tile-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 4px;
+  }
+  .home-tile > span:nth-child(3) {
+    font-size: 13px !important;
+  }
+  .home-tile > span:nth-child(4) {
+    font-size: 12px !important;
+  }
+  .phone-tab {
+    padding: 6px 0;
+  }
+  .phone-tab-label {
+    font-size: 11px;
+    letter-spacing: -0.01em;
   }
 }

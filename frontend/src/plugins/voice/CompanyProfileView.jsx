@@ -1066,7 +1066,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
       </div>
 
       {saved && (
-        <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="app-toast" style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10 }}>
           <CheckCircle2 size={15} color={C.teal} /> Saved — used on all future calls
         </div>
       )}

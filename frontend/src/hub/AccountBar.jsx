@@ -8,7 +8,7 @@ export function AccountBar({ operator, notifications, setNotifications, onNaviga
   return (
     <div className="acct-bar" style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
       <style>{`@media (max-width: 480px) { .acct-bar { gap: 6px !important; } .hide-xs { display: none !important; } }`}</style>
-      {wallet ? <span className="acct-credits"><CreditsChip wallet={wallet} app={app} onOpen={operator?.is_admin ? onOpenPlan : undefined} /></span> : null}
+      {wallet ? <span className="acct-credits phone-hide"><CreditsChip wallet={wallet} app={app} onOpen={operator?.is_admin ? onOpenPlan : undefined} /></span> : null}
       <NotificationBell notifications={notifications || []} setNotifications={setNotifications} onNavigate={onNavigate} />
       <UserProfileMenu operator={operator} compact {...menu} />
     </div>

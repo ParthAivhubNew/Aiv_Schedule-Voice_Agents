@@ -151,7 +151,7 @@ export default function LeadGenerationPlugin({
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = [
-    { id: "find_leads", label: "Find Leads", icon: Sparkles, group: "Outreach" },
+    { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Campaigns", icon: Send, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
@@ -164,6 +164,7 @@ export default function LeadGenerationPlugin({
     items: navItems.filter((item) => item.group === label).map((item) => ({
       id: item.id,
       label: item.label,
+      short: item.short,
       icon: item.icon,
       count: item.count,
       active: view === item.id,
@@ -196,7 +197,7 @@ export default function LeadGenerationPlugin({
       
       <AppChrome />
       <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent="#8B5CF6" groups={navGroups} wallet="leadgen" operator={operator}
-        onOpenPlan={() => setView("subscription")} onHome={onBackToHub} onLogout={onLogout} refreshKey={view} />
+        onOpenPlan={() => setView("subscription")} onHome={onBackToHub} onLogout={onLogout} refreshKey={view} nav={nav} tabs={["find_leads", "lists", "outreach", "mail"]} />
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
@@ -204,7 +205,7 @@ export default function LeadGenerationPlugin({
         <PluginHeader nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
           {view === "lists" && (
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
               <Plus size={14} /> Add one company
             </button>
           )}
@@ -267,7 +268,7 @@ export default function LeadGenerationPlugin({
       {/* Toast */}
       <DialogHost />
       {toastMessage && (
-        <div style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
+        <div className="app-toast" style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
           {toastMessage}
         </div>
       )}
