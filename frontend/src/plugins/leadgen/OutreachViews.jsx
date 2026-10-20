@@ -40,15 +40,15 @@ const small = { fontSize: 12, color: C.slate };
 const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", ink: "#92400e" }, blue: { bg: "#eff6ff", ink: "#1e40af" }, green: { bg: "#f0fdf4", ink: "#166534" } };
 export function readiness(m) {
   if (m.status === "error") return { tone: "red", title: "Connection problem.", body: "The mailbox login is failing, so nothing can send. Check the password in Settings, then use Test connection." };
-  if (!m.spf_verified) return { tone: "red", title: "SPF record missing.", body: "Add it below. Without it most receivers reject the mail, so this mailbox can't send yet." };
-  if (!m.dkim_verified && !m.dkim_override) return { tone: "amber", title: "DKIM record missing.", body: "Add it below to start sending, or choose to send without it at the risk of more mail going to spam.", action: "skip" };
+  if (!m.spf_verified) return { tone: "red", title: "Permission to send is not set up (SPF).", body: "Add the setting below. Without it most inboxes reject your emails, so this mailbox cannot send yet." };
+  if (!m.dkim_verified && !m.dkim_override) return { tone: "amber", title: "Email signature is not set up (DKIM).", body: "Add the setting below to start sending, or send without it and accept that more of your emails may go to spam.", action: "skip" };
   if (!m.dkim_verified && m.dkim_override) {
     const next = m.status === "connected" ? " Next step: start warm-up." : "";
     return { tone: "amber", title: "Sending without DKIM.", body: `More of your emails may land in spam and your domain's reputation can suffer. Bounces over 2% still pause this mailbox.${next}`, action: "require" };
   }
-  if (m.status === "connected") return { tone: "blue", title: "Ready to warm up.", body: "Your DNS records are in place. Start warm-up to begin building this mailbox's sending reputation." };
+  if (m.status === "connected") return { tone: "blue", title: "Ready to warm up.", body: "Your domain settings are in place. Next, start warm-up: this mailbox sends a few emails a day and slowly sends more, so inboxes learn to trust it and your emails do not land in spam." };
   if (m.status === "paused") return { tone: "amber", title: "Sending is paused.", body: m.pause_reason || "Start it again when you are ready." };
-  if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. Campaigns send in small numbers that grow each day, until it reaches your daily target.` };
+  if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. This mailbox sends a few emails a day and sends more each day, until it reaches your daily target. Do not rush it: it protects your emails from going to spam.` };
   return null;
 }
 
@@ -87,12 +87,12 @@ function SetupGuide({ mailbox: m, onCheck, onAuto }) {
   const required = steps.some((x) => x.key === "spf" || x.key === "dkim");
   return (
     <div style={{ display: "grid", gap: 10, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>DNS records to add for {m.email.split("@")[1]}</div>
-      <div style={small}>Add {steps.length === 1 ? "this record" : "these records"} where you manage your domain's DNS (your domain registrar or hosting provider). Changes can take a few minutes to an hour, and this page re-checks automatically.</div>
+      <div style={{ fontSize: 13, fontWeight: 700 }}>Settings to add for {m.email.split("@")[1]}</div>
+      <div style={small}>These {steps.length === 1 ? "is a short setting" : "are short settings"} that prove your emails really come from you, so they reach inboxes instead of spam. Add {steps.length === 1 ? "it" : "each one"} where you manage your domain, usually the company where you bought it, such as GoDaddy or Namecheap, under \"DNS settings\". For each one, copy the Name and Value below into a new record of the Type shown. It can take a few minutes to an hour to work, and this page checks again by itself.</div>
       {steps.map((s) => (
         <div key={s.key} style={{ display: "grid", gap: 4, fontSize: 12 }}>
           <div style={{ fontWeight: 700 }}>{s.title} <span style={{ fontWeight: 400, color: C.slate }}>· {s.why}</span></div>
-          <div style={row}><span style={small}>Type</span><b>{s.type}</b><span style={small}>Name</span><CopyBox text={s.host} /></div>
+          <div style={row}><span style={small}>Type</span><b>{s.type}</b><span style={small}>Name (or Host)</span><CopyBox text={s.host} /></div>
           {s.value ? <div style={row}><span style={small}>Value</span><CopyBox text={s.value} /></div> : null}
           {s.howto ? <div style={small}>{s.howto}</div> : null}
           {s.key === "dkim" && (
@@ -104,8 +104,8 @@ function SetupGuide({ mailbox: m, onCheck, onAuto }) {
         </div>
       ))}
       <div style={row}>
-        <button title="Look up the records now and update this mailbox" type="button" style={btn(true)} onClick={() => onCheck(selector.trim() || undefined)}>Verify DNS records</button>
-        {!required ? <span style={small}>Optional. It improves how receivers treat your mail.</span> : null}
+        <button title="Check now whether these settings are in place" type="button" style={btn(true)} onClick={() => onCheck(selector.trim() || undefined)}>Check my settings</button>
+        {!required ? <span style={small}>Optional, but it helps more of your emails reach the inbox.</span> : null}
       </div>
     </div>
   );
@@ -269,6 +269,11 @@ export function MailboxesView({ outreach, onViewSent }) {
               onAuto={(sel) => api.emailCheckDns(m.id, sel).then(outreach.reloadMailboxes).catch(() => {})} />
             {(dns.recommendations || []).filter((r) => /unavailable|No DKIM record found/.test(r)).map((r) => <div key={r} style={small}>{r}</div>)}
 
+            {!sending && (
+              <div style={small}>
+                <b>What is warm-up?</b> A brand-new mailbox that suddenly sends lots of email looks like spam to Gmail and Outlook. Warm-up fixes that: for about 3 weeks the mailbox sends a few emails a day, which grow slowly, and our system replies to some of them, so inboxes learn your emails are wanted. Skip it only if this mailbox already sends email every day.
+              </div>
+            )}
             <div style={row}>
               {!sending && <button type="button" style={btn(true, !m.spf_verified || !(m.dkim_verified || m.dkim_override))} disabled={!m.spf_verified || !(m.dkim_verified || m.dkim_override)} title={m.spf_verified && (m.dkim_verified || m.dkim_override) ? "Begin the gradual ramp-up that builds your sending reputation" : "Add the DNS records above first"} onClick={() => run(() => api.emailWarmup(m.id, "start"), "Warm-up started.")}>Start warm-up</button>}
               {sending && <button type="button" style={btn(false)} title="Stops everything this mailbox sends, warm-up and campaigns, until you start it again" onClick={() => run(() => api.emailWarmup(m.id, "pause"), "Sending paused.")}>Pause sending</button>}

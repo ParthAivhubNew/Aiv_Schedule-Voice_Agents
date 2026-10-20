@@ -39,22 +39,22 @@ def setup_guide(domain: str, provider: str, dns: Dict[str, Any]) -> List[Dict[st
     dns = dns or {}
     steps: List[Dict[str, Any]] = []
     if not dns.get("spf_verified"):
-        steps.append({"key": "spf", "title": "SPF", "type": "TXT", "host": domain or "@",
+        steps.append({"key": "spf", "title": "Permission to send (SPF)", "type": "TXT", "host": domain or "@",
                       "value": _SPF_BY_PROVIDER.get(provider, "v=spf1 include:YOUR-MAIL-PROVIDER ~all"),
-                      "why": "Lists which servers may send email for your domain."})
+                      "why": "Tells inboxes that your mail provider is allowed to send email as you. Without it, many inboxes reject your emails."})
     if not dns.get("dkim_verified"):
-        steps.append({"key": "dkim", "title": "DKIM", "type": "TXT", "host": f"(selector)._domainkey.{domain}",
-                      "value": "", "why": "Signs each email so receivers can tell it really came from you. Needed for reliable delivery.",
-                      "howto": _DKIM_HOWTO.get(provider, "Your mail provider generates this record: find DKIM in its admin settings, "
-                                                          "copy the record it shows into your DNS."),
-                      "note": "Added it under a custom name? Enter that name here, then verify."})
+        steps.append({"key": "dkim", "title": "Your email signature (DKIM)", "type": "TXT", "host": f"(selector)._domainkey.{domain}",
+                      "value": "", "why": "A hidden signature on each email that proves it really came from you and was not changed on the way. Needed so your emails reach the inbox, not spam.",
+                      "howto": _DKIM_HOWTO.get(provider, "Your email provider makes this one for you. Open its settings, look for DKIM, and copy the record it shows "
+                                                          "into your domain settings."),
+                      "note": "Your provider gave it a different name? Type that name here, then press Verify."})
     if not dns.get("dmarc_verified"):
-        steps.append({"key": "dmarc", "title": "DMARC", "type": "TXT", "host": f"_dmarc.{domain}",
+        steps.append({"key": "dmarc", "title": "Safety rule (DMARC)", "type": "TXT", "host": f"_dmarc.{domain}",
                       "value": "v=DMARC1; p=none;",
-                      "why": "Tells receivers what to do with mail that fails the checks. Recommended. The value shown only monitors and blocks nothing."})
+                      "why": "A rule that tells inboxes what to do if someone fakes an email from your domain. Recommended, not required. Copy the value as it is: it only watches and never blocks your mail."})
     if not dns.get("mx_verified"):
-        steps.append({"key": "mx", "title": "MX", "type": "MX", "host": domain, "value": "",
-                      "why": "Where your domain receives mail, so replies reach you. Your provider shows the values to use."})
+        steps.append({"key": "mx", "title": "Receiving replies (MX)", "type": "MX", "host": domain, "value": "",
+                      "why": "Tells the internet where to deliver replies to your emails, so they reach your inbox. Your provider shows the exact values to use."})
     return steps
 
 

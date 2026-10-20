@@ -5,7 +5,7 @@ const base = { status: "connected", spf_verified: true, dkim_verified: true, dki
 
 describe("the one message a mailbox card shows", () => {
   it("asks for SPF first, because mail without it is rejected", () => {
-    expect(readiness({ ...base, spf_verified: false, dkim_verified: false }).title).toBe("SPF record missing.");
+    expect(readiness({ ...base, spf_verified: false, dkim_verified: false }).title).toBe("Permission to send is not set up (SPF).");
   });
   it("offers to send without DKIM only while DKIM is missing and not yet skipped", () => {
     expect(readiness({ ...base, dkim_verified: false }).action).toBe("skip");
