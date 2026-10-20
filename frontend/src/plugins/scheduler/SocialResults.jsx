@@ -124,11 +124,11 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
     return (
       <div style={{ ...card, padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }} aria-label="Overview">
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 18px" }}>
-          {chip("today", c.today)}
-          {chip("next 7 days", c.nextSevenDays)}
-          {chip("failed", c.failed, c.failed ? "alert" : "")}
+          {chip("posts going out today", c.today)}
+          {chip("scheduled in the next 7 days", c.nextSevenDays)}
+          {chip("posts failed to publish", c.failed, c.failed ? "alert" : "")}
           {chip("published this month", c.publishedThisMonth)}
-          {hasResults ? chip("reach, 7 days", fmt(week.totals.reach ?? week.totals.impressions)) : null}
+          {hasResults ? chip("people reached, last 7 days", fmt(week.totals.reach ?? week.totals.impressions)) : null}
           <span style={{ flex: 1 }} />
           <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>
         </div>

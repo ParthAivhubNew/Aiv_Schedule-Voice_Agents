@@ -4429,7 +4429,7 @@ export function SocialWorkspace({
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <button
+            {cta.tone === "go" ? <button
               type="button"
               disabled={cta.disabled}
               onClick={() => cta.action && cta.action()}
@@ -4448,7 +4448,7 @@ export function SocialWorkspace({
               }}
             >
               {cta.label}
-            </button>
+            </button> : null}
           </div>
         </div>
 

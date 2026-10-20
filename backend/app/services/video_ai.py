@@ -204,6 +204,44 @@ def infer_clip(prompt: str) -> Dict[str, Any]:
     return out
 
 
+_WANTS_VIDEO = re.compile(
+    r"\b(?:make|create|generate|add|include|attach|with|shoot|produce|need|want|using)\b[^.\n]{0,40}\b(?:video|reel|clip|animation)s?\b"
+    r"|\b(?:video|reel)\s+(?:post|ad|version)\b|\bshort\s+(?:video|clip|reel)\b|\banimated\s+(?:post|clip|video)\b",
+    re.I,
+)
+_CHANNEL_SHAPE = {"instagram": "9:16", "threads": "9:16", "tiktok": "9:16", "linkedin": "16:9", "x": "16:9", "facebook": "16:9"}
+
+
+def wants_video(text: str) -> bool:
+    """True when a post request itself asks for a video or reel, in the same way a picture request is read."""
+    return bool(_WANTS_VIDEO.search(text or ""))
+
+
+async def start_for_post(org_id: str, post_id: str, request: str, picture: str, channel: str) -> None:
+    """Start a clip for a freshly written post when its request asked for one. Never raises: the written post
+    stays as it is, and the user is told in their notifications when the clip cannot be made."""
+    from app.database import AsyncSessionLocal
+    from app.services import feed
+
+    try:
+        said = infer_clip(request)
+        shape = said.get("shape") or _CHANNEL_SHAPE.get((channel or "").lower(), "9:16")
+        prompt = (picture or request or "").strip()
+        if len(prompt) < 10:
+            prompt = request.strip()
+        async with AsyncSessionLocal() as db:
+            await start(db, org_id, {"prompt": prompt, "postId": post_id, "shape": shape, "seconds": said.get("seconds") or 5})
+    except Exception as err:
+        why = str(err) if isinstance(err, (ValueError, PermissionError, LookupError)) else "something went wrong"
+        logger.info(f"[video] no clip for {post_id}: {why}")
+        try:
+            async with AsyncSessionLocal() as db:
+                feed.add(db, f"A post asked for a video, so only the text was made. The video was not started: {why}", "alert")
+                await db.commit()
+        except Exception:
+            pass
+
+
 def clean(payload: Dict[str, Any]) -> Tuple[str, str, int]:
     prompt = " ".join(str(payload.get("prompt") or "").split())[:1500]
     if len(prompt) < 10:

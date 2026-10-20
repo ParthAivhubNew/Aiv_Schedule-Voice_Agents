@@ -430,6 +430,7 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
         for j in jobs:
             await _apply_text(j, results[j["id"]], company["name"])
             await _charge(j, "ai_post")
+            await _maybe_video(j)
             if j["skip_image"]:
                 await _finish(j, "done", None, None)
             else:
@@ -454,6 +455,19 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
                 await _finish(j, "failed", msg, "failed")
     finally:
         wake()
+
+
+async def _maybe_video(job: Dict[str, Any]) -> None:
+    """A request that asks for a video gets a clip made for its post, alongside the picture, if the plan's credits allow."""
+    from app.services import video_ai
+
+    asked = f"{job['plan']} {job['headline']}"
+    if not job["post_ids"] or not video_ai.wants_video(asked):
+        return
+    async with AsyncSessionLocal() as db:
+        post = await db.get(SocialPost, job["post_ids"][0])
+        picture = (post.image_prompt if post else "") or ""
+    await video_ai.start_for_post(job["org_id"], job["post_ids"][0], asked, picture, job["channel"])
 
 
 async def _run_image(job: Dict[str, Any]) -> None:

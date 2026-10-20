@@ -163,7 +163,7 @@ function ContactsPanel({ company }) {
                 </div>
               )
             ) : (
-              <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 4 }}>
+              <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 8 }}>
                 {busy ? <RefreshCw size={13} className="ui-spin" /> : <Globe size={13} />} Look for website &amp; phone on the web · 1 credit if found
               </button>
             )}
