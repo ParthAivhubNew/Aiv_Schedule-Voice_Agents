@@ -648,7 +648,9 @@ button, input, select, textarea {
   display: contents;
 }
 .pane-switch,
-.phone-only {
+.phone-only,
+.contact-cards,
+.vcal-dot {
   display: none;
 }
 .phone-home {
@@ -667,6 +669,11 @@ button, input, select, textarea {
   button,
   select {
     min-height: 40px;
+  }
+  /* The bell is a circle: grow its width with the taller phone height, or it turns oval. */
+  .nb-btn {
+    width: 40px !important;
+    height: 40px !important;
   }
   /* 100vh on iOS Safari is taller than the visible page (the address bar), which pushed the
      bottom of each app, including the chat input, off screen. */
@@ -795,6 +802,28 @@ button, input, select, textarea {
     padding: 6px 4px !important;
     touch-action: manipulation;
   }
+  .cal-day > div:first-child {
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 0 !important;
+  }
+  .cal-day[aria-pressed="true"] {
+    border: 2px solid #0C8C7D !important;
+    background: #E4F5F2 !important;
+  }
+  .cal-post {
+    display: none !important;
+  }
+  .cal-dots {
+    display: flex;
+    gap: 3px;
+  }
+  .cal-dots > i {
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+  }
   .chat-send {
     width: 44px !important;
     min-height: 44px;
@@ -825,6 +854,17 @@ button, input, select, textarea {
     position: sticky;
     top: 0;
     z-index: 5;
+  }
+  /* Covers the page's top padding while the switch is stuck, so the content scrolling under it
+     does not show above it. */
+  .pane-switch::before {
+    content: "";
+    position: absolute;
+    left: -16px;
+    right: -16px;
+    bottom: 100%;
+    height: 20px;
+    background: var(--ui-bg, #F5F6F8);
   }
   .pane-switch button {
     flex: 1;
@@ -862,6 +902,115 @@ button, input, select, textarea {
   .pane-root[data-active="main"] > [data-pane]:not([data-pane="main"]),
   .pane-root[data-active="side"] > [data-pane]:not([data-pane="side"]) {
     display: none !important;
+  }
+  /* Voice list: the page scrolls as a whole, so the contacts card keeps its full height instead of
+     being squeezed under the cards above it. */
+  .list-main > .ui-card {
+    flex-shrink: 0 !important;
+  }
+  .list-card {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+  }
+  .contact-cards {
+    display: flex;
+    flex-direction: column;
+  }
+  .contact-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    border-top: 1px solid #EEF0F3;
+  }
+  .contact-card.is-selected {
+    background: var(--ui-accent-soft, #EEF2FD);
+  }
+  .contact-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .contact-card-actions .ui-icon-btn {
+    width: 44px;
+    height: 44px;
+    border: 1px solid #E3E6EB;
+    border-radius: 10px;
+  }
+  .contact-card-actions .ui-btn {
+    min-height: 44px;
+  }
+  /* Voice schedule: a compact month (the date and a dot for booked days); the chosen day's
+     bookings and free times show under it. */
+  .vcal-cell {
+    min-height: 44px !important;
+    padding: 4px !important;
+    align-items: center;
+    justify-content: center;
+  }
+  .vcal-cell > div:first-child {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .vcal-cell[aria-pressed="true"] {
+    background: var(--ui-accent, #3457D5) !important;
+    border-color: var(--ui-accent, #3457D5) !important;
+  }
+  .vcal-cell[aria-pressed="true"] span {
+    color: #FFFFFF !important;
+  }
+  .vcal-chip,
+  .vcal-tag {
+    display: none !important;
+  }
+  .vcal-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+  }
+  .vcal-cell[aria-pressed="true"] .vcal-dot {
+    background: #FFFFFF !important;
+  }
+  .sched-search {
+    flex: 1 1 140px;
+    width: auto !important;
+    height: 40px !important;
+    margin-left: 0 !important;
+  }
+  /* Match your columns: each column of the file becomes a small block (name, then its choice, then
+     a sample) instead of three squeezed table columns. */
+  .map-table thead {
+    display: none;
+  }
+  .map-table tr {
+    display: grid;
+    gap: 6px;
+    padding: 10px 0;
+  }
+  .map-table td {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .map-table select {
+    height: 44px !important;
+  }
+  /* AI Templates: phone-sized padding so the cards and their fields keep the screen width. */
+  .tpl-body {
+    padding: 14px 12px !important;
+  }
+  .tpl-card {
+    padding: 14px !important;
+  }
+  .tpl-head {
+    padding: 10px 12px !important;
+  }
+  .tpl-body select,
+  .tpl-body input,
+  .tpl-body textarea {
+    max-width: 100%;
+    box-sizing: border-box;
   }
   /* The AI chat takes the whole screen between the top bar, the pane switch and the tab bar. */
   .pane-fill {

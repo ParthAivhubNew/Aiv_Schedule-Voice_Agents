@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   Check,
@@ -18,6 +18,7 @@ import { api } from "../../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { MeetingInvitePreview } from "../../../components/MeetingInvitePreview";
 import { openLead } from "../../../connections/ConnectedHome";
+import { PaneSwitch } from "../../../components/PaneSwitch";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
@@ -52,6 +53,7 @@ const SLOT_STEP = 30;
 function fieldStyle() {
   return {
     width: "100%",
+    minWidth: 0,
     height: 40,
     borderRadius: 10,
     border: `1px solid ${C.border}`,
@@ -397,6 +399,13 @@ export function CallingSchedule({
   const [dayExpanded, setDayExpanded] = useState(false);
   const [invitePreviewOpen, setInvitePreviewOpen] = useState(false);
   const [bookingPolicy, setBookingPolicy] = useState(null);
+  // Phones: the calendar or the booking form, one at a time. A free slot opens the form filled in.
+  const [pane, setPane] = useState("main");
+  const rootRef = useRef(null);
+  // A pane switch starts at the top of the new pane, not halfway down where the last one was.
+  useEffect(() => {
+    if (rootRef.current && rootRef.current.getBoundingClientRect().top < 0) rootRef.current.scrollIntoView({ block: "start" });
+  }, [pane]);
   const [meetLinks, setMeetLinks] = useState([]);
 
   const loadMeetLinks = () => api.getMeetingLinks().then((r) => setMeetLinks((r && r.providers) || [])).catch(() => {});
@@ -527,7 +536,8 @@ export function CallingSchedule({
   const pickFreeSlot = (iso, time) => {
     setSelectedDay(iso);
     setPlan((p) => ({ ...p, day: iso, time }));
-    onToast(`Slot ${time} on ${iso} — finish the form on the left.`);
+    if (pane === "main" && window.matchMedia && window.matchMedia("(max-width: 820px) and (pointer: coarse)").matches) setPane("side");
+    else onToast(`Slot ${time} on ${iso} — finish the form on the left.`);
   };
 
   const savePlan = async () => {
@@ -580,6 +590,7 @@ export function CallingSchedule({
       }
       setSelectedDay(toISODate(plan.day) || selectedDay);
       setPlan(emptyPlan());
+      setPane("main");
       if (onSaved) await onSaved();
       if (res && res.id) setOpenId(res.id);
     } catch (e) {
@@ -673,12 +684,16 @@ export function CallingSchedule({
     : "";
 
   return (
-    <div className="stack-narrow" style={{ display: "grid", gridTemplateColumns: "minmax(300px, 400px) 1fr", gap: 16, alignItems: "start" }}>
-      <div className="sticky-wide" style={{ ...card(), position: "sticky", top: 0 }}>
+    <div ref={rootRef} className="stack-narrow pane-root" data-active={pane} style={{ display: "grid", gridTemplateColumns: "minmax(300px, 400px) 1fr", gap: 16, alignItems: "start" }}>
+      <PaneSwitch value={pane} onChange={setPane} panes={[{ id: "main", label: "Calendar", badge: counts.today ? `${counts.today} today` : "" }, { id: "side", label: "Add booking" }]} />
+      <div data-pane="side" className="sticky-wide" style={{ ...card(), position: "sticky", top: 0 }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Park a call or meeting</div>
-        <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Name, when, how. Click a free slot on the calendar to fill day & time.</div>
+        <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>
+          <span className="phone-gone">Name, when, how. Click a free slot on the calendar to fill day & time.</span>
+          <span className="phone-only">Name, when, how. Or pick a free time on the Calendar tab.</span>
+        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(kinds.length, 3)}, 1fr)`, gap: 8, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(kinds.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 14 }}>
           {kinds.map((k) => {
             const active = plan.kind === k.id;
             const Icon = k.Icon;
@@ -689,7 +704,8 @@ export function CallingSchedule({
                 onClick={() => patch("kind", k.id)}
                 style={{
                   textAlign: "left",
-                  padding: "10px 12px",
+                  minWidth: 0,
+                  padding: "10px 10px",
                   borderRadius: 12,
                   border: `1.5px solid ${active ? C.ink : C.border}`,
                   background: active ? C.ink : "#fff",
@@ -715,7 +731,7 @@ export function CallingSchedule({
         <Label>Email (optional)</Label>
         <input value={plan.email} onChange={(e) => patch("email", e.target.value)} placeholder="invite@…" style={{ ...fieldStyle(), marginBottom: 12 }} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginBottom: 12 }}>
           <div>
             <Label>Day</Label>
             <input type="date" value={plan.day} onChange={(e) => { patch("day", e.target.value); setSelectedDay(e.target.value); }} style={fieldStyle()} />
@@ -799,8 +815,18 @@ export function CallingSchedule({
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
+      <div data-pane="main" style={{ display: "grid", gap: 12, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select className="phone-only" aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value)}
+            style={{ ...fieldStyle(), flex: "1 1 140px", width: "auto", height: 40 }}>
+            <option value="all">All bookings ({counts.all})</option>
+            <option value="today">Today ({counts.today})</option>
+            <option value="calls">Calls</option>
+            <option value="video">Video ({counts.video})</option>
+            <option value="notified">WhatsApp sent ({counts.notified})</option>
+            <option value="list">As a list ({(meetings || []).length})</option>
+          </select>
+          <span className="phone-hide">
           {[
             ["all", `All (${counts.all})`],
             ["today", `Today (${counts.today})`],
@@ -828,6 +854,7 @@ export function CallingSchedule({
               {label}
             </button>
           ))}
+          </span>
           <button
             type="button"
             onClick={() => setInvitePreviewOpen(true)}
@@ -848,7 +875,7 @@ export function CallingSchedule({
           >
             <MessageCircle size={13} /> Email preview
           </button>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="sched-search" style={{ ...fieldStyle(), width: 160, height: 34, marginLeft: "auto" }} />
         </div>
 
         {filter === "list" ? (
@@ -907,7 +934,8 @@ export function CallingSchedule({
                 {monthLabel(cal.year, cal.month)}
               </div>
               <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                Booked vs free · window {workStart}–{workEnd} · Click to select · Double-click to open
+                <span className="phone-gone">Booked vs free · window {workStart}–{workEnd} · Click to select · Double-click to open</span>
+                <span className="phone-only">Open {workStart}–{workEnd}. Tap a day to see its bookings and free times.</span>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -943,7 +971,7 @@ export function CallingSchedule({
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
             {cells.map((day, i) => {
-              if (!day) return <div key={"e" + i} style={{ minHeight: 92, minWidth: 0 }} />;
+              if (!day) return <div key={"e" + i} className="vcal-cell" style={{ minHeight: 92, minWidth: 0 }} />;
               const key = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
               const dayEvents = byDay[key] || [];
               const cancelledCount = dayEvents.filter(isCancelled).length;
@@ -954,6 +982,9 @@ export function CallingSchedule({
                 <button
                   key={key}
                   type="button"
+                  className="vcal-cell"
+                  aria-label={`${day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}${dayEvents.length ? `, ${dayEvents.length} booked` : ""}`}
+                  aria-pressed={isSel}
                   onClick={() => {
                     setSelectedDay(key);
                     setPlan((p) => ({ ...p, day: key }));
@@ -982,12 +1013,13 @@ export function CallingSchedule({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
+                    {dayEvents.length ? <span className="vcal-dot" style={{ background: cancelledCount ? "#B91C1C" : C.cobalt }} /> : null}
                     {dayEvents.length ? (
-                      <span style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "#047857" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                      <span className="vcal-tag" style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "#047857" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
                         {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "done" : "booked"}
                       </span>
                     ) : (
-                      <span style={{ fontSize: 9, fontWeight: 700, color: C.slateLight }}>open</span>
+                      <span className="vcal-tag" style={{ fontSize: 9, fontWeight: 700, color: C.slateLight }}>open</span>
                     )}
                   </div>
                   {dayEvents.slice(0, 3).map((ev) => (
@@ -1004,6 +1036,7 @@ export function CallingSchedule({
                         setOpenId(ev.id);
                         setDayExpanded(true);
                       }}
+                      className="vcal-chip"
                       style={{ ...eventChipStyle(ev, kinds), cursor: "pointer" }}
                       title={isCancelled(ev) ? `${cancelWhoLabel(ev.cancellationReason)} · ${ev.prospect}` : `${eventTime(ev)} · ${ev.prospect} · Double-click to open`}
                     >
@@ -1011,7 +1044,7 @@ export function CallingSchedule({
                     </div>
                   ))}
                   {dayEvents.length > 3 ? (
-                    <div style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more · double-click to open</div>
+                    <div className="vcal-chip" style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more · double-click to open</div>
                   ) : null}
                 </button>
               );
@@ -1033,7 +1066,7 @@ export function CallingSchedule({
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(120px, 30%), 1fr))", gap: 8 }}>
             {daySlots.map((slot) => {
               const hit = selectedEvents.find((e) => eventTime(e) === slot);
               if (hit) {
@@ -1078,7 +1111,7 @@ export function CallingSchedule({
                   }}
                 >
                   <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
-                  <div style={{ fontSize: 11, marginTop: 4, color: C.cobalt, fontWeight: 700 }}>Free · park here</div>
+                  <div style={{ fontSize: 11, marginTop: 4, color: C.cobalt, fontWeight: 700 }}>Free<span className="phone-gone"> · park here</span></div>
                 </button>
               );
             })}

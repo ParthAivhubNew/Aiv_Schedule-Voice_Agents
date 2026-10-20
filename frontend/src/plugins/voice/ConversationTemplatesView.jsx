@@ -360,7 +360,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         <div style={{ width: 320, minWidth: 320, borderRight: `1px solid ${C.border}`, background: "#FFFFFF", display: "flex", flexDirection: "column" }}>
           {/* Header & Filter Controls */}
           <div style={{ padding: "18px 20px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Templates</span>
               <button
                 onClick={handleCreateNew}
@@ -501,7 +501,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         {/* Main Workspace */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#F8FAFC" }}>
           {/* Top Bar for active template */}
-          <div className="wrap-narrow" style={{ padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div className="wrap-narrow tpl-head" style={{ padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <div className="wrap-narrow" style={{ display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ display: "flex", background: C.paperSoft, padding: 3, borderRadius: 8 }}>
                 <button
@@ -617,14 +617,14 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
 
           {/* Tab 1: Editor */}
           {activeTab === "editor" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }} onFocusCapture={rememberBox}>
+            <div className="tpl-body" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }} onFocusCapture={rememberBox}>
               <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5, color: C.slate }}>
                   <select
                     aria-label="Insert variable"
                     value=""
                     onChange={(e) => insertVariable(e.target.value)}
-                    style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff", cursor: "pointer" }}
+                    style={{ maxWidth: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff", cursor: "pointer" }}
                   >
                     <option value="">Insert variable…</option>
                     {VARIABLE_TAGS.map((v) => <option key={v.tag} value={v.tag}>{v.desc} — {v.tag}</option>)}
@@ -632,7 +632,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <span>Click inside any text box below, then pick a variable. It is filled in on every call.</span>
                 </div>
                 {/* Meta Configuration Card */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
                     Template Information
                   </div>
@@ -661,8 +661,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 1: Greeting Hook */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       1. Opening Hook & Greeting
                     </div>
@@ -678,8 +678,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 2: Permission Check */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       2. Permission & Timing Check
                     </div>
@@ -695,8 +695,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 3: Value Proposition */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       3. Value Proposition & Core Pitch
                     </div>
@@ -712,8 +712,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 4: Smart Objection Handling Matrix */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                         4. Objection Handling Matrix
@@ -761,7 +761,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 5: Booking Transition & Confirmation */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 14 }}>
                     5. Booking Flow & Closing
                   </div>
@@ -800,7 +800,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 6: Business Rules & Demo Script */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
                     6. Business Rules & Demo Script
                   </div>
@@ -836,11 +836,11 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
 
           {/* Tab 2: Live Prompt Preview */}
           {activeTab === "preview" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+            <div className="tpl-body" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
               <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
                 {/* Scenario Switcher Card */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                         Simulation & Context Testing
@@ -858,7 +858,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     </button>
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(140px, 100%), 1fr))", gap: 8, marginBottom: 16 }}>
                     {[
                       { id: "full", label: "Full CRM Lead", desc: "Name + Company + Email + Phone" },
                       { id: "partial", label: "Partial Lead", desc: "Name + Phone only" },
@@ -869,8 +869,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                         key={sc.id}
                         onClick={() => setPreviewScenario(sc.id)}
                         style={{
-                          flex: 1,
-                          padding: "10px 14px",
+                          minWidth: 0,
+                          padding: "10px 12px",
                           borderRadius: 8,
                           cursor: "pointer",
                           border: `1px solid ${previewScenario === sc.id ? C.cobalt : C.border}`,
@@ -885,7 +885,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Where each part of the prompt comes from, with a way to change it at its source */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Where each part comes from</div>
                   <div style={{ fontSize: 12, color: C.slate, margin: "2px 0 12px" }}>This text is put together from several places. Change a part where it lives and it updates here and on every call.</div>
                   <div style={{ display: "grid", gap: 8 }}>
@@ -897,8 +897,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       ["Services, FAQs and website facts (looked up during the call)", "Company profile → Knowledge", () => onOpenPage && onOpenPage("company")],
                       ["Lead details and today's date", "Filled in live on each call", null],
                     ].map(([what, where, go]) => (
-                      <div key={what} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 9, background: C.paperSoft, border: `1px solid ${C.border}`, fontSize: 12.5 }}>
-                        <span style={{ flex: 1, color: C.ink }}>{what}</span>
+                      <div key={what} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 10px", padding: "8px 12px", borderRadius: 9, background: C.paperSoft, border: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                        <span style={{ flex: "1 1 180px", minWidth: 0, color: C.ink }}>{what}</span>
                         <span style={{ color: C.slate }}>{where}</span>
                         {go && <button type="button" onClick={go} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Edit</button>}
                       </div>
@@ -907,8 +907,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Rendered Prompt Box */}
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       What the AI is told on every call
                     </div>
@@ -919,7 +919,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <Copy size={11} /> {copiedTag === renderedPreview ? "Copied!" : "Copy Prompt"}
                     </button>
                   </div>
-                  <pre style={{ margin: 0, padding: 16, borderRadius: 8, background: "#0F172A", color: "#E2E8F0", fontFamily: FONT_MONO, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 500, overflowY: "auto" }}>
+                  <pre style={{ margin: 0, padding: 16, borderRadius: 8, background: "#0F172A", color: "#E2E8F0", fontFamily: FONT_MONO, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 500, overflowY: "auto" }}>
                     {previewLoading ? "Resolving context and rendering template..." : renderedPreview || "No preview available."}
                   </pre>
                 </div>
@@ -929,10 +929,10 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
 
           {/* Tab 4: Booking & Call Rules — one shared policy, applies to xAI, OpenAI Realtime and Modular/LiveKit alike */}
           {activeTab === "booking" && (
-            <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+            <div className="tpl-body" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
               <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
-                <div style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
                       Booking & Call Rules
                     </div>

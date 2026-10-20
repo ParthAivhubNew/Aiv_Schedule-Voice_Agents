@@ -32,9 +32,9 @@ export function ImportMapper({ fileName, sheets, sheetNames, onCancel, onImport 
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", zIndex: 140, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", zIndex: 140, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
       <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, boxShadow: "0 24px 70px rgba(0,0,0,0.22)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px 10px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "18px 18px 10px" }}>
           <FileSpreadsheet size={20} color={C.cobalt} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Match your columns</div>
@@ -49,14 +49,14 @@ export function ImportMapper({ fileName, sheets, sheetNames, onCancel, onImport 
         {sheetNames && sheetNames.length > 1 && (
           <div style={{ padding: "0 22px 8px", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12.5, color: C.slate }}>Sheet</span>
-            <select value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240 }}>
+            <select value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240, maxWidth: "100%" }}>
               {sheetNames.map((s) => <option key={s} value={s}>{s} ({(sheets[s]?.records || []).length} rows)</option>)}
             </select>
           </div>
         )}
 
-        <div style={{ overflowY: "auto", padding: "4px 22px 12px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <div style={{ overflowY: "auto", padding: "4px 18px 12px" }}>
+          <table className="map-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ textAlign: "left", color: C.slate }}>
                 <th style={{ padding: "6px 6px", width: "26%" }}>Column in your file</th>
@@ -86,7 +86,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, onCancel, onImport 
           </table>
         </div>
 
-        <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 22px 16px" }}>
+        <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 18px 16px" }}>
           {warnings.map((w) => (
             <div key={w} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.amber, marginBottom: 4 }}>
               <AlertTriangle size={13} /> {w}

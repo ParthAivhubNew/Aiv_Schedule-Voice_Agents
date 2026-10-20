@@ -50,14 +50,14 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
         {sheetNames && sheetNames.length > 1 && (
           <div style={{ padding: "0 22px 8px", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12.5, color: C.slate }}>Sheet</span>
-            <select title="Pick which sheet of the workbook to import" value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240 }}>
+            <select title="Pick which sheet of the workbook to import" value={sheet} onChange={(e) => setSheet(e.target.value)} style={{ ...sel, width: 240, maxWidth: "100%" }}>
               {sheetNames.map((s) => <option key={s} value={s}>{s} ({(sheets[s] || []).length} rows)</option>)}
             </select>
           </div>
         )}
 
         <div style={{ overflowY: "auto", padding: "4px 22px 12px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <table className="map-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ textAlign: "left", color: C.slate }}>
                 <th style={{ padding: "6px 6px", width: "26%" }}>Column in your file</th>

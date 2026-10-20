@@ -98,7 +98,7 @@ function OutcomeBars({ items }) {
           onMouseEnter={() => setHover(o.key)}
           onMouseLeave={() => setHover(null)}
           title={`${o.label}: ${o.count}`}
-          style={{ display: "grid", gridTemplateColumns: "130px 1fr 40px", alignItems: "center", gap: 10, padding: "2px 0", background: hover === o.key ? C.paper : "transparent", borderRadius: 6 }}
+          style={{ display: "grid", gridTemplateColumns: "minmax(0, 130px) 1fr 40px", alignItems: "center", gap: 10, padding: "2px 0", background: hover === o.key ? C.paper : "transparent", borderRadius: 6 }}
         >
           <span style={{ fontSize: 12.5, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
           <div style={{ height: 12, background: C.paperSoft, borderRadius: 4 }}>
@@ -130,12 +130,13 @@ function BestTimeGrid({ cells }) {
     return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
   };
   return (
-    <div style={{ position: "relative", overflowX: "auto" }}>
-      <table style={{ borderCollapse: "separate", borderSpacing: 2, fontSize: 11, color: MUTED }}>
+    <div style={{ position: "relative" }}>
+      {/* Fixed layout: the hour columns share the card width, so the grid never scrolls sideways on a phone. */}
+      <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 2, fontSize: 11, color: MUTED }}>
         <thead>
           <tr>
-            <th />
-            {hours.map((h) => <th key={h} style={{ fontWeight: 500, padding: "0 0 4px", minWidth: 24 }}>{h % 3 === 0 ? `${h}:00` : ""}</th>)}
+            <th style={{ width: 34 }} />
+            {hours.map((h) => <th key={h} style={{ fontWeight: 500, padding: "0 0 4px", textAlign: "left", overflow: "visible", whiteSpace: "nowrap" }}>{h % 3 === 0 ? h : ""}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -147,9 +148,10 @@ function BestTimeGrid({ cells }) {
                 return (
                   <td
                     key={h}
+                    onClick={(e) => cell && setTip(tip && tip.cell === cell ? null : { x: e.currentTarget.offsetLeft, y: e.currentTarget.offsetTop, cell, wd, h })}
                     onMouseEnter={(e) => cell && setTip({ x: e.currentTarget.offsetLeft, y: e.currentTarget.offsetTop, cell, wd, h })}
                     onMouseLeave={() => setTip(null)}
-                    style={{ width: 24, height: 22, borderRadius: 4, background: cell ? shade(cell.rate) : C.paper, cursor: cell ? "default" : undefined }}
+                    style={{ height: 22, borderRadius: 4, background: cell ? shade(cell.rate) : C.paper, cursor: cell ? "default" : undefined }}
                   />
                 );
               })}
@@ -158,15 +160,15 @@ function BestTimeGrid({ cells }) {
         </tbody>
       </table>
       {tip && (
-        <div style={{ position: "absolute", left: tip.x + 30, top: tip.y - 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 9px", fontSize: 12, color: INK, boxShadow: "0 6px 18px rgba(0,0,0,0.08)", pointerEvents: "none", whiteSpace: "nowrap" }}>
+        <div style={{ position: "absolute", left: Math.min(tip.x + 30, 120), top: tip.y - 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 9px", fontSize: 12, color: INK, boxShadow: "0 6px 18px rgba(0,0,0,0.08)", pointerEvents: "none", whiteSpace: "nowrap" }}>
           <b>{tip.wd} {tip.h}:00</b> · {tip.cell.calls} calls · {tip.cell.connected} connected ({tip.cell.rate}%)
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: MUTED, marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 11.5, color: MUTED, marginTop: 8 }}>
         Connect rate <span>0%</span>
         <span style={{ width: 90, height: 8, borderRadius: 4, background: `linear-gradient(90deg, ${shade(0)}, ${shade(100)})` }} />
         <span>100%</span>
-        <span style={{ marginLeft: 10 }}>Grey = no calls in that hour</span>
+        <span>· Grey = no calls in that hour</span>
       </div>
     </div>
   );
@@ -197,7 +199,7 @@ function SharePanel({ onClose }) {
     }
   };
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.45)", zIndex: 130, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.45)", zIndex: 330, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "85vh", overflowY: "auto", padding: 20, fontFamily: FONT_BODY }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, flex: 1 }}>Share Analytics</div>
@@ -206,7 +208,7 @@ function SharePanel({ onClose }) {
         <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14 }}>Analytics starts visible to admins only. Choose who else can see it.</div>
         {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
         {people.map((p) => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${C.borderLight}` }}>
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 0", borderTop: `1px solid ${C.borderLight}` }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}</div>
               <div style={{ fontSize: 11.5, color: MUTED }}>{p.roles.join(", ") || "No role"}{!p.is_active ? " · disabled" : ""}</div>
@@ -274,7 +276,7 @@ export function AnalyticsTab({ operator }) {
 
       {cur && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(150px, 40%), 1fr))", gap: 12 }}>
             <StatTile label="Calls" value={cur.calls} delta={<Delta now={cur.calls} before={prev.calls} />} />
             <StatTile label="Connect rate" value={cur.connectRate} unit="%" delta={<Delta now={cur.connectRate} before={prev.connectRate} suffix=" pts" />} />
             <StatTile label="Meetings booked" value={cur.booked} delta={<Delta now={cur.booked} before={prev.booked} />} />
@@ -330,7 +332,7 @@ export function AnalyticsTab({ operator }) {
             )}
           </Card>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 14 }}>
             <Card title="How calls ended" subtitle="Outcome of every call in this period">
               <OutcomeBars items={data.outcomes} />
             </Card>
@@ -339,7 +341,7 @@ export function AnalyticsTab({ operator }) {
             </Card>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 14 }}>
             <Card title="Campaigns" subtitle="Results per contact list or campaign">
               {data.campaigns.length ? (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -354,7 +356,7 @@ export function AnalyticsTab({ operator }) {
                   <tbody>
                     {data.campaigns.map((c) => (
                       <tr key={c.name} style={{ borderTop: `1px solid ${C.borderLight}` }}>
-                        <td style={{ padding: "7px 4px", color: INK, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</td>
+                        <td style={{ padding: "7px 4px", color: INK, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</td>
                         <td style={{ padding: "7px 4px", textAlign: "right", fontFamily: FONT_MONO }}>{c.calls}</td>
                         <td style={{ padding: "7px 4px", textAlign: "right", fontFamily: FONT_MONO }}>{c.connectRate}%</td>
                         <td style={{ padding: "7px 4px", textAlign: "right", fontFamily: FONT_MONO }}>{c.booked}</td>
