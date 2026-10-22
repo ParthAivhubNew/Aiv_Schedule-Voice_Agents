@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Ban, Database, Lock, Plus, Repeat, Trash2, Workflow, X } from "lucide-react";
-import { api, apiRequest } from "../api/apiClient";
+import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { openPlans, useConnections, PLUGIN_NAME } from "../hooks/useConnections";
 
@@ -265,16 +265,6 @@ function DataTab({ toast, plugins }) {
   const [busy, setBusy] = useState("");
   const load = useCallback(() => api.getDuplicates().then((r) => setGroups(r.groups)).catch((e) => { setGroups([]); toast(e.message || "Couldn't look for duplicates."); }), [toast]);
   useEffect(() => { if (plugins.leads) load(); }, [load, plugins.leads]);
-  const download = async (path, name) => {
-    setBusy("csv");
-    try {
-      const blob = await apiRequest(path, { asBlob: true });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = name; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { toast(e.message || "Couldn't download."); } finally { setBusy(""); }
-  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {plugins.leads ? (
@@ -296,13 +286,8 @@ function DataTab({ toast, plugins }) {
               </div>
             ))}
           </section>
-          <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={heading}>Export</div>
-            <div style={muted}>One row per company with its stage and how many calls, emails, meetings and posts it has had.</div>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ alignSelf: "flex-start" }} disabled={busy === "csv"} onClick={() => download("/contacts/export.csv", "contacts.csv")}>Download contacts (CSV)</button>
-          </section>
         </>
-      ) : <div style={muted}>Duplicates and the export are part of Lead Gen.</div>}
+      ) : <div style={muted}>Duplicates are part of Lead Gen.</div>}
       <FailedEvents toast={toast} />
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={heading}>Link older calls to your companies</div>

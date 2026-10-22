@@ -115,20 +115,23 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
   const hasResults = week.series.some((d) => d.reach != null || d.engagements != null);
   if (embedded) {
     const next = data.upcoming[0];
-    const chip = (label, value, tone) => (
-      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5, whiteSpace: "nowrap" }}>
-        <b style={{ fontSize: 16, color: tone === "alert" ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</b>
-        <span style={{ fontSize: 11.5, color: C.slate }}>{label}</span>
-      </span>
+    const stat = (value, title, hint, tone, first) => (
+      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: first ? "0 18px 0 2px" : "0 18px", borderLeft: first ? "none" : `1px solid ${C.border}` }}>
+        <b style={{ fontSize: 24, lineHeight: 1, color: tone === "alert" ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</b>
+        <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{title}</span>
+          <span style={{ fontSize: 11.5, color: C.slate }}>{hint}</span>
+        </span>
+      </div>
     );
     return (
-      <div style={{ ...card, padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }} aria-label="Overview">
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 18px" }}>
-          {chip("posts going out today", c.today)}
-          {chip("scheduled in the next 7 days", c.nextSevenDays)}
-          {chip("posts failed to publish", c.failed, c.failed ? "alert" : "")}
-          {chip("published this month", c.publishedThisMonth)}
-          {hasResults ? chip("people reached, last 7 days", fmt(week.totals.reach ?? week.totals.impressions)) : null}
+      <div style={{ ...card, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }} aria-label="Overview">
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 0" }}>
+          {stat(c.today, "Posts today", "going out today", "", true)}
+          {stat(c.nextSevenDays, "Scheduled", "in the next 7 days")}
+          {stat(c.failed, "Failed", c.failed ? "didn't publish, needs a fix" : "all posts published fine", c.failed ? "alert" : "")}
+          {stat(c.publishedThisMonth, "Published", "so far this month")}
+          {hasResults ? stat(fmt(week.totals.reach ?? week.totals.impressions), "People reached", "in the last 7 days") : null}
           <span style={{ flex: 1 }} />
           {!attention ? <span style={{ fontSize: 12.5, color: C.slate }}>Nothing needs you right now.</span> : null}
           <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>

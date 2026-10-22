@@ -2324,7 +2324,7 @@ function isLocked(status) {
 
 // Fields that only exist in the browser (drafting context), kept when the server copy wins.
 // A day cell shows this many posts; the rest sit behind "+N more" so a busy day cannot stretch the grid.
-const DAY_POST_LIMIT = 3;
+const DAY_POST_LIMIT = 2;
 
 const LOCAL_ONLY_FIELDS = ["plan", "batchId", "uniqueForChannel", "copyChat", "imageChat", "hook", "hashtags", "imageConcept", "imageHeadline"];
 
