@@ -1521,6 +1521,34 @@ async def put_email_finder_order(body: FinderOrderBody, request: Request):
     return {"order": order}
 
 
+class WebSearchBody(BaseModel):
+    deepseek: bool = False
+
+
+@router.get("/web-search")
+async def get_web_search(request: Request):
+    """Which extra web-search engines are switched on."""
+    from app.services.credits import _get_doc
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return {"deepseek": bool((await _get_doc(db, "web_search_settings")).get("deepseek"))}
+
+
+@router.put("/web-search")
+async def put_web_search(body: WebSearchBody, request: Request):
+    """Tick or untick DeepSeek as a web-search engine (uses the DeepSeek key already saved). Admin only."""
+    from app.services.credits import _get_doc, _put_doc
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        doc = await _get_doc(db, "web_search_settings")
+        doc["deepseek"] = bool(body.deepseek)
+        await _put_doc(db, "web_search_settings", doc)
+        await db.commit()
+    return {"deepseek": doc["deepseek"]}
+
+
 @router.get("/model-pricing")
 async def get_model_pricing(request: Request):
     """Every provider/model that has actually been used, with its $ price if staff have set one

@@ -115,41 +115,45 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
   const hasResults = week.series.some((d) => d.reach != null || d.engagements != null);
   if (embedded) {
     const next = data.upcoming[0];
-    const stat = (value, title, hint, tone, first) => (
-      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: first ? "0 18px 0 2px" : "0 18px", borderLeft: first ? "none" : `1px solid ${C.border}` }}>
-        <b style={{ fontSize: 24, lineHeight: 1, color: tone === "alert" ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</b>
-        <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, whiteSpace: "nowrap" }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{title}</span>
-          <span style={{ fontSize: 11.5, color: C.slate }}>{hint}</span>
+    const stat = (value, title, hint, tone) => (
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 20px", flex: "1 1 190px", minWidth: 0, borderLeft: `1px solid ${C.border}` }} className="ov-stat">
+        <b style={{ fontSize: 28, lineHeight: 1, minWidth: 22, color: tone === "alert" ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</b>
+        <span style={{ display: "flex", flexDirection: "column", gap: 2, lineHeight: 1.25, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{title}</span>
+          <span style={{ fontSize: 12, color: C.slate }}>{hint}</span>
         </span>
       </div>
     );
     return (
-      <div style={{ ...card, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }} aria-label="Overview">
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 0" }}>
-          {stat(c.today, "Posts today", "going out today", "", true)}
-          {stat(c.nextSevenDays, "Scheduled", "in the next 7 days")}
-          {stat(c.failed, "Failed", c.failed ? "didn't publish, needs a fix" : "all posts published fine", c.failed ? "alert" : "")}
-          {stat(c.publishedThisMonth, "Published", "so far this month")}
-          {hasResults ? stat(fmt(week.totals.reach ?? week.totals.impressions), "People reached", "in the last 7 days") : null}
-          <span style={{ flex: 1 }} />
-          {!attention ? <span style={{ fontSize: 12.5, color: C.slate }}>Nothing needs you right now.</span> : null}
-          <button type="button" style={{ ...btn, height: 26, fontSize: 11.5 }} onClick={onOpenInsights}>See all results</button>
+      <div style={{ ...card, padding: 0, overflow: "hidden" }} aria-label="Overview">
+        <style>{`.ov-stat:first-child{border-left:none!important;padding-left:18px!important}`}</style>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", padding: "12px 0", gap: "10px 0" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", flex: "1 1 520px", gap: "10px 0", minWidth: 0 }}>
+            {stat(c.today, "Posts today", "going out today")}
+            {stat(c.nextSevenDays, "Scheduled", "in the next 7 days")}
+            {stat(c.failed, "Failed", c.failed ? "didn't publish, needs a fix" : "all posts published fine", c.failed ? "alert" : "")}
+            {stat(c.publishedThisMonth, "Published", "so far this month")}
+            {hasResults ? stat(fmt(week.totals.reach ?? week.totals.impressions), "People reached", "in the last 7 days") : null}
+          </div>
+          <div style={{ padding: "0 18px 0 8px", flexShrink: 0 }}>
+            <button type="button" style={{ ...btn, height: 32, fontSize: 12.5, padding: "0 14px" }} onClick={onOpenInsights}>See all results</button>
+          </div>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 14px", fontSize: 12.5, color: C.slate, minWidth: 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 14px", padding: "8px 18px", borderTop: `1px solid ${C.border}`, background: C.paperSoft || "#F8F9FB", fontSize: 12.5, color: C.slate, minWidth: 0 }}>
           {data.reconnect.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={onReconnect}><Plug size={12} color={C.red} /> {data.reconnect.length} to reconnect</button>
           ) : null}
           {data.failed.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={() => onOpenPost(data.failed[0].id)}><AlertTriangle size={12} color={C.red} /> {data.failed.length} failed, fix</button>
           ) : null}
+          {!attention ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: C.green || "#16A34A" }} />Nothing needs you right now</span> : null}
           <span style={{ flex: 1 }} />
           {next ? (
             <button type="button" onClick={() => onOpenPost(next.id)} title={next.title}
               style={{ border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>
               <span style={{ color: C.slate }}>Up next: {when(next.dueAtMs, org)} · </span>{next.title}
             </button>
-          ) : <span>Nothing scheduled yet.</span>}
+          ) : <span>Nothing scheduled yet</span>}
         </div>
       </div>
     );

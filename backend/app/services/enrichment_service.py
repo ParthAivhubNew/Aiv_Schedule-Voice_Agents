@@ -252,6 +252,77 @@ async def tavily_key() -> str:
     return getattr(settings, "TAVILY_API_KEY", None) or os.getenv("TAVILY_API_KEY", "")
 
 
+async def deepseek_search_enabled() -> bool:
+    """The "Use DeepSeek for web search" box staff tick under Platform Keys -> Leads. Off until ticked."""
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.credits import _get_doc
+
+        async with AsyncSessionLocal() as db:
+            return bool((await _get_doc(db, "web_search_settings")).get("deepseek"))
+    except Exception as err:
+        logger.debug(f"[deepseek_search] setting not read: {err}")
+        return False
+
+
+async def deepseek_key() -> str:
+    """The DeepSeek key already saved under Platform Keys (any group, e.g. the Leads writing key),
+    falling back to the DEEPSEEK_API_KEY environment variable. Search uses the same key and balance."""
+    from sqlalchemy.future import select
+
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    try:
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(select(Connection))).scalars().all()
+        for c in rows:
+            cfg = open_config(c.config if isinstance(c.config, dict) else {})
+            if "deepseek" in f"{c.name or ''} {cfg.get('provider') or ''}".lower():
+                key = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
+                if key:
+                    return key.strip()
+    except Exception as err:
+        logger.debug(f"[deepseek_search] saved key not read: {err}")
+    return getattr(settings, "DEEPSEEK_API_KEY", None) or os.getenv("DEEPSEEK_API_KEY", "")
+
+
+async def search_deepseek(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """DeepSeek's own search endpoint, billed per successful request to the DeepSeek balance behind the
+    key already saved. Empty when the box is not ticked, no key is saved, or nothing came back (not billed)."""
+    if not await deepseek_search_enabled():
+        return []
+    key = await deepseek_key()
+    q = (query or "").strip()[:128]
+    if not key or not q:
+        return []
+    results: List[Dict[str, str]] = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.deepseek.com/v1/tools/search",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"query": q, "count": max(1, min(int(max_results), 50)), "localization": ""},
+            )
+            if resp.status_code == 200:
+                items = resp.json().get("results") or []
+                if items:
+                    await _bump_vendor_call("deepseek_search")  # only a non-empty answer is billed
+                for item in items[:max_results]:
+                    url = item.get("url") or ""
+                    if url and not _is_junk_web_host(url):
+                        results.append({"title": item.get("title") or "", "snippet": item.get("snippet") or item.get("summary") or "", "url": url})
+            else:
+                logger.warning(f"DeepSeek search error for '{q}': HTTP {resp.status_code}")
+    except Exception as err:
+        logger.debug(f"DeepSeek search error for '{q}': {err}")
+    return results
+
+
 async def google_places_key() -> str:
     """The Google Places key staff saved under Platform Keys -> Leads -> Business Discovery
     (same screen, same group as Tavily -- add a key there named "Google Places"), falling back
@@ -356,6 +427,7 @@ async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]
 async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """
     Open, unlimited multi-engine search rotator:
+    0. DeepSeek search (only when ticked under Platform Keys, same key as DeepSeek's writing models)
     1. Tavily (AI-agent search API, if a platform key is configured)
     2. DuckDuckGo Lite (resilient text-only endpoint)
     3. DuckDuckGo Standard HTML
@@ -365,6 +437,11 @@ async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, st
         return []
 
     # Each engine's off-topic results are dropped; an engine left with none hands over to the next.
+    # 0. DeepSeek, when staff ticked it
+    results = _on_topic(await search_deepseek(query, max_results=max_results), query)
+    if results:
+        return results
+
     # 1. Tavily if configured
     results = _on_topic(await search_tavily(query, max_results=max_results), query)
     if results:

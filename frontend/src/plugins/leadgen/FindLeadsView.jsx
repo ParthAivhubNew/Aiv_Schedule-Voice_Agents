@@ -103,15 +103,18 @@ function ContactsPanel({ company }) {
   const [domain, setDomain] = useState("");
   const [emails, setEmails] = useState({});
 
-  const load = async (includeWeb) => {
+  const load = async (includeWeb, findSiteOnly = false) => {
     setBusy(true);
     setError("");
     try {
-      const r = await api.companyContacts(company.id, { include_web: includeWeb });
+      const r = await api.companyContacts(company.id, { include_web: includeWeb, find_site_only: findSiteOnly });
       setData(r);
-      setDomain((d) => d || domainOf(r.web?.website || "") || domainOf(r.stored?.website || ""));
+      const found = domainOf(r.web?.website || "") || domainOf(r.stored?.website || "");
+      setDomain((d) => d || found);
+      return found;
     } catch (e) {
       setError(e.message || "Couldn't load contacts.");
+      return "";
     } finally {
       setBusy(false);
     }
@@ -123,7 +126,11 @@ function ContactsPanel({ company }) {
     const key = o.name;
     setEmails((m) => ({ ...m, [key]: { busy: true } }));
     try {
-      const r = await api.emailFind({ first_name: o.first_name, last_name: o.last_name, company_name: company.name, domain });
+      // The company's website is our job to find, not the user's: look it up first when it isn't known yet.
+      let site = domain;
+      if (!site) site = await load(true, true);
+      if (!site) { setEmails((m) => ({ ...m, [key]: { nosite: true } })); return; }
+      const r = await api.emailFind({ first_name: o.first_name, last_name: o.last_name, company_name: company.name, domain: site });
       setEmails((m) => ({ ...m, [key]: r.found ? { email: r.email, status: r.verification_status } : { none: true } }));
     } catch (e) {
       setEmails((m) => ({ ...m, [key]: { error: e.message || "Couldn't look that up." } }));
@@ -147,17 +154,15 @@ function ContactsPanel({ company }) {
                   <span style={{ ...text, fontSize: 13, flex: "1 1 200px" }}>{o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role || "Officer"}</span></span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
                     : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person at that website. Nothing charged.</span>
+                    : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>We couldn't find this company's website, so there's nowhere to look for an email. Nothing charged.</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
-                    : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!domain || e.busy} onClick={() => findEmail(o)}>
+                    : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
                         {e.busy ? <RefreshCw size={13} className="ui-spin" /> : null} Find email · 1 credit if found
                       </button>}
                 </div>
               );
             }) : <div style={{ ...muted, fontSize: 12.5 }}>{data.officers_note || "No current officers listed."}</div>}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Company website (we need it to find emails):</span>
-              <input className="ui-input" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.co.uk" style={{ height: 30, width: 200 }} aria-label="Company website domain" />
-            </div>
+            {domain ? <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>Looking for emails on {domain}.</div> : null}
           </div>
           <div>
             <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Contact details</div>
@@ -345,7 +350,7 @@ function FindLeadsSearch({ store, listsStore }) {
   const mapRef = useRef(null);
   useEffect(() => {
     if (view === "map" && mapRef.current) mapRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, [view, busy]);
+  }, [view, busy, area, areaStep?.phase]);
   const [chat, setChat] = useState(() => [CHAT_INTRO]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);

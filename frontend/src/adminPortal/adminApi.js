@@ -98,6 +98,8 @@ export const adminApi = {
   disableWebhook: (id) => request(`/developer-access/webhooks/${q(id)}/disable`, { method: "POST" }),
   emailFinderReport: (days = 7) => request(`/email-finder-report?days=${q(days)}`),
   setEmailFinderOrder: (order) => request("/email-finder-order", { method: "PUT", body: { order } }),
+  webSearch: () => request("/web-search"),
+  setWebSearch: (deepseek) => request("/web-search", { method: "PUT", body: { deepseek } }),
   unitCosts: () => request("/unit-costs"),
   setUnitCosts: (body) => request("/unit-costs", { method: "PUT", body }),
   platformKeys: () => request("/platform-keys"),

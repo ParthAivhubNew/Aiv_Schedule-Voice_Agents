@@ -282,6 +282,7 @@ async def geocode_companies(body: GeocodeIn, db: AsyncSession = Depends(get_db))
 class ContactsIn(BaseModel):
     include_web: bool = False  # a live web lookup for website/phone (1 Leads credit when something is found)
     refresh_web: bool = False
+    find_site_only: bool = False  # the lookup is only to find the company's website for an email search: not charged on its own
 
 
 @router.post("/companies/{company_id}/contacts")
@@ -306,7 +307,7 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
         except Exception:
             raise HTTPException(status_code=502, detail="The web lookup didn't finish. Nothing was charged; try again in a minute.")
     await db.commit()
-    if web and web.get("found") and not web.get("cached"):
+    if web and web.get("found") and not web.get("cached") and not body.find_site_only:
         await _charge_leads(db, 1, f"Contacts for {biz.name}")
     officers = CC.active_officers(biz.officers)
     return {

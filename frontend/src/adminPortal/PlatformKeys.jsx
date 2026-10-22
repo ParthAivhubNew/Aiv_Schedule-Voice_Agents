@@ -26,6 +26,26 @@ const COPY_SIBLINGS = {
 const GROUP_TITLES = { "LLM:scheduler": "Writing keys (Social)", "IMAGE:scheduler": "Image keys (Social)", "VIDEO:scheduler": "Video keys (Social)" };
 const friendlyGroupName = (g) => GROUP_TITLES[g] || g.replace(/:(voice|leadgen|scheduler)$/, (_, s) => ` (${s[0].toUpperCase()}${s.slice(1)}-only)`);
 
+// Staff tick this to have company web searches try DeepSeek's search first, on the DeepSeek key already saved.
+function WebSearchToggle({ canEdit }) {
+  const [state, err, reload] = useLoad(adminApi.webSearch);
+  const [msg, run] = useAction(reload);
+  const on = Boolean(state?.deepseek);
+  return (
+    <div style={{ ...card, display: "grid", gap: 4 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, cursor: canEdit ? "pointer" : "default" }}>
+        <input type="checkbox" checked={on} disabled={!canEdit || !state} onChange={(e) => run(() => adminApi.setWebSearch(e.target.checked), e.target.checked ? "AI web search is on." : "AI web search is off.")} />
+        Use DeepSeek for web search
+      </label>
+      <div style={{ fontSize: 12.5, color: C.slate }}>
+        Company website, phone and contact searches try DeepSeek first, using the DeepSeek key already saved here. It is charged to that DeepSeek balance per successful search ($0.75 per 1,000); a search that finds nothing costs nothing. If it returns nothing, the usual search takes over.
+      </div>
+      {err ? <Note error>{err}</Note> : null}
+      {msg.text ? <Note error={msg.error}>{msg.text}</Note> : null}
+    </div>
+  );
+}
+
 export function PlatformKeys({ canEdit }) {
   const [activeTab, setActiveTab] = useState("voice");
   const [data, err, reload] = useLoad(adminApi.platformKeys);
@@ -235,6 +255,7 @@ export function PlatformKeys({ canEdit }) {
           <PlatformAi canEdit={canEdit} scope="leadgen" showCatalogue={false} />
 
           <div style={heading}>Email Finder & Discovery Keys</div>
+          <WebSearchToggle canEdit={canEdit} />
           {renderGroupCards(LEADGEN_GROUPS)}
         </div>
       )}
