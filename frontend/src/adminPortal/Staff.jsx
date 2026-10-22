@@ -1,10 +1,43 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, PageTitle, Pill, Table, btn, cell, input, useAction, useLoad, when } from "./ui";
+import { Note, PageTitle, Pill, Table, btn, card, cell, heading, input, useAction, useLoad, when } from "./ui";
 
 const EMPTY = { email: "", name: "", role: "staff_support", password: "" };
+
+// How long a client can sit idle, and how long one sign-in can last, before they are signed out.
+function SessionLimits({ canEdit }) {
+  const [policy, err, reload] = useLoad(adminApi.sessionPolicy);
+  const [msg, run] = useAction(reload);
+  const [idle, setIdle] = useState("");
+  const [max, setMax] = useState("");
+  useEffect(() => { if (policy) { setIdle(String(policy.idle_minutes)); setMax(String(policy.max_hours)); } }, [policy]);
+  const field = { ...input, width: 90 };
+  return (
+    <div style={{ ...card, marginBottom: 16 }}>
+      <div style={{ ...heading, margin: "0 0 4px" }}>Client sign-in limits</div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
+        Clients get a warning and are then signed out after this long without activity, and again after this long since they signed in, however active they are. A live call counts as activity. A client's own admin can make these stricter for their team, never longer. Open screens pick up a change within 10 minutes.
+      </div>
+      <Note error>{err}</Note>
+      <Note error={msg.error}>{msg.text}</Note>
+      <form style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" }}
+        onSubmit={(e) => { e.preventDefault(); run(() => adminApi.setSessionPolicy(Number(idle), Number(max)), "Saved."); }}>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          Sign out after
+          <input type="number" min={5} max={480} required value={idle} onChange={(e) => setIdle(e.target.value)} disabled={!canEdit || !policy} style={field} aria-label="Idle minutes" /> minutes idle
+        </label>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          and after
+          <input type="number" min={1} max={168} required value={max} onChange={(e) => setMax(e.target.value)} disabled={!canEdit || !policy} style={field} aria-label="Maximum hours" /> hours in total
+        </label>
+        {canEdit ? <button type="submit" style={btn(true)}>Save</button> : null}
+      </form>
+      <div style={{ fontSize: 12, color: C.slate, marginTop: 8 }}>Idle: 5 to 480 minutes. Total: 1 to 168 hours.</div>
+    </div>
+  );
+}
 
 // Aivhub staff accounts. Support staff can look at everything; staff admins can also change things.
 export function Staff({ me, canEdit }) {
@@ -15,6 +48,7 @@ export function Staff({ me, canEdit }) {
   return (
     <>
       <PageTitle title="Staff" sub="Every staff account signs in with a password and a code from an authenticator app." />
+      <SessionLimits canEdit={canEdit} />
       <Note error>{err}</Note>
       <Note error={msg.error}>{msg.text}</Note>
       {canEdit && (

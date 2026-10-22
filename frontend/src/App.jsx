@@ -5,6 +5,7 @@ import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
 import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
 import { AppChrome } from "./app/ui";
+import { SessionGuard } from "./hub/SessionGuard";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
 import { AppHome } from "./hub/AppHome";
@@ -266,6 +267,10 @@ function MainApp({ onSignedOut }) {
   const [dismissedCallIds, setDismissedCallIds] = useState([]);
   const prevLiveCallIdsRef = useRef(new Set());
 
+  // Voice opens on its list the first time only; coming back to it later leaves it where the user was.
+  const visitedRef = useRef(visitedPlugins);
+  visitedRef.current = visitedPlugins;
+
   // Track visited plugins so DOM and state are preserved across switches
   useEffect(() => {
     if (plugin && !visitedPlugins.includes(plugin)) {
@@ -461,7 +466,7 @@ function MainApp({ onSignedOut }) {
   // Global helper to switch plugins from any modal
   useEffect(() => {
     window.__aivhub_switch_plugin = (p) => {
-      if (p === "voice") {
+      if (p === "voice" && !visitedRef.current.includes("voice")) {
         try {
           localStorage.setItem("aivhub_voice_view", "list");
           navigateHash("#/voice/list");
@@ -690,7 +695,7 @@ function MainApp({ onSignedOut }) {
   };
 
   const handlePickPlugin = (p) => {
-    if (p === "voice") {
+    if (p === "voice" && !visitedPlugins.includes("voice")) {
       try {
         localStorage.setItem("aivhub_voice_view", "list");
         navigateHash("#/voice/list");
@@ -782,6 +787,7 @@ function MainApp({ onSignedOut }) {
   
   return (
     <OrgSettingsProvider>
+      <SessionGuard onTimeout={handleLogout} busy={liveCalls.length > 0} />
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome

@@ -88,7 +88,15 @@ export function LoginScreen({ onLogin }) {
   const [trap, setTrap] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [error, setError] = useState(null); // { text, action? }
-  const [info, setInfo] = useState("");
+  const [info, setInfo] = useState(() => {
+    try {
+      const why = sessionStorage.getItem("aivhub_signout_reason");
+      sessionStorage.removeItem("aivhub_signout_reason");
+      if (why === "idle") return "You were signed out because you were away for a while. Sign in to carry on.";
+      if (why === "max") return "You were signed out after a long session, for your security. Sign in again to carry on.";
+    } catch (_) { /* no message */ }
+    return "";
+  });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   // Google runs on its own flag, so a Google window that was closed (and never reports back) can't lock the email form.

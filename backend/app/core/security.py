@@ -30,6 +30,8 @@ logger = logging.getLogger("security")
 ALGORITHM = "HS256"
 ACCESS_TTL_S = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", str(60 * 60)))  # 1 hour
 REFRESH_TTL_S = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", str(30 * 24 * 3600)))  # 30 days
+# A sign-in ends this long after it started, however active the user is (the refresh token cannot extend it).
+SESSION_MAX_S = int(os.getenv("SESSION_MAX_SECONDS", str(12 * 3600)))  # 12 hours
 MIN_PASSWORD_LEN = 8
 
 # Values that used to be written into operators.hashed_password by the old code.

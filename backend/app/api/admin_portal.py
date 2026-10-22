@@ -1521,6 +1521,32 @@ async def put_email_finder_order(body: FinderOrderBody, request: Request):
     return {"order": order}
 
 
+class SessionPolicyBody(BaseModel):
+    idle_minutes: int
+    max_hours: int
+
+
+@router.get("/session-policy")
+async def get_session_policy(request: Request):
+    from app.services import session_policy
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await session_policy.get_policy(db)
+
+
+@router.put("/session-policy")
+async def put_session_policy(body: SessionPolicyBody, request: Request):
+    """How long a client may sit idle, and how long one sign-in may last. Admin only."""
+    from app.services import session_policy
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        policy = await session_policy.save_policy(db, body.idle_minutes, body.max_hours)
+        await db.commit()
+    return policy
+
+
 class WebSearchBody(BaseModel):
     deepseek: bool = False
 

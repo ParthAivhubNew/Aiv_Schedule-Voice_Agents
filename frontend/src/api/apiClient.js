@@ -159,6 +159,8 @@ export const api = {
     clearSession();
   },
   getMe: () => apiRequest('/auth/me'),
+  getSessionPolicy: () => apiRequest('/auth/session-policy'),
+  saveSessionPolicy: (idle_minutes, max_hours) => apiRequest('/auth/session-policy', { method: 'PUT', body: { idle_minutes, max_hours } }),
   getSignupConfig: () => apiRequest('/auth/signup-config'),
   signup: (data) => apiRequest('/auth/signup', { method: 'POST', body: data }),
   forgotPassword: (email) => apiRequest('/auth/forgot-password', { method: 'POST', body: { email } }),

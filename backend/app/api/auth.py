@@ -25,6 +25,7 @@ from app.core.accounts import (
     roles_of,
 )
 from app.core.auth_middleware import current, forget
+from app.services import session_policy
 from app.core.security import (
     REFRESH_TTL_S,
     create_access_token,
@@ -136,7 +137,7 @@ async def _start_session(db: AsyncSession, op: Operator, request: Request) -> Di
         refresh_jti=claims["jti"],
         user_agent=(request.headers.get("user-agent") or "")[:300],
         ip=request.client.host if request.client else "",
-        expires_at=datetime.utcnow() + timedelta(seconds=REFRESH_TTL_S),
+        expires_at=datetime.utcnow() + timedelta(seconds=min(REFRESH_TTL_S, (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600)),
     ))
     is_admin, _, roles = await effective_access(db, op)
     role = "Admin" if is_admin else (roles[0].name if roles else "Operator")
@@ -279,6 +280,10 @@ async def refresh(body: RefreshBody, db: AsyncSession = Depends(get_db)):
     op = (await db.execute(select(Operator).where(Operator.id == ses.operator_id))).scalars().first()
     if not op or op.is_active is False:
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
+    # A shortened maximum applies to sign-ins already open, not only new ones.
+    max_s = (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600
+    if ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:
+        raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     # Rotate the refresh token: the old one stops working.
     new_refresh = create_refresh_token(op.id, ses.id)
     ses.refresh_jti = decode_token(new_refresh, "refresh")["jti"]
@@ -301,6 +306,37 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
             await db.commit()
     forget(ctx["operator_id"])
     return {"ok": True}
+
+
+@router.get("/session-policy")
+async def get_session_policy(request: Request, db: AsyncSession = Depends(get_db)):
+    """What applies to this user's organisation (the app signs people out by it), the platform's limits,
+    what the organisation chose, and whether this user can change it."""
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    org = org_of(op)
+    is_admin, _, _ = await effective_access(db, op)
+    return {**await session_policy.get_policy(db, org), "platform": await session_policy.platform_policy(db),
+            "mine": await session_policy.org_choice(db, org), "can_edit": bool(is_admin)}
+
+
+class OrgSessionBody(BaseModel):
+    idle_minutes: Optional[int] = None  # empty: use the platform's
+    max_hours: Optional[int] = None
+
+
+@router.put("/session-policy")
+async def put_session_policy(body: OrgSessionBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """An organisation admin sets how long their team may sit idle and how long one sign-in lasts,
+    within the platform's limits."""
+    ctx = current(request)
+    op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
+    is_admin, _, _ = await effective_access(db, op)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only an admin can change this.")
+    await session_policy.save_org_choice(db, org_of(op), body.idle_minutes, body.max_hours)
+    await db.commit()
+    return await get_session_policy(request, db)
 
 
 @router.get("/me")

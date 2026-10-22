@@ -93,6 +93,8 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   const [photoBusy, setPhotoBusy] = useState(false);
   const [customGender, setCustomGender] = useState(() => isCustom(seed(operator).gender));
   const [sessions, setSessions] = useState(null);
+  const [limits, setLimits] = useState(null); // the sign-out limits that apply to this organisation
+  const [lim, setLim] = useState({ idle: "", max: "", busy: false, msg: "", ok: false });
   const [pw, setPw] = useState({ current: "", next: "", again: "", busy: false, msg: "", ok: false });
   const fileRef = useRef(null);
   const zones = useMemo(zoneList, []);
@@ -118,7 +120,10 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && tab === "security") api.getMySessions().then(setSessions).catch(() => setSessions([]));
+    if (isOpen && tab === "security") {
+      api.getMySessions().then(setSessions).catch(() => setSessions([]));
+      api.getSessionPolicy().then((p) => { setLimits(p); setLim((l) => ({ ...l, idle: String(p.idle_minutes), max: String(p.max_hours), msg: "" })); }).catch(() => setLimits(null));
+    }
   }, [isOpen, tab]);
 
   if (!isOpen || !operator) return null;
@@ -179,6 +184,18 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
       setStatus({ kind: "error", text: err.message || "Could not remove the photo." });
     } finally {
       setPhotoBusy(false);
+    }
+  };
+
+  const saveLimits = async (e) => {
+    e.preventDefault();
+    setLim((l) => ({ ...l, busy: true, msg: "" }));
+    try {
+      const p = await api.saveSessionPolicy(Number(lim.idle) || null, Number(lim.max) || null);
+      setLimits(p);
+      setLim({ idle: String(p.idle_minutes), max: String(p.max_hours), busy: false, msg: "Saved. Open screens pick it up within 10 minutes.", ok: true });
+    } catch (err) {
+      setLim((l) => ({ ...l, busy: false, msg: err.message || "Couldn't save.", ok: false }));
     }
   };
 
@@ -356,6 +373,24 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                   {pw.msg ? <div role="status" style={{ fontSize: 12.5, fontFamily: FONT_BODY, color: pw.ok ? C.teal : "#b3261e" }}>{pw.msg}</div> : null}
                   <div><button type="submit" style={btnDark} disabled={pw.busy || !pw.current || !pw.next}>{pw.busy ? "Changing…" : "Change password"}</button></div>
                 </form>
+                {limits ? (
+                  <form onSubmit={saveLimits} style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.textInk }}>Automatic sign-out</div>
+                    <div style={note}>
+                      Everyone in your organisation is signed out after this long without activity, and after this long since they signed in. They get a warning first. {limits.can_edit ? `You can make these stricter than the platform's limits (${limits.platform.idle_minutes} minutes idle, ${limits.platform.max_hours} hours in total), not longer.` : "Only an admin can change them."}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontFamily: FONT_BODY, fontSize: 13 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>Idle for
+                        <input type="number" min={5} max={limits.platform.idle_minutes} value={lim.idle} disabled={!limits.can_edit} onChange={(e) => setLim({ ...lim, idle: e.target.value })} style={{ ...input, width: 84 }} aria-label="Idle minutes" /> minutes
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>Signed in for
+                        <input type="number" min={1} max={limits.platform.max_hours} value={lim.max} disabled={!limits.can_edit} onChange={(e) => setLim({ ...lim, max: e.target.value })} style={{ ...input, width: 84 }} aria-label="Maximum hours" /> hours
+                      </label>
+                      {limits.can_edit ? <button type="submit" style={btnDark} disabled={lim.busy}>{lim.busy ? "Saving…" : "Save"}</button> : null}
+                    </div>
+                    {lim.msg ? <div role="status" style={{ fontSize: 12.5, fontFamily: FONT_BODY, color: lim.ok ? C.teal : "#b3261e" }}>{lim.msg}</div> : null}
+                  </form>
+                ) : null}
                 <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.textInk, flex: 1 }}>Where you are signed in</div>
