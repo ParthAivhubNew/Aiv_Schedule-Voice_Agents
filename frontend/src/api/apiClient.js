@@ -436,6 +436,12 @@ export const api = {
   deepSearchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/deep-search`, { method: 'POST', timeoutMs: 30000 }),
   fillContactGaps: (payload, extra = {}) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload, signal: extra.signal }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
+  chatHistory: (plugin) => apiRequest(`/enrichment/chats/${plugin}`),
+  saveChatHistory: (plugin, chat) => apiRequest(`/enrichment/chats/${plugin}`, { method: 'PUT', body: chat }),
+  deleteChatHistory: (plugin, id) => apiRequest(`/enrichment/chats/${plugin}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  leadsChats: () => apiRequest('/enrichment/leads-chats'),
+  saveLeadsChat: (chat) => apiRequest('/enrichment/leads-chats', { method: 'PUT', body: chat }),
+  deleteLeadsChat: (id) => apiRequest(`/enrichment/leads-chats/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   openChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
 
   // Analytics

@@ -2409,6 +2409,31 @@ function dayLabel(iso) {
   }
 }
 
+// The outline shown to the user before anything is written: what, where, when, and the one thing they must press.
+function planSummary(plan) {
+  const all = plan.posts || [];
+  const fresh = all.filter((p) => !p.existing);
+  const rewrites = all.filter((p) => p.existing && p.revision);
+  const cap = (v) => { const t = String(v || ""); return t.length <= 2 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1); };
+  const first = (plan.channels || [])[0] || "linkedin";
+  const channels = [...new Set(fresh.map((p) => String(p.channel || first).toLowerCase()))].map(cap);
+  const dates = fresh.map((p) => p.date).filter(Boolean).sort();
+  const span = dates.length ? (dates[0] === dates[dates.length - 1] ? dayLabel(dates[0]) : `${dayLabel(dates[0])} to ${dayLabel(dates[dates.length - 1])}`) : "";
+  const lines = [];
+  if (fresh.length) lines.push(`${fresh.length} new post${fresh.length === 1 ? "" : "s"}${channels.length ? ` for ${channels.join(" and ")}` : ""}${span ? `, ${span}` : ""}.`);
+  if (rewrites.length) lines.push(`${rewrites.length} existing post${rewrites.length === 1 ? "" : "s"} to rewrite.`);
+  const angle = (p) => String(p.plan || p.angle || "").trim().slice(0, 140);
+  const row = (p) => `- ${[p.date ? dayLabel(p.date) : "", p.time || "", cap(p.channel || first)].filter(Boolean).join(" · ")}: ${p.headline || "Post"}${angle(p) ? `. ${angle(p)}` : ""}`;
+  const shown = fresh.slice(0, 12);
+  return [
+    "Here is the plan. Nothing is written yet.",
+    lines.join(" "),
+    shown.map(row).join("\n") + (fresh.length > shown.length ? `\n- …and ${fresh.length - shown.length} more` : ""),
+    rewrites.map((p) => `- Rewrite: ${p.headline || "post"}. ${String(p.revision).slice(0, 140)}`).join("\n"),
+    "Press Write these and the captions and images are written a few at a time. Each post then waits for your approval before it is posted.",
+  ].filter(Boolean).join("\n\n");
+}
+
 function cleanSavedChat(rows) {
   if (!Array.isArray(rows)) return [];
   const cleaned = rows
@@ -2929,6 +2954,8 @@ export function SocialWorkspace({
   const [dateDraft, setDateDraft] = useState(todayIso());
   const [channelDrafts, setChannelDrafts] = useState(["linkedin"]);
   const [typing, setTyping] = useState(false);
+  // A plan the AI proposed that waits for the user's go-ahead; one at a time, keyed by its chat message.
+  const [pendingPlans, setPendingPlans] = useState({});
   const [toast, setToast] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
@@ -3991,10 +4018,48 @@ export function SocialWorkspace({
     ]);
   };
 
+  // Put a plan on the calendar and start the writing, then tell the user what is happening.
+  const commitPlan = (incoming, share, sameDays, reply = "") => {
+    const result = applyPlan(incoming, share, sameDays);
+    const bits = [];
+    if (result.created.length) {
+      bits.push("Planned " + result.created.length + " post" + (result.created.length === 1 ? "" : "s")
+        + (incoming.cappedAt ? " (the first " + incoming.cappedAt + "; ask again for the rest)" : "")
+        + ". Writing captions and images now, a few at a time. Each card fills in when ready, then waits for approval.");
+    }
+    if (result.updated.length) bits.push("Updated " + result.updated.length + " post" + (result.updated.length === 1 ? "" : "s") + ".");
+    if (result.deleted.length) bits.push("Removed " + result.deleted.length + " post" + (result.deleted.length === 1 ? "" : "s") + ".");
+    const touched = result.created[0] || result.updated[0];
+    const spoken = bits.length ? bits.join(" ") : humanizeAiReply(reply || "", false);
+    setChat((cs) => [
+      ...cs,
+      { id: "a_" + Date.now(), who: "ai", kind: touched ? "draft" : "ai", postId: touched && touched.id, text: spoken },
+    ]);
+  };
+  const startPlan = (id) => {
+    const p = pendingPlans[id];
+    if (!p) return;
+    setPendingPlans({});
+    commitPlan(p.incoming, p.share, p.sameDays);
+  };
+  const changePlan = () => { setPendingPlans({}); setDraft("Change the plan: "); };
+  const dropPlan = () => {
+    setPendingPlans({});
+    setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", text: "Cancelled. Nothing was written and nothing was added to the calendar." }]);
+  };
+
   const sendChat = (e, override) => {
     if (e && e.preventDefault) e.preventDefault();
     const text = ((override && override.text) || draft || topicDraft).trim();
     if (!text || typing) return;
+    const waiting = Object.keys(pendingPlans)[0];
+    if (waiting && !override && /^\s*(yes|yep|yeah|go|go ahead|write (these|them)|start|looks good|do it|ok|okay|confirm)\W*$/i.test(text)) {
+      setDraft("");
+      setTopicDraft("");
+      setChat((cs) => [...cs, { id: "u_" + Date.now(), who: "user", text }]);
+      startPlan(waiting);
+      return;
+    }
     setDraft("");
     setTopicDraft("");
     const namedSend = channelsNamedInText(text);
@@ -4096,27 +4161,17 @@ export function SocialWorkspace({
         }
         repeatGenerate.current = "";
       }
-      const result = applyPlan(incoming, !wantsPerChannelDiff(text), wantsSameAcrossDays(text));
-      const bits = [];
-      if (result.created.length) {
-        bits.push("Planned " + result.created.length + " post" + (result.created.length === 1 ? "" : "s")
-          + (incoming.cappedAt ? " (the first " + incoming.cappedAt + "; ask again for the rest)" : "")
-          + ". Writing captions and images now, a few at a time. Each card fills in when ready, then waits for approval.");
+      const share = !wantsPerChannelDiff(text);
+      const sameDays = wantsSameAcrossDays(text);
+      // New posts and rewrites use AI writing, so the user sees the outline first and starts it themselves.
+      const needsOk = incoming && (incomingNew.length > 0 || (incoming.posts || []).some((p) => p.existing && p.revision));
+      if (needsOk) {
+        const id = "a_" + Date.now();
+        setPendingPlans({ [id]: { incoming, share, sameDays } });
+        setChat((cs) => [...cs, { id, who: "ai", kind: "plan", text: planSummary(incoming) }]);
+        return;
       }
-      if (result.updated.length) bits.push("Updated " + result.updated.length + " post" + (result.updated.length === 1 ? "" : "s") + ".");
-      if (result.deleted.length) bits.push("Removed " + result.deleted.length + " post" + (result.deleted.length === 1 ? "" : "s") + ".");
-      const touched = result.created[0] || result.updated[0];
-      const spoken = bits.length ? bits.join(" ") : humanizeAiReply((res && res.reply) || "", false);
-      setChat((cs) => [
-        ...cs,
-        {
-          id: "a_" + Date.now(),
-          who: "ai",
-          kind: touched ? "draft" : "ai",
-          postId: touched && touched.id,
-          text: spoken,
-        },
-      ]);
+      commitPlan(incoming, share, sameDays, res && res.reply);
     }).catch((err) => {
       setTyping(false);
       setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", text: "Could not reach Plan AI: " + (err.message || "error") }]);
@@ -4901,6 +4956,13 @@ export function SocialWorkspace({
                       <button type="button" onClick={() => openApprovals(m.postId)} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
                         Open in Approvals
                       </button>
+                    ) : null}
+                    {m.kind === "plan" && pendingPlans[m.id] && !editing ? (
+                      <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => startPlan(m.id)} title="Add these posts to the calendar and start writing them" style={{ ...secBtn, height: 30, fontSize: 12, background: C.ink, color: "#fff", borderColor: C.ink }}>Write these</button>
+                        <button type="button" onClick={changePlan} title="Tell the AI what to change; nothing is written yet" style={{ ...secBtn, height: 30, fontSize: 12 }}>Change the plan</button>
+                        <button type="button" onClick={dropPlan} title="Throw this plan away" style={{ ...secBtn, height: 30, fontSize: 12 }}>Cancel</button>
+                      </div>
                     ) : null}
                     {m.kind === "needsKey" && !editing ? (
                       <button type="button" onClick={() => { setApprovalOpen(false); setPage("accounts"); }} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>

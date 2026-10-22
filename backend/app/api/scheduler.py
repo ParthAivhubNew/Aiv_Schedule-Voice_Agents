@@ -2079,7 +2079,12 @@ If they pin a date, do not ask for a file, meeting, or system. Use their post pl
 If they ask a question (strategy, mix, caption feedback, ideas), answer fully and specifically: concrete examples for THIS company, short paragraphs or "- " bullet points, up to about 350 words. Do not invent calendar posts unless they asked to plan, draft, generate, schedule, or change posts.
 If they share a link or paste text, use it as the source (summarise, pull angles, or turn it into a series of posts when asked). Never claim facts that are not in the source or the profile.
 Know the channels: LinkedIn (insight posts, 120-220 words), X (one sharp line, max 280 characters), Instagram (visual first, caption plus hashtags), Facebook (conversational, local), Threads (short takes). Suggest the right channel for an idea when it helps.
-If they want a calendar / plan / captions, write captions that could ship today."""
+If they want a calendar / plan / captions, write captions that could ship today.
+HOW TO ANSWER when you plan or change posts: plain text, at most 120 words before the plan block, no headings, **bold** only for a count or a date.
+1. Say what you did in one or two sentences with the real numbers: how many posts, which channels, which dates (say "this Thursday" or "next Monday" against today's date).
+2. Say where it is: the posts are on the calendar now as an outline, and their captions are written afterwards, five posts at a time. Do not repeat the outline in prose.
+3. End with one concrete next step the user can say, such as "ask me to make the LinkedIn ones shorter" or "pin the 14th and I will plan around it".
+When they ask a question instead, answer it first, then give one next step."""
     try:
         from app.services import brand_voice
 
@@ -2245,12 +2250,19 @@ def _thread_json(t) -> Dict[str, Any]:
             "updatedAt": int(t.updated_at.timestamp() * 1000) if t.updated_at else None}
 
 
+def _mine(t, request: Request) -> bool:
+    """Chats are private to the person who started them. Threads saved before that rule have no owner and stay open to the team."""
+    from app.core.auth_middleware import current
+
+    return not t.created_by or t.created_by == str(current(request).get("operator_id") or "")
+
+
 @router.get("/chat-threads")
-async def list_chat_threads(db: AsyncSession = Depends(get_db)):
+async def list_chat_threads(request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import PlanChatThread
 
-    rows = (await db.execute(select(PlanChatThread).order_by(PlanChatThread.updated_at.desc()).limit(40))).scalars().all()
-    return [_thread_json(t) for t in rows]
+    rows = (await db.execute(select(PlanChatThread).order_by(PlanChatThread.updated_at.desc()).limit(200))).scalars().all()
+    return [_thread_json(t) for t in rows if _mine(t, request)][:40]
 
 
 @router.put("/chat-threads/{thread_id}")
@@ -2266,6 +2278,8 @@ async def save_chat_thread(thread_id: str, payload: Dict[str, Any], request: Req
             msgs.append({k: (v[:THREAD_MESSAGE_CHARS] if isinstance(v, str) else v) for k, v in m.items()
                          if k in ("id", "who", "kind", "text", "postId") and (isinstance(v, str) or v is None)})
     t = (await db.execute(select(PlanChatThread).where(PlanChatThread.id == thread_id))).scalars().first()
+    if t and not _mine(t, request):
+        raise HTTPException(status_code=404, detail="That conversation isn't yours.")
     if not t:
         ctx = current(request)
         t = PlanChatThread(id=thread_id, created_by=str(ctx.get("operator_id") or ""), created_by_name=str(ctx.get("name") or ""))
@@ -2278,10 +2292,12 @@ async def save_chat_thread(thread_id: str, payload: Dict[str, Any], request: Req
 
 
 @router.delete("/chat-threads/{thread_id}")
-async def delete_chat_thread(thread_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_chat_thread(thread_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import PlanChatThread
 
     t = (await db.execute(select(PlanChatThread).where(PlanChatThread.id == thread_id))).scalars().first()
+    if t and not _mine(t, request):
+        raise HTTPException(status_code=404, detail="That conversation isn't yours.")
     if t:
         await db.delete(t)
         await db.commit()

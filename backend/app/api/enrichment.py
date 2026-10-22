@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import re
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,74 @@ _NO_LIVE_ACCESS_CLAIM = re.compile(
     r"\bno (live|real-time) (internet|web) access\b",
     re.I,
 )
+
+
+# What sits under the Find Leads chat, so the reply can say what the list is, why it is there and how to use it.
+_LEADS_SCREEN_GUIDE = (
+    "SCREEN GUIDE (describe it only in these terms):\n"
+    "- Under the chat is a results card with one row per company, best matches first, loaded 25 at a time; "
+    "'Show more' loads the next page. The count above it is every company that matches, not just the rows loaded.\n"
+    "- Every row is the official company registry record: name, sector, town and postcode, status, company type, "
+    "registration number, date incorporated, and a size band taken from the filed accounts (not headcount). "
+    "A website or phone only shows if we already hold one. A 'Registry' badge means official record.\n"
+    "- Per row: 'Contacts' opens the people on the registry and lets the user look for a work email "
+    "(1 Leads credit, charged only if one is found) or look for the company's website and phone on the web "
+    "(1 credit, only if found). 'Save' puts the company in a list. 'Save & call' needs Voice and a phone number. "
+    "The cross removes the row.\n"
+    "- Above the rows: List and Map views, 'Favourite all', 'Save all', and the filter chips that show what was searched. "
+    "The Filters panel holds the same filters as the chat: industry or name words, town, postcode, size, years trading, "
+    "company type, has website, has phone, has email, include closed, and SIC codes through the chat.\n"
+    "- Searching is free. Credits are only used for contact lookups.\n\n"
+)
+_RESULT_REPLY_RULES = (
+    "HOW TO ANSWER: plain text, at most 140 words, no headings. Light formatting only: **bold** for a count or a company name, "
+    "and '- ' bullets for at most 5 companies.\n"
+    "1. First sentence: what was searched (use the real filters) and how many companies match, with the exact count.\n"
+    "2. Second: say what is under the chat in one sentence: the first rows of those matches, best match first, from the official "
+    "registry. Mention that Contacts, Save and Map work on each row.\n"
+    "3. Pick out the rows that fit the request best, naming at most 5 from the list. If the sector words pulled in companies "
+    "that clearly are not what was asked for, say which kinds, in a few words. Never list all the rows: they are on screen.\n"
+    "4. Finish with ONE concrete next step the product can do, written so the user can just type it back, for example "
+    "'use SIC 20110 to 20160 only', 'only ones trading 10+ years', 'only with a website', or 'add Bradford'. "
+    "When the count is over 200, make that step a narrowing one. When it is under 10, make it a widening one.\n"
+    "Every fact comes from the list above. Never add a phone, email, website, headcount, revenue or any detail not shown, "
+    "never name a company that is not in the list, and never claim a company is verified beyond being on the registry. "
+    "Do not offer to do things this screen cannot do.\n"
+)
+_VOICE_SCREEN_GUIDE = (
+    "SCREEN GUIDE (describe it only in these terms):\n"
+    "- The Voice screen has Today's list: a table of people to call, filled by uploading a spreadsheet, adding contacts by hand, "
+    "or by asking this chat to find companies or people, which adds them as rows.\n"
+    "- The user ticks who to call. One ticked row is called straight away; 2 or more ticked are called in turn, up to 2 at once; "
+    "with none ticked the whole list is worked through one at a time. Calls use call minutes.\n"
+    "- Find missing (or asking here to fill gaps) looks up missing phone numbers, emails and websites from public pages and marks the "
+    "filled cells. Each suggestion must be accepted before it is dialled. A detail that was not found is left empty, never guessed.\n"
+    "- Save list keeps the list; 'new list' starts a blank one.\n\n"
+)
+_VOICE_REPLY_RULES = (
+    "HOW TO ANSWER: plain text, at most 110 words, no headings. **Bold** for a count, '- ' bullets for at most 5 items.\n"
+    "1. Say what you did or found, with the real numbers (rows added, gaps filled, rows with nothing public).\n"
+    "2. Say where it is on screen (the rows in Today's list, the highlighted cells) and what the user should do with it "
+    "(accept the suggestions, tick who to call, press Call).\n"
+    "3. Name the rows that still have gaps, at most 5, and why they are not callable yet.\n"
+    "4. End with one concrete next step the user can type or click. Never promise a call outcome, and never state a phone or email "
+    "that is not in the list or the lookup result.\n"
+)
+_PLAIN_REPLY_RULES = (
+    "HOW TO ANSWER: plain text, at most 90 words, no headings. Answer the question first, then say what the user can do next on this screen.\n"
+)
+
+
+def _registry_fallback(chips: str, registry: Dict[str, Any]) -> str:
+    """The reply used when the model is unreachable: short, plain, and from the data only."""
+    total = f"{registry['total']:,}{'+' if registry['capped'] else ''}"
+    shown = len(registry["leads"])
+    return (
+        f"{total} companies on the official registry match {chips}. "
+        f"The first {shown} are in the list under this chat, best matches first. "
+        "Open Contacts on a row to look for people and emails, Save the ones you want, or switch to Map. "
+        + ("That is a lot: add a town, a size or years trading to narrow it." if registry["total"] > 200 else "")
+    ).strip()
 
 
 async def _can_research(db: AsyncSession) -> None:
@@ -247,6 +315,99 @@ async def fill_gaps(req: FillGapsRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Chat history: one private list per signed-in person, per plugin ─────────
+_CHATS_KEPT = 30
+_CHAT_PLUGINS = ("leadgen", "voice")
+
+
+def _chats_key(request: Request, plugin: str) -> str:
+    from app.core.auth_middleware import current
+
+    if plugin not in _CHAT_PLUGINS:
+        raise HTTPException(status_code=404, detail="No chat history for that plugin.")
+    ctx = current(request)
+    # Find Leads kept its original key, so chats saved before Voice was added stay where they are.
+    prefix = "leads_chats" if plugin == "leadgen" else f"chats_{plugin}"
+    return f"{prefix}:{ctx['org_id']}:{ctx['operator_id']}"
+
+
+class ChatIn(BaseModel):
+    id: str
+    title: str = ""
+    at: Optional[float] = None
+    chat: List[Dict[str, Any]] = []
+    filters: Optional[Dict[str, Any]] = None
+
+
+async def _list_chats(request: Request, db: AsyncSession, plugin: str) -> Dict[str, Any]:
+    from app.services.credits import _get_doc
+
+    return {"chats": (await _get_doc(db, _chats_key(request, plugin))).get("chats", [])}
+
+
+async def _save_chat(body: ChatIn, request: Request, db: AsyncSession, plugin: str) -> Dict[str, Any]:
+    from app.services.credits import _get_doc, _put_doc
+
+    key = _chats_key(request, plugin)
+    msgs = []
+    for m in body.chat[:80]:
+        who = "user" if (m.get("role") or m.get("who")) == "user" else ("ai" if "who" in m else "assistant")
+        msg = {"id": str(m.get("id", ""))[:40], "text": str(m.get("text", ""))[:6000]}
+        msg["who" if "who" in m else "role"] = who
+        if isinstance(m.get("found"), int):
+            msg["found"] = m["found"]
+        msgs.append(msg)
+    if not any((m.get("role") or m.get("who")) == "user" for m in msgs):
+        return {"saved": False}
+    entry = {"id": body.id[:40], "title": (body.title or msgs[0]["text"])[:70], "at": body.at or 0, "chat": msgs, "filters": body.filters or {}}
+    old = (await _get_doc(db, key)).get("chats", [])
+    await _put_doc(db, key, {"chats": ([entry] + [c for c in old if c.get("id") != entry["id"]])[:_CHATS_KEPT]})
+    await db.commit()
+    return {"saved": True}
+
+
+async def _delete_chat(chat_id: str, request: Request, db: AsyncSession, plugin: str) -> Dict[str, Any]:
+    from app.services.credits import _get_doc, _put_doc
+
+    key = _chats_key(request, plugin)
+    old = (await _get_doc(db, key)).get("chats", [])
+    await _put_doc(db, key, {"chats": [c for c in old if c.get("id") != chat_id]})
+    await db.commit()
+    return {"deleted": True}
+
+
+@router.get("/chats/{plugin}")
+async def list_chats(plugin: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """The signed-in person's earlier chats in a plugin, newest first. Nobody else's are ever returned."""
+    return await _list_chats(request, db, plugin)
+
+
+@router.put("/chats/{plugin}")
+async def save_chat(plugin: str, body: ChatIn, request: Request, db: AsyncSession = Depends(get_db)):
+    return await _save_chat(body, request, db, plugin)
+
+
+@router.delete("/chats/{plugin}/{chat_id}")
+async def delete_chat(plugin: str, chat_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    return await _delete_chat(chat_id, request, db, plugin)
+
+
+# The Find Leads screen was built first and calls these.
+@router.get("/leads-chats")
+async def list_leads_chats(request: Request, db: AsyncSession = Depends(get_db)):
+    return await _list_chats(request, db, "leadgen")
+
+
+@router.put("/leads-chats")
+async def save_leads_chat(body: ChatIn, request: Request, db: AsyncSession = Depends(get_db)):
+    return await _save_chat(body, request, db, "leadgen")
+
+
+@router.delete("/leads-chats/{chat_id}")
+async def delete_leads_chat(chat_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    return await _delete_chat(chat_id, request, db, "leadgen")
+
+
 @router.post("/copilot-chat")
 @router.post("/open-chat")
 async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_db)):
@@ -369,7 +530,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                 "Never invent a phone number or email. If a field was not found, say so. "
                 "After proposing fills, tell the operator to Accept each suggestion before dialing. "
                 "WhatsApp/SMS/email in this mission are no-answer fallbacks after voice, not Cal.com. "
-                "Cal.com is only used after a meeting is booked."
+                "Cal.com is only used after a meeting is booked.\n\n"
+                + _VOICE_SCREEN_GUIDE + _VOICE_REPLY_RULES
             )
         else:
             system_prompt = (
@@ -434,26 +596,36 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                     f"Searched the company registry with filters [{chips}]: {more} matching companies, "
                     f"showing {len(registry['leads'])} in the table below your reply.\n{lines}"
                 )
+                registry_summary = _registry_fallback(chips, registry)
                 system_prompt += (
                     f"\n\nA REGISTRY SEARCH JUST RAN with filters [{chips}]. {more} companies match; these are the "
                     f"first {len(registry['leads'])} (already shown to the user as rows below your reply):\n{lines}\n\n"
-                    "Talk ONLY about companies in that list and the filters above. Every fact (town, sector, status) "
-                    "comes from the official registry record -- never add a phone, email, website, headcount, revenue "
-                    "or any detail not shown in the list, and never name a company that is not in it. Note that "
-                    "'size' comes from the company's filed accounts category, not headcount. Open with the match count "
-                    "and the filters used, then suggest ONE way to narrow or refine if the count is large."
+                    + _LEADS_SCREEN_GUIDE + _RESULT_REPLY_RULES
                 )
             else:
                 registry_summary = f"Searched the company registry with filters [{chips}]: no companies matched."
                 system_prompt += (
                     f"\n\nA REGISTRY SEARCH JUST RAN with filters [{chips}] and NOTHING matched. Say so plainly, "
                     "name the filters used, and suggest which one to loosen (a wider area, a broader sector word, "
-                    "or including smaller/newer companies). Do not invent or recall any companies."
+                    "or including smaller/newer companies). Do not invent or recall any companies. "
+                    "Keep it to three short sentences, plain text, no list."
                 )
         elif removed_names:
             system_prompt += (
                 f"\n\nThe user asked to drop these from the results: {', '.join(removed_names)}. They have been "
-                "removed from the table. Confirm briefly."
+                "removed from the table and stay out of later searches in this chat. Confirm in one sentence, "
+                "and say they can search again to bring them back."
+            )
+        elif plugin_type == "leadgen" and not fills and not discovered_leads:
+            # A question about the screen or the list, not a new search.
+            now = "; ".join(lead_filters.describe(req.filters or {})) if req.filters else ""
+            system_prompt += (
+                "\n\nNo new search ran for this message. "
+                + (f"The filters now applied are [{now}], and the rows under the chat are what they found. " if now
+                   else "Nothing has been searched yet, so there are no rows under the chat. ")
+                + "If the user asks what a list, row, badge or button is, or how to use it, explain it from the screen guide below, "
+                "in plain words. If they are asking for companies, ask for the missing piece (what kind of company, and where) in one sentence.\n\n"
+                + _LEADS_SCREEN_GUIDE + _PLAIN_REPLY_RULES
             )
 
         llm_response = {}

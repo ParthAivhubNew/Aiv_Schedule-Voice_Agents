@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BadgeCheck, Check, ChevronDown, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
+import { ArrowRight, ArrowUp, BadgeCheck, Check, ChevronDown, Clock, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Trash2, Search, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -32,6 +32,33 @@ const IDEAS = [
   ["Small construction firms in Manchester", { sector: "construction, building", town: "Manchester", sizes: ["micro", "small"] }],
   ["Established dental practices", { sector: "dental", minAge: "10" }],
 ];
+
+const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// The chat styles: the thread opens downward from the box and each message slides up into place.
+const CHAT_CSS = `
+.fl-thread{max-height:0;padding:0 14px;overflow:hidden;border-top:0 solid transparent;transition:max-height .45s cubic-bezier(.2,.8,.2,1),padding .3s ease}
+.fl-thread[data-open="true"]{max-height:min(430px,56vh);padding:12px 14px;overflow-y:auto;border-top:1px solid var(--ui-border,#E3E6EF)}
+.fl-msg{animation:flIn .28s ease both}
+@keyframes flIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.fl-hist{position:absolute;right:10px;top:46px;z-index:20;width:min(360px,calc(100% - 20px));background:#fff;border:1px solid var(--ui-border,#E3E6EF);border-radius:12px;box-shadow:0 12px 32px rgba(20,24,40,.16);animation:flIn .18s ease both}
+@media (prefers-reduced-motion:reduce){.fl-thread{transition:none}.fl-msg,.fl-hist{animation:none}}
+`;
+
+// A reply can use **bold** and "- " bullets; show them as formatting, not as asterisks.
+function ChatText({ body }) {
+  const inline = (line) => line.split(/(\*\*[^*]+\*\*)/g).map((part, i) => (/^\*\*[^*]+\*\*$/.test(part) ? <strong key={i}>{part.slice(2, -2)}</strong> : part));
+  return (
+    <div style={{ ...text, fontSize: 13, lineHeight: 1.55, color: C.textInk, overflowWrap: "anywhere", display: "flex", flexDirection: "column", gap: 3 }}>
+      {String(body || "").split("\n").map((line, i) => {
+        if (/^\s*[-•]\s+/.test(line)) {
+          return <div key={i} style={{ display: "flex", gap: 8, paddingLeft: 4 }}><span aria-hidden="true">•</span><span>{inline(line.replace(/^\s*[-•]\s+/, ""))}</span></div>;
+        }
+        return line.trim() ? <div key={i}>{inline(line)}</div> : <div key={i} style={{ height: 6 }} />;
+      })}
+    </div>
+  );
+}
 
 const splitList = (v) => String(v || "").split(",").map((s) => s.trim()).filter(Boolean);
 const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined : Number(v));
@@ -355,10 +382,33 @@ function FindLeadsSearch({ store, listsStore }) {
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const chatRun = useRef(0);
-  const scrollRef = useRef(null);
+  const chatCardRef = useRef(null);
+  const threadRef = useRef(null);
+  const [chatId, setChatId] = useState(() => `c_${Date.now()}`);
+  const [history, setHistory] = useState([]);
+  // Earlier chats live on the account, so they follow the person to any browser and nobody else can open them.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollIntoView({ block: "nearest" });
-  }, [chat.length, chatBusy]);
+    let live = true;
+    api.leadsChats().then((r) => { if (live) setHistory(r?.chats || []); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const chatStarted = chat.some((m) => m.role === "user") || chatBusy;
+  // Newest message at the bottom, older ones roll up out of view, like any messenger.
+  const rollToEnd = () => {
+    const el = threadRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
+  useEffect(() => { rollToEnd(); }, [chat.length, chatBusy]);
+  // Every finished exchange is kept, so an earlier chat can be opened again from History.
+  useEffect(() => {
+    const first = chat.find((m) => m.role === "user");
+    if (chatBusy || !first) return;
+    const entry = { id: chatId, title: first.text.slice(0, 70), at: Date.now(), chat, filters: applied };
+    setHistory((prev) => [entry, ...prev.filter((h) => h.id !== chatId)].slice(0, 30));
+    api.saveLeadsChat(entry).catch(() => {}); // the chat on screen is unaffected if saving fails; it is tried again after the next reply
+  }, [chat, chatBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const focusChat = () => setTimeout(() => chatCardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 90);
 
   const savedKeys = useMemo(() => new Set(store.accounts.flatMap((a) => [a.business_record_id, a.domain, a.name.toLowerCase()]).filter(Boolean)), [store.accounts]);
   const isSaved = (c) => {
@@ -649,17 +699,23 @@ function FindLeadsSearch({ store, listsStore }) {
       else await store.save([{ ...asAccount(c), notes: [asAccount(c).notes, note.trim()].filter(Boolean).join("\n") }]);
     },
   };
-  // The results on screen as a spreadsheet, for anyone who wants them outside the app.
-  const exportCsv = () => {
-    const cols = [["name", "Company"], ["registration_number", "Registration no."], ["industry", "Industry"], ["region", "Town"], ["postcode", "Postcode"], ["status", "Status"], ["website", "Website"], ["phone", "Phone"]];
-    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const csv = [cols.map(([, h]) => cell(h)).join(","), ...companies.map((c) => cols.map(([k]) => cell(c[k])).join(","))].join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = "companies.csv"; a.click();
-    URL.revokeObjectURL(url);
-  };
   const unsaved = companies.filter((c) => !isSaved(c));
+
+  const newChat = () => {
+    chatRun.current += 1; chatHold.clear(); setChatBusy(false);
+    setChat([CHAT_INTRO]); setChatInput(""); setChatId(`c_${Date.now()}`); setHistoryOpen(false);
+  };
+  const openChat = (h) => {
+    chatRun.current += 1; chatHold.clear(); setChatBusy(false);
+    setChatId(h.id); setChat(h.chat); setChatInput(""); setHistoryOpen(false);
+    // Bring back the search that chat ended on, so the list under the chat matches what it says.
+    if (h.filters && Object.keys(h.filters).length) {
+      const f = filtersToForm(h.filters);
+      setExcluded([]); setForm(f); search(null, f);
+    }
+    focusChat();
+  };
+  const forgetChat = (id) => { setHistory((prev) => prev.filter((h) => h.id !== id)); api.deleteLeadsChat(id).catch(() => {}); };
 
   const sendChat = async (e) => {
     if (e) e.preventDefault();
@@ -668,6 +724,7 @@ function FindLeadsSearch({ store, listsStore }) {
     setChatInput("");
     setChat((prev) => [...prev, { id: "m_" + Date.now(), role: "user", text: message }]);
     setChatBusy(true);
+    focusChat();
     const mine = ++chatRun.current;
     let res = null;
     let failure = null;
@@ -711,7 +768,6 @@ function FindLeadsSearch({ store, listsStore }) {
         setChat((prev) => [...prev, { id: "m_" + (Date.now() + 1), role: "assistant", text: res?.reply || "I processed your request. How else can I help?", found: res?.registry ? res.registry.total : null }]);
       }
       setChatBusy(false);
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     });
   };
 
@@ -767,47 +823,80 @@ function FindLeadsSearch({ store, listsStore }) {
         </div>
       </div>
       {source === "register" ? (<>
-      <div data-pane="chat" className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-        <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ position: "relative", flex: "1 1 320px", minWidth: 0 }}>
-            <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 13 }} />
-            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
-              placeholder='Tell the AI who you are after, like "small accountants in Leeds trading 5+ years"' style={{ width: "100%", height: 40, paddingLeft: 34 }}
-              title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
+      <div data-pane="chat" ref={chatCardRef} className="ui-card" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
+        <style>{CHAT_CSS}</style>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
+          <Sparkles size={15} color="#8B5CF6" />
+          <span style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Ask the AI</span>
+          <span style={{ ...muted, fontSize: 12 }}>Searching is free</span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            {history.length ? (
+              <button type="button" className={`ui-btn ui-btn--sm ${historyOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} aria-expanded={historyOpen}
+                title="Open an earlier chat" onClick={() => setHistoryOpen((o) => !o)}><Clock size={13} /> History</button>
+            ) : null}
+            {chatStarted ? (
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Start a new chat. This one is kept in History and your results stay as they are" onClick={newChat}><RotateCcw size={13} /> New chat</button>
+            ) : null}
           </div>
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 40 }} title="Send to the AI">
-            {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Search
-          </button>
-          <button type="button" className={`ui-btn ${filtersOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} style={{ height: 40 }} aria-expanded={filtersOpen}
-            title="Set the filters yourself instead: industry, town, size, age and more" onClick={() => setFiltersOpen((o) => !o)}>
-            <SlidersHorizontal size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""} <ChevronDown size={13} style={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />
-          </button>
-        </form>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
-          {IDEAS.map(([name, patch]) => (
-            <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
-          ))}
-          {chat.length > 1 ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title="Clear the conversation and start again. Your results stay as they are"
-              onClick={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); setChat([CHAT_INTRO]); setChatInput(""); }}><RotateCcw size={13} /> New chat</button>
-          ) : null}
         </div>
-        {chat.length > 1 || chatBusy ? (
-          <div className="ui-scroll" style={{ maxHeight: 300, overflowY: "auto", padding: "6px 2px", display: "flex", flexDirection: "column", gap: 12, borderTop: `1px solid ${C.borderLight}` }}>
+        {historyOpen ? (
+          <div className="fl-hist" role="dialog" aria-label="Earlier chats">
+            <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}` }}>
+              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Earlier chats</span>
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title="Close" aria-label="Close history" onClick={() => setHistoryOpen(false)}><X size={13} /></button>
+            </div>
+            <div className="ui-scroll" style={{ maxHeight: 300, overflowY: "auto" }}>
+              {history.map((h) => (
+                <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 4px", background: h.id === chatId ? "var(--ui-accent-soft)" : "transparent" }}>
+                  <button type="button" onClick={() => openChat(h)} title="Open this chat and bring back its search"
+                    style={{ all: "unset", flex: 1, minWidth: 0, cursor: "pointer", padding: "7px 8px", borderRadius: 8 }}>
+                    <div style={{ ...text, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.title}</div>
+                    <div style={{ ...muted, fontSize: 12 }}>{when(h.at)} · {h.chat.filter((m) => m.role === "user").length} message{h.chat.filter((m) => m.role === "user").length === 1 ? "" : "s"}</div>
+                  </button>
+                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Delete the chat ${h.title}`} title="Delete this chat" onClick={() => forgetChat(h.id)}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <div style={{ ...muted, fontSize: 12, padding: "8px 12px", borderTop: `1px solid ${C.borderLight}` }}>Saved to your account. Only you can see them. Opening a chat searches again so the list matches it.</div>
+          </div>
+        ) : null}
+        <div ref={threadRef} className="fl-thread ui-scroll" data-open={chatStarted ? "true" : "false"} onTransitionEnd={rollToEnd}>
+          <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 12 }}>
             {chat.filter((m) => m.id !== CHAT_INTRO.id).map((m) => (
-              <div key={m.id} style={m.role === "user"
+              <div key={m.id} className="fl-msg" style={m.role === "user"
                 ? { alignSelf: "flex-end", maxWidth: "80%", background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)", padding: "8px 12px", borderRadius: 8, ...text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
-                : { maxWidth: "90%" }}>
-                {m.role === "user" ? m.text : (
-                  <div style={{ ...text, fontSize: 13, lineHeight: 1.55, color: C.textInk, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{m.text}</div>
-                )}
+                : { maxWidth: "92%" }}>
+                {m.role === "user" ? m.text : <ChatText body={m.text} />}
               </div>
             ))}
             {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
-            <div ref={scrollRef} />
           </div>
-        ) : null}
+        </div>
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, borderTop: chatStarted ? `1px solid ${C.borderLight}` : "none" }}>
+          <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ position: "relative", flex: "1 1 320px", minWidth: 0 }}>
+              <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 13 }} />
+              <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
+                placeholder={chatStarted ? "Reply, or change the search" : 'Tell the AI who you are after, like "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 40, paddingLeft: 34 }}
+                title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
+            </div>
+            <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 40 }} title="Send to the AI">
+              {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Search
+            </button>
+            <button type="button" className={`ui-btn ${filtersOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} style={{ height: 40 }} aria-expanded={filtersOpen}
+              title="Set the filters yourself instead: industry, town, size, age and more" onClick={() => setFiltersOpen((o) => !o)}>
+              <SlidersHorizontal size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""} <ChevronDown size={13} style={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />
+            </button>
+          </form>
+          {!chatStarted ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
+              {IDEAS.map(([name, patch]) => (
+                <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
       {filtersOpen ? (
       <form ref={filtersRef} data-pane="chat" onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -898,7 +987,6 @@ function FindLeadsSearch({ store, listsStore }) {
                   className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
               ))}
             </div>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} onClick={exportCsv} title="Download these results as a CSV file">Export CSV</button>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} title="Put every company shown into your Favourites list"
               onClick={() => store.save(companies.map(asAccount), FAVOURITES)}>★ Favourite all</button>
             <button title="Save every company shown into your Unsorted list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={async () => { const name = await askText({ title: `Save these ${unsaved.length.toLocaleString()} companies into a list`, label: "Name the list", initial: "Unsorted", confirm: "Save", maxLength: 80 }); if (name) store.save(unsaved.map(asAccount), name); }}>
