@@ -224,6 +224,24 @@ def channel_rules_for(channels: List[str]) -> str:
     return "Channel rules (follow the rule for each post's channel; LinkedIn posts follow the LinkedIn brief above):\n- " + "\n- ".join(rules)
 
 
+def looks_cut_off(text: str) -> bool:
+    """True when a post stops in the middle of a sentence ("...prove before"). Hashtags and links may end it."""
+    body = re.sub(r"(?:\s*#\w+)+\s*$", "", str(text or "")).strip()
+    if not body:
+        return False
+    last = body.split()[-1]
+    if last.lower().startswith(("http://", "https://", "www.")):
+        return False
+    return body[-1].isalnum() or body[-1] in ",;:-–—("
+
+
+def trim_to_sentence(text: str) -> str:
+    """Drop a trailing unfinished sentence so a cut-off post still ends cleanly."""
+    t = str(text or "").rstrip()
+    m = list(re.finditer(r"[.!?…][\"'”)]*(?=\s|$)", t))
+    return t[: m[-1].end()].rstrip() if m else t
+
+
 def fit_text(text: str, limit: int) -> str:
     """Shorten to the limit at a sentence or word end, never mid-word."""
     t = re.sub(r"[ \t]+", " ", str(text or "")).strip()
@@ -976,7 +994,7 @@ async def generate_complete_social_package(
     - Image prompt & URL
     - Alt text
     """
-    from app.services.llm_gateway import call_open_chat_llm
+    from app.services.llm_gateway import call_open_chat_llm, output_token_limit
 
     user_plan = (topic or "").strip()
     brand = (company_name or "").strip()
@@ -1080,28 +1098,48 @@ Return ONLY valid JSON:
 
     llm_payload = None
     generation_source = "fallback"
-    try:
+
+    async def _ask(extra: str = "") -> Optional[Dict[str, Any]]:
         res = await call_open_chat_llm(
-            messages=[{"role": "user", "content": user_msg}],
+            messages=[{"role": "user", "content": user_msg + extra}],
             system_prompt=system_prompt,
             api_key=api_key,
             provider=provider,
             model=model,
             base_url=base_url,
             temperature=0.7,
+            max_tokens=output_token_limit(provider, 4000),  # room for the whole post, the picture brief and the extras
             db=db
         )
-        if res and res.get("success") and res.get("reply"):
-            reply_str = res["reply"].strip()
-            # Extract JSON if enclosed in code fences
-            if "```" in reply_str:
-                m = re.search(r"```(?:json)?\s*({[\s\S]*?})\s*```", reply_str)
-                if m:
-                    reply_str = m.group(1)
-            llm_payload = json.loads(reply_str)
+        if not (res and res.get("success") and res.get("reply")):
+            return None
+        reply_str = res["reply"].strip()
+        # Extract JSON if enclosed in code fences
+        if "```" in reply_str:
+            m = re.search(r"```(?:json)?\s*({[\s\S]*?})\s*```", reply_str)
+            if m:
+                reply_str = m.group(1)
+        payload = json.loads(reply_str)
+        payload["_cut_off"] = bool(res.get("truncated"))
+        return payload
+
+    try:
+        llm_payload = await _ask()
+        # A post that stops mid-sentence is never shown: ask once more, and if it still stops, end it at its last full sentence.
+        if llm_payload and (llm_payload.get("_cut_off") or looks_cut_off(llm_payload.get("copy") or llm_payload.get("channel_text") or "")):
+            again = await _ask("\n\nYour last reply stopped in the middle of a sentence. Write the complete post and finish every sentence, including the closing question.")
+            if again and not (again.get("_cut_off") or looks_cut_off(again.get("copy") or again.get("channel_text") or "")):
+                llm_payload = again
+            else:
+                for k in ("copy", "channel_text"):
+                    if llm_payload.get(k) and looks_cut_off(llm_payload[k]):
+                        llm_payload[k] = trim_to_sentence(llm_payload[k])
+        if llm_payload:
+            llm_payload.pop("_cut_off", None)
             generation_source = "llm"
     except Exception as e:
         logger.warning(f"LLM package generation fallback triggered: {e}")
+        llm_payload = None
 
     # 2. Fallback: craft brief + company profile facts only.
     if not llm_payload:

@@ -2114,15 +2114,23 @@ class CalendarService:
         if when_iso_date and when_time:
             date_iso, time_hhmm = when_iso_date, when_time
         else:
-            nxt = datetime.now(z) + timedelta(days=1)
-            # snap to the next day meetings are open (weekends count when the admin opens them)
+            now_local = datetime.now(z)
+            time_hhmm = setting.working_hours_start or "10:00"
             open_days = setting.working_days or ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+            # Today when meetings are open today and the first slot is still ahead; otherwise the next day
+            # they are open (weekends count when the admin opens them).
+            nxt = now_local
+            try:
+                hh, mm = (int(x) for x in time_hhmm.split(":")[:2])
+                if nxt.strftime("%A") not in open_days or (nxt.hour, nxt.minute) >= (hh, mm):
+                    nxt += timedelta(days=1)
+            except ValueError:
+                nxt += timedelta(days=1)
             for _ in range(7):
                 if nxt.strftime("%A") in open_days:
                     break
                 nxt += timedelta(days=1)
             date_iso = nxt.strftime("%Y-%m-%d")
-            time_hhmm = setting.working_hours_start or "10:00"
         when_label = _pretty_datetime(date_iso, time_hhmm, tz)
         dur_min = int(setting.default_duration or 15)
         dur = f"{dur_min} min"

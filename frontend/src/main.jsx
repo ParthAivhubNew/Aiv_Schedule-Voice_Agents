@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { Tooltips } from './components/Tooltips';
 import './app/global.css';
 import { upgradeLegacyHashUrl } from './utils/route';
 
@@ -127,6 +128,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <RootErrorBoundary>
       <App />
+      <Tooltips />
     </RootErrorBoundary>
   </React.StrictMode>
 );
