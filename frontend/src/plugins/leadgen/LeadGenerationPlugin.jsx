@@ -182,7 +182,7 @@ export default function LeadGenerationPlugin({
   }));
 
   const viewTitles = {
-    find_leads: { title: "Find Leads", desc: "Search for companies, then refine with the AI in the same place -- or import a spreadsheet instead." },
+    find_leads: { title: "Find Leads", desc: "Search for companies by what they do and where, narrow the results with the AI, or import your own spreadsheet." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
     mail: { title: "Mail", desc: "Your mailboxes, and everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },

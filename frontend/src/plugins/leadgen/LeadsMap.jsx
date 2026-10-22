@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Eraser, Pencil, X } from "lucide-react";
+import { Eraser, Eye, Pencil, Phone, Globe, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { shapeFromPath } from "./drawShape";
 import { directionsUrl, legendFor, pinHtml, pinKind } from "./mapPins";
@@ -33,6 +33,27 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   const [drawing, setDrawing] = useState(false);
   const cbs = useRef({ onArea });
   cbs.current = { onArea, statusOf, actions, hint };
+  // What the user has narrowed the map to: kinds switched off in the legend, and "has a phone / website".
+  const [hidden, setHidden] = useState(() => new Set());
+  const [needPhone, setNeedPhone] = useState(false);
+  const [needSite, setNeedSite] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(true);
+  const placed = useMemo(() => companies.filter((c) => points[c.id]), [companies, points]);
+  const legend = useMemo(() => legendFor(placed, hint), [placed, hint]);
+  const visible = useMemo(
+    () => placed.filter((c) => !hidden.has(pinKind(c, hint).kind) && (!needPhone || c.phone) && (!needSite || c.website)),
+    [placed, hidden, needPhone, needSite, hint],
+  );
+  const narrowed = hidden.size > 0 || needPhone || needSite;
+  const showAll = () => { setHidden(new Set()); setNeedPhone(false); setNeedSite(false); };
+  // Click a kind to see only that kind; click it again (when it is the only one) to bring the rest back.
+  const soloKind = (kind) => setHidden((cur) => {
+    const others = legend.map((k) => k.kind).filter((k) => k !== kind);
+    const alreadySolo = others.every((k) => cur.has(k)) && !cur.has(kind);
+    return alreadySolo ? new Set() : new Set(others);
+  });
+  const toggleKind = (kind) => setHidden((cur) => { const n = new Set(cur); if (n.has(kind)) n.delete(kind); else n.add(kind); return n; });
+  useEffect(() => { showAll(); }, [area]); // a new area starts from everything
   const statusKey = companies.map((c) => { const s = statusOf?.(c) || {}; return `${c.id}${s.saved ? "s" : ""}${s.favourite ? "f" : ""}`; }).join("|");
 
   useEffect(() => {
@@ -111,7 +132,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     const m = map.current;
     if (!m) return;
     markers.current.clearLayers();
-    companies.forEach((c) => {
+    visible.forEach((c) => {
       const p = points[c.id];
       if (!p) return;
       const s = cbs.current.statusOf?.(c) || {};
@@ -120,15 +141,15 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
       pin.bindPopup(() => card(c, pin), { minWidth: 230 });
       markers.current.addLayer(pin);
     });
-  }, [companies, points, statusKey]);
+  }, [visible, points, statusKey]);
 
   // Move the map to the results only when they change, never because a company was saved.
   useEffect(() => {
     const m = map.current;
     if (!m || area) return;
-    const bounds = companies.map((c) => points[c.id]).filter(Boolean);
+    const bounds = visible.map((c) => points[c.id]).filter(Boolean);
     if (bounds.length) m.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  }, [companies, points, area]);
+  }, [visible, points, area]);
 
   // The finished area.
   useEffect(() => {
@@ -214,14 +235,39 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
         )}
         {area && !drawing ? <button title="Remove the drawn shape" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
       </div>
-      {legendFor(companies.filter((c) => points[c.id]), hint).length > 1 || companies.some((c) => points[c.id]) ? (
-        <div style={{ position: "absolute", left: 10, top: 10, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12, color: C.ink, maxHeight: 180, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>
-          {legendFor(companies.filter((c) => points[c.id]), hint).slice(0, 8).map((k) => (
-            <div key={k.kind} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6 }}>
-              <span style={{ display: "inline-flex", width: 18, height: 18, borderRadius: "50%", background: k.color, alignItems: "center", justifyContent: "center", fontSize: 10 }}>{k.icon}</span>
-              {k.label} <span style={{ color: C.slate }}>{k.count}</span>
-            </div>
-          ))}
+      {placed.length ? (
+        <div style={{ position: "absolute", left: 10, top: 10, zIndex: 500, background: "rgba(255,255,255,.96)", padding: "6px 8px", borderRadius: 8, ...text, fontSize: 12, color: C.ink, maxHeight: height - 60, maxWidth: 230, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>
+          <button type="button" onClick={() => setLegendOpen((o) => !o)} aria-expanded={legendOpen}
+            style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, width: "100%", fontWeight: 600, padding: "2px 2px 4px" }}>
+            <Eye size={13} /> Showing {visible.length.toLocaleString()} of {placed.length.toLocaleString()}
+            <span style={{ marginLeft: "auto", color: C.slate, fontWeight: 400 }}>{legendOpen ? "Hide" : "Filter"}</span>
+          </button>
+          {legendOpen ? (
+            <>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "0 2px 6px" }}>
+                <button type="button" aria-pressed={needPhone} onClick={() => setNeedPhone((v) => !v)} title="Only companies with a phone number"
+                  className={`ui-btn ui-btn--sm ${needPhone ? "ui-btn--primary" : "ui-btn--secondary"}`} style={{ ...btn, height: 24, fontSize: 11.5, padding: "0 8px" }}><Phone size={11} /> Has phone</button>
+                <button type="button" aria-pressed={needSite} onClick={() => setNeedSite((v) => !v)} title="Only companies with a website"
+                  className={`ui-btn ui-btn--sm ${needSite ? "ui-btn--primary" : "ui-btn--secondary"}`} style={{ ...btn, height: 24, fontSize: 11.5, padding: "0 8px" }}><Globe size={11} /> Has website</button>
+              </div>
+              {legend.map((k) => {
+                const off = hidden.has(k.kind);
+                return (
+                  <div key={k.kind} style={{ display: "flex", alignItems: "center", gap: 4, opacity: off ? 0.4 : 1 }}>
+                    <button type="button" onClick={() => soloKind(k.kind)} title={`Show only ${k.label.toLowerCase()}`}
+                      style={{ all: "unset", cursor: "pointer", flex: 1, display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6, padding: "1px 2px", borderRadius: 4, minWidth: 0 }}>
+                      <span style={{ display: "inline-flex", width: 18, height: 18, borderRadius: "50%", background: k.color, alignItems: "center", justifyContent: "center", fontSize: 10, flexShrink: 0 }}>{k.icon}</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.label}</span>
+                      <span style={{ color: C.slate }}>{k.count}</span>
+                    </button>
+                    <button type="button" onClick={() => toggleKind(k.kind)} aria-pressed={!off} aria-label={off ? `Show ${k.label}` : `Hide ${k.label}`} title={off ? "Show these again" : "Hide these"}
+                      style={{ all: "unset", cursor: "pointer", display: "inline-flex", padding: 3, color: C.slate }}><Eye size={13} /></button>
+                  </div>
+                );
+              })}
+              {narrowed ? <button type="button" onClick={showAll} style={{ all: "unset", cursor: "pointer", marginTop: 4, padding: "2px", color: C.cobalt, fontWeight: 600 }}>Show everything</button> : null}
+            </>
+          ) : null}
         </div>
       ) : null}
       {drawing ? (

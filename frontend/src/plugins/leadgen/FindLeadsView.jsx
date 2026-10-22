@@ -87,6 +87,15 @@ function asAccount(c) {
 
 // One company's contacts on demand. Registry officers are verified and free; the web lookup is a
 // separate, labelled step; an email is found for one named person at a time (1 credit, only when found).
+function WebRow({ label, children }) {
+  return (
+    <div style={{ display: "flex", gap: 10, fontSize: 12.5, ...text, color: C.textInk, alignItems: "baseline" }}>
+      <span style={{ width: 56, flexShrink: 0, color: C.slate }}>{label}</span>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{children}</span>
+    </div>
+  );
+}
+
 function ContactsPanel({ company }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -137,7 +146,7 @@ function ContactsPanel({ company }) {
                 <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${C.borderLight}` }}>
                   <span style={{ ...text, fontSize: 13, flex: "1 1 200px" }}>{o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role || "Officer"}</span></span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
-                    : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No verified email found. Nothing charged.</span>
+                    : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person at that website. Nothing charged.</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
                     : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!domain || e.busy} onClick={() => findEmail(o)}>
                         {e.busy ? <RefreshCw size={13} className="ui-spin" /> : null} Find email · 1 credit if found
@@ -146,7 +155,7 @@ function ContactsPanel({ company }) {
               );
             }) : <div style={{ ...muted, fontSize: 12.5 }}>{data.officers_note || "No current officers listed."}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Company website (needed to find an email):</span>
+              <span style={{ ...muted, fontSize: 12.5 }}>Company website (we need it to find emails):</span>
               <input className="ui-input" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.co.uk" style={{ height: 30, width: 200 }} aria-label="Company website domain" />
             </div>
           </div>
@@ -156,11 +165,13 @@ function ContactsPanel({ company }) {
               <div style={{ ...muted, fontSize: 12.5 }}>{[data.stored.website, data.stored.phone, data.stored.email].filter(Boolean).join(" · ")} <TierBadge tier={data.stored.tier} /></div>
             ) : <div style={{ ...muted, fontSize: 12.5 }}>The registry doesn't publish a website, phone or email for this company.</div>}
             {data.web ? (
-              data.web.found === false ? <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>The web lookup found nothing public. Nothing charged.</div> : (
-                <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>
-                  <span style={{ color: C.slate }}>From a web search (not verified, check before use): </span>
-                  {[data.web.website, ...(data.web.phones || []), ...(data.web.emails || [])].filter(Boolean).join(" · ") || "no details"}
-                  {(data.web.team || []).map((t) => <div key={t.name}>{t.name}{t.title ? `, ${t.title}` : ""}{t.email ? ` · ${t.email}` : ""}</div>)}
+              data.web.found === false ? <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>The web search found no website, phone or email we could tie to this company, so nothing is shown and nothing was charged.</div> : (
+                <div style={{ marginTop: 8, padding: "8px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 8, background: "#fff", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, display: "flex", alignItems: "center", gap: 5 }}><Globe size={12} /> Found on the web · check before you use it</div>
+                  {data.web.website ? <WebRow label="Website"><a href={/^https?:/.test(data.web.website) ? data.web.website : `https://${data.web.website}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{domainOf(data.web.website) || data.web.website}</a></WebRow> : null}
+                  {(data.web.phones || []).map((ph) => <WebRow key={ph} label="Phone"><a href={`tel:${ph.replace(/\s+/g, "")}`} style={{ color: C.textInk }}>{ph}</a></WebRow>)}
+                  {(data.web.emails || []).map((em) => <WebRow key={em} label="Email"><a href={`mailto:${em}`} style={{ color: C.textInk }}>{em}</a></WebRow>)}
+                  {(data.web.team || []).map((t) => <WebRow key={t.name} label="Team">{t.name}{t.title ? `, ${t.title}` : ""}{t.email ? <> · <a href={`mailto:${t.email}`} style={{ color: C.textInk }}>{t.email}</a></> : null}</WebRow>)}
                 </div>
               )
             ) : (
@@ -330,6 +341,11 @@ function FindLeadsSearch({ store, listsStore }) {
   useEffect(() => {
     if (filtersOpen && filtersRef.current) filtersRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [filtersOpen]);
+  // Map view: bring the map into view when it is chosen and whenever a search starts or finishes, so nobody scrolls to it each time.
+  const mapRef = useRef(null);
+  useEffect(() => {
+    if (view === "map" && mapRef.current) mapRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [view, busy]);
   const [chat, setChat] = useState(() => [CHAT_INTRO]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -364,6 +380,7 @@ function FindLeadsSearch({ store, listsStore }) {
   }, [view, companies]);
 
   const searchHold = useHold();
+  const countHold = useHold();
   const chatHold = useHold();
   const webHold = useHold();
   // Phones: a search shows its progress, then its companies or its error, on the Results pane.
@@ -476,20 +493,28 @@ function FindLeadsSearch({ store, listsStore }) {
     setError("");
     setAreaStep({ phase: "counting" });
     const myRun = ++runId.current;
+    countHold.clear();
     try {
       const r = await api.areaCount({ filters: formToFilters(f), area: shape, drop_terms: drop });
       if (myRun !== runId.current) return;
-      widenRef.current = Boolean(r.widened);
-      setUnderstood(r.understood || []);
-      if (r.candidates) {
-        showFromArea(shape, Math.min(AREA_FIRST, r.candidates), r.candidates, f, drop); // show a few at once, then offer more
-      } else {
-        setAreaStep({ phase: "choose", candidates: 0, capped: r.capped });
-      }
+      // If the count was paused, its answer waits here until Resume.
+      countHold.settle(() => {
+        if (myRun !== runId.current) return;
+        widenRef.current = Boolean(r.widened);
+        setUnderstood(r.understood || []);
+        if (r.candidates) {
+          showFromArea(shape, Math.min(AREA_FIRST, r.candidates), r.candidates, f, drop); // show a few at once, then offer more
+        } else {
+          setAreaStep({ phase: "choose", candidates: 0, capped: r.capped });
+        }
+      });
     } catch (err) {
       if (myRun !== runId.current) return;
-      setAreaStep(null);
-      setError(err.message || "The area couldn't be counted. Try again.");
+      countHold.settle(() => {
+        if (myRun !== runId.current) return;
+        setAreaStep(null);
+        setError(err.message || "The area couldn't be counted. Try again.");
+      });
     }
   };
 
@@ -546,6 +571,7 @@ function FindLeadsSearch({ store, listsStore }) {
   const clearArea = () => {
     stopArea.current = true;
     runId.current += 1; // a count still on its way is ignored
+    countHold.clear();
     setAreaStep(null);
     setArea(null);
     setExcluded([]);
@@ -892,7 +918,7 @@ function FindLeadsSearch({ store, listsStore }) {
             </div>
           ) : null}
           {view === "map" ? (
-            <div style={{ padding: 12 }}>
+            <div ref={mapRef} style={{ padding: 12, scrollMarginTop: 8 }}>
               <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
               {area && companies.some((c) => c.phone) ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -906,7 +932,8 @@ function FindLeadsSearch({ store, listsStore }) {
                   {areaStep.phase === "counting" ? (
                     <div style={{ width: "100%" }}>
                       <SearchStatus title="Counting the companies inside your area"
-                        detail={`${[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.`} onCancel={clearArea} />
+                        detail={`${[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.`}
+                        paused={countHold.paused} holding onPause={countHold.pause} onResume={countHold.resume} onCancel={clearArea} />
                     </div>
                   ) : null}
                   {areaStep.phase === "choose" ? (

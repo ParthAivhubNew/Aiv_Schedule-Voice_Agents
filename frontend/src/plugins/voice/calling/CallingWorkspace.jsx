@@ -2539,7 +2539,7 @@ export function CallingWorkspace({
     });
   }, [logs, logQuery, logOutcome]);
   const titles = {
-    list: ["Today's list", "Upload Excel, tick who to call. Max 2 at once when several are selected."],
+    list: ["Today's list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     logs: ["Conversations", "Every call and WhatsApp chat in one place. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
@@ -2661,7 +2661,7 @@ export function CallingWorkspace({
           )}
           <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {page === "list"
-              ? (rows.length ? `${fileName ? `${fileName} · ` : ""}${rows.length} contact${rows.length === 1 ? "" : "s"} · ${dialable} with a phone` : "")
+              ? (rows.length ? `${fileName ? `${fileName} · ` : ""}${rows.length} contact${rows.length === 1 ? "" : "s"} · ${dialable} with a phone` : titles.list[1])
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto" }}>

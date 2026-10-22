@@ -98,10 +98,28 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
 
     data = await enrich_prospect_intelligence(name=biz.name, company=biz.name, domain=biz.domain or None,
                                               place=biz.region or None, db=db)
+    from app.services.enrichment_service import _host_of, _is_directory_host, _is_junk_web_host
+
+    site = data.get("domain") or ""
+    if site and (_is_directory_host(site) or _is_junk_web_host(site)):
+        site = ""  # a directory page about the company, not its own website
+    host = _host_of(site)
+
+    def _own_email(e: str) -> bool:
+        # Only addresses on the company's own website; without one there is nothing to tie them to this company.
+        d = (e or "").lower().rpartition("@")[2]
+        return bool(host) and (d == host or d.endswith("." + host) or host.endswith("." + d))
+
+    def _uk_phone(p: str) -> bool:
+        digits = re.sub(r"[^\d+]", "", p or "")
+        return digits.startswith("+44") or (digits.startswith("0") and not digits.startswith("00"))
+
     team = [{"name": t.get("name") or "", "title": t.get("title") or "", "phone": t.get("phone") or "", "email": (t.get("email") or "").lower()}
             for t in (data.get("team") or []) if t.get("name")][:10]
+    team = [{**t, "email": t["email"] if _own_email(t["email"]) else "", "phone": t["phone"] if _uk_phone(t["phone"]) else ""} for t in team]
     found = {
-        "website": data.get("domain") or "", "phones": (data.get("phones") or [])[:5], "emails": (data.get("emails") or [])[:5],
+        "website": site, "phones": [p for p in (data.get("phones") or []) if _uk_phone(p)][:5],
+        "emails": [e for e in (data.get("emails") or []) if _own_email(e)][:5],
         "team": team, "sources": (data.get("citations") or [])[:8],
         "source": "web", "verified": False, "fetched_at": datetime.utcnow().isoformat() + "Z",
     }

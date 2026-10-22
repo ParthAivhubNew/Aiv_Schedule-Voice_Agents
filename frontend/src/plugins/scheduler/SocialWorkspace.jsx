@@ -4465,14 +4465,16 @@ export function SocialWorkspace({
         ) : (
         <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: C.ink }}>
-              {plan.rangeLabel || monthLabel(cal.year, cal.month)}
-            </div>
-            <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-              {companyName(profile)} · Times in {tzLabel(org.timezone)}
-            </div>
-          </div>
+          <section id="ov-anchor" aria-label="Overview" style={{ flex: 1, minWidth: 0, scrollMarginTop: 12 }}>
+            <OverviewPage embedded
+              onOpenPost={(id) => openApprovals(id)}
+              onRetry={retryFromOverview}
+              retrying={publishing}
+              onReconnect={() => goPage("accounts")}
+              onOpenApprovals={() => openApprovals()}
+              onOpenInsights={() => goPage("insights")}
+            />
+          </section>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             {cta.tone === "go" ? <button
               type="button"
@@ -4507,23 +4509,16 @@ export function SocialWorkspace({
         <div className="split-view pane-root" data-active={planPane} style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <PaneSwitch value={planPane} onChange={setPlanPane} panes={[{ id: "main", label: "Calendar" }, { id: "side", label: "Plan AI" }]} />
           <div data-pane="main" className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
-            <section id="ov-anchor" aria-label="Overview" style={{ flexShrink: 0, scrollMarginTop: 12 }}>
-              <OverviewPage embedded
-                onOpenPost={(id) => openApprovals(id)}
-                onRetry={retryFromOverview}
-                retrying={publishing}
-                onReconnect={() => goPage("accounts")}
-                onOpenApprovals={() => openApprovals()}
-                onOpenInsights={() => goPage("insights")}
-              />
-            </section>
             <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn}>
                 <ChevronLeft size={16} />
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>{monthLabel(cal.year, cal.month)}</div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>{plan.rangeLabel || monthLabel(cal.year, cal.month)}</div>
+                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>{companyName(profile)} · Times in {tzLabel(org.timezone)}</div>
+                </div>
                 <button type="button" onClick={() => setSchedulesOpen(true)} title="Post right now, once, or on a repeating schedule" style={{ ...secBtn, height: 30, fontSize: 12 }}>
                   <CalendarClock size={14} /> Schedule
                 </button>
