@@ -186,7 +186,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
         <BillingReturnBanner />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
-          {[...mine, ...rest].map(card)}
+          {APPS.map(card)}
         </div>
         {billing && rest.length > 0 && (
           <p style={{ fontSize: 13, color: C.slateLight, margin: "16px 0 0" }}>

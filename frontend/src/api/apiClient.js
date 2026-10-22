@@ -485,6 +485,8 @@ export const api = {
   getSocialInsights: ({ days = 30, channel = '', account = '' } = {}) => apiRequest(`/scheduler/insights?days=${days}&channel=${encodeURIComponent(channel)}&account=${encodeURIComponent(account)}`),
   syncSocialInsights: () => apiRequest('/scheduler/insights/sync', { method: 'POST', timeoutMs: 120000 }),
   getPostResults: (postId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/results`),
+  postResultsLink: (postId) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/results/link`, { method: 'POST', body: {} }),
+  sendPostResults: (postId, body) => apiRequest(`/scheduler/posts/${encodeURIComponent(postId)}/results/send`, { method: 'POST', body }),
   // Media library
   getMediaLibrary: ({ kind = '', q = '', tag = '' } = {}) => apiRequest(`/scheduler/library?kind=${kind}&q=${encodeURIComponent(q)}&tag=${encodeURIComponent(tag)}`),
   uploadMedia: (files, tags = '') => {

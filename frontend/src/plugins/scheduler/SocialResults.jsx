@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Clock, ExternalLink, Pencil, Plug, RefreshCw } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, ExternalLink, Pencil, Plug, RefreshCw, Send, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
@@ -265,18 +265,18 @@ function Stat({ label, value, change, accent }) {
 // ── Insights ────────────────────────────────────────────────────────────────
 export function InsightsPage({ onOpenPost, showToast, side }) {
   const [days, setDays] = useState(30);
-  const [channel, setChannel] = useState("");
-  const [account, setAccount] = useState("");
+  const [channels, setChannels] = useState([]); // empty = every network
+  const [accountIds, setAccountIds] = useState([]); // empty = every account
   const [data, setData] = useState(null);
   const [state, setState] = useState("loading");
   const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(() => {
     setState("loading");
-    api.getSocialInsights({ days, channel, account })
+    api.getSocialInsights({ days, channel: channels.join(","), account: accountIds.join(",") })
       .then((d) => { setData(d); setState("ok"); })
       .catch(() => setState("error"));
-  }, [days, channel, account]);
+  }, [days, channels, accountIds]);
   useEffect(() => { load(); }, [load]);
 
   const sync = async () => {
@@ -292,7 +292,11 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
     }
   };
 
-  const accountsForChannel = ((data && data.accounts) || []).filter((a) => !channel || a.platform === channel);
+  const allAccounts = (data && data.accounts) || [];
+  const connected = [...new Set(allAccounts.map((a) => a.platform))];
+  const channelOptions = (connected.length ? connected : Object.keys(TITLES)).map((k) => ({ id: k, label: title(k), dot: DOTS[k] }));
+  const accountsForChannel = allAccounts.filter((a) => !channels.length || channels.includes(a.platform));
+  const accountOptions = accountsForChannel.map((a) => ({ id: a.id, label: `${title(a.platform)} · ${a.handle || a.id}`, dot: DOTS[a.platform] }));
   return (
     <div style={page}>
       <div style={{ maxWidth: side ? 1560 : 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20 }}>
@@ -306,15 +310,10 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
               </button>
             ))}
           </div>
-          <select aria-label="Channel" value={channel} onChange={(e) => { setChannel(e.target.value); setAccount(""); }} style={{ ...btn, paddingRight: 8 }}>
-            <option value="">All channels</option>
-            {Object.keys(TITLES).map((k) => <option key={k} value={k}>{TITLES[k]}</option>)}
-          </select>
-          {accountsForChannel.length > 1 ? (
-            <select aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)} style={{ ...btn, paddingRight: 8 }}>
-              <option value="">All accounts</option>
-              {accountsForChannel.map((a) => <option key={a.id} value={a.id}>{title(a.platform)} · {a.handle || a.id}</option>)}
-            </select>
+          <Picker label="Networks" allLabel="All networks" noun="networks" options={channelOptions} value={channels}
+            onChange={(v) => { setChannels(v); setAccountIds([]); }} />
+          {accountOptions.length > 1 ? (
+            <Picker label="Accounts" allLabel="All accounts" noun="accounts" options={accountOptions} value={accountIds} onChange={setAccountIds} />
           ) : null}
           <div style={{ flex: 1 }} />
           {data && data.lastSyncedAt ? <span style={{ fontSize: 11.5, color: C.slate }}>Updated {new Date(data.lastSyncedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span> : null}
@@ -323,7 +322,7 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
 
         {state === "loading" && !data ? <Loading what="results" /> : null}
         {state === "error" ? <Failed what="results" onRetry={load} /> : null}
-        {data ? <InsightsBody data={data} onOpenPost={onOpenPost} loading={state === "loading"} /> : null}
+        {data ? <InsightsBody data={data} onOpenPost={onOpenPost} loading={state === "loading"} showToast={showToast} single={channels.length === 1} onPickChannel={(k) => { setChannels([k]); setAccountIds([]); }} /> : null}
       </div>
       {side ? <aside id="reports-panel" aria-label="Reports" style={{ flex: "0 1 420px", minWidth: 300, width: "100%", scrollMarginTop: 12 }}>{side}</aside> : null}
       </div>
@@ -331,7 +330,8 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
   );
 }
 
-function InsightsBody({ data, onOpenPost, loading }) {
+function InsightsBody({ data, onOpenPost, loading, single, onPickChannel, showToast }) {
+  const [openPost, setOpenPost] = useState(null);
   const t = data.totals;
   const ch = data.changes;
   const empty = !t.posts;
@@ -368,41 +368,9 @@ function InsightsBody({ data, onOpenPost, loading }) {
             </section>
           </div>
 
-          <section style={card} aria-labelledby="in-top">
-            <h2 id="in-top" style={h2}>Top posts</h2>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
-                <thead>
-                  <tr style={{ color: C.slate, textAlign: "right" }}>
-                    {["Post", "Reach", "Views", "Likes", "Comments", "Clicks", "Tracked clicks", "Leads", "Meetings"].map((h, i) => (
-                      <th key={h} scope="col" style={{ fontWeight: 600, padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: i ? "right" : "left" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.top.map((p) => (
-                    <tr key={p.id}>
-                      <td style={{ padding: "8px", borderBottom: `1px solid ${C.border}`, maxWidth: 280 }}>
-                        <button type="button" onClick={() => onOpenPost(p.id)} className="ui-link"
-                          style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", fontWeight: 600, color: C.ink, textAlign: "left", fontFamily: FONT_BODY, fontSize: 12.5 }}>
-                          {p.title || "Post"}
-                        </button>
-                        <div style={{ fontSize: 11, color: C.slate, display: "flex", gap: 8, alignItems: "center" }}>
-                          {title(p.channel)}
-                          {p.url ? <a href={p.url} target="_blank" rel="noreferrer" className="ui-link" style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>View <ExternalLink size={11} /></a> : null}
-                        </div>
-                      </td>
-                      {["reach", "impressions", "likes", "comments", "clicks", "linkClicks", "leads", "meetings"].map((k) => (
-                        <td key={k} style={{ padding: "8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (k === "leads" || k === "meetings") && p[k] ? C.teal : C.ink, fontWeight: (k === "leads" || k === "meetings") && p[k] ? 700 : 400 }}>
-                          {fmt(p[k])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          {!single && (data.byChannel || []).length > 1 ? <ByChannel rows={data.byChannel} days={data.days} onPick={onPickChannel} /> : null}
+
+          <TopPosts posts={data.top || []} onOpen={setOpenPost} />
         </>
       )}
 
@@ -421,7 +389,353 @@ function InsightsBody({ data, onOpenPost, loading }) {
         </section>
       </div>
 
+      {openPost ? <PostResultsDialog post={openPost} onClose={() => setOpenPost(null)} onOpenPost={onOpenPost} showToast={showToast} /> : null}
     </div>
+  );
+}
+
+const DOTS = { linkedin: "#0A66C2", x: "#14171A", facebook: "#1877F2", instagram: "#E1306C", threads: "#5B5F66", reddit: "#FF4500" };
+
+// A drop-down that holds several choices. Nothing chosen means everything; unticking one keeps the rest.
+function Picker({ label, allLabel, noun, options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const ids = options.map((o) => o.id);
+  const chosen = value.length ? value.filter((v) => ids.includes(v)) : ids;
+  const all = chosen.length === ids.length;
+  const set = (next) => onChange(next.length === ids.length ? [] : next);
+  const toggle = (id) => {
+    const next = chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id];
+    if (next.length) set(next); // at least one stays ticked
+  };
+  const text = all ? allLabel : chosen.length === 1 ? (options.find((o) => o.id === chosen[0]) || {}).label : `${chosen.length} ${noun}`;
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)} title={`Choose ${noun}`}
+        style={{ ...btn, paddingRight: 10, borderColor: all ? C.border : C.ink }}>
+        <span style={{ display: "inline-flex" }}>
+          {(all ? [] : chosen.slice(0, 3)).map((id, i) => (
+            <span key={id} style={{ width: 9, height: 9, borderRadius: 99, background: (options.find((o) => o.id === id) || {}).dot || C.slate, border: "1.5px solid #fff", marginLeft: i ? -3 : 0 }} />
+          ))}
+        </span>
+        {text}
+        <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+      </button>
+      {open ? (
+        <div role="listbox" aria-label={label} aria-multiselectable="true"
+          style={{ position: "absolute", top: 38, left: 0, zIndex: 30, minWidth: 250, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(20,24,40,.16)", padding: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", padding: "4px 8px 6px", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slate, textTransform: "uppercase" }}>{label}</span>
+            <button type="button" onClick={() => onChange([])} disabled={all}
+              style={{ marginLeft: "auto", border: "none", background: "transparent", color: all ? C.slateLight : C.cobalt, fontWeight: 600, fontSize: 12, cursor: all ? "default" : "pointer", fontFamily: FONT_BODY }}>
+              Select all
+            </button>
+          </div>
+          {options.map((o) => {
+            const on = chosen.includes(o.id);
+            return (
+              <div key={o.id} role="option" aria-selected={on} tabIndex={0} onClick={() => toggle(o.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(o.id); } }}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 8px", borderRadius: 8, cursor: "pointer", fontSize: 13, color: C.ink, background: on ? "#F4F6FB" : "transparent" }}>
+                <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {on ? <Check size={11} color="#fff" strokeWidth={3} /> : null}
+                </span>
+                <span style={{ width: 9, height: 9, borderRadius: 99, background: o.dot || C.slate, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+                <button type="button" onClick={(e) => { e.stopPropagation(); onChange([o.id]); }} title={`Only ${o.label}`}
+                  style={{ border: "none", background: "transparent", color: C.slate, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}>
+                  Only
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// The best two posts of each network. "More" opens every post, a page at a time, so nothing needs scrolling.
+const PER_PAGE = 8;
+function PostRow({ p, onOpen, showNetwork }) {
+  const metric = (label, v, tone) => (
+    <div style={{ minWidth: 64, textAlign: "right" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: tone || C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(v)}</div>
+      <div style={{ fontSize: 11, color: C.slate }}>{label}</div>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px", padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+        <button type="button" onClick={() => onOpen(p)} className="ui-link" title="See this post's numbers and share them"
+          style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", fontWeight: 600, color: C.ink, textAlign: "left", fontFamily: FONT_BODY, fontSize: 13, overflowWrap: "anywhere" }}>
+          {p.title || "Post"}
+        </button>
+        {showNetwork ? <div style={{ fontSize: 11, color: C.slate }}>{title(p.channel)}</div> : null}
+      </div>
+      <div style={{ display: "flex", gap: 14 }}>
+        {metric("Reach", p.reach != null ? p.reach : p.impressions)}
+        {metric("Engagements", p.engagements)}
+        {metric("Clicks", p.clicks)}
+        {p.leads || p.meetings ? metric("Leads", p.leads, C.teal) : null}
+      </div>
+      <button type="button" style={btn} onClick={() => onOpen(p)} title="See this post's numbers and share them">Numbers</button>
+    </div>
+  );
+}
+
+function TopPosts({ posts, onOpen }) {
+  const [all, setAll] = useState(false);
+  const [pg, setPg] = useState(0);
+  useEffect(() => { setPg(0); }, [all, posts]);
+  const groups = [];
+  posts.forEach((p) => {
+    let g = groups.find((x) => x.channel === p.channel);
+    if (!g) { g = { channel: p.channel, rows: [] }; groups.push(g); }
+    g.rows.push(p);
+  });
+  const shown = groups.reduce((n, g) => n + Math.min(2, g.rows.length), 0);
+  const more = posts.length - shown;
+  const pages = Math.max(1, Math.ceil(posts.length / PER_PAGE));
+  const slice = posts.slice(pg * PER_PAGE, pg * PER_PAGE + PER_PAGE);
+  return (
+    <section style={card} aria-labelledby="in-top">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <h2 id="in-top" style={{ ...h2, margin: 0 }}>{all ? "All posts" : "Top posts"}</h2>
+        {all ? <button type="button" style={{ ...btn, marginLeft: "auto" }} onClick={() => setAll(false)}>Back to the top 2 of each</button> : null}
+      </div>
+      <div style={{ ...muted, marginBottom: 6 }}>
+        {all ? "Best first. Pick a post to see its numbers and share them." : "The best two posts of each network. Pick a post to see its numbers and share them."}
+      </div>
+      {!posts.length ? <div style={muted}>No posts with numbers in this period.</div> : null}
+      {all ? (
+        <>
+          {slice.map((p) => <PostRow key={p.id + p.channel} p={p} onOpen={onOpen} showNetwork />)}
+          {pages > 1 ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+              <button type="button" style={btn} disabled={pg === 0} onClick={() => setPg(pg - 1)} aria-label="Previous page"><ChevronLeft size={14} /> Previous</button>
+              <span style={{ fontSize: 12.5, color: C.slate }}>Page {pg + 1} of {pages}</span>
+              <button type="button" style={btn} disabled={pg >= pages - 1} onClick={() => setPg(pg + 1)} aria-label="Next page">Next <ChevronRight size={14} /></button>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {groups.map((g) => (
+            <div key={g.channel} style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: C.ink }}>
+                <span style={{ width: 9, height: 9, borderRadius: 99, background: DOTS[g.channel] || C.slate }} />
+                {title(g.channel)}
+                <span style={{ fontWeight: 400, color: C.slate }}>· top {Math.min(2, g.rows.length)} of {g.rows.length} post{g.rows.length === 1 ? "" : "s"}</span>
+              </div>
+              {g.rows.slice(0, 2).map((p) => <PostRow key={p.id + p.channel} p={p} onOpen={onOpen} />)}
+            </div>
+          ))}
+          {more > 0 ? (
+            <div style={{ paddingTop: 12, borderTop: `1px solid ${C.border}`, marginTop: 10 }}>
+              <button type="button" style={btn} onClick={() => setAll(true)} title="Open every post, a page at a time">More · {more} more post{more === 1 ? "" : "s"}</button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+// One post's numbers in full, with ways to share them. A shared link is live; an email is a copy made at that moment and says so.
+function PostResultsDialog({ post, onClose, onOpenPost, showToast }) {
+  const org = useOrg();
+  const [data, setData] = useState(null);
+  const [state, setState] = useState("loading");
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  useEffect(() => {
+    let live = true;
+    api.getPostResults(post.id).then((d) => { if (live) { setData(d); setState("ok"); } }).catch(() => { if (live) setState("error"); });
+    return () => { live = false; };
+  }, [post.id]);
+  useEffect(() => {
+    const esc = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+  const asOf = data && data.asOf ? `${when(Date.parse(data.asOf), org)} (${org.timezone})` : "";
+  const totals = (data && data.totals) || {};
+  const fields = [["reach", "Reach"], ["impressions", "Views"], ["likes", "Likes"], ["comments", "Comments"], ["shares", "Shares"], ["saves", "Saves"], ["clicks", "Clicks"]]
+    .filter(([k]) => totals[k] != null);
+  const extra = data ? [["linkClicks", "Tracked link clicks"], ["leads", "Leads"], ["meetings", "Meetings booked"]].filter(([k]) => data[k]) : [];
+  const copy = async () => {
+    setBusy("link");
+    try {
+      const r = await api.postResultsLink(post.id);
+      await navigator.clipboard.writeText(r.link);
+      showToast(`Link copied. Anyone with it can see this post's numbers until ${day(r.expiresAt)}.`);
+    } catch (e) {
+      showToast(e.message || "Could not make a link right now.");
+    } finally {
+      setBusy("");
+    }
+  };
+  const send = async (e) => {
+    e.preventDefault();
+    if (!to.trim()) return;
+    setBusy("mail");
+    try {
+      const r = await api.sendPostResults(post.id, { to, note });
+      showToast(`Sent to ${r.sent} ${r.sent === 1 ? "person" : "people"}.`);
+      setTo(""); setNote("");
+    } catch (err) {
+      showToast(err.message || "The email could not be sent.");
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Numbers for ${post.title || "post"}`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(18,20,28,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ ...card, width: "min(640px, 100%)", maxHeight: "calc(100vh - 32px)", overflowY: "auto", padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ ...h2, margin: 0, overflowWrap: "anywhere" }}>{post.title || "Post"}</h2>
+            <div style={muted}>{title(post.channel)}{post.publishedAt ? ` · published ${new Date(post.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}</div>
+          </div>
+          <button type="button" style={{ ...btn, width: 32, padding: 0, justifyContent: "center" }} onClick={onClose} aria-label="Close" title="Close"><X size={14} /></button>
+        </div>
+
+        {state === "loading" ? <Loading what="this post's numbers" /> : null}
+        {state === "error" ? <div style={{ ...muted, padding: "14px 0" }}>The numbers could not be loaded. Try again in a moment.</div> : null}
+        {state === "ok" && data.test ? <div style={{ ...muted, padding: "14px 0" }}>Posted in test mode: it was not sent to any network, so it has no results.</div> : null}
+        {state === "ok" && !data.test ? (
+          <>
+            {fields.length || extra.length ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, margin: "14px 0 6px" }}>
+                {fields.map(([k, label]) => (
+                  <div key={k} style={{ background: "#F4F6FB", borderRadius: 10, padding: "9px 12px" }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(totals[k])}</div>
+                    <div style={{ fontSize: 11.5, color: C.slate }}>{label}</div>
+                  </div>
+                ))}
+                {extra.map(([k, label]) => (
+                  <div key={k} style={{ background: "#EAF6F4", borderRadius: 10, padding: "9px 12px" }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.teal, fontVariantNumeric: "tabular-nums" }}>{fmt(data[k])}</div>
+                    <div style={{ fontSize: 11.5, color: C.slate }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ ...muted, padding: "14px 0" }}>No numbers yet. They are read from the network every few hours after the post goes live.</div>}
+            {(data.channels || []).length > 1 ? (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, marginTop: 8 }}>
+                <thead><tr style={{ color: C.slate }}>{["Network", "Reach", "Engagements", "Clicks"].map((h, i) => <th key={h} scope="col" style={{ fontWeight: 600, padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: i ? "right" : "left" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {data.channels.map((c) => (
+                    <tr key={c.platform}>
+                      <td style={{ padding: "7px 8px", borderBottom: `1px solid ${C.border}` }}>{title(c.platform)}</td>
+                      {[c.reach != null ? c.reach : c.impressions, c.engagements, c.clicks].map((v, i) => <td key={i} style={{ padding: "7px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(v)}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            <div style={{ ...muted, marginTop: 10 }}>
+              {asOf ? `Numbers as of ${asOf}, the last time they were read from the network. They keep changing, so refresh Insights for the latest.` : "Nothing has been read from the network for this post yet."}
+              {(data.links || []).filter((l) => l.url).map((l) => (
+                <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="ui-link" style={{ marginLeft: 10, fontWeight: 700 }}>View on {title(l.platform)} <ExternalLink size={11} /></a>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 16, paddingTop: 14 }}>
+          <h3 style={{ margin: "0 0 4px", fontSize: 13.5, color: C.ink, fontFamily: FONT_DISPLAY }}>Share these numbers</h3>
+          <div style={muted}>
+            A link always shows the latest numbers whenever it is opened, needs no sign-in, and stops working 120 days after you make it. An email is a copy made now: it states when the numbers are from, when its link stops working, and links to the live page.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <button type="button" style={btn} onClick={copy} disabled={busy === "link"} title="Copy a link anyone can open to see this post's latest numbers"><Copy size={13} /> {busy === "link" ? "Making link…" : "Copy live link"}</button>
+            {onOpenPost ? <button type="button" style={btn} onClick={() => { onClose(); onOpenPost(post.id); }} title="Open the post itself">Open the post</button> : null}
+          </div>
+          <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+            <input value={to} onChange={(e) => setTo(e.target.value)} aria-label="Email addresses" placeholder="Email addresses, separated by commas" title="Who should get these numbers by email"
+              style={{ height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }} />
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} aria-label="Message (optional)" placeholder="A message to go with it (optional)" rows={2} maxLength={1000}
+              style={{ borderRadius: 8, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical" }} />
+            <div><button type="submit" style={{ ...btn, background: C.ink, color: "#fff", borderColor: C.ink }} disabled={!to.trim() || busy === "mail"} title="Email these numbers"><Send size={13} /> {busy === "mail" ? "Sending…" : "Email these numbers"}</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The networks side by side: one row each, with a bar for its share of the total. A row opens that network's own numbers.
+function ByChannel({ rows, days, onPick }) {
+  const useEng = rows.some((r) => r.engagements != null);
+  const metric = (r) => (useEng ? r.engagements : r.reach) || 0;
+  const total = rows.reduce((n, r) => n + metric(r), 0);
+  const heads = ["Network", "Posts", "Reach", "Views", "Engagements", "Rate", "Followers"];
+  const num = { padding: "9px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums", borderBottom: `1px solid ${C.border}` };
+  return (
+    <section style={card} aria-labelledby="in-chan">
+      <h2 id="in-chan" style={h2}>By channel</h2>
+      <div style={{ ...muted, marginBottom: 8 }}>
+        How each network did over the last {days} days. The bar is its share of all {useEng ? "engagements" : "reach"}. Pick a network to see only its numbers below.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 620 }}>
+          <thead>
+            <tr style={{ color: C.slate }}>
+              {heads.map((h, i) => <th key={h} scope="col" style={{ fontWeight: 600, padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: i ? "right" : "left" }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const share = total ? Math.round((100 * metric(r)) / total) : 0;
+              const none = !r.posts;
+              const delta = r.change && r.change.reach;
+              return (
+                <tr key={r.platform} style={{ cursor: "pointer", color: none ? C.slate : C.ink }} onClick={() => onPick(r.platform)} title={`See only ${title(r.platform)}`}>
+                  <td style={{ padding: "9px 8px", borderBottom: `1px solid ${C.border}`, minWidth: 170 }}>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onPick(r.platform); }} className="ui-link"
+                      style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", fontWeight: 700, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+                      {title(r.platform)}
+                    </button>
+                    {none ? (
+                      <div style={{ fontSize: 11, color: C.slate }}>No posts in this period</div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }} aria-label={`${share}% of ${useEng ? "engagements" : "reach"}`}>
+                        <div style={{ flex: 1, height: 5, borderRadius: 3, background: C.border, maxWidth: 120 }}>
+                          <div style={{ width: `${share}%`, height: "100%", borderRadius: 3, background: C.teal }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: C.slate }}>{share}%</span>
+                      </div>
+                    )}
+                  </td>
+                  <td style={num}>{fmt(r.posts)}</td>
+                  <td style={num}>
+                    {fmt(r.reach)}
+                    {delta != null ? <div style={{ fontSize: 11, fontWeight: 700, color: delta >= 0 ? C.teal : C.red }}>{delta > 0 ? "+" : ""}{delta}%</div> : null}
+                  </td>
+                  <td style={num}>{fmt(r.impressions)}</td>
+                  <td style={num}>{fmt(r.engagements)}</td>
+                  <td style={num}>{r.engagementRate == null ? "–" : r.engagementRate + "%"}</td>
+                  <td style={num}>{r.followers == null ? "Not shared" : fmt(r.followers)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

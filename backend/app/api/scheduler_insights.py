@@ -275,11 +275,39 @@ async def insights(days: int = 30, channel: str = "", account: str = "", db: Asy
                           "followers": latest, "change": (latest - hist[0].followers) if len(hist) > 1 else None,
                           "series": [{"date": s.day, "followers": s.followers} for s in hist]})
 
+    # One row per network, so the networks can be read side by side. A connected network with no posts in the window still gets a row.
+    cur_by: Dict[str, List[SocialPostMetric]] = defaultdict(list)
+    prev_by: Dict[str, List[SocialPostMetric]] = defaultdict(list)
+    for r in cur:
+        cur_by[normalize_platform(r.platform)].append(r)
+    for r in prev:
+        prev_by[normalize_platform(r.platform)].append(r)
+    fol_by: Dict[str, int] = {}
+    for f in followers:
+        if f["followers"] is not None:
+            fol_by[f["platform"]] = fol_by.get(f["platform"], 0) + f["followers"]
+    names = set(cur_by) | {normalize_platform(a.platform) for a in accounts}
+    if chans:
+        names &= set(chans)
+    if accs:
+        names &= {normalize_platform(a.platform) for a in accounts if a.id in accs}
+    by_channel = []
+    for plat in names:
+        t, b = _totals(cur_by.get(plat, [])), _totals(prev_by.get(plat, []))
+        by_channel.append({
+            "platform": plat, "posts": t["posts"], "measured": t["measured"], "reach": t["reach"], "impressions": t["impressions"],
+            "engagements": t["engagements"], "engagementRate": t["engagementRate"], "clicks": t["clicks"],
+            "linkClicks": await _link_clicks(db, start, None, [plat]) if t["posts"] else 0,
+            "followers": fol_by.get(plat),
+            "change": {"reach": _change(t["reach"], b["reach"]), "engagements": _change(t["engagements"], b["engagements"])},
+        })
+    by_channel.sort(key=lambda c: (c["posts"] > 0, c["engagements"] or 0, c["reach"] or 0), reverse=True)
+
     notes = sorted({r.error for r in cur if r.error})
     last = max((r.fetched_at for r in rows if r.fetched_at), default=None)
     return {
-        "days": days, "timezone": tz, "totals": totals, "previous": before, "changes": changes,
-        "series": list(series.values()), "top": top[:10], "bestTimes": best, "followers": followers,
+        "days": days, "timezone": tz, "totals": totals, "previous": before, "changes": changes, "byChannel": by_channel,
+        "series": list(series.values()), "top": top[:100], "bestTimes": best, "followers": followers,
         "notes": notes[:6], "lastSyncedAt": last.isoformat() + "Z" if last else None,
         "accounts": [{"id": a.id, "platform": normalize_platform(a.platform), "handle": a.handle or ""} for a in accounts],
     }
@@ -301,8 +329,10 @@ async def post_results(post_id: str, db: AsyncSession = Depends(get_db)) -> Dict
     links = [{"platform": normalize_platform(r.get("platform")), "url": r.get("url") or ""}
              for r in (post.publish_results or []) if isinstance(r, dict) and r.get("ok")]
     tracked = await social_links.links_of(db, post_id)
-    return {"channels": [_metric_dict(r) for r in rows], "totals": _totals(rows) if rows else None, "links": links,
-            "trackedLinks": tracked, "linkClicks": sum(t["clicks"] for t in tracked), "test": is_test(post), **outcome}
+    fetched = max((r.fetched_at for r in rows if r.fetched_at), default=None)
+    return {"title": post.title or "", "channels": [_metric_dict(r) for r in rows], "totals": _totals(rows) if rows else None, "links": links,
+            "trackedLinks": tracked, "linkClicks": sum(t["clicks"] for t in tracked), "test": is_test(post),
+            "asOf": fetched.isoformat() + "Z" if fetched else None, **outcome}
 
 
 async def best_slots(db: AsyncSession, limit: int = 3) -> List[Dict[str, Any]]:

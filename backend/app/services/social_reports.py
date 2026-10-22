@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import logging
+import time
 import uuid
 import zoneinfo
 from datetime import datetime, timedelta
@@ -128,6 +129,44 @@ def period_label(data: Dict[str, Any]) -> str:
     return f"{a.day} {a:%b %Y} – {b.day} {b:%b %Y}"
 
 
+def stamp(iso: Optional[str], tz: str) -> str:
+    """A UTC moment as 'd Mon yyyy, hh:mm' in the company's time zone, with the zone named."""
+    if not iso:
+        return ""
+    try:
+        zone = zoneinfo.ZoneInfo(tz or "UTC")
+        dt = datetime.fromisoformat(iso.rstrip("Z")).replace(tzinfo=zoneinfo.ZoneInfo("UTC")).astimezone(zone)
+        return f"{dt.day} {dt:%b %Y}, {dt:%H:%M} ({tz})"
+    except (ValueError, zoneinfo.ZoneInfoNotFoundError):
+        return ""
+
+
+def link_day(ts: Optional[int], tz: str) -> str:
+    """The day a link stops working, as 'd Mon yyyy' in the company's time zone."""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(int(ts), zoneinfo.ZoneInfo(tz or "UTC"))
+        return f"{dt.day} {dt:%b %Y}"
+    except (ValueError, OSError, zoneinfo.ZoneInfoNotFoundError):
+        return ""
+
+
+def new_link_expiry() -> int:
+    return int(time.time()) + LINK_TTL_S
+
+
+def asof_line(read_at: Optional[str], tz: str, live: bool = False, expires: Optional[int] = None) -> str:
+    """What the numbers in a report are as of. They are the networks' own, read at intervals, and they keep changing."""
+    made = stamp(datetime.utcnow().isoformat(), tz)
+    read = stamp(read_at, tz)
+    first = (f"Numbers as of {read}, the last time they were read from the networks."
+             if read else "No numbers have been read from the networks yet.")
+    tail = "They may have changed since." + (" Opening this link again shows the latest." if live else " The full report link always shows the latest.")
+    until = link_day(expires, tz)
+    return f"{first} {tail} Made {made}." + (f" This link works until {until}." if until else "")
+
+
 def sections(rep: SocialReport, data: Dict[str, Any]) -> str:
     """The report body as email-safe HTML (tables and inline styles)."""
     t, ch, days = data["totals"], data["changes"], rep.days or 30
@@ -194,7 +233,7 @@ def sections(rep: SocialReport, data: Dict[str, Any]) -> str:
     return out
 
 
-def page(rep: SocialReport, data: Dict[str, Any]) -> str:
+def page(rep: SocialReport, data: Dict[str, Any], expires: Optional[int] = None) -> str:
     """The report as a web page anyone with the link can open and print (or save as PDF)."""
     intro = f'<p class="intro">{e(rep.intro)}</p>' if rep.intro else ""
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -206,6 +245,7 @@ def page(rep: SocialReport, data: Dict[str, Any]) -> str:
   .card {{ background:#fff; border-radius:18px; padding:28px; box-shadow:0 10px 30px rgba(38,64,158,.10); }}
   h1 {{ font-size:24px; margin:0 0 4px; letter-spacing:-.3px; }}
   .sub {{ color:#6B7280; font-size:14px; margin-bottom:18px; }}
+  .asof {{ font-size:13px; line-height:1.5; color:#3B4252; background:#F4F6FB; border-radius:10px; padding:10px 12px; margin:0 0 14px; }}
   .intro {{ font-size:15px; line-height:1.6; color:#3B4252; margin:0 0 12px; white-space:pre-wrap; }}
   .bar {{ display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px; }}
   button {{ font:inherit; font-size:13px; font-weight:700; border:1px solid #D0D5DD; background:#fff; border-radius:10px; padding:8px 14px; cursor:pointer; }}
@@ -217,7 +257,9 @@ def page(rep: SocialReport, data: Dict[str, Any]) -> str:
 <div class="bar"><button type="button" onclick="window.print()">Print or save as PDF</button></div>
 <div class="card">
 <h1>{e(data['company'])}: {e(rep.name or 'Social report')}</h1>
-<div class="sub">Social media results for {e(period_label(data))}. Updated {e(datetime.utcnow().strftime('%d %b %Y'))}.</div>
+<div class="sub">Social media results for {e(period_label(data))}.</div>
+<p class="asof"><b>Live page.</b> {e(asof_line(data.get('lastSyncedAt'), data.get('timezone') or 'UTC', live=True, expires=expires))}
+A copy that was emailed or printed keeps the numbers from the time it was made.</p>
 {intro}{sections(rep, data)}
 </div></main></body></html>"""
 
@@ -265,6 +307,7 @@ async def _deliver(db: AsyncSession, rep: SocialReport, org_id: str, recipients:
     msg = mailer.render(
         f"{data['company']}: {rep.name or 'social results'}", [intro], extra_html=sections(rep, data),
         button={"label": "Open the full report", "url": share_url(rep, org_id)}, preheader=f"Social results for {period}",
+        note=asof_line(data.get("lastSyncedAt"), data.get("timezone") or "UTC", expires=new_link_expiry()),
         reason=f"You are getting this because {e(data['company'])} shares its social media results with you.")
     sent = failed = 0
     for addr in recipients:
@@ -316,3 +359,70 @@ async def send_due(db: AsyncSession, org_id: str) -> int:
             logger.exception("Sending report %s failed", rep.id)
             await db.rollback()
     return sent
+
+
+# ── One post's results ──────────────────────────────────────────────────────
+POST_FIELDS = (("reach", "Reach"), ("impressions", "Views"), ("likes", "Likes"), ("comments", "Comments"),
+               ("shares", "Shares"), ("saves", "Saves"), ("clicks", "Clicks"))
+
+
+def post_share_url(post_id: str, org_id: str) -> str:
+    from app.public_api import links
+
+    return f"{links.public_base()}/api/scheduler/post-results-view?t={links.make_token('social_post_results', post_id, org_id, LINK_TTL_S)}"
+
+
+def post_sections(res: Dict[str, Any]) -> str:
+    """One post's numbers as email-safe HTML: the totals, then each network that carried it."""
+    t = res.get("totals") or {}
+    tiles = [(label, t.get(k)) for k, label in POST_FIELDS if t.get(k) is not None]
+    tiles += [(label, res.get(k)) for k, label in (("linkClicks", "Tracked link clicks"), ("leads", "Leads"), ("meetings", "Meetings booked")) if res.get(k)]
+    out = ""
+    if tiles:
+        rows = ""
+        for i in range(0, len(tiles), 2):
+            cells = "".join(f'<td width="50%" valign="top" style="padding:12px 14px;background:#F4F6FB;border-radius:12px">'
+                            f'<div style="font-size:12px;color:#6B7280">{e(label)}</div>'
+                            f'<div style="font-size:22px;font-weight:700;color:#12141C;margin-top:2px">{_n(value)}</div></td>'
+                            for label, value in tiles[i:i + 2])
+            rows += f"<tr>{cells}</tr>"
+        out += (f'<table role="presentation" width="100%" cellspacing="8" cellpadding="0" border="0" '
+                f'style="margin:4px -8px 8px;width:calc(100% + 16px)">{rows}</table>')
+    else:
+        out += '<p style="font-size:14px;color:#6B7280">No numbers have been read for this post yet. They arrive a few hours after it goes live.</p>'
+    chans = res.get("channels") or []
+    if len(chans) > 1:
+        th = 'style="text-align:left;font-size:11px;color:#6B7280;font-weight:700;padding:6px 8px;border-bottom:1px solid #E5E7EB"'
+        num = 'style="font-size:13px;color:#12141C;padding:8px;border-bottom:1px solid #F0F1F4;text-align:right;white-space:nowrap"'
+        body = "".join(f'<tr><td style="font-size:13px;color:#12141C;padding:8px;border-bottom:1px solid #F0F1F4">{e(TITLES.get(c.get("platform"), c.get("platform") or ""))}</td>'
+                       f'<td {num}>{_n(c.get("reach") if c.get("reach") is not None else c.get("impressions"))}</td>'
+                       f'<td {num}>{_n(c.get("engagements"))}</td><td {num}>{_n(c.get("clicks"))}</td></tr>' for c in chans)
+        out += (f'<h2 style="font-size:16px;margin:22px 0 8px;color:#12141C">By network</h2>'
+                f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">'
+                f'<tr><th {th}>Network</th><th {th}>Reach or views</th><th {th}>Engagements</th><th {th}>Clicks</th></tr>{body}</table>')
+    links_ = [l for l in res.get("links") or [] if l.get("url")]
+    if links_:
+        out += '<p style="font-size:13px;margin:16px 0 0">' + " · ".join(
+            f'<a href="{e(l["url"], quote=True)}" style="color:#3457D5">View on {e(TITLES.get(l.get("platform"), l.get("platform") or "the network"))}</a>' for l in links_) + "</p>"
+    out += '<p style="font-size:12px;color:#8A8F9C;margin:10px 0 0">— means the network does not share that number.</p>'
+    return out
+
+
+def post_page(res: Dict[str, Any], company_name: str, tz: str, expires: Optional[int] = None) -> str:
+    """A post's results as a web page anyone with the link can open (it shows the latest numbers each time)."""
+    note = asof_line(res.get("asOf"), tz, live=True, expires=expires)
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{e(company_name)} · {e(res.get('title') or 'Post results')}</title>
+<style>
+  body {{ margin:0; background:#EEF1F8; font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif; color:#12141C; }}
+  main {{ max-width:680px; margin:0 auto; padding:28px 16px 48px; }}
+  .card {{ background:#fff; border-radius:18px; padding:28px; box-shadow:0 10px 30px rgba(38,64,158,.10); }}
+  h1 {{ font-size:22px; margin:0 0 4px; }} .sub {{ color:#6B7280; font-size:14px; margin-bottom:14px; }}
+  .asof {{ font-size:13px; line-height:1.5; color:#3B4252; background:#F4F6FB; border-radius:10px; padding:10px 12px; margin:0 0 14px; }}
+  @media (max-width:520px) {{ .card {{ padding:16px; }} }}
+</style></head><body><main><div class="card">
+<h1>{e(res.get('title') or 'Post results')}</h1>
+<div class="sub">{e(company_name)} · results for one post</div>
+<p class="asof"><b>Live page.</b> {e(note)} A copy that was emailed or printed keeps the numbers from the time it was made.</p>
+{post_sections(res)}
+</div></main></body></html>"""

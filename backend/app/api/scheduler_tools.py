@@ -291,6 +291,69 @@ async def reports_send(report_id: str, payload: Dict[str, Any], request: Request
     return {"status": "ok", **res, "report": SR.view(row)}
 
 
+@router.post("/posts/{post_id}/results/link")
+async def post_results_link(post_id: str, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """A link anyone can open (no sign-in) that always shows this post's latest numbers."""
+    if not await db.get(SocialPost, post_id):
+        raise HTTPException(status_code=404, detail="Post not found.")
+    from datetime import datetime as _dt
+
+    return {"link": SR.post_share_url(post_id, _org(request)), "expiresAt": _dt.utcfromtimestamp(SR.new_link_expiry()).isoformat() + "Z"}
+
+
+@router.post("/posts/{post_id}/results/send")
+async def post_results_send(post_id: str, payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Email one post's results. The email says when the numbers are from and links to the live page."""
+    from app.api.scheduler_insights import post_results
+    from app.core import mailer
+    from app.services.org_settings import clean_emails, org_timezone
+
+    to = clean_emails(payload.get("to"))
+    if not to:
+        raise HTTPException(status_code=400, detail="Add at least one valid email address.")
+    if len(to) > SR.MAX_RECIPIENTS:
+        raise HTTPException(status_code=400, detail=f"Up to {SR.MAX_RECIPIENTS} people at a time.")
+    if not mailer.configured():
+        raise HTTPException(status_code=400, detail="Email sending is not set up yet. Ask Outreach support.")
+    res = await post_results(post_id, db)
+    tz, name = await org_timezone(db), await SR.company(db)
+    note = str(payload.get("note") or "").strip()[:1000]
+    msg = mailer.render(
+        f"{name}: results for {res.get('title') or 'a post'}",
+        [SR.e(note).replace("\n", "<br>")] if note else [f"Here is how {SR.e(name)}'s post did."],
+        extra_html=SR.post_sections(res), button={"label": "Open the live results", "url": SR.post_share_url(post_id, _org(request))},
+        note=SR.asof_line(res.get("asOf"), tz, expires=SR.new_link_expiry()), reason=f"You are getting this because {SR.e(name)} shared a post's results with you.")
+    sent = 0
+    for addr in to:
+        out = await mailer.send_system_email(addr, f"{name}: results for {res.get('title') or 'a post'}", msg["html"], msg["text"])
+        sent += 1 if out.get("ok") else 0
+    if not sent:
+        raise HTTPException(status_code=400, detail="The email could not be sent. Try again later.")
+    return {"status": "ok", "sent": sent, "failed": len(to) - sent}
+
+
+@public_router.get("/scheduler/post-results-view", response_class=HTMLResponse)
+async def post_results_view(t: str = "") -> HTMLResponse:
+    from app.api.scheduler_insights import post_results
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.public_api import links
+    from app.services.approval_mail import _page
+    from app.services.org_settings import org_timezone
+
+    data = links.read_token(t, "social_post_results")
+    if not data:
+        return HTMLResponse(_page("Link not valid", "<h1>This results link is no longer valid</h1>"
+                                  "<div class='sub'>Ask the sender for a new link.</div>"), status_code=404)
+    with org_scope(data["o"]):
+        async with AsyncSessionLocal() as db:
+            try:
+                res = await post_results(data["i"], db)
+            except HTTPException:
+                return HTMLResponse(_page("Post removed", "<h1>This post was removed</h1>"), status_code=404)
+            return HTMLResponse(SR.post_page(res, await SR.company(db), await org_timezone(db), expires=data.get("x")))
+
+
 @public_router.get("/scheduler/report-view", response_class=HTMLResponse)
 async def report_view(t: str = "") -> HTMLResponse:
     from app.core.tenancy import org_scope
@@ -307,7 +370,7 @@ async def report_view(t: str = "") -> HTMLResponse:
             row = await db.get(SocialReport, data["i"])
             if not row:
                 return HTMLResponse(_page("Report removed", "<h1>This report was removed</h1>"), status_code=404)
-            return HTMLResponse(SR.page(row, await SR.build(db, row)))
+            return HTMLResponse(SR.page(row, await SR.build(db, row), expires=data.get("x")))
 
 
 # ── Listening ───────────────────────────────────────────────────────────────
