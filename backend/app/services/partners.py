@@ -41,6 +41,21 @@ class PartnerError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+async def tell_owner(subject: str, lines: List[str]) -> None:
+    """Email the software owner's staff admins about something a partner did that needs a decision. Never raises."""
+    import html
+
+    try:
+        from app.core.mailer import render_owner, send_system_email
+        from app.services.ai_errors import _staff_emails
+
+        msg = render_owner(subject, [html.escape(x) for x in lines], page="partners", button_label="Open Partners")
+        for to in await _staff_emails():
+            await send_system_email(to, subject, msg["html"], msg["text"])
+    except Exception as err:
+        logger.warning(f"[partners] owner email '{subject}' failed: {err}")
+
+
 # ── Finding the partner ─────────────────────────────────────────────────────
 def new_client_id() -> str:
     return "pk_" + secrets.token_hex(10)

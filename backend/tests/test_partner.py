@@ -351,3 +351,21 @@ async def test_the_public_page_needs_no_sign_in(anon):
     assert r.status_code == 200 and "Build with Outreach" in r.text
     for supplier in ("Telnyx", "xAI", "Stripe"):
         assert supplier not in r.text
+
+
+async def test_the_owner_is_emailed_when_a_partner_applies_and_when_it_asks_to_go_live(client, monkeypatch):
+    sent = []
+
+    async def staff_emails():
+        return ["owner@outreach.test"]
+
+    async def send(to, subject, html, text, reply_to=None):
+        sent.append((to, subject, html))
+        return {"ok": True}
+
+    monkeypatch.setattr("app.services.ai_errors._staff_emails", staff_emails)
+    monkeypatch.setattr("app.core.mailer.send_system_email", send)
+    r = await client.post("/api/partner/apply", json={"company": "Acme <b>CRM</b>", "product": "Acme", "use_case": "Calls", "contact_email": "a@acme.test"})
+    assert r.status_code == 200
+    assert [s[:2] for s in sent] == [("owner@outreach.test", "New partner application: Acme <b>CRM</b>")]
+    assert "<b>CRM</b>" not in sent[0][2] and "&lt;b&gt;CRM" in sent[0][2]  # what the applicant typed is shown as text, never as markup

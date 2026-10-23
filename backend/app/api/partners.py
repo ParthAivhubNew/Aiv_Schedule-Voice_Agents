@@ -100,6 +100,10 @@ async def apply(body: ApplyBody, request: Request, db: AsyncSession = Depends(ge
     db.add(app_row)
     await db.commit()
     logger.info(f"[partners] {app_row.company} applied to become a partner ({app_row.id})")
+    await PT.tell_owner(f"New partner application: {app_row.company}", [
+        f"{app_row.company} has applied to join the partner programme and is waiting for your review.",
+        f"Product: {app_row.product}", f"Use: {app_row.use_case}", f"Expected users: {app_row.expected_users or 'not said'}",
+        f"Contact: {app_row.contact_name} {app_row.contact_email}".strip(), f"Website: {app_row.website or 'not given'}"])
     return _application_json(app_row)
 
 
@@ -177,6 +181,11 @@ async def request_live(request: Request, db: AsyncSession = Depends(get_db)):
     p.live_requested_at = datetime.utcnow()
     await db.commit()
     logger.info(f"[partners] {p.name} asks to go live ({p.id})")
+    await PT.tell_owner(f"{p.name} is asking to go live", [
+        f"{p.name} has finished testing in the sandbox and is asking to go live.",
+        "Until you switch it to live, its users keep getting test keys that only simulate calls and posts.",
+        f"Web addresses: {', '.join(p.allowed_origins or []) or 'none'}", f"Return URLs: {', '.join(p.return_urls or []) or 'none'}",
+        "Open Partners, check the integration, and set the status to live."])
     return PT.partner_json(p)
 
 
