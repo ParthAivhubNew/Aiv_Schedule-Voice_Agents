@@ -559,9 +559,16 @@ const VERDICT_TIPS = {
   unclear: "The check couldn't finish for these",
 };
 
+const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
+
 export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds = null, listId = "" }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState("all");
+  const [pageSize, setPageSize] = useState(() => {
+    try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 25; } catch (_) { return 25; }
+  });
+  const [pageNo, setPageNo] = useState(0);
+  useEffect(() => { setPageNo(0); }, [filter, scope, listId]);
   const [picked, setPicked] = useState(() => new Set()); // ids ticked for "Check companies"
   const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
   const [listing, setListing] = useState(false); // the Add to list box is open
@@ -614,7 +621,12 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
     .filter(scopePred)
     .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
   const shownIds = shown.map((a) => a.id);
-  const allShownPicked = shownIds.length > 0 && shownIds.every((id) => picked.has(id));
+  const lastPage = Math.max(0, Math.ceil(shown.length / pageSize) - 1);
+  const page = Math.min(pageNo, lastPage);
+  const paged = shown.slice(page * pageSize, (page + 1) * pageSize);
+  const pageIds = paged.map((a) => a.id);
+  const allShownPicked = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
+  const allMatchingPicked = shownIds.every((id) => picked.has(id));
   const pickedIds = base.filter((a) => picked.has(a.id)).map((a) => a.id); // companies removed since are dropped
   const toggle = (id) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
@@ -697,11 +709,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
             <ShieldCheck size={14} /> Check & improve
           </button>
         </div>
-        {allShownPicked && shownIds.length < base.length ? (
+        {allShownPicked && !(allMatchingPicked && shownIds.length === base.length) && shownIds.length > pageIds.length ? (
           <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
-            {shownIds.length.toLocaleString()} shown are selected.{" "}
-            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(base.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: "var(--ui-accent)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
-              Select all {base.length.toLocaleString()} companies
+            {pageIds.length.toLocaleString()} on this page are selected.{" "}
+            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(shown.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: "var(--ui-accent)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
+              Select all {shownIds.length.toLocaleString()} companies
             </button>
           </div>
         ) : null}
@@ -710,7 +722,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
             <thead>
               <tr>
                 <th style={{ width: 1 }}>
-                  <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(shownIds))} aria-label="Select all companies shown" />
+                  <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(pageIds))} aria-label="Select all companies on this page" />
                 </th>
                 <th>Company</th>
                 {showing("phone") ? <th title="The number you saved, or one research found. A tick means the phone network confirmed it">Phone</th> : null}
@@ -725,7 +737,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
               </tr>
             </thead>
             <tbody>
-              {shown.map((a) => (
+              {paged.map((a) => (
                 <tr key={a.id} style={a.verification?.verdict === "problem" ? { background: C.redSoft } : undefined}>
                   <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
@@ -803,6 +815,25 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
             </tbody>
           </table>
         </div>
+        {shown.length > ACCOUNT_PAGE_SIZES[0] ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 14px", borderTop: `1px solid ${C.borderLight}` }}>
+            <span style={{ ...text, fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>
+              {(page * pageSize + 1).toLocaleString()}–{Math.min((page + 1) * pageSize, shown.length).toLocaleString()} of {shown.length.toLocaleString()}
+            </span>
+            <label style={{ ...text, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.slate }}>
+              Rows per page
+              <select className="ui-input" aria-label="Rows per page" value={pageSize} style={{ height: 30, padding: "0 6px", width: "auto" }}
+                onChange={(e) => { const n = Number(e.target.value); setPageSize(n); setPageNo(0); try { localStorage.setItem("aivhub_accounts_page_size", String(n)); } catch (_) { /* just not remembered */ } }}>
+                {ACCOUNT_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={page === 0} onClick={() => setPageNo(page - 1)} aria-label="Previous page">‹ Previous</button>
+              <span style={{ ...text, fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>Page {page + 1} of {lastPage + 1}</span>
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={page >= lastPage} onClick={() => setPageNo(page + 1)} aria-label="Next page">Next ›</button>
+            </div>
+          </div>
+        ) : null}
       </div>
       {checking ? (
         <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} onStart={check.start} onClose={() => setChecking(null)} />

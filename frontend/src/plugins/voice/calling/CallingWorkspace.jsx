@@ -1061,6 +1061,16 @@ export function CallingWorkspace({
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
   const shownRows = useMemo(() => filterRows(rows, checkFilter), [rows, checkFilter]);
+  // The list is read a page at a time, so a long one is never one long scroll. The size is remembered in the browser.
+  const ROW_PAGE_SIZES = [10, 15, 25, 50];
+  const [rowPageSize, setRowPageSize] = useState(() => {
+    try { const n = Number(localStorage.getItem("aivhub_voice_list_page_size")); return ROW_PAGE_SIZES.includes(n) ? n : 15; } catch { return 15; }
+  });
+  const [rowPageNo, setRowPageNo] = useState(0);
+  const rowLastPage = Math.max(0, Math.ceil(shownRows.length / rowPageSize) - 1);
+  const rowPage = Math.min(rowPageNo, rowLastPage);
+  const pagedRows = useMemo(() => shownRows.slice(rowPage * rowPageSize, (rowPage + 1) * rowPageSize), [shownRows, rowPage, rowPageSize]);
+  useEffect(() => { setRowPageNo(0); }, [checkFilter, fileName]);
   // Phones show each contact as a card; this one has its fields open for editing.
   const [editRowId, setEditRowId] = useState("");
   const showChecks = useMemo(() => hasChecks(rows), [rows]);
@@ -1675,12 +1685,32 @@ export function CallingWorkspace({
     return true;
   };
 
+  // Put the list away to work with another one. A list that is not saved asks first; saved lists stay.
+  const closeList = () => {
+    if (!rows.length) return;
+    const kept = savedLists.find((l) => l.name === fileName);
+    if (!(kept && kept.rows && kept.rows.length === rows.length)
+      && !window.confirm(`Close ${fileName ? `“${fileName}”` : "this list"}? Its ${rows.length.toLocaleString()} contacts are not saved. Choose Save list first to keep them.`)) return;
+    setFileName("");
+    setWorkbookSheets(null);
+    setAvailableSheets([]);
+    setActiveSheet("");
+    setHeaders([...DEFAULT_LIST_HEADERS]);
+    setRows([]);
+    setCheckFilter("");
+    setSelectedIds(new Set());
+    setRowPageNo(0);
+    if (fileRef.current) fileRef.current.value = "";
+    showToast("List closed. Upload another, start a new one, or open a saved list from the title.");
+  };
+
   const addRow = () => {
     if (!headers.length) setHeaders([...DEFAULT_LIST_HEADERS]);
     setRows((prev) => {
       const next = [...prev, blankListRow(prev.length)];
       return next;
     });
+    setRowPageNo(Number.MAX_SAFE_INTEGER); // clamped to the last page, where the new row is
     showToast("Row added — type into the cells.");
   };
 
@@ -3108,6 +3138,9 @@ export function CallingWorkspace({
                             <strong style={{ fontWeight: 600, fontSize: 13, color: C.textInk }}>{rows.length} contact{rows.length === 1 ? "" : "s"}</strong>
                             <span>{dialable} with a phone</span>
                           </div>
+                          <button type="button" className="ui-btn ui-btn--ghost" onClick={closeList} title="Put this list away and work with a different one">
+                            <X size={15} /> Close list
+                          </button>
                           <button type="button" className="ui-btn ui-btn--ghost" disabled={busy === "find"} onClick={findMissing} title="Fill empty phones, emails and websites from public search">
                             <Sparkles size={15} /> {busy === "find" ? (findProgress ? `Looking ${findProgress.done}/${findProgress.total}` : "Looking…") : "Find missing"}
                           </button>
@@ -3130,6 +3163,7 @@ export function CallingWorkspace({
                                   <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setOpenMenu(""); saveList(); }}><Bookmark size={15} /> Save list</button>
                                   <hr className="ui-menu-sep" />
                                   <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setOpenMenu(""); newList({}); }}><FilePlus size={15} /> New list</button>
+                                  <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setOpenMenu(""); closeList(); }}><X size={15} /> Close list</button>
                                 </div>
                               </>
                             ) : null}
@@ -3252,7 +3286,7 @@ export function CallingWorkspace({
                   </div>
                 ) : (<>
                   <div className="contact-cards">
-                    {shownRows.map((r) => {
+                    {pagedRows.map((r) => {
                       const phone = rowPhone(r);
                       const canDial = digitsInPhone(phone).length >= 7;
                       const checked = selectedIds.has(r.id);
@@ -3338,7 +3372,7 @@ export function CallingWorkspace({
                         </tr>
                       </thead>
                       <tbody>
-                        {shownRows.map((r) => {
+                        {pagedRows.map((r) => {
                           const phone = rowPhone(r);
                           const canDial = digitsInPhone(phone).length >= 7;
                           const checked = selectedIds.has(r.id);
@@ -3432,6 +3466,25 @@ export function CallingWorkspace({
                       </tbody>
                     </table>
                   </div>
+                  {shownRows.length > ROW_PAGE_SIZES[0] ? (
+                    <div className="list-pager" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 16px", borderTop: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
+                      <span style={{ fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>
+                        {rowPage * rowPageSize + 1}–{Math.min((rowPage + 1) * rowPageSize, shownRows.length)} of {shownRows.length.toLocaleString()}
+                      </span>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.slate }}>
+                        Rows per page
+                        <select className="ui-input" aria-label="Rows per page" value={rowPageSize} style={{ height: 30, padding: "0 6px", width: "auto" }}
+                          onChange={(e) => { const n = Number(e.target.value); setRowPageSize(n); setRowPageNo(0); try { localStorage.setItem("aivhub_voice_list_page_size", String(n)); } catch (_) {} }}>
+                          {ROW_PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </label>
+                      <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={rowPage === 0} onClick={() => setRowPageNo(rowPage - 1)} aria-label="Previous page">‹ Previous</button>
+                        <span style={{ fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>Page {rowPage + 1} of {rowLastPage + 1}</span>
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={rowPage >= rowLastPage} onClick={() => setRowPageNo(rowPage + 1)} aria-label="Next page">Next ›</button>
+                      </div>
+                    </div>
+                  ) : null}
                 </>)}
                 </div>
               </div>
