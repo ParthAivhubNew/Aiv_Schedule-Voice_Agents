@@ -383,6 +383,7 @@ export const api = {
   getPipeline: () => apiRequest('/together/pipeline'),
   getNextActions: (limit = 5) => apiRequest(`/together/next-actions?limit=${limit}`),
   getAgenda: ({ date = '', focus = '' } = {}) => apiRequest(`/together/agenda?date=${encodeURIComponent(date)}&focus=${encodeURIComponent(focus)}`),
+  getAgendaMonth: (month) => apiRequest(`/together/agenda-month?month=${encodeURIComponent(month)}`),
   searchEverything: (q) => apiRequest(`/together/search?q=${encodeURIComponent(q)}`),
   getInbox: () => apiRequest('/together/inbox'),
   getConnectionChecklist: () => apiRequest('/together/checklist'),

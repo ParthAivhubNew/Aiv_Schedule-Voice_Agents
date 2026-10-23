@@ -108,3 +108,14 @@ async def test_everyone_signed_in_can_read_the_day_but_a_visitor_cannot(db, anon
                                  headers={"Authorization": f"Bearer {op}"}) as c:
         assert (await c.get(f"/api/together/agenda?date={DAY}")).status_code == 200
     assert (await anon.get(f"/api/together/agenda?date={DAY}")).status_code == 401
+
+
+async def test_the_month_counts_each_apps_things_per_day(client, db):
+    await _seed(db)
+    res = (await client.get("/api/together/agenda-month?month=2026-11")).json()
+    assert res["month"] == "2026-11" and res["timezone"] == "Europe/London"
+    assert res["days"]["2026-11-03"] == {"leads": 3, "voice": 3, "social": 1}
+    assert res["days"]["2026-11-04"]["voice"] == 1 and res["days"]["2026-11-04"]["social"] == 1  # the other day's meeting and post
+    assert "2026-11-10" not in res["days"]
+    assert (await client.get("/api/together/agenda-month?month=2026-13")).status_code == 400
+    assert (await client.get("/api/together/agenda-month?month=nov")).status_code == 400

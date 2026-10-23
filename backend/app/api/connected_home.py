@@ -183,6 +183,23 @@ async def agenda_for_day(date: str = "", focus: str = "", db: AsyncSession = Dep
     return await A.day(db, day, (focus or "").strip().lower(), ent, tz)
 
 
+@router.get("/together/agenda-month")
+async def agenda_for_month(month: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Per-day counts of what each app has planned, for the month grids of every calendar."""
+    import re
+
+    from app.services import agenda as A
+    from app.services.org_settings import org_timezone
+    from app.services.timezone_service import now_in
+
+    tz = await org_timezone(db)
+    value = (month or "").strip() or now_in(tz).strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value):
+        raise HTTPException(status_code=400, detail="month must look like 2026-10.")
+    ent = (await C.availability(db, current_org()))["plugins"]
+    return await A.month(db, value, ent, tz)
+
+
 # ── Search (X-9) ────────────────────────────────────────────────────────────
 @router.get("/together/search")
 async def search(request: Request, q: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:

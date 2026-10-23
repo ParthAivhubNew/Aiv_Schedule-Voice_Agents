@@ -140,3 +140,18 @@ async def day(db: AsyncSession, date_iso: str, focus: str, entitled: Dict[str, A
     order = [first] + [p for p in ORDER if p != first]
     groups = [{"plugin": p, "label": LABELS[p], "items": _order(found[p])} for p in order if entitled.get(p)]
     return {"date": date_iso, "timezone": tz, "groups": groups, "total": sum(len(g["items"]) for g in groups), "focus": first}
+
+
+async def month(db: AsyncSession, month_iso: str, entitled: Dict[str, Any], tz: str) -> Dict[str, Any]:
+    """How many things each app has on each day of a month, so a calendar grid can mark the other apps' days.
+    Days with nothing are left out."""
+    import calendar
+
+    year, mon = int(month_iso[:4]), int(month_iso[5:7])
+    days: Dict[str, Dict[str, int]] = {}
+    for d in range(1, calendar.monthrange(year, mon)[1] + 1):
+        iso = f"{year:04d}-{mon:02d}-{d:02d}"
+        counts = {g["plugin"]: len(g["items"]) for g in (await day(db, iso, "", entitled, tz))["groups"] if g["items"]}
+        if counts:
+            days[iso] = counts
+    return {"month": month_iso, "timezone": tz, "days": days}

@@ -279,6 +279,18 @@ function MainApp({ onSignedOut }) {
     }
   }, [plugin, visitedPlugins]);
 
+  // Each app is its own download. Once the person is signed in and the page is quiet, fetch the others in the background
+  // so switching apps does not stop on "Opening…". A failed fetch is ignored here; opening the app retries it.
+  useEffect(() => {
+    if (!operator) return undefined;
+    const warm = () => {
+      [() => import("./plugins/leadgen/LeadGenerationPlugin"), () => import("./plugins/voice/calling/CallingWorkspace"), () => import("./plugins/scheduler/SocialWorkspace")]
+        .forEach((load, i) => setTimeout(() => load().catch(() => {}), i * 1500));
+    };
+    const idle = window.requestIdleCallback ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 2000);
+    return () => { if (window.cancelIdleCallback && window.requestIdleCallback) window.cancelIdleCallback(idle); else clearTimeout(idle); };
+  }, [!!operator]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const playIncomingChime = () => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;

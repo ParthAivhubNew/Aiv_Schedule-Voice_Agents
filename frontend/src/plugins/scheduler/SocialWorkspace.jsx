@@ -58,7 +58,8 @@ import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
 import { SocialConnect } from "./SocialConnect";
 import { InsightsPage, OverviewPage, plainError } from "./SocialResults";
-import { DayAgenda } from "../../components/DayAgenda";
+import { DayAgenda, OtherAppsMarks, useMonthAgenda } from "../../components/DayAgenda";
+import { buildMonthCells, weekdayHeaders } from "../../utils/calendarGrid";
 import { MediaLibraryPage, MediaPicker, MediaThumb, VideoMaker } from "./SocialMedia";
 import { ImportPage } from "./SocialImport";
 import { PictureSettings } from "./SocialPictures";
@@ -2210,25 +2211,6 @@ function monthLabel(year, month) {
   return new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-const WEEK_START_INDEX = { sunday: 0, monday: 1, saturday: 6 };
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function weekdayHeaders(weekStart) {
-  const start = WEEK_START_INDEX[weekStart] ?? 1;
-  return DAY_NAMES.map((_, i) => DAY_NAMES[(start + i) % 7]);
-}
-
-function buildMonthCells(year, month, weekStart) {
-  const first = new Date(year, month, 1);
-  const daysIn = new Date(year, month + 1, 0).getDate();
-  const pad = (first.getDay() - (WEEK_START_INDEX[weekStart] ?? 1) + 7) % 7;
-  const cells = [];
-  for (let i = 0; i < pad; i++) cells.push(null);
-  for (let d = 1; d <= daysIn; d++) cells.push(new Date(year, month, d));
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
-
 function channelsNamedInText(text) {
   const t = String(text || "").toLowerCase();
   const hits = [];
@@ -3195,6 +3177,7 @@ export function SocialWorkspace({
   );
 
   const cells = useMemo(() => buildMonthCells(cal.year, cal.month, org.weekStart), [cal.year, cal.month, org.weekStart]);
+  const monthAgenda = useMonthAgenda(cal.year, cal.month);
   const postsByDay = useMemo(() => {
     const map = {};
     posts.forEach((p) => {
@@ -4761,6 +4744,7 @@ export function SocialWorkspace({
                         +{dayPosts.length - DAY_POST_LIMIT} more
                       </button>
                     ) : null}
+                    <OtherAppsMarks counts={monthAgenda[key]} own="social" />
                   </div>
                 );
               })}

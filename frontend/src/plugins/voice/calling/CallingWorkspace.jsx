@@ -88,8 +88,7 @@ const PAGES = [
   { id: "logs", label: "Conversations", icon: FileText, section: "calling" },  // calls and WhatsApp
   { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
   { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
-  { id: "templates", label: "AI Templates", icon: Sparkles, section: "calling" },
-  { id: "studio", label: "Agent Studio", icon: SlidersHorizontal, section: "calling" },
+  { id: "templates", label: "Call setup", icon: Sparkles, section: "calling" },  // call scripts, and how the caller sounds and behaves ("studio" is its second tab)
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
   { id: "company", label: "Company", icon: Users, section: "company" },  // company profile & working hours
   { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },  // subscription & numbers
@@ -98,7 +97,7 @@ const PAGES = [
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
   { label: "Outreach", ids: ["list", "live", "logs", "schedule", "analytics"] },
-  { label: "Setup", ids: ["templates", "studio", "ai", "company", "subscription"] },
+  { label: "Settings", ids: ["templates", "ai", "company", "subscription"] },
 ];
 
 function canSee(operator, section) {
@@ -111,7 +110,7 @@ function canSee(operator, section) {
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
-const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp", "hours", "numbers"]);  // WhatsApp, Working Hours, Numbers sub-tabs
+const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp", "hours", "numbers", "studio"]);  // WhatsApp, Working Hours, Numbers and Voice & rules are sub-tabs
 
 const MAX_CONCURRENT = 2;
 
@@ -847,7 +846,7 @@ function PhoneLineSetup({ isAdmin, onGetNumber, style }) {
           <div style={{ fontWeight: 600, fontSize: 13.5, color: C.textInk }}>Get a phone number to start calling</div>
           <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45, marginTop: 2 }}>
             {isAdmin
-              ? "Calls go out from your own number. You can build lists and set up Agent Studio while you wait."
+              ? "Calls go out from your own number. You can build lists and set up your calls while you wait."
               : "Calls go out from your company's own number. Ask your admin to add one for you."}
           </div>
         </div>
@@ -2579,8 +2578,8 @@ export function CallingWorkspace({
     live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     logs: ["Conversations", "Every call and WhatsApp chat in one place. Search, filter, expand transcript."],
     schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
-    templates: ["AI Templates", "Configure greeting, pitch, objection handling, and booking flow per call type."],
-    studio: ["Agent Studio", "How your AI caller sounds and behaves: voice, company rules, and a script per campaign."],
+    templates: ["Call setup", "What your AI caller says: the greeting, the pitch, answers to objections and how it books a meeting."],
+    studio: ["Call setup", "How your AI caller sounds and behaves: its voice, your company rules, and which script each campaign uses."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
     company: ["Company", "Identity, knowledge & FAQs, services, compliance, and working hours."],
     analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
@@ -2617,7 +2616,7 @@ export function CallingWorkspace({
                 <div className="ui-nav-label">{group.label}</div>
                 {items.map((p) => {
                   const Icon = p.icon;
-                  const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "subscription" && page === "numbers");
+                  const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "templates" && page === "studio") || (p.id === "subscription" && page === "numbers");
                   return (
                     <button key={p.id} type="button" className="ui-nav-item" onClick={() => goPage(p.id)} aria-current={active ? "page" : undefined} data-locked={pluginLocked && p.id !== "subscription" ? "true" : undefined}>
                       <Icon size={16} strokeWidth={1.75} />
@@ -3730,6 +3729,18 @@ export function CallingWorkspace({
             </div>
           )}
 
+          {(page === "templates" || page === "studio") && (
+            <div role="tablist" aria-label="Call setup" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["templates", "Call scripts", Sparkles], ["studio", "Voice & rules", SlidersHorizontal]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {(page === "company" || page === "hours") && canSee(operator, "company") && (
             <div role="tablist" aria-label="Company" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
               {[["company", "Company profile", Users], ["hours", "Working hours", Clock]].map(([id, label, Icon]) => (
@@ -4212,7 +4223,7 @@ export function CallingWorkspace({
                   Unsaved changes
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
-                  You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "AI Templates" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
+                  You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "Call scripts" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
                 </div>
               </div>
               <button

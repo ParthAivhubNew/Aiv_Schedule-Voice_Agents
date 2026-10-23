@@ -15,9 +15,9 @@ function Message({ msg }) {
   return <div role={msg.error ? "alert" : "status"} style={{ fontSize: 12.5, color: msg.error ? C.red : C.teal }}>{msg.text}</div>;
 }
 
-// Agent Studio: how the AI caller sounds and behaves. Each user picks their voice and adds their
+// Voice & rules (the second tab of Call setup): how the AI caller sounds and behaves. Each user picks their voice and adds their
 // phone (test calls, taking over calls); admins set the company's rules and which script each
-// campaign uses. Scripts themselves are written in AI Templates; knowledge on the Company page.
+// campaign uses. Scripts themselves are written in Call scripts; knowledge on the Company page.
 export function AgentStudio({ onOpenPage, staff = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -213,7 +213,7 @@ export function AgentStudio({ onOpenPage, staff = false }) {
       <div style={box}>
         {title(BookOpen, "Script per campaign")}
         <div style={{ fontSize: 12.5, color: C.slate }}>
-          Write and edit scripts in <button type="button" onClick={() => onOpenPage && onOpenPage("templates")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>AI Templates</button>;
+          Write and edit scripts in <button type="button" onClick={() => onOpenPage && onOpenPage("templates")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>Call scripts</button>;
           what the AI knows comes from the <button type="button" onClick={() => onOpenPage && onOpenPage("company")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>Company</button> page.
         </div>
         {campaigns.length === 0 ? <div style={{ fontSize: 13, color: C.slate }}>No campaigns yet.</div> : (

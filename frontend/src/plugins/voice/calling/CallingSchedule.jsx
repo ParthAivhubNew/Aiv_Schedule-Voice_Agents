@@ -20,7 +20,9 @@ import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { MeetingInvitePreview } from "../../../components/MeetingInvitePreview";
 import { openLead } from "../../../connections/ConnectedHome";
 import { PaneSwitch } from "../../../components/PaneSwitch";
-import { DayAgenda } from "../../../components/DayAgenda";
+import { DayAgenda, OtherAppsMarks, useMonthAgenda } from "../../../components/DayAgenda";
+import { buildMonthCells, weekdayHeaders } from "../../../utils/calendarGrid";
+import { formatOrgTime, tzLabel, useOrg } from "../../../org/orgSettings";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
@@ -349,17 +351,6 @@ function monthLabel(year, month) {
   return new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-function buildMonthCells(year, month) {
-  const first = new Date(year, month, 1);
-  const daysIn = new Date(year, month + 1, 0).getDate();
-  const padDays = (first.getDay() + 6) % 7;
-  const cells = [];
-  for (let i = 0; i < padDays; i++) cells.push(null);
-  for (let d = 1; d <= daysIn; d++) cells.push(new Date(year, month, d));
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
-
 function parseHM(hm) {
   const m = String(hm || "09:00").match(/(\d{1,2}):(\d{2})/);
   if (!m) return 9 * 60;
@@ -436,6 +427,7 @@ export function CallingSchedule({
   const [waStatus, setWaStatus] = useState(null);
   const [waBusy, setWaBusy] = useState(false);
   const [copied, setCopied] = useState("");
+  const org = useOrg() || {};
   const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(todayISO());
   const [dayExpanded, setDayExpanded] = useState(false);
@@ -569,7 +561,8 @@ export function CallingSchedule({
     return map;
   }, [filtered]);
 
-  const cells = useMemo(() => buildMonthCells(cal.year, cal.month), [cal.year, cal.month]);
+  const cells = useMemo(() => buildMonthCells(cal.year, cal.month, org.weekStart), [cal.year, cal.month, org.weekStart]);
+  const monthAgenda = useMonthAgenda(cal.year, cal.month);
   const selectedEvents = byDay[selectedDay] || [];
   const bookedTimes = new Set(selectedEvents.map((e) => eventTime(e)).filter(Boolean));
 
@@ -979,7 +972,7 @@ export function CallingSchedule({
                 {monthLabel(cal.year, cal.month)}
               </div>
               <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
-                <span className="phone-gone">Booked vs free · window {workStart}–{workEnd} · Click to select · Double-click to open</span>
+                <span className="phone-gone">Booked vs free · window {formatOrgTime(workStart, org.timeFormat)}–{formatOrgTime(workEnd, org.timeFormat)} · Times in {tzLabel(org.timezone)} · Click to select · Double-click to open</span>
                 <span className="phone-only">Open {workStart}–{workEnd}. Tap a day to see its bookings and free times.</span>
               </div>
             </div>
@@ -1009,7 +1002,7 @@ export function CallingSchedule({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, marginBottom: 6 }}>
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+            {weekdayHeaders(org.weekStart).map((d) => (
               <div key={d} style={{ fontSize: 11, fontWeight: 700, color: C.slateLight, textAlign: "center", padding: "4px 0", minWidth: 0, overflow: "hidden" }}>{d}</div>
             ))}
           </div>
@@ -1085,12 +1078,13 @@ export function CallingSchedule({
                       style={{ ...eventChipStyle(ev, kinds), cursor: "pointer" }}
                       title={isCancelled(ev) ? `${cancelWhoLabel(ev.cancellationReason)} · ${ev.prospect}` : `${eventTime(ev)} · ${ev.prospect} · Double-click to open`}
                     >
-                      {isCancelled(ev) ? "✕ " : ""}{eventTime(ev)} · {ev.prospect}
+                      {isCancelled(ev) ? "✕ " : ""}{formatOrgTime(eventTime(ev), org.timeFormat)} · {ev.prospect}
                     </div>
                   ))}
                   {dayEvents.length > 3 ? (
                     <div className="vcal-chip" style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more · double-click to open</div>
                   ) : null}
+                  <OtherAppsMarks counts={monthAgenda[key]} own="voice" />
                 </button>
               );
             })}
@@ -1133,7 +1127,7 @@ export function CallingSchedule({
                       cursor: "pointer",
                     }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 800, textDecoration: cancelled ? "line-through" : "none" }}>{slot}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, textDecoration: cancelled ? "line-through" : "none" }}>{formatOrgTime(slot, org.timeFormat)}</div>
                     <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9, display: "flex", alignItems: "center", gap: 4 }}>
                       <Icon size={11} /> {cancelled ? cancelWhoLabel(hit.cancellationReason) : hit.prospect}
                     </div>
@@ -1155,7 +1149,7 @@ export function CallingSchedule({
                     cursor: "pointer",
                   }}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 800 }}>{slot}</div>
+                  <div style={{ fontSize: 12, fontWeight: 800 }}>{formatOrgTime(slot, org.timeFormat)}</div>
                   <div style={{ fontSize: 11, marginTop: 4, color: C.cobalt, fontWeight: 700 }}>Free<span className="phone-gone"> · park here</span></div>
                 </button>
               );

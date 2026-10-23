@@ -92,3 +92,31 @@ export function TodayView({ focus = "leads" }) {
     </div>
   );
 }
+
+// What the other apps have on each day of the month shown, for the grid of a calendar. Refreshes when the month changes.
+export function useMonthAgenda(year, month) {
+  const [days, setDays] = useState({});
+  const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+  useEffect(() => {
+    let live = true;
+    api.getAgendaMonth(key).then((d) => { if (live) setDays((d && d.days) || {}); }).catch(() => { if (live) setDays({}); });
+    return () => { live = false; };
+  }, [key]);
+  return days;
+}
+
+// Small counts for the apps other than the one the calendar belongs to, so every grid agrees on which days are busy.
+export function OtherAppsMarks({ counts, own }) {
+  const shown = ["leads", "voice", "social"].filter((p) => p !== own && counts && counts[p]);
+  if (!shown.length) return null;
+  const label = shown.map((p) => `${counts[p]} in ${p === "leads" ? "Leads" : p === "voice" ? "Voice" : "Social"}`).join(", ");
+  return (
+    <div role="img" aria-label={label} title={label} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: "auto", paddingTop: 2 }}>
+      {shown.map((p) => (
+        <span key={p} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: C.slate }}>
+          <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 99, background: DOT[p] }} />{counts[p]}
+        </span>
+      ))}
+    </div>
+  );
+}
