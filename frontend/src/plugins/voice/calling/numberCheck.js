@@ -62,39 +62,6 @@ export function filterRows(rows, filter) {
 
 export const hasChecks = (rows) => rows.some((r) => r.check);
 
-// The columns the check adds, as plain text (also used by the CSV export).
-export const CHECK_COLUMNS = [
-  { id: "check_status", label: "Number status", get: (r) => STATUS[statusOf(r)].label },
-  { id: "check_found", label: "Name found", get: (r) => (r.check && r.check.foundName) || "" },
-  { id: "check_match", label: "Name match", get: (r) => (r.check ? MATCH[r.check.match] || "" : "") },
-  { id: "check_type", label: "Line type", get: (r) => (r.check ? LINE[r.check.lineType] || "" : "") },
-  { id: "check_carrier", label: "Carrier", get: (r) => (r.check && r.check.carrier) || "" },
-  { id: "check_country", label: "Country", get: (r) => (r.check && r.check.country) || "" },
-  { id: "check_date", label: "Checked on", get: (r) => (r.check && r.check.checkedOn) || "" },
-];
-
-const quote = (v) => {
-  const s = String(v == null ? "" : v);
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-export function toCsv(columns, rows) {
-  const lines = [columns.map((c) => quote(c.label)).join(",")];
-  rows.forEach((r) => lines.push(columns.map((c) => quote(c.get(r))).join(",")));
-  return lines.join("\r\n");
-}
-
-export function downloadCsv(name, text) {
-  const url = window.URL.createObjectURL(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-}
-
 export const chunks = (list, size = CHUNK) => {
   const out = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));

@@ -1554,7 +1554,7 @@ _DIRECTORY_HOSTS = (
     "prospeo.", "leadiq.", "seamless.ai", "kaspr.", "hunter.io", "snov.io", "adapt.io", "uplead.", "getprospect.",
     "trustatrader.", "mybuilder.", "ratedpeople.", "rightio.", "hamuch.", "watersafe.", "myjobquote.", "which.co.uk",
     "houzz.", "threebestrated.", "expertise.com", "cpadirectory.", "vouchedfor.", "accountantsup.", "unbiased.co.uk", "icaew.",
-    "rightmove.", "zoopla.", "onthemarket.", "primelocation.",
+    "globaldatabase.", "ukcompanydata.", "companieslist.", "rightmove.", "zoopla.", "onthemarket.", "primelocation.",
 )
 
 # Page names that are not a company's name ("Contact Us | Meliora Dental").

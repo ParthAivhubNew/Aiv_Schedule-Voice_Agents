@@ -29,9 +29,15 @@ export function buildCallList(name, accounts, phoneFor, contactFor, emailFor, al
 // Fired after a list is staged, so a Voice that is already open (plugins stay mounted) picks it up.
 export const CALL_LIST_STAGED = "aivhub_call_list_staged";
 
+// When a list was last sent across on purpose ("Review in Voice first" or "Bring it"). Opening Voice right after that
+// must not ask the same question again: the list is already there.
+let lastHandoff = 0;
+export const justHandedOff = () => Date.now() - lastHandoff < 15000;
+
 export function stageCallList(list) {
   try {
     localStorage.setItem(KEY, JSON.stringify({ name: list.name, headers: list.headers, records: list.records, skipped: list.skipped || 0, at: Date.now() }));
+    lastHandoff = Date.now();
     window.dispatchEvent(new CustomEvent(CALL_LIST_STAGED));
     return true;
   } catch (_) {
@@ -77,3 +83,11 @@ export function getOpenList(plugin) {
 
 // Lead Gen reloads its lists when one is added from outside (the hand-off from Voice).
 export const LISTS_CHANGED = "aivhub_lists_changed";
+
+// "No, thanks" is remembered for that list, so switching apps again does not ask about the same, unchanged list.
+// Once the list changes (a different name or size), it is a new question.
+const declined = new Map();
+const offerSignature = (list) => `${list.name}|${list.count}`;
+export const declineOffer = (from, to, list) => { declined.set(`${from}>${to}`, offerSignature(list)); };
+export const wasDeclined = (from, to, list) => declined.get(`${from}>${to}`) === offerSignature(list);
+export const forgetDeclined = () => declined.clear();

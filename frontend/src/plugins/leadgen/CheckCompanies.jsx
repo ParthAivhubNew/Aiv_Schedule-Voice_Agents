@@ -111,8 +111,10 @@ export function detailChecks(a) {
   const rows = [];
 
   const web = v.website || {};
-  rows.push({ label: "Website", value: a.website || a.domain || "", ...(!has("website") && !a.domain
-    ? { tone: "missing", word: "Missing", why: "We need it to read the company's own pages for a phone, email and contact, and to see that it still trades." }
+  const onDirectory = web.state === "directory" || /globaldatabase\.|endole\.|opencorporates\.|companycheck\.|dnb\.com|zoominfo\.|yell\.com|192\.com/i.test(a.website || a.domain || "");
+  const site = onDirectory ? "" : a.website || a.domain || "";
+  rows.push({ label: "Website", value: site, ...((!has("website") && !a.domain) || onDirectory
+    ? { tone: "missing", word: "Missing", why: onDirectory ? "The address we had belongs to a business directory, not the company. Check & improve looks for the company's own site." : "We need it to read the company's own pages for a phone, email and contact, and to see that it still trades." }
     : web.state === "live" ? { tone: "good", word: "Working", why: web.note || "The site loads and shows the company name." }
     : web.state === "dead" ? { tone: "bad", word: "Not working", why: "The site didn't load. It may be closed down, or the address is wrong." }
     : web.state === "parked" ? { tone: "bad", word: "Parked or for sale", why: "The address is a placeholder page, so it isn't the company's own site." }

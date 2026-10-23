@@ -20,6 +20,7 @@ import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { MeetingInvitePreview } from "../../../components/MeetingInvitePreview";
 import { openLead } from "../../../connections/ConnectedHome";
 import { PaneSwitch } from "../../../components/PaneSwitch";
+import { DayAgenda } from "../../../components/DayAgenda";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
@@ -1165,6 +1166,10 @@ export function CallingSchedule({
             <div style={{ color: C.slate, fontSize: 13, padding: 12 }}>Set company working hours to show slots.</div>
           ) : null}
         </div>
+
+        <div style={{ ...card(), padding: 16 }}>
+          <DayAgenda date={selectedDay} focus="voice" hideKinds={["meeting", "scheduled_call"]} heading="The rest of this day" />
+        </div>
         </>
         )}
       </div>
@@ -1327,6 +1332,9 @@ export function CallingSchedule({
                     );
                   })
               )}
+              <div style={{ marginTop: 6 }}>
+                <DayAgenda date={selectedDay} focus="voice" hideKinds={["meeting", "scheduled_call"]} heading="The rest of this day" compact />
+              </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4, paddingBottom: 4 }}>
                 <span style={{ fontSize: 11, color: C.slate }}>Legend:</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: C.ink }}>● Active</span>

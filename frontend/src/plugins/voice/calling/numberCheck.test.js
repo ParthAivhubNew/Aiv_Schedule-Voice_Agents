@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyResults, chunks, countByStatus, filterRows, itemsFor, namesOf, statusOf, toCsv, CHECK_COLUMNS } from "./numberCheck";
+import { applyResults, chunks, countByStatus, filterRows, itemsFor, namesOf, statusOf } from "./numberCheck";
 
 const rows = [
   { id: "a", company: "Acme Corp", contact: "Sam Patel", phone: "+12125550123" },
@@ -39,15 +39,6 @@ describe("number check on the list", () => {
     expect(filterRows(out, "not_checked").map((r) => r.id)).toEqual(["b"]);
     expect(filterRows(out, "match:match").map((r) => r.id)).toEqual(["a"]);
     expect(filterRows(out, "")).toBe(out);
-  });
-
-  it("exports any columns as CSV, quoting commas and quotes", () => {
-    const out = applyResults(rows, [res("a", "good", { found_name: 'Acme, "The" Corp' })]);
-    const csv = toCsv([{ id: "c", label: "Company", get: (r) => r.company }, ...CHECK_COLUMNS.slice(0, 2)], out.slice(0, 2));
-    const lines = csv.split("\r\n");
-    expect(lines[0]).toBe("Company,Number status,Name found");
-    expect(lines[1]).toBe('Acme Corp,Good,"Acme, ""The"" Corp"');
-    expect(lines[2]).toBe("Zed,Not checked,");
   });
 
   it("splits a long list into runs", () => {

@@ -160,6 +160,29 @@ async def next_actions(request: Request, limit: int = 5, db: AsyncSession = Depe
     return {"items": items[: max(1, min(limit, 20))], "total": len(items), "plugins": ent}
 
 
+# ── One day across every app ────────────────────────────────────────────────
+@router.get("/together/agenda")
+async def agenda_for_day(date: str = "", focus: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Everything happening on a date for the company, from every app it has, with the `focus` app's items first.
+    Every calendar in the product shows this, so no app has to be opened to see what another has planned."""
+    import re
+
+    from app.services import agenda as A
+    from app.services.org_settings import org_timezone
+    from app.services.timezone_service import now_in
+
+    tz = await org_timezone(db)
+    day = (date or "").strip() or now_in(tz).strftime("%Y-%m-%d")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise HTTPException(status_code=400, detail="date must look like 2026-10-21.")
+    try:
+        datetime.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That is not a real date.")
+    ent = (await C.availability(db, current_org()))["plugins"]
+    return await A.day(db, day, (focus or "").strip().lower(), ent, tz)
+
+
 # ── Search (X-9) ────────────────────────────────────────────────────────────
 @router.get("/together/search")
 async def search(request: Request, q: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:

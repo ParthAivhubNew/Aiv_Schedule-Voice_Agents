@@ -1,10 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Download, ShieldCheck, X } from "lucide-react";
+import { ShieldCheck, X } from "lucide-react";
 import { api } from "../../../api/apiClient";
 import { C } from "../../../tokens";
 import {
-  CHECK_COLUMNS, CHUNK, MATCH, STATUS, STATUS_ORDER, applyResults, chunks, countByStatus, downloadCsv, filterRows,
-  hasChecks, itemsFor, statusOf, toCsv,
+  CHUNK, MATCH, STATUS, STATUS_ORDER, applyResults, chunks, countByStatus, filterRows,
+  hasChecks, itemsFor, statusOf,
 } from "./numberCheck";
 
 const TONES = {
@@ -48,8 +48,8 @@ const Line = ({ label, value, strong }) => (
 );
 
 // The strip above the list: check numbers (selected rows, or the whole list), filter by result,
-// and export whatever you like. All results live on the rows themselves.
-export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, phoneOf, filter, setFilter, baseColumns, showToast, fileName }) {
+// and keep the answers on the rows themselves.
+export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, phoneOf, filter, setFilter, showToast }) {
   const [dialog, setDialog] = useState("");
   const [est, setEst] = useState(null);
   const [chosen, setChosen] = useState([]); // the rows this check was opened for
@@ -58,8 +58,6 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
   const [progress, setProgress] = useState(null);
   const stop = useRef(false);
 
-  const [scope, setScope] = useState("all");
-  const [picked, setPicked] = useState(null);
 
   const withPhone = useMemo(() => rows.filter((r) => phoneOf(r)), [rows, phoneOf]);
   const selected = useMemo(() => withPhone.filter((r) => selectedIds.has(r.id)), [withPhone, selectedIds]);
@@ -124,22 +122,6 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
     showToast(`Removed ${gone.size} row${gone.size === 1 ? "" : "s"}`);
   };
 
-  const exportColumns = [...baseColumns, ...CHECK_COLUMNS];
-  const openExport = () => {
-    setScope(selected.length ? "selected" : filter ? "filter" : "all");
-    setPicked(new Set([...baseColumns.map((c) => c.id), ...(checked ? CHECK_COLUMNS.map((c) => c.id) : [])]));
-    setDialog("export");
-  };
-  const exportRows = scope === "selected" ? rows.filter((r) => selectedIds.has(r.id)) : scope === "filter" ? shown : rows;
-  const doExport = () => {
-    const cols = exportColumns.filter((c) => picked && picked.has(c.id));
-    if (!cols.length) return;
-    const base = String(fileName || "list").replace(/\.[^.]+$/, "") || "list";
-    downloadCsv(`${base}_checked.csv`, toCsv(cols, exportRows));
-    setDialog("");
-    showToast(`Exported ${exportRows.length} row${exportRows.length === 1 ? "" : "s"}`);
-  };
-
   const label = selected.length ? `Check selected (${selected.length})` : `Check all (${withPhone.length})`;
   const skipped = est ? est.rows.filter((r) => ["bad_format", "duplicate", "do_not_call"].includes(r.status)).length : 0;
   const alreadyKnown = est ? est.rows.filter((r) => r.cached).length : 0;
@@ -162,7 +144,6 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
           </>
         ) : null}
         {!checked && !busy ? <span style={{ fontSize: 12.5, color: C.slate }}>See which numbers work before you call. 1 credit per 5 numbers.</span> : null}
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={openExport}><Download size={15} /> Export</button>
       </div>
 
       {checked ? (
@@ -225,38 +206,6 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
               {lacking ? <div style={{ fontSize: 13, color: "var(--ui-bad)", marginTop: 8 }}>Not enough credits for this check. Choose fewer numbers or add credits.</div> : null}
             </div>
           )}
-        </Dialog>
-      ) : null}
-
-      {dialog === "export" && picked ? (
-        <Dialog
-          title="Export to CSV"
-          onClose={() => setDialog("")}
-          footer={(
-            <>
-              <button type="button" className="ui-btn ui-btn--ghost" onClick={() => setDialog("")}>Cancel</button>
-              <button type="button" className="ui-btn ui-btn--primary" disabled={!picked.size || !exportRows.length} onClick={doExport}>
-                <Download size={15} /> Export {exportRows.length} row{exportRows.length === 1 ? "" : "s"}
-              </button>
-            </>
-          )}
-        >
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: C.slate, marginBottom: 4 }}>Rows</div>
-          {[["all", `All rows (${rows.length})`, true], ["selected", `Selected (${selected.length})`, selected.length > 0], ["filter", `Shown by the current filter (${shown.length})`, Boolean(filter)]].map(([id, text, on]) => (
-            <label key={id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "3px 0", opacity: on ? 1 : 0.45 }}>
-              <input type="radio" name="export-scope" checked={scope === id} disabled={!on} onChange={() => setScope(id)} /> {text}
-            </label>
-          ))}
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: C.slate, margin: "12px 0 4px" }}>Columns</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 12px" }}>
-            {exportColumns.map((c) => (
-              <label key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "3px 0", minWidth: 0 }}>
-                <input type="checkbox" checked={picked.has(c.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
-              </label>
-            ))}
-          </div>
-          {!checked ? <div style={{ fontSize: 12, color: C.slate, marginTop: 8 }}>Check columns will be empty until you run a check.</div> : null}
         </Dialog>
       ) : null}
     </div>

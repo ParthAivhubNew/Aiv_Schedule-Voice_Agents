@@ -25,7 +25,9 @@ import {
   ListChecks,
   Lock,
   Mail,
+  CalendarDays,
 } from "lucide-react";
+import { TodayView } from "../../components/DayAgenda";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
@@ -151,6 +153,7 @@ export default function LeadGenerationPlugin({
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = [
+    { id: "today", label: "Today", icon: CalendarDays, group: "Outreach" },
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Campaigns", icon: Send, group: "Outreach" },
@@ -182,6 +185,7 @@ export default function LeadGenerationPlugin({
   }));
 
   const viewTitles = {
+    today: { title: "Today", desc: "What is planned for the day across Leads, Voice and Social, with your Leads work first." },
     find_leads: { title: "Find Leads", desc: "Search for companies by what they do and where, narrow the results with the AI, or import your own spreadsheet." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
@@ -241,6 +245,8 @@ export default function LeadGenerationPlugin({
           {(findOpened || view === "find_leads") && (
             <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
           )}
+
+          {view === "today" && <TodayView focus="leads" />}
 
           {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}
 

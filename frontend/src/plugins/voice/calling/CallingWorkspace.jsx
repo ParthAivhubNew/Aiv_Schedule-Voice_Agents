@@ -1065,21 +1065,6 @@ export function CallingWorkspace({
   const [editRowId, setEditRowId] = useState("");
   const showChecks = useMemo(() => hasChecks(rows), [rows]);
   useEffect(() => { if (checkFilter && rows.length && !shownRows.length) setCheckFilter(""); }, [checkFilter, rows.length, shownRows.length]);
-  // Every column of the list as plain text, for the CSV export.
-  const exportBaseColumns = useMemo(() => {
-    const plain = (r, h) => {
-      const key = headerToField(h);
-      if (key === "phone") return rowPhone(r) || r.phone || "";
-      return String((r.cells && r.cells[h]) || (key ? r[key] : "") || "");
-    };
-    return [
-      ...headers.map((h) => ({ id: "h_" + h, label: h, get: (r) => plain(r, h) })),
-      ...extras.map((h) => ({ id: "x_" + h, label: h, get: (r) => String(r[h.toLowerCase()] || "") })),
-      { id: "calls", label: "Calls", get: (r) => String(r.callTimes || 0) },
-      { id: "last", label: "Last result", get: (r) => r.lastOutcome || "Not called" },
-    ];
-  }, [headers, extras]);
-
   const activeCountryObj = useMemo(() => {
     return COUNTRY_CODES.find((c) => c.code === countryCode) || {
       code: countryCode,
@@ -3182,9 +3167,7 @@ export function CallingWorkspace({
                       phoneOf={rowPhone}
                       filter={checkFilter}
                       setFilter={setCheckFilter}
-                      baseColumns={exportBaseColumns}
                       showToast={showToast}
-                      fileName={fileName}
                     />
                   ) : null}
                   {availableSheets.length > 1 && (

@@ -288,7 +288,11 @@ async def website_state(url: str, name: str) -> Dict[str, Any]:
         return {"state": "none"}
     from app.services.enrichment_service import SEARCH_HEADERS
 
+    from app.services.enrichment_service import _is_directory_host
+
     target = url if "://" in url else f"https://{url}"
+    if _is_directory_host(target):
+        return {"state": "directory"}  # a directory's page about the company, not the company's own site
     try:
         async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=httpx.Timeout(8.0, connect=4.0), follow_redirects=True) as c:
             try:

@@ -58,6 +58,7 @@ import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
 import { SocialConnect } from "./SocialConnect";
 import { InsightsPage, OverviewPage, plainError } from "./SocialResults";
+import { DayAgenda } from "../../components/DayAgenda";
 import { MediaLibraryPage, MediaPicker, MediaThumb, VideoMaker } from "./SocialMedia";
 import { ImportPage } from "./SocialImport";
 import { PictureSettings } from "./SocialPictures";
@@ -4796,6 +4797,11 @@ export function SocialWorkspace({
                 </section>
               );
             })() : null}
+
+            <section aria-label="The rest of the chosen day" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, flexShrink: 0 }}>
+              <DayAgenda date={phone ? phoneDay : dateDraft} focus="social" hideKinds={["post"]}
+                heading={`The rest of ${(phone ? phoneDay : dateDraft) === todayIso() ? "today" : dayLabel(phone ? phoneDay : dateDraft)}`} />
+            </section>
 
             {drafts.length ? (
               <button type="button" onClick={() => openApprovals()} style={{ ...secBtn, justifyContent: "center", width: "100%" }}>
