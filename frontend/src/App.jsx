@@ -12,6 +12,7 @@ import { AppHome } from "./hub/AppHome";
 import { UniversalCallNotificationBanner } from "./hub/PluginHub";
 import { ProfilePage } from "./hub/ProfilePage";
 import { AccountBar } from "./hub/AccountBar";
+import { ListHandoffPrompt } from "./hub/ListHandoffPrompt";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
@@ -788,6 +789,7 @@ function MainApp({ onSignedOut }) {
   return (
     <OrgSettingsProvider>
       <SessionGuard onTimeout={handleLogout} busy={liveCalls.length > 0} />
+      <ListHandoffPrompt plugin={plugin} />
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome

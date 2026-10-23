@@ -268,6 +268,10 @@ async def read_inbox(db: AsyncSession, org_id: str, mb: EmailMailbox, now: datet
     try:
         messages, newest = await T.fetch_new(mailbox_settings(mb), mb.imap_last_uid or 0)
     except T.MailError as err:
+        if not mb.last_error:
+            from app.services.reconnect_events import reconnect_needed
+
+            reconnect_needed("email.mailbox.needs_reauth", org_id, {"mailbox_id": mb.id, "email": mb.email, "error": str(err)[:200]})
         mb.last_error = str(err)
         return
     out = await inbox_reader.process(db, org_id, mb, messages)

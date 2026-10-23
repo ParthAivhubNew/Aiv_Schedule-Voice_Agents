@@ -36,7 +36,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
   const [listId, setListId] = useState(initialListId);
   const [name, setName] = useState("");
   const [emails, setEmails] = useState([blankEmail(0), blankEmail(3)]);
-  const [mailboxIds, setMailboxIds] = useState(() => outreach.mailboxes.filter((m) => !_blocked(m)).map((m) => m.id));
+  const [mailboxIds, setMailboxIds] = useState(() => { const first = outreach.mailboxes.find((m) => !_blocked(m)); return first ? [first.id] : []; }); // a campaign sends from one mailbox
   const [sched, setSched] = useState({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", gap: 120 });
   const [aliasMap, setAliasMap] = useState({}); // {mailbox id: alias address it sends as}
   const [profileReady, setProfileReady] = useState(false); // "About your business" is filled in, so the AI may write
@@ -221,13 +221,13 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
 
         {step === 2 ? (
           <>
-            <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Which mailboxes should send it?</div>
-            <div style={muted}>Emails are shared out across the mailboxes you tick. If one gets blocked or fails, the others carry on, so tick more than one. Only mailboxes that have passed their DNS checks and started warming up can send.</div>
+            <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Which mailbox should send it?</div>
+            <div style={muted}>Every email in this campaign goes out from the one mailbox you pick. Only a mailbox that has passed its DNS checks and started warming up can send.</div>
             {!mailboxes.length ? <div style={muted}>You have no mailbox connected yet. Connect one under Mailboxes first.</div> : null}
             {mailboxes.map((m) => (
               <div key={m.id} className="ui-card" style={{ padding: "10px 12px", display: "grid", gap: 8 }}>
                 <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
-                  <input type="checkbox" checked={mailboxIds.includes(m.id)} onChange={(e) => setMailboxIds(e.target.checked ? [...mailboxIds, m.id] : mailboxIds.filter((x) => x !== m.id))} />
+                  <input type="radio" name="campaign-mailbox" checked={mailboxIds.includes(m.id)} onChange={() => setMailboxIds([m.id])} />
                   <span style={{ ...text, fontWeight: 600, color: C.ink }}>{m.email}</span>
                   <span style={{ ...text, fontSize: 12.5, marginLeft: "auto", color: _blocked(m) ? C.red : C.green }}>{_blocked(m) ? `Can't send yet: ${_blocked(m)}` : "Ready to send"}</span>
                 </label>

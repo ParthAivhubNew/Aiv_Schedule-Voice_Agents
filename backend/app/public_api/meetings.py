@@ -113,6 +113,66 @@ async def slots(request: Request, date: str = Query(..., description="First day,
     return {"event_type": event_type, "timezone": await org_timezone(db), "data": out}
 
 
+# ── Video-meeting accounts (Google Meet, Microsoft Teams, Zoom) ──────────────────────────────────
+class ProviderConnectIn(BaseModel):
+    provider: Literal["google", "microsoft", "zoom"]
+    return_url: str = Field(..., max_length=2000, description="One of your registered return URLs. The popup ends here.")
+
+
+@router.get("/providers")
+async def providers(request: Request, db: AsyncSession = Depends(get_db)):
+    """Which video-meeting accounts are connected. Without one, meetings still book; they just get no video room."""
+    from app.services import meeting_rooms as MR
+
+    ctx = await authorize(request, db, "calendar:book")
+    if is_test(ctx):
+        return {"providers": [{"provider": p, "label": MR.LABELS[p], "configured": True, "connected": p == "google", "account": "test@example.com" if p == "google" else "", "error": ""}
+                              for p in MR.PROVIDERS], "simulated": True}
+    return await MR.status(db)
+
+
+@router.post("/providers/connect")
+async def provider_connect(body: ProviderConnectIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Start connecting a video-meeting account. Open `auth_url` in a popup; it ends at your return_url with ?status=&provider=&account=."""
+    from app.public_api.social import _partner_of
+    from app.services import meeting_rooms as MR
+    from app.services import partners as PT
+
+    ctx = await authorize(request, db, "calendar:book")
+    partner = await _partner_of(db, ctx)
+    if not partner:
+        fail(403, "partner_only", "Connecting an account from your own page is for keys issued through the partner program.")
+    try:
+        url = PT.check_return_url(partner, body.return_url)
+    except PT.PartnerError as err:
+        fail(err.status, err.code, err.message)
+    if PT._origin(url) not in (partner.allowed_origins or []):
+        fail(422, "return_url_origin_not_allowed", "The return_url's web address must also be one of your allowed web addresses.")
+    expires = datetime.utcfromtimestamp(time.time() + 1800).isoformat() + "Z"
+    if is_test(ctx):
+        sep = "&" if "?" in url else "?"
+        return {"auth_url": f"{url}{sep}status=connected&provider={body.provider}&account=test@example.com", "expires_at": expires, "simulated": True}
+    res = await MR.start(body.provider, partner_return=url)
+    if not res.get("ok"):
+        fail(503, "provider_unavailable", res.get("error") or "That account cannot be connected right now.")
+    return {"auth_url": res["authUrl"], "expires_at": expires}
+
+
+@router.delete("/providers/{provider}")
+async def provider_disconnect(provider: Literal["google", "microsoft", "zoom"], request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core.tenancy import current_org
+    from app.services import meeting_rooms as MR
+    from app.services.webhook_dispatcher import dispatch_event
+
+    ctx = await authorize(request, db, "calendar:book")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    gone = await MR.disconnect(db, provider)
+    if gone:
+        dispatch_event(current_org(), "meeting.provider.disconnected", {"provider": provider, "org_id": current_org()})
+    return {"ok": True, "was_connected": bool(gone)}
+
+
 @router.post("", status_code=201)
 async def book(body: BookIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Book a meeting. The invitation is emailed; the time must be one of the open slots."""

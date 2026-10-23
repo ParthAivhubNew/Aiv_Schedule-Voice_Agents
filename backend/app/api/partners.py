@@ -118,6 +118,11 @@ async def settings(body: SettingsBody, request: Request, db: AsyncSession = Depe
     p = await _partner_or_404(db, ctx["org_id"])
     if body.name is not None and body.name.strip():
         p.name = body.name.strip()
+    for label, values, is_return in (("web addresses", body.allowed_origins, False), ("return URLs", body.return_urls, True)):
+        bad = PT.unreadable_addresses(values, is_return) if values is not None else []
+        if bad:  # say so, instead of quietly keeping only the ones that happened to parse
+            raise HTTPException(status_code=400, detail=f"These {label} could not be read: {', '.join(bad[:5])}. "
+                                                        "Write each as a full address like https://app.yourproduct.com, one per line.")
     if body.allowed_origins is not None:
         p.allowed_origins = PT.clean_origins(body.allowed_origins)
     if body.return_urls is not None:

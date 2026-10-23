@@ -78,7 +78,7 @@ import { ConversationTemplatesView } from "../ConversationTemplatesView";
 import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
-import { peekCallList, takeCallList } from "../../../utils/leadToVoice";
+import { CALL_LIST_STAGED, peekCallList, setOpenList, takeCallList } from "../../../utils/leadToVoice";
 import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
@@ -2016,20 +2016,41 @@ export function CallingWorkspace({
   // A list sent over from Lead Gen ("Call this list"). Taken once the plan is confirmed, so a user
   // who has to buy Voice first still finds it waiting.
   useEffect(() => {
-    if (voicePlanLoading || !voiceHasPlan) return;
-    const staged = takeCallList();
-    if (!staged) return;
-    setFileName(staged.name || "Lead Gen list");
-    setWorkbookSheets(null);
-    setAvailableSheets([]);
-    setActiveSheet("");
-    setHeaders(staged.headers.filter((h) => h !== "Lead ID")); // the id stays on each row but isn't a column to read
-    setRows(staged.records.map((rec, i) => rowFromRecord(staged.headers, rec, i)).map(ensureRowPhone));
-    setSelectedIds(new Set());
-    setPage("list");
-    const skip = staged.skipped ? ` ${staged.skipped.toLocaleString()} left out.` : "";
-    showToast(`${staged.records.length.toLocaleString()} companies from Lead Gen are ready to call.${skip}`);
+    if (voicePlanLoading || !voiceHasPlan) return undefined;
+    const adopt = () => {
+      const staged = takeCallList();
+      if (!staged) return;
+      setFileName(staged.name || "Lead Gen list");
+      setWorkbookSheets(null);
+      setAvailableSheets([]);
+      setActiveSheet("");
+      setHeaders(staged.headers.filter((h) => h !== "Lead ID")); // the id stays on each row but isn't a column to read
+      setRows(staged.records.map((rec, i) => rowFromRecord(staged.headers, rec, i)).map(ensureRowPhone));
+      setSelectedIds(new Set());
+      setPage("list");
+      const skip = staged.skipped ? ` ${staged.skipped.toLocaleString()} left out.` : "";
+      showToast(`${staged.records.length.toLocaleString()} companies from Lead Gen are ready to call.${skip}`);
+    };
+    adopt();
+    window.addEventListener(CALL_LIST_STAGED, adopt);
+    return () => window.removeEventListener(CALL_LIST_STAGED, adopt);
   }, [voicePlanLoading, voiceHasPlan]);
+
+  // The list on screen, for the "bring it to Lead Gen?" prompt when the user switches apps.
+  useEffect(() => {
+    if (page !== "list" || !rows.length) { setOpenList("voice", null); return undefined; }
+    setOpenList("voice", {
+      name: fileName || "Call list",
+      count: rows.length,
+      leadIds: rows.map((r) => r.leadId).filter(Boolean),
+      // rows that did not come from Leads, shaped as Leads companies, so they can be saved there
+      newAccounts: rows.filter((r) => !r.leadId && (r.company || r.contact || r.name || r.website)).map((r) => ({
+        name: r.company || r.name || "", website: r.website || "", phone: rowPhone(r) || "", email: r.email || "",
+        contact_name: r.contact || "", region: [r.town, r.postcode].filter(Boolean).join(" "), industry: r.sector || "", source: "import",
+      })),
+    });
+    return () => setOpenList("voice", null);
+  }, [page, rows, fileName]);
 
   const switchSheet = (sheetName) => {
     if (!workbookSheets || !workbookSheets[sheetName]) return;

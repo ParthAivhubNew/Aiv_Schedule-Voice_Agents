@@ -1326,8 +1326,14 @@ async def oauth_callback(
     error_description: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
+    from app.services.social_oauth import PARTNER_PREFIX, partner_callback_html, state_owner
+
     plat = normalize_platform(platform)
+    _, back = await state_owner(state or "")
+    partner_back = back[len(PARTNER_PREFIX):] if back.startswith(PARTNER_PREFIX) else ""
     if error:
+        if partner_back:
+            return HTMLResponse(partner_callback_html(False, plat, partner_back, error=error_description or error))
         html = callback_html(False, plat, error=error_description or error)
         return HTMLResponse(html)
     if not code or not state:
@@ -1337,8 +1343,18 @@ async def oauth_callback(
         result = await finish_oauth(db, plat, code, state)
     except Exception as e:
         logger.exception("OAuth callback failed")
+        if partner_back:
+            return HTMLResponse(partner_callback_html(False, plat, partner_back, error=str(e)))
         html = callback_html(False, plat, error=str(e))
         return HTMLResponse(html)
+    if partner_back:
+        if result.get("ok"):
+            from app.services.webhook_dispatcher import dispatch_event
+
+            dispatch_event(result.get("orgId") or "", "social.channel.connected",
+                           {"provider": plat, "channel_id": result.get("accountId") or "", "org_id": result.get("orgId") or ""})
+        return HTMLResponse(partner_callback_html(bool(result.get("ok")), plat, partner_back, channel_id=result.get("accountId") or "",
+                                                  error=result.get("error") or ""))
     html = callback_html(
         bool(result.get("ok")),
         plat,

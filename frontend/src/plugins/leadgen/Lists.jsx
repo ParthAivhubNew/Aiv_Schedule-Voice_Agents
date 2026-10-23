@@ -4,7 +4,7 @@ import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { AccountsView, contactFor, emailFor, phoneFor } from "./AccountsViews";
 import { useConnection } from "../../hooks/useConnections";
-import { buildCallList, stageCallList } from "../../utils/leadToVoice";
+import { buildCallList, LISTS_CHANGED, setOpenList, stageCallList } from "../../utils/leadToVoice";
 import { navigateHash } from "../../utils/route";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { askConfirm, askText } from "./Dialogs";
@@ -28,6 +28,10 @@ export function useLeadLists(onToast) {
     }
   }, [onToast]);
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    window.addEventListener(LISTS_CHANGED, reload);
+    return () => window.removeEventListener(LISTS_CHANGED, reload);
+  }, [reload]);
   return { lists, loading, reload };
 }
 
@@ -105,8 +109,18 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     const list = buildCallList(name, members, phoneFor, contactFor, emailFor);
     if (!list.records.length) { store.toast("None of these companies has a phone number yet. Check & improve them first."); return; }
     if (!stageCallList(list)) { store.toast("Couldn't pass the list to Voice."); return; }
-    navigateHash("voice/list");
+    navigateHash("#/voice/list");
   };
+
+  // While a list is open, tell the app shell so switching to Voice can offer to bring it along.
+  useEffect(() => {
+    const current = openId === "all" || open;
+    if (!current || !canCall) { setOpenList("leadgen", null); return undefined; }
+    const name = open ? open.name : "All companies";
+    const { members } = open ? listReach(open, store.accounts) : listReach({ ids: store.accounts.map((a) => a.id) }, store.accounts);
+    setOpenList("leadgen", { name, count: members.length, build: () => buildCallList(name, members, phoneFor, contactFor, emailFor) });
+    return () => setOpenList("leadgen", null);
+  }, [openId, open, canCall, store.accounts]);
 
   if (loading || store.loading) return <div style={muted}>Loading your lists…</div>;
   if (openId === "all" || open) {

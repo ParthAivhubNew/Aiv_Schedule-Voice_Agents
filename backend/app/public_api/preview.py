@@ -137,6 +137,9 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
     book_data = links.read_token(token, "book")
     if book_data:
         return await _handle_book(book_data["o"], book_data["i"], form)
+    mailbox_data = links.read_token(token, "mailbox_connect")
+    if mailbox_data:
+        return await _handle_mailbox(mailbox_data, form)
     data = links.read_token(token, "post")
     if not data:
         return HTMLResponse(_GONE, status_code=404)
@@ -184,6 +187,25 @@ async def _handle_campaign(org: str, campaign_id: str, form: Optional[Dict[str, 
                                     status_code=err.status)
             company = await _company_name(db)
     return HTMLResponse(campaign_page.render(v, company, notice))
+
+
+async def _handle_mailbox(data: Dict[str, Any], form: Optional[Dict[str, str]]) -> HTMLResponse:
+    """A partner's popup: connect a mailbox on our page, then go back to the partner's page."""
+    from app.public_api import mailbox_page
+    from app.services.approval_mail import _company_name
+    from app.services.webhook_dispatcher import dispatch_event
+
+    with org_scope(data["o"]):
+        async with AsyncSessionLocal() as db:
+            company = await _company_name(db)
+            if not form:
+                return HTMLResponse(mailbox_page.render(company, locked_email=data.get("e") or ""))
+            res = await mailbox_page.act(db, data, form)
+            if not res["ok"]:
+                kept = {k: v for k, v in form.items() if k != "password"}
+                return HTMLResponse(mailbox_page.render(company, res["error"], kept, data.get("e") or ""), status_code=400)
+    dispatch_event(data["o"], "email.mailbox.connected", {"mailbox_id": res["mailbox_id"], "email": res["email"], "org_id": data["o"]})
+    return HTMLResponse(mailbox_page.done(data["r"], res["mailbox_id"], res["email"]))
 
 
 async def _handle_book(org: str, ref_raw: str, form: Optional[Dict[str, str]]) -> HTMLResponse:

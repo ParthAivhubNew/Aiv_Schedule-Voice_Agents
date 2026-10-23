@@ -240,6 +240,9 @@ async def insights(days: int = 30, channel: str = "", account: str = "", db: Asy
         post = titles.get(pid)
         url = next((r.get("url") for r in (post.publish_results or []) if isinstance(r, dict) and r.get("url")), "") if post else ""
         top.append({"id": pid, "title": post.title if post else "", "channel": ms[0].platform, "url": url,
+                    # Every network the post went to, each with its own numbers, so a post counts under each of them.
+                    "channels": [normalize_platform(r.platform) for r in ms],
+                    "perChannel": {normalize_platform(r.platform): {k: _totals([r]).get(k) for k in ("reach", "impressions", "engagements", "clicks")} for r in ms},
                     "publishedAt": ms[0].published_at.isoformat() + "Z" if ms[0].published_at else None,
                     **{k: t.get(k) for k in ("reach", "impressions", "likes", "comments", "shares", "saves", "clicks", "engagements")},
                     "linkClicks": tracked.get(pid, 0), **outcomes[pid]})

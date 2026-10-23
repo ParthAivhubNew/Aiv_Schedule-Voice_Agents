@@ -26,9 +26,13 @@ export function buildCallList(name, accounts, phoneFor, contactFor, emailFor, al
   return { name, headers: HEADERS, records, skipped };
 }
 
+// Fired after a list is staged, so a Voice that is already open (plugins stay mounted) picks it up.
+export const CALL_LIST_STAGED = "aivhub_call_list_staged";
+
 export function stageCallList(list) {
   try {
     localStorage.setItem(KEY, JSON.stringify({ name: list.name, headers: list.headers, records: list.records, skipped: list.skipped || 0, at: Date.now() }));
+    window.dispatchEvent(new CustomEvent(CALL_LIST_STAGED));
     return true;
   } catch (_) {
     return false;
@@ -57,3 +61,19 @@ export function peekCallList() {
     return null;
   }
 }
+
+// The list each app has open on screen right now, so switching apps can offer to carry it across.
+// Lead Gen registers `{ name, count, build }`; Voice registers `{ name, count, leadIds }`.
+const openLists = {};
+
+export function setOpenList(plugin, info) {
+  if (info) openLists[plugin] = info;
+  else delete openLists[plugin];
+}
+
+export function getOpenList(plugin) {
+  return openLists[plugin] || null;
+}
+
+// Lead Gen reloads its lists when one is added from outside (the hand-off from Voice).
+export const LISTS_CHANGED = "aivhub_lists_changed";

@@ -38,15 +38,28 @@ async def meeting_link_callback(
     error: Optional[str] = None,
     error_description: Optional[str] = None,
 ):
+    from app.services.social_oauth import partner_callback_html
+
     provider = _check(provider)
+    back = MR.state_return(state or "")
+
+    def _partner(ok: bool, account: str = "", why: str = "") -> HTMLResponse:
+        return HTMLResponse(partner_callback_html(ok, provider, back, channel_id=account, error=why, kind="meeting_provider", id_name="account"))
+
     if error:
-        return HTMLResponse(MR.callback_html(False, provider, error=error_description or error))
+        return _partner(False, why=error_description or error) if back else HTMLResponse(MR.callback_html(False, provider, error=error_description or error))
     if not code or not state:
         return HTMLResponse(MR.callback_html(False, provider, error="Missing sign-in details. Click Connect again."))
     try:
         res = await MR.finish(provider, code, state)
     except Exception as err:
-        return HTMLResponse(MR.callback_html(False, provider, error=str(err)))
+        return _partner(False, why=str(err)) if back else HTMLResponse(MR.callback_html(False, provider, error=str(err)))
+    if back:
+        if res.get("ok"):
+            from app.services.webhook_dispatcher import dispatch_event
+
+            dispatch_event(res.get("org") or "", "meeting.provider.connected", {"provider": provider, "account": res.get("account") or "", "org_id": res.get("org") or ""})
+        return _partner(bool(res.get("ok")), res.get("account") or "", res.get("error") or "")
     return HTMLResponse(MR.callback_html(bool(res.get("ok")), provider, account=res.get("account") or "", error=res.get("error") or ""))
 
 

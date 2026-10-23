@@ -230,8 +230,8 @@ async def _connected(db: AsyncSession, channels: List[str]) -> None:
     missing = [c for c in channels if c not in ok]
     if missing:
         fail(422, "channel_not_connected",
-             f"Connect {', '.join(missing)} in the app first (Social, Accounts). Then try again.",
-             channels=missing, fix_url=links.fix_url("social_accounts"))
+             f"Connect {', '.join(missing)} first: call channel.connect (POST /v1/social/channels/connect), or connect it in the app (Social, Accounts). Then try again.",
+             channels=missing, connect_action="channel.connect", fix_url=links.fix_url("social_accounts"))
 
 
 async def _afford(db: AsyncSession, item: str, extra: Optional[list] = None) -> None:
@@ -558,3 +558,431 @@ async def decision(post_id: str, body: DecisionIn, request: Request, db: AsyncSe
         fail(404, "not_found", f"Post '{post_id}' not found.")
     await decide(db, post, body.decision, by, body.note or "", body.publish_at)
     return view(post, ctx["org_id"])
+
+
+# ── Connecting the networks from the partner's own page ─────────────────────────────────────────
+CHANNEL_PROVIDERS = (("linkedin", "LinkedIn"), ("facebook", "Facebook"), ("instagram", "Instagram"), ("x", "X"), ("threads", "Threads"))
+CHANNEL_STATUS = {"connected": "connected", "ok": "connected", "expired": "needs_reauth"}
+
+
+class ChannelConnectIn(BaseModel):
+    provider: str = Field(..., description="linkedin, facebook, instagram, x or threads")
+    return_url: str = Field(..., max_length=2000, description="One of your registered return URLs. The popup ends here.")
+
+
+async def _partner_of(db: AsyncSession, ctx: Dict[str, Any]):
+    from app.models.models import Partner, PartnerLink
+
+    link = (await db.execute(select(PartnerLink).where(PartnerLink.key_id == str(ctx.get("key_id") or ""),
+                                                       PartnerLink.status == "active"))).scalars().first()
+    return await db.get(Partner, link.partner_id) if link else None
+
+
+def _channel_view(a: SocialAccount) -> Dict[str, Any]:
+    from app.services.social_publisher import normalize_platform
+
+    return {"id": a.id, "provider": normalize_platform(a.platform), "display_name": a.label or a.handle or "",
+            "status": CHANNEL_STATUS.get(str(a.status or "").lower(), "error"),
+            "connected_at": a.created_at.isoformat() + "Z" if getattr(a, "created_at", None) else None}
+
+
+@router.get("/channels/providers")
+async def channel_providers(request: Request, db: AsyncSession = Depends(get_db)):
+    """The networks that can be connected, and whether each is set up on our side right now."""
+    from app.services.social_oauth import get_oauth_app
+
+    await authorize(request, db, "social:write", "social")
+    out = []
+    for key, label in CHANNEL_PROVIDERS:
+        out.append({"provider": key, "label": label, "available": bool((await get_oauth_app(db, key)).get("configured"))})
+    return {"providers": out}
+
+
+@router.post("/channels/connect")
+async def channel_connect(body: ChannelConnectIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Start connecting a network. Open `auth_url` in a popup; it ends at your return_url with ?status=connected|error&provider=&channel_id=."""
+    from app.services import partners as PT
+    from app.services.social_oauth import start_oauth
+    from app.services.social_publisher import normalize_platform
+
+    ctx = await authorize(request, db, "social:write", "social")
+    provider = normalize_platform(body.provider)
+    if provider not in CHANNELS:
+        fail(422, "unknown_provider", f"Use one of: {', '.join(CHANNELS)}.")
+    partner = await _partner_of(db, ctx)
+    if not partner:
+        fail(403, "partner_only", "Connecting a network from your own page is for keys issued through the partner program.")
+    try:
+        url = PT.check_return_url(partner, body.return_url)
+    except PT.PartnerError as err:
+        fail(err.status, err.code, err.message)
+    if PT._origin(url) not in (partner.allowed_origins or []):
+        fail(422, "return_url_origin_not_allowed", "The return_url's web address must also be one of your allowed web addresses.")
+    expires = time.time() + 1800
+    if is_test(ctx):
+        sep = "&" if "?" in url else "?"
+        return {"auth_url": f"{url}{sep}status=connected&provider={provider}&channel_id=sim_{provider}", "state": "simulated",
+                "expires_at": _iso_ms(expires * 1000), "simulated": True}
+    res = await start_oauth(db, provider, partner_return=url)
+    if not res.get("ok"):
+        fail(503, "provider_unavailable", f"{provider.title()} cannot be connected right now. We have been told.")
+    return {"auth_url": res["authUrl"], "state": res["state"], "expires_at": _iso_ms(expires * 1000)}
+
+
+@router.get("/channels")
+async def channel_list(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"channels": [{"id": f"sim_{k}", "provider": k, "display_name": f"Test {label}", "status": "connected", "connected_at": None}
+                             for k, label in CHANNEL_PROVIDERS], "simulated": True}
+    rows = (await db.execute(select(SocialAccount).order_by(SocialAccount.created_at.desc()))).scalars().all()
+    return {"channels": [_channel_view(a) for a in rows]}
+
+
+@router.delete("/channels/{channel_id}")
+async def channel_disconnect(channel_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core.tenancy import current_org
+    from app.services.social_publisher import normalize_platform
+    from app.services.webhook_dispatcher import dispatch_event
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    acc = await db.get(SocialAccount, channel_id)
+    if not acc:
+        fail(404, "channel_not_found", "No connected channel has that id.")
+    provider = normalize_platform(acc.platform)
+    await db.delete(acc)
+    await db.commit()
+    dispatch_event(current_org(), "social.channel.disconnected", {"provider": provider, "channel_id": channel_id, "org_id": current_org()})
+    return {"ok": True}
+
+
+# ── Results: Insights, one post's numbers, and shareable reports ────────────────────────────────
+def _link_expiry_iso() -> str:
+    from app.services import social_reports as SR
+
+    return datetime.utcfromtimestamp(SR.new_link_expiry()).isoformat() + "Z"
+
+
+class ReportIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120, description="For example the client's name")
+    days: Literal[7, 30, 90] = 30
+    channels: List[str] = Field(default_factory=list, description="Leave empty for every network")
+    account_ids: List[str] = Field(default_factory=list, alias="accountIds")
+    recipients: List[str] = Field(default_factory=list, description="Emails that get it when it is sent")
+    frequency: Literal["none", "weekly", "monthly"] = "none"
+    intro: str = Field("", max_length=2000)
+
+    model_config = {"populate_by_name": True}
+
+
+class ReportSendIn(BaseModel):
+    to: Optional[List[str]] = Field(None, description="Send to these instead of the report's own recipients")
+
+
+@router.get("/insights")
+async def insights_get(request: Request, days: int = 30, channel: str = "", account: str = "", db: AsyncSession = Depends(get_db)):
+    """How published posts did: totals and changes, by network, daily series, best posts, best times and followers.
+    `channel` and `account` take comma-separated lists. Numbers are as of `lastSyncedAt`; they are re-read from the networks every few hours."""
+    from fastapi import HTTPException
+
+    from app.api.scheduler_insights import insights
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"days": days, "totals": {"posts": 0, "reach": None, "impressions": None, "engagements": None}, "byChannel": [], "series": [],
+                "top": [], "followers": [], "lastSyncedAt": None, "simulated": True}
+    try:
+        return await insights(days=days, channel=channel, account=account, db=db)
+    except HTTPException as err:
+        fail(422, "invalid_days", str(err.detail))
+
+
+@router.get("/posts/{post_id}/results")
+async def post_results_get(post_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """One post's numbers per network, with `asOf` (when they were last read), leads, meetings and tracked link clicks."""
+    from fastapi import HTTPException
+
+    from app.api.scheduler_insights import post_results
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx) or post_id.startswith(SANDBOX_PREFIX):
+        return {"title": "Test post", "channels": [], "totals": None, "links": [], "linkClicks": 0, "leads": 0, "meetings": 0, "test": True, "asOf": None}
+    try:
+        return await post_results(post_id, db)
+    except HTTPException:
+        fail(404, "post_not_found", "No post has that id.")
+
+
+@router.post("/posts/{post_id}/results/link")
+async def post_results_link_make(post_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """A link anyone can open with no sign-in. It always shows the post's latest numbers and works for 120 days."""
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"link": "https://example.test/post-results", "expires_at": _link_expiry_iso(), "simulated": True}
+    if not await get_post(db, post_id):
+        fail(404, "post_not_found", "No post has that id.")
+    from app.services import social_reports as SR
+
+    return {"link": SR.post_share_url(post_id, ctx["org_id"]), "expires_at": _link_expiry_iso()}
+
+
+@router.get("/reports")
+async def reports_list_get(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.models import SocialReport
+    from app.services import social_reports as SR
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"data": [], "simulated": True}
+    rows = (await db.execute(select(SocialReport).order_by(SocialReport.created_at.desc()))).scalars().all()
+    return {"data": [SR.view(r) for r in rows]}
+
+
+@router.post("/reports", status_code=201)
+async def report_create(body: ReportIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Save a report definition (period, networks, recipients) and get its live link. The page it opens says when its numbers are from."""
+    from app.models.models import SocialReport
+    from app.services import social_reports as SR
+
+    ctx = await authorize(request, db, "social:write", "social")
+    payload = {"name": body.name, "days": body.days, "channels": body.channels, "accountIds": body.account_ids,
+               "recipients": body.recipients, "frequency": body.frequency, "intro": body.intro}
+    try:
+        fields = SR.clean(payload)
+    except ValueError as err:
+        fail(422, "invalid_report", str(err))
+    if is_test(ctx):
+        return {"report": {"id": "rep_test", **payload}, "link": "https://example.test/report", "expires_at": _link_expiry_iso(), "simulated": True}
+    row = SocialReport(id=f"rep_{uuid.uuid4().hex[:10]}", created_by=_by(ctx), **fields)
+    db.add(row)
+    await db.commit()
+    return {"report": SR.view(row), "link": SR.share_url(row, ctx["org_id"]), "expires_at": _link_expiry_iso()}
+
+
+async def _report(db: AsyncSession, report_id: str):
+    from app.models.models import SocialReport
+
+    row = await db.get(SocialReport, report_id)
+    if not row:
+        fail(404, "report_not_found", "No report has that id.")
+    return row
+
+
+@router.post("/reports/{report_id}/link")
+async def report_link_make(report_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """A fresh link to the report's live page (works for 120 days). Earlier links keep working until they expire."""
+    from app.services import social_reports as SR
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"link": "https://example.test/report", "expires_at": _link_expiry_iso(), "simulated": True}
+    return {"link": SR.share_url(await _report(db, report_id), ctx["org_id"]), "expires_at": _link_expiry_iso()}
+
+
+@router.post("/reports/{report_id}/send")
+async def report_send(report_id: str, body: ReportSendIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Email the report now. The email states when its numbers are from and links to the live page."""
+    from app.services import social_reports as SR
+    from app.services.org_settings import clean_emails
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"sent": 0, "failed": 0, "simulated": True}
+    row = await _report(db, report_id)
+    to = clean_emails(body.to) if body.to else None
+    res = await SR.send(db, row, ctx["org_id"], to)
+    if not res["sent"]:
+        fail(400, "report_not_sent", res["error"] or "The report could not be sent.")
+    return {"sent": res["sent"], "failed": res["failed"]}
+
+
+@router.delete("/reports/{report_id}")
+async def report_delete(report_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    row = await _report(db, report_id)
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Media: send a picture or video, then use its address in a post ──────────────────────────────
+class _BytesUpload:
+    """Lets the app's chunked saver read an upload that arrived as base64."""
+
+    def __init__(self, raw: bytes):
+        self._raw, self._at = raw, 0
+
+    async def read(self, n: int = -1) -> bytes:
+        chunk = self._raw[self._at:] if n < 0 else self._raw[self._at:self._at + n]
+        self._at += len(chunk)
+        return chunk
+
+
+class MediaIn(BaseModel):
+    filename: str = Field("file", max_length=200)
+    content_type: str = Field(..., description="image/png, image/jpeg, image/webp, video/mp4 or video/quicktime")
+    content_base64: str = Field(..., description="The file, base64 encoded")
+    alt: str = Field("", max_length=1000, description="Describes the picture, for people who cannot see it")
+    tags: List[str] = Field(default_factory=list, max_length=20)
+
+
+class MediaUrlIn(BaseModel):
+    url: str = Field(..., max_length=2000, description="A public https:// address to copy into the library")
+
+
+def _media_view(m) -> Dict[str, Any]:
+    from app.services import social_library as SL
+
+    v = SL.view(m)
+    base = links.public_base()
+    if v.get("url", "").startswith("/") and base:
+        v["url"] = base + v["url"]  # a full address, so it can go straight into a post's image.url
+    return v
+
+
+@router.post("/media", status_code=201)
+async def media_upload(body: MediaIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Add a picture or video to the library. Use the returned `url` as `image.url` (mode `url`) when creating a post."""
+    import base64
+    import binascii
+
+    from app.services import social_library as SL
+
+    ctx = await authorize(request, db, "social:write", "social")
+    try:
+        raw = base64.b64decode(body.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        fail(422, "invalid_file", "content_base64 is not valid base64.")
+    if is_test(ctx):
+        return {"id": "med_test", "url": "https://example.test/media/test.png", "kind": "image", "simulated": True}
+    try:
+        url, size = await SL.MS.store_upload(_BytesUpload(raw), body.content_type)
+        row = await SL.add_file(db, url, size=size, name=body.filename, source="upload", by=_by(ctx), alt=body.alt, tags=SL.clean_tags(body.tags))
+    except ValueError as err:
+        fail(422, "invalid_file", str(err))
+    await db.commit()
+    return _media_view(row)
+
+
+@router.post("/media/import-url", status_code=201)
+async def media_import(body: MediaUrlIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Copy a file from a public address into the library."""
+    from app.services import social_library as SL
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"id": "med_test", "url": "https://example.test/media/test.png", "kind": "image", "simulated": True}
+    try:
+        row = await SL.import_remote(db, body.url, by=_by(ctx), source="upload")
+    except ValueError as err:
+        fail(422, "invalid_file", str(err))
+    await db.commit()
+    return _media_view(row)
+
+
+@router.get("/media")
+async def media_list(request: Request, kind: str = "", q: str = "", db: AsyncSession = Depends(get_db)):
+    """The library, newest first."""
+    from app.models.models import SocialMedia
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"data": [], "simulated": True}
+    stmt = select(SocialMedia).order_by(SocialMedia.created_at.desc()).limit(200)
+    if kind in ("image", "video"):
+        stmt = stmt.where(SocialMedia.kind == kind)
+    rows = (await db.execute(stmt)).scalars().all()
+    needle = q.strip().lower()
+    if needle:
+        rows = [m for m in rows if needle in (m.name or "").lower() or needle in (m.alt_text or "").lower()]
+    return {"data": [_media_view(m) for m in rows]}
+
+
+@router.delete("/media/{media_id}")
+async def media_delete(media_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Remove a file from the library. Posts that already use it keep working; the file itself stays."""
+    from app.models.models import SocialMedia
+
+    ctx = await authorize(request, db, "social:write", "social")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    row = await db.get(SocialMedia, media_id)
+    if not row:
+        fail(404, "media_not_found", "No file in the library has that id.")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Plan AI: plan many posts at once, then create them ──────────────────────────────────────────
+class PlanIn(BaseModel):
+    prompt: str = Field(..., min_length=3, max_length=2000, description='For example: "plan a month of LinkedIn posts, Mondays and Thursdays, about onboarding"')
+    channels: List[str] = Field(default_factory=lambda: ["linkedin"], min_length=1, max_length=5)
+    pinned_dates: List[str] = Field(default_factory=list, description="YYYY-MM-DD dates the plan should prefer")
+
+
+class PlanPostIn(BaseModel):
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="YYYY-MM-DD, in your company's time zone")
+    time: str = Field("09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    channel: str
+    headline: str = Field(..., min_length=1, max_length=300)
+    angle: str = Field("", max_length=1500, description="What the post says")
+
+
+class PlanApplyIn(BaseModel):
+    posts: List[PlanPostIn] = Field(..., min_length=1, max_length=30)
+    tone: Optional[str] = Field(None, max_length=60)
+    approvers: Optional[List[str]] = Field(None, max_length=10)
+
+
+@router.post("/plan")
+async def plan_create(body: PlanIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Ask Plan AI for an outline: which posts, on which days and channels, about what. Nothing is created or written yet.
+    Show it to your user, then send the posts you want to `plan.apply`."""
+    from datetime import timedelta
+
+    ctx = await authorize(request, db, "social:write", "social")
+    channels = _clean_channels(body.channels)
+    if is_test(ctx):
+        day = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+        return {"reply": "Test plan.", "posts": [{"date": day, "time": "09:00", "channel": channels[0], "headline": "Test post", "angle": "What this post says"}],
+                "simulated": True}
+    from app.api.scheduler import chat_plan
+
+    res = await chat_plan({"text": body.prompt, "selectedChannels": channels, "pinnedDates": body.pinned_dates, "currentPlan": {"posts": []}}, db)
+    if res.get("status") == "error" or not res.get("plan"):
+        fail(502 if res.get("error") in ("ai_unavailable", "plan_cut_off") else 422, res.get("error") or "no_plan",
+             res.get("reply") or "Plan AI did not come back with a plan. Try again, or say more about what you want.")
+    posts = [{"date": p.get("date"), "time": p.get("time") or "09:00", "channel": p.get("channel") or channels[0],
+              "headline": p.get("headline") or "", "angle": p.get("plan") or p.get("angle") or ""} for p in (res["plan"].get("posts") or []) if not p.get("existing")]
+    return {"reply": res.get("reply") or "", "range": res["plan"].get("rangeLabel") or "", "posts": posts}
+
+
+@router.post("/plan/apply", status_code=202)
+async def plan_apply(body: PlanApplyIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Create the posts of a plan (up to 30). Each is written by the AI and waits for approval like any post made through the API."""
+    from app.public_api.core import ApiError
+
+    ctx = await authorize(request, db, "social:write", "social")
+    created: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for p in body.posts:
+        try:
+            when = datetime.fromisoformat(f"{p.date}T{p.time}")
+        except ValueError:
+            failed.append({"headline": p.headline, "error": {"code": "invalid_publish_at", "message": f"{p.date} {p.time} is not a valid date and time."}})
+            continue
+        try:
+            created.append(await create_post(db, request, ctx, CreatePostIn(
+                prompt=f"{p.headline}. {p.angle}".strip(". ")[:4000], channels=[p.channel], publish_at=when, tone=body.tone, approvers=body.approvers)))
+        except ApiError as err:
+            await db.rollback()
+            failed.append({"headline": p.headline, "error": {"code": err.code, "message": err.message}})
+    if not created:
+        first = failed[0]["error"]
+        fail(422, first["code"], first["message"], failed=failed)
+    return {"data": created, "failed": failed}

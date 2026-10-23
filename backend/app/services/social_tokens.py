@@ -155,11 +155,23 @@ async def ensure_fresh_token(db: AsyncSession, account, *, within: timedelta = P
         detail = str(body.get("error_description") or body.get("error") or body.get("message") or "")[:200]
         err = f"{account.platform} refused to renew the login ({status}{': ' + detail if detail else ''})."
         if status in _PERMANENT:
+            first = account.status != "expired"
             account.status = "expired"
             account.last_error = err + " Reconnect the account."
             await db.commit()
+            if first:
+                _tell_partner(account)
         logger.warning(f"[social-tokens] {account.id}: {err}")
         return {"ok": False, "refreshed": False, "error": err}
+
+
+def _tell_partner(account: SocialAccount) -> None:
+    """A partner's webhook hears that this channel needs its user to reconnect (once, when it first breaks)."""
+    from app.services.reconnect_events import reconnect_needed
+    from app.services.social_publisher import normalize_platform
+
+    reconnect_needed("social.channel.needs_reauth", getattr(account, "org_id", "") or "",
+                     {"provider": normalize_platform(account.platform), "channel_id": account.id})
 
 
 async def refresh_expiring(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -179,6 +191,7 @@ async def refresh_expiring(db: AsyncSession) -> List[Dict[str, Any]]:
             acc.status = "expired"
             acc.last_error = acc.last_error or "The login has expired. Reconnect the account."
             await db.commit()
+            _tell_partner(acc)
         problems.append({"account": acc, "state": state if state != "ok" else "expiring", "error": res.get("error", "")})
     return problems
 

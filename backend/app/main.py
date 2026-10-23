@@ -977,7 +977,8 @@ li{margin:4px 0}</style></head>
   </ul>
   <h2>What you get</h2>
   <ul>
-    <li>One endpoint for voice calls, lead search and email, social posts, mail, phone numbers and balances.</li>
+    <li>One endpoint for voice calls, lead search and email, social posts and their results, WhatsApp, mail, phone numbers and balances.</li>
+    <li>Connect your users' social networks, mailboxes and video accounts from your own pages, in a popup, without ever handling a password or token.</li>
     <li>A scoped API key for each user, a sandbox with test keys, and signed webhooks for results that arrive later.</li>
     <li>Free while the programme is new. Pricing will be announced before it changes.</li>
   </ul>

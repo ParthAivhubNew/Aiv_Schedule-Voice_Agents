@@ -7,6 +7,7 @@ always owns a normal Outreach account; the partner gets a scoped API key for it,
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import time
 import uuid
@@ -68,17 +69,28 @@ def _origin(url: str) -> str:
     return f"{u.scheme}://{u.hostname.lower()}{port}"
 
 
+def split_addresses(values: List[str]) -> List[str]:
+    """One address per item, however they were typed: on separate lines, or run together with commas, semicolons or spaces."""
+    return [part for v in values or [] for part in re.split(r"[\s,;]+", str(v or "").strip()) if part]
+
+
 def clean_origins(values: List[str]) -> List[str]:
-    return list(dict.fromkeys(o for o in (_origin(v) for v in values or []) if o))
+    return list(dict.fromkeys(o for o in (_origin(v) for v in split_addresses(values)) if o))
 
 
 def clean_return_urls(values: List[str]) -> List[str]:
     out = []
-    for v in values or []:
-        u = urlparse((v or "").strip())
+    for v in split_addresses(values):
+        u = urlparse(v)
         if u.scheme in ("http", "https") and u.hostname and not u.fragment:
-            out.append(v.strip())
+            out.append(v)
     return list(dict.fromkeys(out))
+
+
+def unreadable_addresses(values: List[str], return_urls: bool = False) -> List[str]:
+    """Entries that could not be read as a web address, so the settings page can say so instead of dropping them silently."""
+    ok = set(clean_return_urls(values) if return_urls else [v for v in split_addresses(values) if _origin(v)])
+    return [v for v in split_addresses(values) if v not in ok]
 
 
 def usable(partner: Optional[Partner]) -> Partner:
@@ -104,9 +116,13 @@ def check_origin(partner: Partner, request: Request) -> None:
 def check_return_url(partner: Partner, url: str) -> str:
     if not url:
         return ""
-    if url.strip() not in (partner.return_urls or []):
-        raise PartnerError(422, "return_url_not_allowed", "return_url must exactly match one of the partner's return URLs.")
-    return url.strip()
+    # Exact, except that a trailing slash on the path is not a different page ("/connected" and "/connected/").
+    asked = url.strip()
+    hit = next((u for u in (partner.return_urls or []) if u == asked or (u.rstrip("/") == asked.rstrip("/") and urlparse(u).path not in ("", "/"))), None)
+    if hit is None:
+        raise PartnerError(422, "return_url_not_allowed", "return_url must match one of the partner's return URLs. Add each address you use in "
+                           "Developer API > Partner programme, one per line.")
+    return asked
 
 
 def check_consent(data: Dict[str, Any]) -> str:

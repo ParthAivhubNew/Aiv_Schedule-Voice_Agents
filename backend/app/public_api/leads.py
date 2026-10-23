@@ -519,3 +519,109 @@ async def list_leads(request: Request, q: str = "", limit: int = 25, cursor: str
     biz_ids = [a.business_record_id for a in accs if a.business_record_id]
     bizs = {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(biz_ids)))).scalars().all()} if biz_ids else {}
     return page_of([_lead(a, bizs.get(a.business_record_id), [], None) for a in accs], lim, off)
+
+
+# ── Lists, contacts for one company, and finding one person's email ─────────────────────────────
+class ListBody(BaseModel):
+    name: str = Field("", max_length=80)
+    ids: List[str] = Field(default_factory=list, description="Saved lead ids to put in the list")
+
+
+class ListChange(BaseModel):
+    name: Optional[str] = Field(None, max_length=80)
+    add: List[str] = Field(default_factory=list)
+    remove: List[str] = Field(default_factory=list)
+
+
+class CompanyContactsIn(BaseModel):
+    include_web: bool = Field(False, description="Also look on the web for a website and phone. Costs 1 Leads credit, only when something is found.")
+
+
+class EmailFindIn(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=80)
+    last_name: str = Field(..., min_length=1, max_length=80)
+    company_name: str = Field("", max_length=200)
+    domain: str = Field(..., min_length=3, max_length=200, description="The company's web address, e.g. example.com")
+
+
+async def _app_call(coro):
+    """Run one of the app's own handlers and turn its plain-words refusals into this API's errors."""
+    from fastapi import HTTPException
+
+    try:
+        return await coro
+    except HTTPException as err:
+        code = {402: "insufficient_credits", 404: "not_found", 409: "already_exists"}.get(err.status_code, "invalid_request")
+        fail(err.status_code if err.status_code in (400, 402, 404, 409, 502, 503) else 422, code, str(err.detail))
+
+
+@router.get("/lists")
+async def lists_get(request: Request, db: AsyncSession = Depends(get_db)):
+    """Your lists of saved leads, with the lead ids in each."""
+    from app.api.lead_lists import all_lists
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"lists": [], "simulated": True}
+    return await all_lists(db)
+
+
+@router.post("/lists", status_code=201)
+async def lists_create(body: ListBody, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.lead_lists import ListIn, create
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"list": {"id": "lst_test", "name": body.name, "ids": body.ids}, "simulated": True}
+    return await _app_call(create(ListIn(name=body.name, ids=body.ids), db))
+
+
+@router.patch("/lists/{list_id}")
+async def lists_change(list_id: str, body: ListChange, request: Request, db: AsyncSession = Depends(get_db)):
+    """Rename a list, and add or remove leads."""
+    from app.api.lead_lists import ListPatch, change
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"list": {"id": list_id, "name": body.name or "", "ids": body.add}, "simulated": True}
+    return await _app_call(change(list_id, ListPatch(name=body.name, add=body.add, remove=body.remove), db))
+
+
+@router.delete("/lists/{list_id}")
+async def lists_delete(list_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Delete a list. The leads in it stay saved."""
+    from app.api.lead_lists import delete
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    return await _app_call(delete(list_id, db))
+
+
+@router.post("/companies/{company_id}/contacts")
+async def company_contacts_get(company_id: str, body: CompanyContactsIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """The people on a company's official record (free), what we hold for it, and, if asked, website and phone found on the web.
+    `company_id` is the `id` of a company in search results."""
+    from app.api.lead_accounts import ContactsIn, company_contacts
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"company": {"id": company_id, "name": "Test Ltd"}, "officers": [], "stored": {}, "web": None, "simulated": True}
+    return await _app_call(company_contacts(company_id, ContactsIn(include_web=body.include_web), db))
+
+
+@router.post("/email-find")
+async def email_find(body: EmailFindIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Find one named person's work email at a company. 1 Leads credit when one is found, nothing when not."""
+    from app.services.enrichment_waterfall import lookup_person_waterfall
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"found": True, "email": f"{body.first_name}.{body.last_name}@{body.domain}".lower(), "verification_status": "verified", "simulated": True}
+    result = await lookup_person_waterfall(db=db, org_id=ctx["org_id"], first_name=body.first_name, last_name=body.last_name,
+                                           company_name=body.company_name, domain=body.domain, mission_id=None, prospect_id=None)
+    if result.get("error") == "insufficient_credits":
+        fail(402, "insufficient_credits", result["detail"], top_up_url=links.fix_url("billing"))
+    if result.get("error") in ("bad_input", "not_configured"):
+        fail(422 if result["error"] == "bad_input" else 503, result["error"], result["detail"])
+    return result

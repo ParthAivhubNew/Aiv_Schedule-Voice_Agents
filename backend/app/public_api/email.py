@@ -24,7 +24,7 @@ from app.core.tenancy import org_scope
 from app.database import AsyncSessionLocal, get_db
 from app.models.models import (EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, EmailSequenceStep, LeadAccount, PublicObject)
 from app.public_api import links
-from app.public_api.core import V1Route, authorize, fail, is_test, page_args, page_of
+from app.public_api.core import V1Route, app_call, authorize, fail, is_test, page_args, page_of
 
 logger = logging.getLogger("public_api.email")
 router = APIRouter(prefix="/email", tags=["Email campaigns"], route_class=V1Route)
@@ -762,6 +762,100 @@ async def list_mailboxes(request: Request, db: AsyncSession = Depends(get_db)):
     return {"data": [mailbox_view(m, today.get(m.id, 0)) for m in boxes]}
 
 
+class MailboxConnectIn(BaseModel):
+    return_url: str = Field(..., max_length=2000, description="One of your registered return URLs. The popup ends here.")
+    email: Optional[str] = Field(None, max_length=200, description="Open the page for this address only")
+
+
+class WarmupIn(BaseModel):
+    action: Literal["start", "pause", "skip"] = Field(..., description="start warm-up, pause the mailbox, or skip warm-up for an already warm one")
+
+
+async def _own_mailbox(db: AsyncSession, ctx: Dict[str, Any], mailbox_id: str) -> None:
+    if mailbox_id not in {m.id for m in await _visible_mailboxes(db, ctx)}:
+        fail(404, "mailbox_not_found", "No connected mailbox has that id.")
+
+
+@router.post("/mailboxes/connect")
+async def mailbox_connect(body: MailboxConnectIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Start connecting a mailbox. Open `connect_url` in a popup: the user types the mailbox login on our page (you never see it),
+    and the popup ends at your return_url with ?status=connected&provider=mailbox&mailbox_id=."""
+    from app.models.models import PartnerLink
+    from app.public_api.social import _partner_of
+    from app.services import approval_mail
+    from app.services import partners as PT
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    partner = await _partner_of(db, ctx)
+    if not partner:
+        fail(403, "partner_only", "Connecting a mailbox from your own page is for keys issued through the partner program.")
+    try:
+        url = PT.check_return_url(partner, body.return_url)
+    except PT.PartnerError as err:
+        fail(err.status, err.code, err.message)
+    if PT._origin(url) not in (partner.allowed_origins or []):
+        fail(422, "return_url_origin_not_allowed", "The return_url's web address must also be one of your allowed web addresses.")
+    expires = int(time.time()) + 1800
+    iso = datetime.utcfromtimestamp(expires).isoformat() + "Z"
+    if is_test(ctx):
+        sep = "&" if "?" in url else "?"
+        return {"connect_url": f"{url}{sep}status=connected&provider=mailbox&mailbox_id=mb_test", "expires_at": iso, "simulated": True}
+    link = (await db.execute(select(PartnerLink).where(PartnerLink.key_id == str(ctx.get("key_id") or ""), PartnerLink.status == "active"))).scalars().first()
+    token = approval_mail.sign({"k": "mailbox_connect", "i": partner.id, "o": ctx["org_id"], "r": url, "op": getattr(link, "operator_id", "") or "",
+                                "e": (body.email or "").strip().lower(), "x": expires})
+    return {"connect_url": f"{links.public_base()}/api/p/{token}", "expires_at": iso}
+
+
+@router.get("/mailboxes/{mailbox_id}")
+async def mailbox_get(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """One mailbox in full: status, what blocks sending, DNS checks and the records to add. No secrets."""
+    from app.api.email_outreach import _mailbox, _mailbox_out
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"mailbox": {**TEST_MAILBOX, "status": "active", "can_send": True, "blockers": []}, "simulated": True}
+    await _own_mailbox(db, ctx, mailbox_id)
+    return {"mailbox": _mailbox_out(await _mailbox(db, mailbox_id), None)}
+
+
+@router.post("/mailboxes/{mailbox_id}/check")
+async def mailbox_check(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Check the mailbox's SPF, DKIM, DMARC and MX records now."""
+    from app.api.email_outreach import audit_mailbox_dns
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"mailbox": {**TEST_MAILBOX, "status": "active", "can_send": True, "blockers": []}, "simulated": True}
+    await _own_mailbox(db, ctx, mailbox_id)
+    return await audit_mailbox_dns(mailbox_id, request, None, db)
+
+
+@router.post("/mailboxes/{mailbox_id}/warmup")
+async def mailbox_warmup(mailbox_id: str, body: WarmupIn, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.email_outreach import WarmupBody, set_warmup
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"mailbox": {**TEST_MAILBOX, "status": "warming" if body.action == "start" else "active", "can_send": True, "blockers": []}, "simulated": True}
+    await _own_mailbox(db, ctx, mailbox_id)
+    return await set_warmup(mailbox_id, WarmupBody(action=body.action), request, db)
+
+
+@router.delete("/mailboxes/{mailbox_id}")
+async def mailbox_disconnect(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.email_outreach import _mailbox, delete_mailbox
+    from app.services.webhook_dispatcher import dispatch_event
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    await _own_mailbox(db, ctx, mailbox_id)
+    email = (await _mailbox(db, mailbox_id)).email
+    out = await delete_mailbox(mailbox_id, request, db)
+    dispatch_event(ctx["org_id"], "email.mailbox.disconnected", {"mailbox_id": mailbox_id, "email": email, "org_id": ctx["org_id"]})
+    return out
+
+
 @router.get("/messages")
 async def list_sent(request: Request, status: Optional[Literal["sent", "replied", "bounced", "failed"]] = None, campaign_id: str = "", mailbox_id: str = "",
                     kind: Optional[Literal["campaign", "one_to_one"]] = None, q: str = "", limit: int = 20, cursor: str = "", db: AsyncSession = Depends(get_db)):
@@ -802,3 +896,97 @@ async def decision(campaign_id: str, body: DecisionIn, request: Request, db: Asy
     await decide(db, camp, body.decision, _by(ctx), body.note or "")
     await db.refresh(camp)
     return await view(db, camp, org)
+
+
+# ── Results: how a campaign did, the replies, and who must not be emailed ───────────────────────
+class CategoryIn(BaseModel):
+    category: Literal["interested", "question", "not_interested", "ooo", "unsubscribe"]
+
+
+class SuppressIn(BaseModel):
+    email: str = Field(..., max_length=200, description="An address, or a whole domain like example.com")
+
+
+@router.get("/campaigns/{campaign_id}/results")
+async def campaign_results(campaign_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """How a campaign did: sent, opened, replied and bounced, overall and for each email in the sequence, and what the replies were.
+    Opens are counted when an email's tracking picture loads and some mail apps block it, so opens are a minimum, never an exact count."""
+    from collections import Counter
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    now = datetime.utcnow().isoformat() + "Z"
+    zero = {"sent": 0, "opened": 0, "replied": 0, "bounced": 0, "failed": 0, "open_rate": None, "reply_rate": None, "bounce_rate": None}
+    if is_test(ctx) or campaign_id.startswith(SANDBOX):
+        return {"campaign_id": campaign_id, "totals": zero, "by_step": [], "reply_categories": {}, "as_of": now, "simulated": True}
+    camp = await _campaign(db, campaign_id)
+    steps = {s.id: s.step_number for s in (await db.execute(select(EmailSequenceStep).where(EmailSequenceStep.campaign_id == camp.id))).scalars().all()}
+    msgs = (await db.execute(select(EmailMessage).where(EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)))).scalars().all()
+
+    def tally(rows) -> Dict[str, Any]:
+        sent = [m for m in rows if m.status not in ("queued", "failed")]
+        n = len(sent)
+        count = lambda pred: sum(1 for m in sent if pred(m))
+        opened, replied, bounced = count(lambda m: (m.open_count or 0) > 0 or m.status == "replied"), count(lambda m: m.status == "replied"), count(lambda m: m.status == "bounced")
+        pct = lambda v: round(100 * v / n, 1) if n else None
+        return {"sent": n, "opened": opened, "replied": replied, "bounced": bounced, "failed": sum(1 for m in rows if m.status == "failed"),
+                "open_rate": pct(opened), "reply_rate": pct(replied), "bounce_rate": pct(bounced)}
+
+    by_step = []
+    for number in sorted({steps.get(m.sequence_step_id) for m in msgs if steps.get(m.sequence_step_id)}):
+        by_step.append({"step": number, **tally([m for m in msgs if steps.get(m.sequence_step_id) == number])})
+    cats = Counter((m.reply_category or "uncategorised") for m in msgs if m.status == "replied")
+    return {"campaign_id": camp.id, "name": camp.name, "status": camp.status, "totals": tally(msgs), "by_step": by_step,
+            "reply_categories": dict(cats), "as_of": now}
+
+
+@router.get("/replies")
+async def replies_list(request: Request, category: str = "", db: AsyncSession = Depends(get_db)):
+    """Replies to your campaign emails, newest first: who, what they said, which campaign and how it was sorted."""
+    from app.api.email_outreach import list_replies
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"replies": [], "simulated": True}
+    return await app_call(list_replies(request, category, db))
+
+
+@router.post("/replies/{message_id}/category")
+async def reply_categorize(message_id: str, body: CategoryIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Sort a reply. `unsubscribe` also stops all further email to that person."""
+    from app.api.email_outreach import CategoryBody, set_reply_category
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    return await app_call(set_reply_category(message_id, CategoryBody(category=body.category), request, db))
+
+
+@router.get("/suppression")
+async def suppression_list(request: Request, db: AsyncSession = Depends(get_db)):
+    """The do-not-email list: addresses and domains no campaign will email."""
+    from app.api.email_outreach import list_suppressions
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"suppressions": [], "simulated": True}
+    return await app_call(list_suppressions(request, db))
+
+
+@router.post("/suppression", status_code=201)
+async def suppression_add(body: SuppressIn, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.email_outreach import SuppressionBody, add_suppression
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    return await app_call(add_suppression(SuppressionBody(email=body.email), request, db))
+
+
+@router.delete("/suppression/{entry_id}")
+async def suppression_remove(entry_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.email_outreach import remove_suppression
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    return await app_call(remove_suppression(entry_id, request, db))

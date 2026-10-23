@@ -122,6 +122,11 @@ async def record_inbound(db, our: str, contact: str, text: str, telnyx_id: str =
     thread.last_message_at = now
     thread.last_preview = (text or "")[:120]
     thread.unread = (thread.unread or 0) + 1
+    from app.core.tenancy import current_org
+    from app.services.reconnect_events import partner_event
+
+    partner_event("whatsapp.message.received", current_org(), {"thread_id": thread.id, "contact_number": contact, "our_number": our,
+                                                                "contact_name": name or "", "preview": (text or "")[:200]})
     return thread
 
 

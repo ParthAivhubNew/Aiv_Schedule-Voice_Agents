@@ -18,7 +18,7 @@ const pill = (tone) => ({
   background: { green: C.greenSoft, amber: C.amberSoft, red: C.redSoft, blue: C.cobaltSoft }[tone] || C.paperSoft,
 });
 const TONE = { pending: "amber", approved: "green", rejected: "red", sandbox: "blue", live: "green", suspended: "red", active: "green", revoked: "slate" };
-const lines = (v) => (v || "").split("\n").map((s) => s.trim()).filter(Boolean);
+const lines = (v) => (v || "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean); // one per line, but commas and spaces work too
 const when = (iso) => (iso ? new Date(iso + (/[Z+]/.test(iso.slice(19)) ? "" : "Z")).toLocaleDateString([], { dateStyle: "medium" }) : "—");
 
 function CopyText({ text }) {
@@ -177,13 +177,13 @@ export function PartnerProgram() {
             <input id="pp-name" style={field} value={settings.name} onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
             <label style={label} htmlFor="pp-origins">Web addresses your sign-up and login pages run on</label>
             <textarea id="pp-origins" rows={2} style={field} placeholder="https://app.yourproduct.com" value={settings.origins} onChange={(e) => setSettings({ ...settings, origins: e.target.value })} />
-            <div style={hint}>One per line. Calls from a browser on any other address are refused.</div>
+            <div style={hint}>One per line, each a full address like https://app.yourproduct.com. Add every address your sign-up, login and connect pages run on: a call from a browser on any address not listed here is refused. www and the bare domain count as two addresses.</div>
             <label style={label} htmlFor="pp-returns">Return URLs</label>
             <textarea id="pp-returns" rows={2} style={field} placeholder="https://app.yourproduct.com/outreach/connected" value={settings.returns} onChange={(e) => setSettings({ ...settings, returns: e.target.value })} />
-            <div style={hint}>One per line. After a new user confirms their email, we send them to one of these. It must match exactly.</div>
+            <div style={hint}>One per line. After a new user confirms their email, or finishes connecting a social network, mailbox or video account in a popup, we send them to one of these. Add every return address you use, one per line. It must match one of them (a trailing / does not matter), and its web address must also be in the list above.</div>
             <label style={label} htmlFor="pp-hook">Webhook address</label>
             <input id="pp-hook" style={field} placeholder="https://api.yourproduct.com/outreach/events" value={settings.webhook} onChange={(e) => setSettings({ ...settings, webhook: e.target.value })} />
-            <div style={hint}>Events about your users' accounts (call finished, number active, and so on) are sent here, signed with the secret below.</div>
+            <div style={hint}>Events about your users' accounts (call finished, number active, a network connected or needing a reconnect, a WhatsApp message arriving, and so on) are sent here, signed with the secret below.</div>
             {partner.webhookSecret && (
               <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <code style={{ fontFamily: FONT_MONO, fontSize: 12, overflowWrap: "anywhere" }}>{showSecret ? partner.webhookSecret : "whsec_••••••••••••••••"}</code>
@@ -220,7 +220,7 @@ curl -X POST ${window.location.origin}/api/v1/run \\
   -d '{"plugin":"account","action":"wallet"}'`}</Code>
             <div style={hint}>
               <b>auth actions</b> (no key needed): <code>signup</code>, <code>login</code>, <code>resend_verification</code>, <code>forgot_password</code>. With the account's key: <code>me</code>, <code>disconnect</code>.
-              Other plugins: <code>voice</code>, <code>leads</code>, <code>social</code>, <code>mail</code>, <code>account</code> and <code>numbers</code> (search, order and release phone numbers, and verify your business).
+              Other plugins: <code>voice</code>, <code>leads</code>, <code>social</code>, <code>whatsapp</code>, <code>mail</code>, <code>account</code> and <code>numbers</code> (search, order and release phone numbers, verify your business, check lists of numbers). Your users connect their accounts from your pages with <code>social channel.connect</code>, <code>leads mailbox.connect</code> and <code>voice meeting_provider.connect</code>: each returns a link to open in a popup, so you never see a password or token. The full list of calls and webhook events is in <code>docs/partner-api-actions.md</code> and the Docs tab.
             </div>
             <div style={hint}>
               If email confirmation is on, <code>signup</code> answers <code>verify_email: true</code> with no key. After the user confirms (we send them to your return URL), call <code>login</code> to get the key.

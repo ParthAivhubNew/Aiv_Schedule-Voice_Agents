@@ -356,7 +356,7 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
           {mailboxes.length === 0 && <span style={small}>Connect a mailbox first.</span>}
           {mailboxes.map((m) => (
             <label key={m.id} style={{ ...row, fontWeight: 500, color: C.textInk }}>
-              <input type="checkbox" checked={c.mailbox_ids.includes(m.id)} onChange={(e) => setC({ ...c, mailbox_ids: e.target.checked ? [...c.mailbox_ids, m.id] : c.mailbox_ids.filter((x) => x !== m.id) })} />
+              <input type="radio" name="campaign-mailbox" checked={c.mailbox_ids.includes(m.id)} onChange={() => setC({ ...c, mailbox_ids: [m.id] })} />
               {m.email}
             </label>
           ))}
@@ -418,19 +418,17 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
   const [paste, setPaste] = useState("");
   const [added, setAdded] = useState("");
   const [editing, setEditing] = useState(false);
-  const [findOpen, setFindOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [menu, setMenu] = useState(false);
   if (!data) return <Note error>{err}</Note>;
   const c = data.campaign;
   if (editing) {
-    return <CampaignEditor initial={{ ...c, steps: c.steps.map((s) => ({ subject: s.subject, body: s.body, delay_days: s.delay_days, channel: s.channel || "email", condition: s.condition || "always" })) }} mailboxes={mailboxes}
+    return <CampaignEditor initial={{ ...c, mailbox_ids: (c.mailbox_ids || []).slice(0, 1), steps: c.steps.map((s) => ({ subject: s.subject, body: s.body, delay_days: s.delay_days, channel: s.channel || "email", condition: s.condition || "always" })) }} mailboxes={mailboxes}
       onSaved={() => { setEditing(false); reload(); }} onCancel={() => setEditing(false)} />;
   }
   const leads = parseLeads(paste);
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {findOpen && <FindEmailDrawer outreach={outreach} defaultTarget={c.id} onClose={() => { setFindOpen(false); reload(); }} />}
       <div style={{ display: "grid", gap: 10 }}>
         <button title="Back to all campaigns" type="button" onClick={onBack}
           style={{ justifySelf: "start", display: "inline-flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: "4px 0", color: C.slate, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -451,7 +449,6 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
               <>
                 <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
                 <div className="ui-menu" role="menu" style={{ zIndex: 80 }}>
-                  <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); setFindOpen(true); }}><Mail size={15} /> Find a work email</button>
                   <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }}
                     onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${c.name}?`, body: "Its leads and emails are deleted with it.", confirm: "Delete campaign", danger: true })) run(() => api.emailDeleteCampaign(c.id).then(onBack)); }}>
                     <Trash2 size={15} /> Delete campaign
@@ -580,20 +577,17 @@ function SequenceSteps({ steps }) {
 export function CampaignsView({ outreach, onNew }) {
   const [open, setOpen] = useState("");
   const [creating, setCreating] = useState(false);
-  const [findOpen, setFindOpen] = useState(false);
   const mailboxes = outreach.mailboxes;
   if (open) return <CampaignDetail id={open} mailboxes={mailboxes} outreach={outreach} onBack={() => { setOpen(""); outreach.reloadCampaigns(); }} />;
   if (creating) {
-    return <CampaignEditor initial={{ ...blankCampaign, mailbox_ids: mailboxes.map((m) => m.id) }} mailboxes={mailboxes}
+    return <CampaignEditor initial={{ ...blankCampaign, mailbox_ids: mailboxes.slice(0, 1).map((m) => m.id) }} mailboxes={mailboxes}
       onSaved={(c) => { setCreating(false); setOpen(c.id); outreach.reloadCampaigns(); }} onCancel={() => setCreating(false)} />;
   }
   const camps = outreach.campaigns;
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {findOpen && <FindEmailDrawer outreach={outreach} onClose={() => { setFindOpen(false); outreach.reloadCampaigns(); }} />}
       <Note error>{outreach.error}</Note>
       <div style={row}>
-        <button title="Look for a person's work email from their name and company" type="button" style={btn(false)} onClick={() => setFindOpen(true)}>Find a work email</button>
         <button title="Write a new email campaign" type="button" style={{ ...btn(true), marginLeft: "auto" }} onClick={() => (onNew ? onNew() : setCreating(true))}>New campaign</button>
       </div>
       {camps.length === 0 && <div style={{ ...card, ...small }}>No campaigns yet. Create one, add leads, then start it.</div>}

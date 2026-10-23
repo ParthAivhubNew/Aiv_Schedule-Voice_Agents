@@ -218,6 +218,10 @@ async def send_cold_email(
     try:
         await T.send(mailbox_settings(mailbox), msg)
     except T.MailError as err:
+        if not mailbox.last_error:
+            from app.services.reconnect_events import reconnect_needed
+
+            reconnect_needed("email.mailbox.needs_reauth", org_id, {"mailbox_id": mailbox.id, "email": mailbox.email, "error": str(err)[:200]})
         mailbox.last_error = str(err)
         logger.warning(f"[Email] {mailbox.email} -> {to} failed: {err}")
         return {"status": "failed", "reason": str(err)}

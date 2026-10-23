@@ -390,7 +390,15 @@ async def refresh_verification(db, sub, client: TelnyxClient) -> Any:
     return sub
 
 
+def _partner_event(event: str, record, data: dict) -> None:
+    from app.core.tenancy import current_org
+    from app.services.reconnect_events import partner_event
+
+    partner_event(event, getattr(record, "org_id", "") or current_org(), data)
+
+
 async def _notify_verification(sub, was_approved: bool = False) -> None:
+    _partner_event("number.verification_changed", sub, {"status": sub.status, "reason": (sub.reason or "") if sub.status in ("declined", "expired") else ""})
     try:
         from app.core.notify import notify
 
@@ -428,10 +436,12 @@ async def refresh_number(db, n, client: TelnyxClient) -> Any:
     was_active = n.status == "active"
     if healthy and not was_active:
         n.status = "active"
+        _partner_event("number.status_changed", n, {"number": n.e164, "number_id": n.id, "status": "active"})
         await notify("numbers", f"{n.e164} is working again",
                      [f"{n.e164} is active again."])
     elif not healthy and was_active:
         n.status = "held"
+        _partner_event("number.status_changed", n, {"number": n.e164, "number_id": n.id, "status": "held"})
         await _notify_both("numbers", f"{n.e164} was suspended or put on hold",
                            ["This number is not active on the phone network.",
                             "Outbound calls from it may fail until this is resolved. Contact the OutReach team."],
@@ -495,9 +505,11 @@ async def _activate(db, order, telnyx_order: Dict[str, Any]) -> None:
         if pn.get("phone_number") == order.phone_number:
             number_id = str(pn.get("id") or "")
     has_default = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.is_default.is_(True)))).scalars().first()
-    db.add(OrgPhoneNumber(id=f"num_{uuid.uuid4().hex[:10]}", e164=order.phone_number, label="",
+    new_id = f"num_{uuid.uuid4().hex[:10]}"
+    db.add(OrgPhoneNumber(id=new_id, e164=order.phone_number, label="",
                           provider="telnyx", provider_ref=number_id, capabilities=["voice"],
                           status="active", is_default=not has_default, rent_due_at=rent_due))
+    _partner_event("number.ready", order, {"number": order.phone_number, "number_id": new_id})
     try:
         from app.core.notify import notify
 

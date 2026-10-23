@@ -158,13 +158,13 @@ def _scopes(provider: str) -> str:
     }[provider]
 
 
-async def start(provider: str, frontend: str = "") -> Dict[str, Any]:
+async def start(provider: str, frontend: str = "", partner_return: str = "") -> Dict[str, Any]:
     if provider not in PROVIDERS:
         return {"ok": False, "error": "Unknown meeting provider."}
     await load_creds()
     if not is_configured(provider):
         return {"ok": False, "error": f"{LABELS[provider]} is not set up for this platform yet. Ask the Outreach team to enable it."}
-    state = _encode({"sub": provider, "typ": "meetlink", "org": current_org(), "front": frontend[:200]}, 1800)
+    state = _encode({"sub": provider, "typ": "meetlink", "org": current_org(), "front": frontend[:200], "ret": partner_return[:1000]}, 1800)
     cid = _creds(provider)["id"]
     ru = redirect_uri(provider)
     if provider == "google":
@@ -228,6 +228,12 @@ async def _account_email(provider: str, access: str) -> str:
     return ""
 
 
+def state_return(state: str) -> str:
+    """The partner return address inside a sign-in state, if the connect started from a partner's page."""
+    claims = decode_token(state or "", "meetlink") or {}
+    return claims.get("ret") or ""
+
+
 async def finish(provider: str, code: str, state: str) -> Dict[str, Any]:
     """Callback: verify the signed state, swap the code for tokens, save them for that organisation."""
     claims = decode_token(state, "meetlink")
@@ -235,10 +241,11 @@ async def finish(provider: str, code: str, state: str) -> Dict[str, Any]:
         return {"ok": False, "error": "This sign-in link expired. Click Connect again."}
     org = claims.get("org") or ""
     front = claims.get("front") or ""
+    ret = claims.get("ret") or ""
     await load_creds()
     tok = await _post_token(provider, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri(provider)})
     if not tok.get("ok"):
-        return {**tok, "frontend": front}
+        return {**tok, "frontend": front, "ret": ret}
     from app.database import AsyncSessionLocal
 
     with org_scope(org):
@@ -256,7 +263,7 @@ async def finish(provider: str, code: str, state: str) -> Dict[str, Any]:
             row.last_error = ""
             row.connected_at = datetime.utcnow()
             await db.commit()
-            return {"ok": True, "provider": provider, "account": row.account, "frontend": front}
+            return {"ok": True, "provider": provider, "account": row.account, "frontend": front, "ret": ret, "org": org}
 
 
 async def disconnect(db: AsyncSession, provider: str) -> bool:
@@ -266,6 +273,12 @@ async def disconnect(db: AsyncSession, provider: str) -> bool:
     await db.delete(row)
     await db.commit()
     return True
+
+
+def _tell_partner(provider: str) -> None:
+    from app.services.reconnect_events import reconnect_needed
+
+    reconnect_needed("meeting.provider.needs_reauth", current_org(), {"provider": provider})
 
 
 async def _access_token(db: AsyncSession, provider: str) -> Optional[str]:
@@ -279,6 +292,7 @@ async def _access_token(db: AsyncSession, provider: str) -> Optional[str]:
         row.status = "expired"
         row.last_error = "Please reconnect."
         await db.commit()
+        _tell_partner(provider)
         return None
     await load_creds()
     tok = await _post_token(provider, {"grant_type": "refresh_token", "refresh_token": refresh})
@@ -286,6 +300,7 @@ async def _access_token(db: AsyncSession, provider: str) -> Optional[str]:
         row.status = "expired"
         row.last_error = tok.get("error") or "Please reconnect."
         await db.commit()
+        _tell_partner(provider)
         return None
     row.access_token = seal_secret(tok["access_token"])
     if tok.get("refresh_token"):  # Microsoft and Zoom rotate it

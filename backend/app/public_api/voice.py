@@ -385,6 +385,27 @@ async def control(call_id: str, body: ControlIn, request: Request, db: AsyncSess
     return await do_control(db, ctx["org_id"], str(ctx.get("key_id")), call_id, body)
 
 
+@router.post("/calls/{call_id}/summary")
+async def summary(call_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """An AI summary of the call, so far if it is still running. Written once and kept."""
+    from app.models.models import CallLog, LiveCall
+    from app.services.call_summary import refresh_live, summarize
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx) or call_id.startswith(SANDBOX_PREFIX):
+        return {"summary": "Test call: the AI asked its questions and the person answered.", "simulated": True}
+    live = (await db.execute(select(LiveCall).where(LiveCall.id == call_id))).scalars().first()
+    if live:
+        return {"summary": (await refresh_live(call_id)) or live.summary or ""}
+    log = (await db.execute(select(CallLog).where(CallLog.id == call_id))).scalars().first()
+    if not log:
+        fail(404, "not_found", f"Call '{call_id}' not found.")
+    if not (log.summary or "").strip():
+        log.summary = await summarize(db, log.transcript or [], final=True)
+        await db.commit()
+    return {"summary": log.summary or ""}
+
+
 @router.get("/calls/{call_id}/recording")
 async def recording(call_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """The call's recording (needs your key, like everything else)."""
@@ -409,3 +430,138 @@ async def scripts(request: Request, db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(ConversationTemplate).where(ConversationTemplate.call_direction == "outbound")
                              .order_by(ConversationTemplate.name))).scalars().all()
     return {"data": [{"id": t.id, "name": t.name, "description": t.description or "", "type": t.mission_type or ""} for t in rows]}
+
+
+# ── Scripts (the AI caller's conversation) and voices ───────────────────────────────────────────
+class ScriptIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    greeting_template: str = Field(..., min_length=1, max_length=4000, description="How the AI opens the call")
+    value_prop_template: str = Field(..., min_length=1, max_length=6000, description="What it says about why it is calling")
+    description: Optional[str] = Field(None, max_length=1000)
+    call_direction: Optional[Literal["outbound", "inbound"]] = None
+    permission_check_template: Optional[str] = Field(None, max_length=2000)
+    objection_responses: Optional[Dict[str, str]] = Field(None, description="{objection: what to say}")
+    booking_transition_template: Optional[str] = Field(None, max_length=4000)
+    confirmation_template: Optional[str] = Field(None, max_length=4000)
+    closing_template: Optional[str] = Field(None, max_length=4000)
+    custom_rules: Optional[str] = Field(None, max_length=6000)
+    flow_steps: Optional[List[str]] = Field(None, max_length=30)
+    agent_persona: Optional[str] = Field(None, max_length=500)
+    tone_instructions: Optional[str] = Field(None, max_length=1000)
+    make_live: bool = Field(False, description="True makes it the script the AI uses on calls now. Leave false to save it for later.")
+
+
+class ScriptPatch(BaseModel):
+    name: Optional[str] = Field(None, max_length=120)
+    greeting_template: Optional[str] = Field(None, max_length=4000)
+    value_prop_template: Optional[str] = Field(None, max_length=6000)
+    description: Optional[str] = Field(None, max_length=1000)
+    permission_check_template: Optional[str] = Field(None, max_length=2000)
+    objection_responses: Optional[Dict[str, str]] = None
+    booking_transition_template: Optional[str] = Field(None, max_length=4000)
+    confirmation_template: Optional[str] = Field(None, max_length=4000)
+    closing_template: Optional[str] = Field(None, max_length=4000)
+    custom_rules: Optional[str] = Field(None, max_length=6000)
+    flow_steps: Optional[List[str]] = Field(None, max_length=30)
+    agent_persona: Optional[str] = Field(None, max_length=500)
+    tone_instructions: Optional[str] = Field(None, max_length=1000)
+    make_live: Optional[bool] = None
+
+
+class VoiceUseIn(BaseModel):
+    kind: Literal["builtin", "library"]
+    ref: str = Field(..., max_length=200, description="A voice id from GET /v1/voice/voices")
+
+
+_TEMPLATE_FIELDS = ("name", "description", "call_direction", "mission_type", "greeting_template", "permission_check_template", "value_prop_template",
+                    "objection_responses", "booking_transition_template", "confirmation_template", "closing_template", "custom_rules", "demo_script",
+                    "flow_steps", "max_objection_attempts", "agent_persona", "tone_instructions", "is_active", "is_default")
+
+
+@router.get("/scripts/{script_id}")
+async def script_get(script_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.conversation_templates import get_template
+    from app.public_api.core import app_call
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"id": script_id, "name": "Test script", "simulated": True}
+    return await app_call(get_template(script_id, db))
+
+
+@router.post("/scripts", status_code=201)
+async def script_create(body: ScriptIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Create a conversation script. Anything you leave out is copied from the standard script. It stays saved, not live, unless `make_live` is true."""
+    from app.api.conversation_templates import BASE_OUTBOUND_TEMPLATE_ID, TemplatePayload, create_template
+    from app.public_api.core import app_call
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"template_id": "tpl_test", "simulated": True}
+    base = await db.get(ConversationTemplate, BASE_OUTBOUND_TEMPLATE_ID)
+    given = body.model_dump(exclude_none=True)
+    live = bool(given.pop("make_live", False))
+    fields = {k: given.get(k, getattr(base, k, None)) for k in _TEMPLATE_FIELDS if k in given or base is not None}
+    fields.update({k: v for k, v in given.items() if k in _TEMPLATE_FIELDS})
+    for k in ("permission_check_template", "booking_transition_template", "confirmation_template", "closing_template"):
+        fields[k] = fields.get(k) or ""
+    fields.update({"is_active": live, "is_default": False})
+    fields = {k: v for k, v in fields.items() if v is not None}
+    return await app_call(create_template(TemplatePayload(**fields), db))
+
+
+@router.patch("/scripts/{script_id}")
+async def script_edit(script_id: str, body: ScriptPatch, request: Request, db: AsyncSession = Depends(get_db)):
+    """Change some fields of a script. Send only the ones to change."""
+    from app.api.conversation_templates import TemplatePayload, get_template, update_template
+    from app.public_api.core import app_call
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"template_id": script_id, "simulated": True}
+    current = await app_call(get_template(script_id, db))
+    changes = body.model_dump(exclude_none=True)
+    live = changes.pop("make_live", None)
+    merged = {k: current.get(k) for k in _TEMPLATE_FIELDS if current.get(k) is not None}
+    merged.update(changes)
+    if live is not None:
+        merged["is_active"] = bool(live)
+    return await app_call(update_template(script_id, TemplatePayload(**merged), db))
+
+
+@router.delete("/scripts/{script_id}")
+async def script_delete(script_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.api.conversation_templates import delete_template
+    from app.public_api.core import app_call
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    return await app_call(delete_template(script_id, db))
+
+
+@router.get("/voices")
+async def voices_get(request: Request, db: AsyncSession = Depends(get_db)):
+    """The voices the AI can speak with, and which one is used for calls now."""
+    from app.services import voice_library
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"voices": [], "simulated": True}
+    return await voice_library.library(db)
+
+
+@router.post("/voices/use")
+async def voice_use(body: VoiceUseIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Use a voice for calls from now on."""
+    from app.services import voice_library
+    from app.services.voice_library import VoiceError
+
+    ctx = await authorize(request, db, "voice:calls", "voice")
+    if is_test(ctx):
+        return {"ok": True, "simulated": True}
+    try:
+        await voice_library.set_active(db, body.kind, body.ref)
+    except VoiceError as err:
+        fail(422, "invalid_voice", str(err))
+    return await voice_library.library(db)

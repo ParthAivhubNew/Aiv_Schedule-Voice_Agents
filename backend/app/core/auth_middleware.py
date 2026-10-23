@@ -42,7 +42,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"telnyx/(webhook|messaging-webhook)$",
     _OPT_API + r"billing/webhook$",  # Stripe-signed; checked in the handler  # Ed25519-signed; checked in the handlers
     # Signed links in emails and the social OAuth return page
-    _OPT_API + r"scheduler/(review|schedule-extend|report-view)$",
+    _OPT_API + r"scheduler/(review|schedule-extend|report-view|post-results-view)$",
     _OPT_API + r"l/[A-Za-z0-9]{4,12}$",  # tracked short links in published posts
     _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"email/o/[A-Za-z0-9_.-]+$",  # the open marker in a cold email (signed)

@@ -222,7 +222,7 @@ async def save_oauth_app(
     return await get_oauth_app(db, plat)
 
 
-async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "") -> Dict[str, Any]:
+async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "", partner_return: str = "") -> Dict[str, Any]:
     plat = normalize_platform(platform)
     if plat not in PLATFORMS:
         return {"ok": False, "error": f"Unsupported platform {plat}"}
@@ -240,7 +240,8 @@ async def start_oauth(db: AsyncSession, platform: str, frontend_url: str = "") -
         id=state_id,
         platform=plat,
         code_verifier=verifier,
-        frontend_url=_safe_frontend(frontend_url or settings.FRONTEND_URL or "http://localhost:5173"),
+        # A partner's own page gets the user back at its registered return address (kept whole, with its path).
+        frontend_url=(PARTNER_PREFIX + partner_return) if partner_return else _safe_frontend(frontend_url or settings.FRONTEND_URL or "http://localhost:5173"),
     )
     db.add(st)
     cutoff = datetime.utcnow() - timedelta(minutes=30)
@@ -655,10 +656,35 @@ async def upsert_oauth_account(db: AsyncSession, payload: Dict[str, Any]) -> Opt
     return existing
 
 
+async def state_owner(state: str) -> Tuple[str, str]:
+    """(organisation, return address) behind an unguessable state value. The network's redirect carries no sign-in,
+    so the state is the only thing that says whose connection this is."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+
+    if not state:
+        return "", ""
+    with system_scope():
+        async with AsyncSessionLocal() as sdb:
+            row = (await sdb.execute(select(SocialOAuthState).where(SocialOAuthState.id == state))).scalars().first()
+            return (row.org_id or "", row.frontend_url or "") if row else ("", "")
+
+
 async def finish_oauth(db: AsyncSession, platform: str, code: str, state: str) -> Dict[str, Any]:
+    from app.core.tenancy import current_org, org_scope
+
     plat = normalize_platform(platform)
     res = await db.execute(select(SocialOAuthState).where(SocialOAuthState.id == state))
     st = res.scalars().first()
+    if not st:
+        # Not visible from this session: the return from the network has no sign-in, so find the organisation from the state and finish there.
+        org, _ = await state_owner(state)
+        if org and org != current_org():
+            from app.database import AsyncSessionLocal
+
+            with org_scope(org):
+                async with AsyncSessionLocal() as odb:
+                    return await finish_oauth(odb, platform, code, state)
     if not st or st.platform != plat:
         return {"ok": False, "error": "OAuth state expired. Click Connect again."}
     frontend = st.frontend_url or settings.FRONTEND_URL
@@ -696,9 +722,36 @@ async def finish_oauth(db: AsyncSession, platform: str, code: str, state: str) -
         "platform": plat,
         "handle": acc.handle if acc else "",
         "accountId": acc.id if acc else "",
+        "orgId": current_org(),
         "frontend": frontend,
         "extraCount": len([e for e in extras if e]),
     }
+
+
+PARTNER_PREFIX = "partner|"
+
+
+def partner_callback_html(ok: bool, platform: str, return_url: str, channel_id: str = "", error: str = "", kind: str = "channel", id_name: str = "channel_id") -> str:
+    """The page a partner's popup lands on: tells the opener (only at the return address's own origin) and goes to the return address."""
+    parts = urllib.parse.urlparse(return_url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    status = "connected" if ok else "error"
+    safe_err = (error or "").replace("<", "").replace(">", "")[:120]
+    q = {"status": status, "provider": platform or "", id_name: channel_id or ""}
+    if not ok:
+        q["error"] = safe_err
+    dest = return_url + ("&" if parts.query else "?") + urllib.parse.urlencode(q)
+    msg = json.dumps({"type": f"outreach.{kind}", "status": status, "provider": platform or "", id_name: channel_id or "", "error": safe_err}).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{'Connected' if ok else 'Could not connect'}</title></head>
+<body style="font-family:Inter,system-ui,sans-serif;padding:40px;background:#F6F5F2;color:#12141C">
+  <h2>{'Connected' if ok else 'Could not connect'} {platform}</h2>
+  <p>{'You can close this window.' if ok else (safe_err or 'Please try again.')}</p>
+  <script>
+    try {{ if (window.opener) window.opener.postMessage({msg}, {json.dumps(origin)}); }} catch (e) {{}}
+    setTimeout(function () {{ window.location.replace({json.dumps(dest)}); }}, 400);
+  </script>
+</body></html>"""
 
 
 def callback_html(ok: bool, platform: str, handle: str = "", error: str = "", frontend: str = "") -> str:

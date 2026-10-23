@@ -59,10 +59,10 @@ def test_every_action_points_at_a_real_public_call():
     paths = app.openapi()["paths"]
     real = {(m.upper(), plain(p)) for p, ops in paths.items() if p.startswith("/v1/") for m in ops}
     mapped = [(m, "/v1" + p) for acts in ACTIONS.values() for (m, p, _) in acts.values()]
-    assert len(mapped) == 31  # mail has no URL of its own, so it is not in this list
+    assert len(mapped) == 87  # mail has no URL of its own, so it is not in this list
     missing = [x for x in mapped if x not in real]
     assert not missing, missing
-    assert len({x for x in mapped}) == 31
+    assert len({x for x in mapped}) == 87
 
 
 async def test_a_call_started_and_read_through_the_one_endpoint(db, monkeypatch):
@@ -107,7 +107,7 @@ async def test_a_mistyped_request_says_what_is_allowed(db):
     async with _http(keys["all"]) as c:
         r = await c.post("/v1/run", json={"plugin": "fax", "action": "send"})
         assert r.status_code == 422 and r.json()["error"]["code"] == "unknown_plugin"
-        assert r.json()["error"]["details"]["plugins"] == ["voice", "leads", "social", "account", "mail", "auth", "numbers"]
+        assert r.json()["error"]["details"]["plugins"] == ["voice", "leads", "social", "whatsapp", "account", "mail", "auth", "numbers"]
         r = await c.post("/v1/run", json={"plugin": "voice", "action": "dial"})
         assert r.json()["error"]["code"] == "unknown_action" and "call.start" in r.json()["error"]["details"]["actions"]
         r = await c.post("/v1/run", json={"plugin": "voice", "action": "call.get"})
@@ -156,7 +156,7 @@ def test_the_developer_docs_name_the_same_actions_the_endpoint_runs():
     from app.public_api.run import ACTIONS
 
     js = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "settings" / "developerCatalog.js").read_text(encoding="utf-8")
-    docs = {(m, p): a for m, p, a in re.findall(r'"([A-Z]+) (/v1/[^"]+)": "([a-z]+\.[a-z.]+)"', js)}
+    docs = {(m, p): a for m, p, a in re.findall(r'"([A-Z]+) (/v1/[^"]+)": "([a-z]+\.[a-z_.]+)"', js)}
     from app.public_api.mail import ACTIONS as MAIL
 
     code = {(m, "/v1" + p): f"{plugin}.{action}" for plugin, acts in ACTIONS.items() for action, (m, p, _) in acts.items()}

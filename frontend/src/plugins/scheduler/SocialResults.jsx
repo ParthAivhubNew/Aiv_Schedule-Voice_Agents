@@ -485,17 +485,25 @@ function PostRow({ p, onOpen, showNetwork }) {
         {metric("Reach", p.reach != null ? p.reach : p.impressions)}
         {metric("Engagements", p.engagements)}
         {metric("Clicks", p.clicks)}
-        {p.leads || p.meetings ? metric("Leads", p.leads, C.teal) : null}
       </div>
       <button type="button" style={btn} onClick={() => onOpen(p)} title="See this post's numbers and share them">Numbers</button>
     </div>
   );
 }
 
-function TopPosts({ posts, onOpen }) {
+function TopPosts({ posts: byPost, onOpen }) {
   const [all, setAll] = useState(false);
   const [pg, setPg] = useState(0);
-  useEffect(() => { setPg(0); }, [all, posts]);
+  // A post that went to several networks counts under each one, with that network's own numbers.
+  const posts = [];
+  byPost.forEach((p) => {
+    (p.channels && p.channels.length ? p.channels : [p.channel]).forEach((n) => {
+      const m = (p.perChannel || {})[n];
+      posts.push(m ? { ...p, channel: n, ...m } : { ...p, channel: n });
+    });
+  });
+  posts.sort((a, b) => (b.engagements || 0) - (a.engagements || 0) || ((b.reach || b.impressions || 0) - (a.reach || a.impressions || 0)));
+  useEffect(() => { setPg(0); }, [all, byPost]);
   const groups = [];
   posts.forEach((p) => {
     let g = groups.find((x) => x.channel === p.channel);
@@ -553,6 +561,22 @@ function TopPosts({ posts, onOpen }) {
 // One post's numbers in full, with ways to share them. A shared link is live; an email is a copy made at that moment and says so.
 function PostResultsDialog({ post, onClose, onOpenPost, showToast }) {
   const org = useOrg();
+  // The window can be dragged by its title bar, so it never has to cover the numbers behind it.
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const drag = useRef(null);
+  const startDrag = (e) => {
+    if (e.target.closest("button, a, input, textarea")) return;
+    drag.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const moveDrag = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    const maxX = window.innerWidth / 2 - 60;
+    const maxY = window.innerHeight / 2 - 40;
+    setPos({ x: Math.max(-maxX, Math.min(maxX, d.ox + e.clientX - d.sx)), y: Math.max(-maxY, Math.min(maxY, d.oy + e.clientY - d.sy)) });
+  };
+  const endDrag = () => { drag.current = null; };
   const [data, setData] = useState(null);
   const [state, setState] = useState("loading");
   const [to, setTo] = useState("");
@@ -603,11 +627,12 @@ function PostResultsDialog({ post, onClose, onOpenPost, showToast }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`Numbers for ${post.title || "post"}`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(18,20,28,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ ...card, width: "min(640px, 100%)", maxHeight: "calc(100vh - 32px)", overflowY: "auto", padding: 20 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div style={{ ...card, width: "min(640px, 100%)", maxHeight: "calc(100vh - 32px)", overflowY: "auto", padding: 20, transform: `translate(${pos.x}px, ${pos.y}px)`, boxShadow: "0 18px 48px rgba(20,24,40,.28)" }}>
+        <div onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} title="Drag to move this window"
+          style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "grab", touchAction: "none", margin: "-20px -20px 0", padding: "20px 20px 6px" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={{ ...h2, margin: 0, overflowWrap: "anywhere" }}>{post.title || "Post"}</h2>
-            <div style={muted}>{title(post.channel)}{post.publishedAt ? ` · published ${new Date(post.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}</div>
+            <div style={muted}>{data && (data.channels || []).length ? data.channels.map((c) => title(c.platform)).join(", ") : title(post.channel)}{post.publishedAt ? ` · published ${new Date(post.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}</div>
           </div>
           <button type="button" style={{ ...btn, width: 32, padding: 0, justifyContent: "center" }} onClick={onClose} aria-label="Close" title="Close"><X size={14} /></button>
         </div>
@@ -648,10 +673,17 @@ function PostResultsDialog({ post, onClose, onOpenPost, showToast }) {
             ) : null}
             <div style={{ ...muted, marginTop: 10 }}>
               {asOf ? `Numbers as of ${asOf}, the last time they were read from the network. They keep changing, so refresh Insights for the latest.` : "Nothing has been read from the network for this post yet."}
-              {(data.links || []).filter((l) => l.url).map((l) => (
-                <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="ui-link" style={{ marginLeft: 10, fontWeight: 700 }}>View on {title(l.platform)} <ExternalLink size={11} /></a>
-              ))}
             </div>
+            {(data.links || []).filter((l) => l.url).length ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                {data.links.filter((l) => l.url).map((l) => (
+                  <a key={l.url} href={l.url} target="_blank" rel="noreferrer" title={`Open the post on ${title(l.platform)}`}
+                    style={{ ...btn, textDecoration: "none" }}>
+                    View on {title(l.platform)} <ExternalLink size={12} />
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </>
         ) : null}
 

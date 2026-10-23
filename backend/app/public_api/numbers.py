@@ -27,6 +27,8 @@ ACTIONS: Dict[str, str] = {
     "verification.requirements": "What a country asks for before you can buy. data: country, number_type",
     "verification.submit": "Send your business documents. data: country, number_type, entity_type, texts, addresses, documents",
     "verification.status": "Where your business verification stands. data: country?, number_type?",
+    "check.estimate": "What checking a list of numbers would cost, before spending anything. data: items [{key, phone, names?}]",
+    "check.run": "Check a list of numbers: real? mobile or landline? do-not-call? 1 credit per 5 numbers that got an answer. data: items",
 }
 
 
@@ -70,8 +72,22 @@ async def handle(request: Request, db: AsyncSession, action: str, id_: str, data
     request.state.audit_action = f"#{action}"
     if action == "release" and not id_:
         fail(422, "id_required", "'release' needs the 'id' of the number.")
+    if is_test(ctx) and action.startswith("check."):
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        return {"rows": [{"key": str((i or {}).get("key") or n), "phone": str((i or {}).get("phone") or ""), "status": "valid"} for n, i in enumerate(items)],
+                "credits": 0, "credits_charged": 0, "test": True}
     if is_test(ctx):
         return _sandbox(action, data, id_)
+    if action.startswith("check."):
+        from app.api import number_check as NCK
+        from app.public_api.core import app_call
+
+        raw = data.get("items")
+        if not isinstance(raw, list) or not raw:
+            fail(422, "invalid_request", "'items' must be a list of {key, phone}.")
+        body = NCK.CheckBody(items=[NCK.Item(key=str(i.get("key") or n), phone=str(i.get("phone") or ""), names=[str(x) for x in (i.get("names") or [])])
+                                    for n, i in enumerate(raw) if isinstance(i, dict)])
+        return await app_call(NCK.estimate(body, db) if action == "check.estimate" else NCK.run(body, db))
 
     country = str(data.get("country") or "GB")
     number_type = str(data.get("number_type") or "local")

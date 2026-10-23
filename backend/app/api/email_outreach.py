@@ -162,10 +162,8 @@ async def list_mailboxes(request: Request, db: AsyncSession = Depends(get_db)):
     return {"mailboxes": [_mailbox_out(mb, logs.get(mb.id)) for mb in boxes]}
 
 
-@router.post("/mailboxes")
-async def connect_mailbox(body: MailboxBody, request: Request, db: AsyncSession = Depends(get_db)):
-    """Connects a mailbox after logging in to its SMTP and IMAP (the password is sealed)."""
-    ctx = current(request)
+async def create_mailbox(db: AsyncSession, operator_id: str, body: MailboxBody) -> EmailMailbox:
+    """Logs in to the mailbox's SMTP and IMAP, then saves it (the password is sealed). Raises HTTPException in plain words."""
     addr = body.email.strip().lower()
     if not _EMAIL.match(addr):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
@@ -178,7 +176,7 @@ async def connect_mailbox(body: MailboxBody, request: Request, db: AsyncSession 
         raise HTTPException(status_code=400, detail=str(err))
     dns = await verify_domain_dns(addr.split("@")[-1])
     mb = EmailMailbox(
-        id=f"mb_{uuid.uuid4().hex[:12]}", operator_id=ctx.get("operator_id") or "", email=addr,
+        id=f"mb_{uuid.uuid4().hex[:12]}", operator_id=operator_id or "", email=addr,
         display_name=body.display_name.strip()[:80] or addr.split("@")[0], provider=body.preset or "smtp",
         auth_type="credentials", credentials_encrypted=seal_secret(json.dumps(settings)), status="connected",
         daily_cap=0, max_daily_target=max(5, min(int(body.max_daily_target or 40), 100)),
@@ -187,6 +185,14 @@ async def connect_mailbox(body: MailboxBody, request: Request, db: AsyncSession 
     _dns_fields(mb, dns)
     db.add(mb)
     await db.commit()
+    return mb
+
+
+@router.post("/mailboxes")
+async def connect_mailbox(body: MailboxBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Connects a mailbox after logging in to its SMTP and IMAP (the password is sealed)."""
+    ctx = current(request)
+    mb = await create_mailbox(db, ctx.get("operator_id") or "", body)
     return {"mailbox": _mailbox_out(mb, None)}
 
 

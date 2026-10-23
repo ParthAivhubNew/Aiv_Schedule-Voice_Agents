@@ -62,9 +62,9 @@ def error_body(request_id: str, status: int, code: str, message: str, details: O
 # ── Keys, scopes, test mode ──────────────────────────────────────────────────
 # A key made before the finer scopes existed keeps what it had.
 LEGACY_SCOPES: Dict[str, Tuple[str, ...]] = {
-    "social:publish": ("social:write", "social:approve"),
-    "leads:search": ("email:write", "email:approve"),
-    "voice:calls": ("calendar:book",),
+    "social:publish": ("social:write", "social:approve", "company:write"),
+    "leads:search": ("email:write", "email:approve", "company:write"),
+    "voice:calls": ("calendar:book", "company:write"),
 }
 
 
@@ -281,3 +281,16 @@ class V1Route(APIRoute):
             return await under_shared_rules(request, lambda: original(request))
 
         return handler
+
+
+async def app_call(coro):
+    """Run one of the app's own handlers. Its plain-words refusals (HTTPException) become this API's errors."""
+    from fastapi import HTTPException
+
+    try:
+        return await coro
+    except HTTPException as err:
+        detail = err.detail
+        message = str(detail.get("message") or detail) if isinstance(detail, dict) else str(detail)
+        code = (detail.get("code") if isinstance(detail, dict) else None) or {402: "insufficient_credits", 404: "not_found", 409: "already_exists"}.get(err.status_code, "invalid_request")
+        fail(err.status_code if err.status_code in (400, 402, 404, 409, 502, 503) else 422, str(code), message)

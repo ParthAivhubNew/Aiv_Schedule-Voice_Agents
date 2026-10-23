@@ -23,6 +23,8 @@ from app.public_api.voice import router as voice_router
 from app.public_api.leads import router as leads_router
 from app.public_api.email import router as email_router
 from app.public_api.meetings import router as meetings_router
+from app.public_api.company import router as company_router
+from app.public_api.whatsapp import router as whatsapp_router
 from app.public_api.run import router as run_router
 from app.database import get_db
 from app.models.models import CallLog, LiveCall, Prospect, SocialPost
@@ -86,4 +88,6 @@ router.include_router(voice_router)
 router.include_router(leads_router)
 router.include_router(email_router)
 router.include_router(meetings_router)
+router.include_router(company_router)
+router.include_router(whatsapp_router)
 router.include_router(run_router)
