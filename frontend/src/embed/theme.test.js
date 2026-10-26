@@ -66,3 +66,39 @@ describe("mix", () => {
     expect(mix("#000", "#fff", 0.5)).toBe("#808080");
   });
 });
+
+describe("name, logo and side menu", () => {
+  it("keeps a plain name and an https logo, and nothing else", () => {
+    const out = cleanAppearance({ variables: { brandName: "  Acme <b>CRM</b>  ", logoUrl: "https://acme.test/logo.svg" } });
+    expect(out.variables.brandName).toBe("Acme bCRM/b");
+    expect(out.variables.logoUrl).toBe("https://acme.test/logo.svg");
+  });
+
+  it("refuses any logo that is not a plain https address", () => {
+    for (const bad of ["http://acme.test/l.png", "javascript:alert(1)", "data:image/svg+xml;base64,AAAA", "//acme.test/l.png", "/logo.png",
+      "https://user:pw@acme.test/l.png", "https://acme.test/a b.png", "https://acme.test/<x>.png", "x".repeat(400)]) {
+      expect(cleanAppearance({ variables: { logoUrl: bad } }).variables.logoUrl, bad).toBeUndefined();
+    }
+  });
+
+  it("cuts a long name and drops one that is only markup", () => {
+    expect(cleanAppearance({ variables: { brandName: "x".repeat(80) } }).variables.brandName).toHaveLength(40);
+    expect(cleanAppearance({ variables: { brandName: "<>" } }).variables.brandName).toBeUndefined();
+  });
+
+  it("derives the whole side menu from its background, picking readable text", () => {
+    const dark = themeVars({ variables: { colorSidebar: "#1e3a8a" } });
+    expect(dark.root["--ui-side-bg"]).toBe("#1e3a8a");
+    expect(dark.root["--ui-side-strong"]).toBe("#ffffff");
+    const pale = themeVars({ variables: { colorSidebar: "#f3f4f6" } });
+    expect(pale.root["--ui-side-strong"]).toBe("#1f2937");
+    expect(pale.root["--ui-side-hover"]).toBe("rgba(31, 41, 55, 0.08)");
+    const own = themeVars({ variables: { colorSidebar: "#1e3a8a", colorSidebarText: "#fde68a" } });
+    expect(own.root["--ui-side-strong"]).toBe("#fde68a");
+  });
+
+  it("carries the brand out for the sidebar", () => {
+    expect(themeVars({ variables: { brandName: "Acme", logoUrl: "https://acme.test/l.svg" } }).brand).toEqual({ name: "Acme", logoUrl: "https://acme.test/l.svg" });
+    expect(themeVars({}).brand).toEqual({ name: "", logoUrl: "" });
+  });
+});

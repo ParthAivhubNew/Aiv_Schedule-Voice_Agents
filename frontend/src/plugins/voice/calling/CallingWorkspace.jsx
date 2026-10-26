@@ -54,7 +54,7 @@ import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
-import { useEmbedded } from "../../../embed/EmbedContext";
+import { SidebarBrand, useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { PhoneTabBar } from "../../../hub/PluginShell";
@@ -254,6 +254,10 @@ const LS_LISTS = "aivhub_calling_saved_lists";
 const LS_LISTS_MOVED = "aivhub_calling_saved_lists_moved";
 const LS_NOTES = "aivhub_calling_v1_notes";
 const LS_CONTACTS = "aivhub_calling_saved_contacts";
+const LS_LIST_AI_W = "aivhub_calling_list_ai_w"; // how wide the List AI chat is, set by dragging its edge
+const LIST_AI_MIN = 280;
+const LIST_AI_MAX = 720;
+const LIST_AI_DEFAULT = 340;
 const LS_CALL_VIA = "aivhub_calling_call_via";
 const WELCOME = {
   id: "c0",
@@ -1050,6 +1054,34 @@ export function CallingWorkspace({
   const [checkFilter, setCheckFilter] = useState(""); // number-check result filter on the list
   const [histOpen, setHistOpen] = useState(false);
   const [listPane, setListPane] = useState("main"); // phones: the list or List AI, one at a time
+  // List AI's width: drag its left edge (double-click resets), or use the arrow keys on the edge. Kept for next time.
+  const listAiDrag = useRef(null);
+  const [listAiW, setListAiW] = useState(() => {
+    const n = Number(readJson(LS_LIST_AI_W, LIST_AI_DEFAULT));
+    return Number.isFinite(n) ? Math.min(LIST_AI_MAX, Math.max(LIST_AI_MIN, n)) : LIST_AI_DEFAULT;
+  });
+  const clampListAiW = (w) => Math.min(LIST_AI_MAX, Math.min(Math.max(LIST_AI_MIN, (window.innerWidth || 1200) - 560), Math.max(LIST_AI_MIN, w)));
+  useEffect(() => { writeJson(LS_LIST_AI_W, listAiW); }, [listAiW]);
+  const startListAiResize = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    listAiDrag.current = { startX: e.clientX, startW: listAiW };
+    const move = (ev) => {
+      if (listAiDrag.current) setListAiW(clampListAiW(listAiDrag.current.startW + (listAiDrag.current.startX - ev.clientX)));
+    };
+    const up = () => {
+      listAiDrag.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
   const [hoverMsg, setHoverMsg] = useState("");
   const [editingId, setEditingId] = useState("");
   const [editText, setEditText] = useState("");
@@ -2702,12 +2734,7 @@ export function CallingWorkspace({
       <AppChrome />
       <MobileNavBackdrop nav={nav} />
       <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 6, background: C.cobalt, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <PhoneCall size={17} />
-          </div>
-          <div style={{ fontWeight: 600, fontSize: 15, color: "#fff" }}>Voice</div>
-        </div>
+        <SidebarBrand icon={PhoneCall} accent={C.cobalt} name="Voice" />
         {!embedded && <AppSwitcher current="voice" onHome={() => {
           if (page === "company" && companyDirty) {
             setUnsavedLeaveTarget({ type: "hub" });
@@ -2877,7 +2904,7 @@ export function CallingWorkspace({
             <PhoneLineSetup isAdmin={!!operator?.is_admin} onGetNumber={() => goPage("numbers")} style={{ marginBottom: 14 }} />
           )}
           {page === "list" && (
-            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", flex: 1, minHeight: 0 }}>
+            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) ${listAiW}px`, flex: 1, minHeight: 0 }}>
               <PaneSwitch value={listPane} onChange={setListPane} panes={[{ id: "main", label: "Contacts", badge: rows.length || "" }, { id: "side", label: "List AI" }]} />
               <div
                 data-pane="main"
@@ -3583,7 +3610,25 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              <div data-pane="side" className="list-ai" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}` }}>
+              <div data-pane="side" className="list-ai" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
+                <div
+                  className="split-resize"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize List AI"
+                  aria-valuemin={LIST_AI_MIN}
+                  aria-valuemax={LIST_AI_MAX}
+                  aria-valuenow={listAiW}
+                  tabIndex={0}
+                  title="Drag to resize chat. Double-click to reset."
+                  onMouseDown={startListAiResize}
+                  onDoubleClick={() => setListAiW(LIST_AI_DEFAULT)}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft") { e.preventDefault(); setListAiW((w) => clampListAiW(w + 24)); }
+                    else if (e.key === "ArrowRight") { e.preventDefault(); setListAiW((w) => clampListAiW(w - 24)); }
+                  }}
+                  style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 6, background: "transparent" }}
+                />
                 <div style={{ display: "flex", alignItems: "center", gap: 2, height: 48, padding: "0 8px 0 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
                   <Sparkles size={16} color={C.cobalt} />
                   <div style={{ fontWeight: 600, fontSize: 13.5, color: C.textInk, flex: 1, marginLeft: 6 }}>List AI</div>

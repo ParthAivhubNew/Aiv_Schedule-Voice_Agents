@@ -16,7 +16,6 @@ import {
   SlidersHorizontal,
   Check,
   LogOut,
-  Layers,
   Activity,
   Globe,
   Tag,
@@ -38,7 +37,7 @@ import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./A
 import { FindLeadsView } from "./FindLeadsView";
 import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
-import { CampaignWizard } from "./CampaignWizard";
+import { NewCampaign } from "./CampaignSimple";
 import { ProfileBox } from "./EmailWriter";
 import { takeOpenLead } from "../../connections/ConnectedHome";
 import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
@@ -155,8 +154,7 @@ export default function LeadGenerationPlugin({
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "My lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
-    { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
-    { id: "mailboxes", label: "Email accounts", icon: Layers, group: "Outreach" },
+    { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail and Email accounts are one page with a switch
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
   ], embedViews);
   const navGroups = ["Outreach", "Setup"].map((label) => ({
@@ -167,7 +165,7 @@ export default function LeadGenerationPlugin({
       short: item.short,
       icon: item.icon,
       count: item.count,
-      active: view === item.id,
+      active: view === item.id || (item.id === "mail" && view === "mailboxes"),
       locked: isLocked && item.id !== "subscription",
       title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
       onClick: () => {
@@ -175,7 +173,12 @@ export default function LeadGenerationPlugin({
           showToast("Choose a plan or buy a top-up to unlock Leads.");
           return;
         }
-        if (item.id === "mail") setInboxStart(null);
+        if (item.id === "mail") {
+          setInboxStart(null);
+          // Opens on Mail, or on Email accounts when that is the only half this screen may show
+          setView(embedViews && !embedViews.includes("mail") ? "mailboxes" : view === "mailboxes" ? "mailboxes" : "mail");
+          return;
+        }
         setView(item.id);
       },
     })),
@@ -185,8 +188,8 @@ export default function LeadGenerationPlugin({
     find_leads: { title: "Find Leads", desc: "Search for companies by what they do and where, narrow the results with the AI, or import your own spreadsheet." },
     lists: { title: "My lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
-    mail: { title: "Mail", desc: "Your mailboxes, and everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
-    mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
+    mail: { title: "Mail", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list. Switch to Email accounts to connect or check a mailbox." },
+    mailboxes: { title: "Mail", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy. Switch to Inbox and sent to read your mail." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
@@ -204,6 +207,14 @@ export default function LeadGenerationPlugin({
         
         <PluginHeader nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
+          {(view === "mail" || view === "mailboxes") && (
+            <div role="tablist" aria-label="Mail" style={{ display: "inline-flex", gap: 4, padding: 3, borderRadius: 9, background: C.paperSoft }}>
+              {onlyEmbedViews([{ id: "mail", label: "Inbox and sent" }, { id: "mailboxes", label: "Email accounts" }], embedViews).map((t) => (
+                <button key={t.id} type="button" role="tab" aria-selected={view === t.id} className={view === t.id ? "ui-btn ui-btn--primary ui-btn--sm" : "ui-btn ui-btn--ghost ui-btn--sm"}
+                  onClick={() => { if (t.id === "mail") setInboxStart(null); setView(t.id); }}>{t.label}</button>
+              ))}
+            </div>
+          )}
           {view === "lists" && (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
               <Plus size={14} /> Add one company
@@ -246,8 +257,9 @@ export default function LeadGenerationPlugin({
           {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}
 
           {view === "outreach" && (wizard
-            ? <CampaignWizard store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
-                onOpenBusiness={() => { setWizard(null); setView("business"); }} onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
+            ? <NewCampaign store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
+                onOpenBusiness={() => { setWizard(null); setView("business"); }} onOpenMailboxes={() => { setWizard(null); setView("mailboxes"); }} onOpenLists={() => { setWizard(null); setView("lists"); }}
+                onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
             : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
 
           {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}

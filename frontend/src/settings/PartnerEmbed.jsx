@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { C, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
-import { COLOR_KEYS, FONTS, MAX_RADIUS, cleanAppearance, themeVars } from "../embed/theme";
+import { COLOR_KEYS, FONTS, MAX_NAME, MAX_RADIUS, cleanAppearance, themeVars } from "../embed/theme";
 
 const hint = { fontSize: 12, color: C.slate, marginTop: 3 };
 const box = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: "#fff", marginBottom: 16 };
@@ -12,9 +12,9 @@ const button = (primary, disabled) => ({
   border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.cobalt : "#fff", color: primary ? "#fff" : C.textInk,
 });
 
-const COLOR_LABELS = { colorPrimary: "Buttons and highlights", colorBackground: "Page background", colorSurface: "Cards", colorText: "Text", colorDanger: "Errors" };
+const COLOR_LABELS = { colorPrimary: "Buttons and highlights", colorBackground: "Page background", colorSurface: "Cards", colorText: "Text", colorDanger: "Errors", colorSidebar: "Side menu", colorSidebarText: "Side menu text" };
 const FONT_LABELS = { system: "System", inter: "Inter", serif: "Serif", rounded: "Rounded", mono: "Monospace" };
-const DEFAULTS = { colorPrimary: "#3457d5", colorBackground: "#f5f6f8", colorSurface: "#ffffff", colorText: "#111827", colorDanger: "#b4390a" };
+const DEFAULTS = { colorPrimary: "#3457d5", colorBackground: "#f5f6f8", colorSurface: "#ffffff", colorText: "#111827", colorDanger: "#b4390a", colorSidebar: "#111520", colorSidebarText: "#ffffff" };
 
 function CopyButton({ text }) {
   const [done, setDone] = useState(false);
@@ -79,8 +79,9 @@ function Preview({ appearance }) {
   const card = { background: "var(--ui-surface, #fff)", border: "1px solid var(--ui-line, #e3e6eb)", borderRadius: "var(--ui-r, 8px)", padding: 12 };
   return (
     <div style={style} aria-label="Preview">
-      <div style={{ width: 120, background: "#111520", color: "#c9cdd6", padding: 12, fontSize: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-        <b style={{ color: "#fff" }}>Leads</b>
+      <div style={{ width: 120, background: "var(--ui-side-bg, #111520)", color: "var(--ui-side-ink, #c9cdd6)", padding: 12, fontSize: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {t.brand.logoUrl ? <img src={t.brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ height: 22, maxWidth: 96, objectFit: "contain", alignSelf: "flex-start" }} /> : null}
+        <b style={{ color: "var(--ui-side-strong, #fff)" }}>{t.brand.name || "Leads"}</b>
         <span style={{ color: "var(--ui-side-active-icon, #8fa6ff)" }}>Find Leads</span>
         <span>My lists</span>
       </div>
@@ -116,6 +117,7 @@ export function ThemeBox({ partner, busy, act }) {
   });
   const appearance = { variables: vars };
   const changed = JSON.stringify(cleanAppearance(appearance).variables) !== JSON.stringify(saved);
+  const dropped = ["brandName", "logoUrl"].filter((k) => vars[k] && !cleanAppearance(appearance).variables[k]); // typed, but not usable
   return (
     <div style={box}>
       <h3 style={h3}>Look and feel</h3>
@@ -129,6 +131,14 @@ export function ThemeBox({ partner, busy, act }) {
               {vars[k] ? <button type="button" style={{ ...button(false), padding: "3px 8px", fontSize: 12 }} onClick={() => set(k, "")}>Reset</button> : <span style={hint}>default</span>}
             </div>
           ))}
+          <div style={{ marginBottom: 8 }}>
+            <label htmlFor="pe-brand" style={{ fontSize: 13, display: "block", marginBottom: 3 }}>Name shown above the menu (optional)</label>
+            <input id="pe-brand" maxLength={MAX_NAME} value={vars.brandName || ""} onChange={(e) => set("brandName", e.target.value)} placeholder="Leads" style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }} />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label htmlFor="pe-logo" style={{ fontSize: 13, display: "block", marginBottom: 3 }}>Logo (https address, optional)</label>
+            <input id="pe-logo" value={vars.logoUrl || ""} onChange={(e) => set("logoUrl", e.target.value)} placeholder="https://yourproduct.com/logo.svg" style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }} />
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <label htmlFor="pe-font" style={{ fontSize: 13, flex: 1 }}>Font</label>
             <select id="pe-font" value={vars.fontFamily || ""} onChange={(e) => set("fontFamily", e.target.value)} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
@@ -143,8 +153,9 @@ export function ThemeBox({ partner, busy, act }) {
         </div>
         <Preview appearance={appearance} />
       </div>
+      {dropped.includes("logoUrl") && <div role="alert" style={{ ...hint, color: C.red }}>The logo must be an https address.</div>}
       <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-        <button type="button" disabled={busy || !changed} style={button(true, busy || !changed)} onClick={() => act(() => api.savePartnerTheme({ variables: vars }), "Look saved.")}>Save look</button>
+        <button type="button" disabled={busy || !changed || dropped.length > 0} style={button(true, busy || !changed)} onClick={() => act(() => api.savePartnerTheme({ variables: vars }), "Look saved.")}>Save look</button>
         {Object.keys(vars).length > 0 && <button type="button" style={button(false)} onClick={() => setVars({})}>Clear all</button>}
       </div>
       <div style={hint}>The preview is a sketch. The full app uses the same colours, but some parts keep their own (status colours, charts) so they stay readable.</div>
@@ -156,7 +167,7 @@ export function ThemeBox({ partner, busy, act }) {
 export function EmbedSnippets({ partner }) {
   const host = window.location.origin;
   const [tab, setTab] = useState("server");
-  const tabs = [["server", "1. Your server"], ["inline", "2. Inline"], ["modal", "Popup"], ["drawer", "Side panel"], ["full", "Full page"], ["connect", "Connect a user"]];
+  const tabs = [["server", "1. Your server"], ["inline", "2. Inline"], ["modal", "Popup"], ["drawer", "Side panel"], ["full", "Full page"], ["connect", "Connect a user"], ["auto", "Match my software"]];
   const code = {
     server: `# On YOUR server, never in a web page. Ask Outreach for a token for one of your users.
 curl -X POST ${host}/api/embed/sessions \\
@@ -181,6 +192,21 @@ curl -X POST ${host}/api/embed/sessions \\
     drawer: `outreach.create("voice", { getToken }).open({ mode: "drawer", side: "right", width: "560px" });`,
     full: `// Replaces your page with the screen (or pass { newTab: true }).
 outreach.redirect("mail", { getToken });`,
+    auto: `// Let the screen pick up your page's own colours, and keep following them (a theme switch, for example).
+outreach.create("leads", { getToken, appearance: "auto" }).mount("#outreach-box");
+
+// Point it at what to copy when the guess is not right. Anything you set yourself wins.
+outreach.create("leads", {
+  getToken,
+  appearance: {
+    auto: { primary: "--brand-color",      // a CSS variable on your page, or a selector such as ".btn-primary"
+            danger: "--error",             // a CSS variable
+            sidebar: "#app-sidebar" },     // the selector of your own side menu
+    variables: { borderRadius: 12 },       // your own values win over what was read
+  },
+});
+// It reads the page's button colour, corners, font, background, text, error colour and side menu.
+// Dark pages: the screens have no dark theme yet, so a dark page keeps the screen's light background and text.`,
     connect: `# 1. Your server: is this user linked yet?
 curl -X POST ${host}/api/embed/connect-sessions \\
   -H "Authorization: Bearer psk_..." -H "Content-Type: application/json" \\

@@ -31,7 +31,7 @@ export function unknownFields(...parts) {
 const BLANK = { company: "", website: "", sells: "", audience: "", offer: "", tone: "", sender_name: "", sender_title: "", proof: [] };
 
 // "About your business": the only things the AI may say about the sender.
-export function ProfileBox({ onReady, onManage, page = false }) {
+export function ProfileBox({ onReady, onManage, page = false, compact = false }) {
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(BLANK);
   const [proof, setProof] = useState("");
@@ -78,7 +78,30 @@ export function ProfileBox({ onReady, onManage, page = false }) {
         {page ? null : <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="What the AI is allowed to say about your business" onClick={() => setOpen(!open)}>{open ? "Close" : locked ? "View" : ready ? "Edit" : "Fill in"}</button>}
         {onManage && !page ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Open the About your business page in the menu" onClick={onManage}>Open full page</button> : null}
       </div>
-      {open ? (
+      {open && compact ? (
+        // The three things the AI cannot write without; everything else is one click away
+        <div style={{ display: "grid", gap: 10 }}>
+          <label style={label}>Your company name<input className="ui-input" value={form.company} onChange={set("company")} maxLength={120} /></label>
+          <label style={label} title="The name the emails are signed with">Who the emails are from (the name at the bottom)<input className="ui-input" value={form.sender_name} onChange={set("sender_name")} maxLength={80} placeholder="For example Priya Shah" /></label>
+          <label style={label} title="Plain words. The AI cannot say more about you than this">What your business does
+            <textarea className="ui-input" rows={2} value={form.sells} onChange={set("sells")} maxLength={700} style={{ height: "auto", padding: "8px 10px" }} placeholder="For example Bookkeeping and year-end accounts for small shops and cafes" /></label>
+          <details>
+            <summary style={{ ...muted, cursor: "pointer" }}>More details that help the AI (optional)</summary>
+            <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
+              <label style={label}>Website<input className="ui-input" value={form.website} onChange={set("website")} maxLength={200} placeholder="https://" /></label>
+              <label style={label}>Your job title<input className="ui-input" value={form.sender_title} onChange={set("sender_title")} maxLength={80} placeholder="For example Founder" /></label>
+              <label style={label}>Who it is for<input className="ui-input" value={form.audience} onChange={set("audience")} maxLength={400} placeholder="For example Owner-run shops with fewer than 10 staff" /></label>
+              <label style={label} title="The only results, numbers or customers the AI may quote. Leave empty and it quotes none">True things it may quote, one per line
+                <textarea className="ui-input" rows={3} value={proof} onChange={(e) => setProof(e.target.value)} style={{ height: "auto", padding: "8px 10px" }} placeholder="We have looked after 40 local shops since 2015" /></label>
+              <label style={label}>What to offer them<input className="ui-input" value={form.offer} onChange={set("offer")} maxLength={300} placeholder="For example a free 15-minute review of their books" /></label>
+              <label style={label}>Tone<input className="ui-input" value={form.tone} onChange={set("tone")} maxLength={60} placeholder="Friendly and direct" /></label>
+            </div>
+          </details>
+          {locked ? <div role="status" style={{ ...muted, fontSize: 12.5, color: C.amber }}>Only an admin can change this. Ask an admin to update it.</div> : null}
+          {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
+          {locked ? null : <div><button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</button></div>}
+        </div>
+      ) : open ? (
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "end" }}>
             <label style={label} title="Your company's trading name">Company name (required)<input className="ui-input" value={form.company} onChange={set("company")} maxLength={120} /></label>

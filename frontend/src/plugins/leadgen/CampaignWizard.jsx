@@ -223,7 +223,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
           <>
             <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Which mailbox should send it?</div>
             <div style={muted}>Every email in this campaign goes out from the one mailbox you pick. Only a mailbox that has passed its DNS checks and started warming up can send.</div>
-            {!mailboxes.length ? <div style={muted}>You have no mailbox connected yet. Connect one under Mailboxes first.</div> : null}
+            {!mailboxes.length ? <div style={muted}>You have no mailbox connected yet. Connect one under Mail, Email accounts first.</div> : null}
             {mailboxes.map((m) => (
               <div key={m.id} className="ui-card" style={{ padding: "10px 12px", display: "grid", gap: 8 }}>
                 <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>

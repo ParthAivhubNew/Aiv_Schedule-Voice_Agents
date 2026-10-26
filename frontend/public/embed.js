@@ -11,7 +11,7 @@
  * `token` (or `getToken`, a function returning a token or a promise of one) comes from your server: see the guide.
  * The secret key never goes in a web page.
  */
-/* global window, document, URL, console */
+/* global window, document, URL, console, getComputedStyle, MutationObserver, setTimeout, clearTimeout */
 (function (global) {
   "use strict";
   var script = document.currentScript;
@@ -28,7 +28,121 @@
     try { return Promise.resolve(typeof v === "function" ? v() : v); } catch (err) { return Promise.reject(err); }
   }
   function cleanAppearance(a) {
-    return a && typeof a === "object" ? a : undefined;
+    return a && typeof a === "object" && a !== null && !a.auto ? a : undefined;
+  }
+
+  // ── Matching the look of the page that shows the screen ───────────────────────────────────────────────
+  // appearance: "auto" (or { auto: true, ... }) reads the host page's own colours and sends them to the screen:
+  //   primary:  "--css-variable" or "css selector" to take the button colour from (else common names such as --primary, --brand)
+  //   danger:   "--css-variable" for the error colour
+  //   sidebar:  "css selector" of your own side menu to match (else the first <nav>/<aside> with a solid colour)
+  //   variables: anything you set yourself wins over what was read
+  // Only light pages can be matched: the screens have no dark theme yet, so a dark page keeps the screen's own light
+  // background and text and only borrows the button colour, corners, font and sidebar.
+  var PRIMARY_VARS = ["--primary", "--brand", "--accent", "--color-primary", "--primary-color", "--brand-color", "--accent-color", "--bs-primary", "--theme-color"];
+  var DANGER_VARS = ["--danger", "--error", "--destructive", "--color-danger", "--color-error", "--bs-danger"];
+  var probe = null;
+  function toRgb(c) {
+    if (!c) return null;
+    try {
+      probe = probe || document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      probe.canvas.width = probe.canvas.height = 1;
+      probe.fillStyle = "#010203";
+      probe.fillStyle = c;
+      probe.clearRect(0, 0, 1, 1);
+      probe.fillRect(0, 0, 1, 1);
+      var d = probe.getImageData(0, 0, 1, 1).data;
+      if (d[3] < 128) return null;
+      if (d[0] === 1 && d[1] === 2 && d[2] === 3 && String(c).replace(/\s/g, "").toLowerCase() !== "#010203") return null;
+      return [d[0], d[1], d[2]];
+    } catch { return null; }
+  }
+  function hex(rgb) { return rgb ? "#" + rgb.map(function (x) { return ("0" + x.toString(16)).slice(-2); }).join("") : ""; }
+  function light(rgb) { return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255; }
+  function grey(rgb) { return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]) < 28; }
+  function cssVar(name) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    v = v ? v.trim() : "";
+    if (!v) return "";
+    if (/^[\d.]+\s+[\d.]+%\s+[\d.]+%$/.test(v)) return "hsl(" + v.replace(/\s+/g, ",") + ")"; // "262 83% 58%", as shadcn writes it
+    if (/^\d+\s+\d+\s+\d+$/.test(v)) return "rgb(" + v.replace(/\s+/g, ",") + ")";
+    return v;
+  }
+  function brand(el) {
+    var cs = getComputedStyle(el);
+    var c = toRgb(cs.backgroundColor);
+    if (c && !grey(c)) return c;
+    c = toRgb(cs.color);
+    return c && !grey(c) ? c : null;
+  }
+  function visible(el) { var r = el.getBoundingClientRect(); return r.width > 20 && r.height > 12 && getComputedStyle(el).visibility !== "hidden"; }
+  function firstBrand(selector) {
+    var list = document.querySelectorAll(selector);
+    for (var i = 0; i < list.length && i < 60; i++) {
+      if (!visible(list[i])) continue;
+      var c = toRgb(getComputedStyle(list[i]).backgroundColor);
+      if (c && !grey(c) && light(c) < 0.9) return list[i];
+    }
+    return null;
+  }
+  function fontKey() {
+    var first = (getComputedStyle(document.body).fontFamily || "").split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+    if (/^(inter)$/.test(first)) return "inter";
+    if (/(georgia|times|garamond|merriweather|playfair|lora|serif$)/.test(first) && !/sans/.test(first)) return "serif";
+    if (/(mono|courier|consolas|menlo|code)/.test(first)) return "mono";
+    if (/(nunito|quicksand|rounded|comfortaa|varela)/.test(first)) return "rounded";
+    return "system";
+  }
+  function hostLook(opts) {
+    var o = opts && typeof opts === "object" ? opts : {}, v = {}, el = null, c = null;
+    try {
+      if (typeof o.primary === "string" && o.primary) {
+        if (o.primary.indexOf("--") === 0) c = toRgb(cssVar(o.primary));
+        else { el = document.querySelector(o.primary); c = el ? brand(el) : null; }
+      }
+      for (var i = 0; !c && i < PRIMARY_VARS.length; i++) c = toRgb(cssVar(PRIMARY_VARS[i]));
+      if (!c) { el = firstBrand('button, [type="submit"], .btn, .button, [class*="primary"]'); c = el ? toRgb(getComputedStyle(el).backgroundColor) : null; }
+      if (!c) { el = document.querySelector("a[href]"); c = el ? brand(el) : null; }
+      if (c) v.colorPrimary = hex(c);
+      var shape = el || firstBrand('button, [type="submit"], .btn, input[type="text"], input');
+      var radius = shape ? getComputedStyle(shape).borderTopLeftRadius : "";
+      if (radius && radius.indexOf("%") < 0 && !isNaN(parseFloat(radius))) v.borderRadius = Math.max(0, Math.min(24, Math.round(parseFloat(radius))));
+      var cs = getComputedStyle(document.body), bg = toRgb(cs.backgroundColor) || toRgb(getComputedStyle(document.documentElement).backgroundColor) || [255, 255, 255];
+      if (light(bg) >= 0.5) {
+        v.colorBackground = hex(bg);
+        var text = toRgb(cs.color);
+        if (text && light(text) < 0.5) v.colorText = hex(text);
+      }
+      v.fontFamily = fontKey();
+      var d = null;
+      if (typeof o.danger === "string" && o.danger.indexOf("--") === 0) d = toRgb(cssVar(o.danger));
+      for (var j = 0; !d && j < DANGER_VARS.length; j++) d = toRgb(cssVar(DANGER_VARS[j]));
+      if (d) v.colorDanger = hex(d);
+      var side = typeof o.sidebar === "string" && o.sidebar ? document.querySelector(o.sidebar) : null;
+      if (!side) {
+        var cand = document.querySelectorAll("aside, nav, [class*='sidebar'], [class*='side-nav'], [class*='sidenav']");
+        for (var k = 0; k < cand.length && k < 12 && !side; k++) {
+          var r = cand[k].getBoundingClientRect();
+          if (r.width > 120 && r.width < 420 && r.height > 300 && toRgb(getComputedStyle(cand[k]).backgroundColor)) side = cand[k];
+        }
+      }
+      if (side) {
+        var sc = getComputedStyle(side), sb = toRgb(sc.backgroundColor), st = toRgb(sc.color);
+        if (sb) { v.colorSidebar = hex(sb); if (st && Math.abs(light(st) - light(sb)) > 0.35) v.colorSidebarText = hex(st); }
+      }
+    } catch { /* a page we cannot read just keeps the screen own look */ }
+    return { variables: v };
+  }
+  // What to send for a screen's `appearance` option: its own values, or the page's (with the screen's own laid on top).
+  function lookFor(a) {
+    if (a === "auto" || (a && typeof a === "object" && a.auto)) {
+      var read = hostLook(a === "auto" ? {} : a.auto), mine = a && typeof a === "object" && a.variables && typeof a.variables === "object" ? a.variables : {};
+      var out = {};
+      for (var k in read.variables) out[k] = read.variables[k];
+      for (var m in mine) out[m] = mine[m];
+      return { variables: out };
+    }
+    return cleanAppearance(a);
   }
 
   function Screen(client, component, options) {
@@ -71,7 +185,7 @@
     var source = this.component === "connect" ? (o.getConnectToken || o.connectToken) : (o.getToken || o.token);
     if (!source) { this._fail("Pass a " + (field === "token" ? "token or getToken" : "connectToken or getConnectToken") + " from your server."); return; }
     resolve(source).then(function (t) {
-      var msg = { type: "init", appearance: cleanAppearance(o.appearance) };
+      var msg = { type: "init", appearance: lookFor(o.appearance) };
       msg[field] = t;
       self._send(msg);
     }, function (err) { self._fail(err && err.message ? err.message : "Could not get a token from your server."); });
@@ -88,7 +202,7 @@
     if (!d || d.source !== "outreach-embed") return;
     var o = this.options, self = this;
     if (d.type === "ready") this._init();
-    else if (d.type === "ready-ui") { this.ready = true; if (o.onReady) o.onReady(d); }
+    else if (d.type === "ready-ui") { this.ready = true; this._watch(); if (o.onReady) o.onReady(d); }
     else if (d.type === "token-needed") {
       resolve(o.getToken || o.token).then(function (t) { self._send({ type: "token", token: t }); }, function () {});
     } else if (d.type === "connected") { if (o.onConnected) o.onConnected({ linkId: d.linkId, externalId: d.externalId, mode: d.mode }); }
@@ -133,7 +247,38 @@
     return this;
   };
 
+  // With appearance "auto", keep following the page: its theme class or colour scheme changes, we send the new look.
+  Screen.prototype._unwatch = function () {};
+  Screen.prototype._watch = function () {
+    var a = this.options.appearance, self = this;
+    this._unwatch();
+    if (!(a === "auto" || (a && typeof a === "object" && a.auto))) return;
+    var timer = null, last = JSON.stringify(lookFor(a));
+    function check() {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        var now = lookFor(self.options.appearance), text = JSON.stringify(now);
+        if (text !== last) { last = text; self._send({ type: "appearance", appearance: now }); }
+      }, 250);
+    }
+    var mo = typeof MutationObserver !== "undefined" ? new MutationObserver(check) : null;
+    if (mo) {
+      var watch = { attributes: true, attributeFilter: ["class", "style", "data-theme", "data-bs-theme", "data-mode"] };
+      mo.observe(document.documentElement, watch);
+      mo.observe(document.body, watch);
+    }
+    var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    if (mq && mq.addEventListener) mq.addEventListener("change", check);
+    this._unwatch = function () {
+      clearTimeout(timer);
+      if (mo) mo.disconnect();
+      if (mq && mq.removeEventListener) mq.removeEventListener("change", check);
+      self._unwatch = function () {};
+    };
+  };
+
   Screen.prototype.close = function () {
+    this._unwatch();
     if (this.overlay) {
       document.removeEventListener("keydown", this._esc);
       this.overlay.remove();
@@ -150,7 +295,7 @@
 
   // Change the look without reloading the screen.
   Screen.prototype.update = function (opts) {
-    if (opts && opts.appearance) { this.options.appearance = opts.appearance; this._send({ type: "appearance", appearance: cleanAppearance(opts.appearance) }); }
+    if (opts && opts.appearance) { this.options.appearance = opts.appearance; this._send({ type: "appearance", appearance: lookFor(opts.appearance) }); this._watch(); }
     return this;
   };
 

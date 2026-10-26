@@ -6,7 +6,7 @@ import { setVirtualRoute } from "../utils/route";
 import { ConnectScreen } from "./ConnectScreen";
 import { EmbedProvider } from "./EmbedContext";
 import { askForToken, fromParent, inFrame, initFromFragment, toParent } from "./bridge";
-import { applyAppearance, cleanAppearance } from "./theme";
+import { applyAppearance, cleanAppearance, cleanLogo } from "./theme";
 
 const LeadGenerationPlugin = lazy(() => import("../plugins/leadgen/LeadGenerationPlugin"));
 const SocialWorkspaceGate = lazy(() => import("../plugins/scheduler/SocialWorkspace").then((m) => ({ default: m.SocialWorkspaceGate })));
@@ -34,6 +34,12 @@ export function EmbedApp() {
   const [session, setSession] = useState(null);
   const [message, setMessage] = useState("");
   const passed = useRef(undefined);
+  const savedLook = useRef(undefined); // the partner's saved default, which a page's own appearance is laid over
+  const [look, setLook] = useState({ variables: {} });
+  const show = useCallback((a) => {
+    setLook(a);
+    applyAppearance(a);
+  }, []);
   const returnUrl = useRef("");
 
   const start = useCallback(async (token) => {
@@ -48,7 +54,8 @@ export function EmbedApp() {
     try {
       const s = await api.getEmbedSession();
       if (s.component !== component && component !== "connect") throw new Error("This page is for a different screen.");
-      applyAppearance(lookOf(s.appearance, passed.current));
+      savedLook.current = s.appearance;
+      show(lookOf(s.appearance, passed.current));
       setVirtualRoute(START[s.component] || START.leads);
       setSession(s);
       setPhase("ready");
@@ -58,19 +65,19 @@ export function EmbedApp() {
       setPhase("error");
       toParent("error", { message: err.message || "Could not open this screen." });
     }
-  }, [component]);
+  }, [component, show]);
 
   const begin = useCallback((m) => {
     passed.current = m.appearance;
     returnUrl.current = m.returnUrl || "";
-    applyAppearance(lookOf(null, m.appearance));
+    show(lookOf(null, m.appearance));
     if (m.connectToken) {
       setConnectToken(m.connectToken);
       setPhase("connect");
     } else if (m.token) {
       start(m.token);
     }
-  }, [start]);
+  }, [start, show]);
 
   useEffect(() => {
     const fromHash = initFromFragment();
@@ -80,7 +87,7 @@ export function EmbedApp() {
     }
     const off = fromParent((m) => {
       if (m.type === "init") begin(m);
-      else if (m.type === "appearance") applyAppearance(lookOf(null, m.appearance));
+      else if (m.type === "appearance") { passed.current = m.appearance; show(lookOf(savedLook.current, m.appearance)); }
     });
     toParent("ready");
     if (!inFrame()) {
@@ -88,7 +95,7 @@ export function EmbedApp() {
       setPhase("error");
     }
     return off;
-  }, [begin]);
+  }, [begin, show]);
 
   useEffect(() => {
     const onLost = () => {
@@ -123,7 +130,7 @@ export function EmbedApp() {
   const props = { operator: op, accountBar: null, onBackToHub: NOOP, onLogout: NOOP, notifications: [], setNotifications: NOOP, profile: {}, commonAi: {} };
   return (
     <OrgSettingsProvider>
-      <EmbedProvider views={session.views}>
+      <EmbedProvider views={session.views} brand={{ name: look.variables.brandName || "", logoUrl: look.variables.logoUrl || cleanLogo(session.partner && session.partner.logoUrl) }}>
         <div className="embed-root" style={{ height: "100vh", width: "100vw", overflow: "hidden" }}>
           <Suspense fallback={<Centered>Opening…</Centered>}>
             {["leads", "campaigns", "mail"].includes(session.component) && <LeadGenerationPlugin {...props} />}

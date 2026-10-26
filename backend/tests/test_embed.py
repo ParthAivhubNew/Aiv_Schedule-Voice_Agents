@@ -245,3 +245,21 @@ async def test_a_theme_with_bad_values_is_refused_not_trimmed(client, partner):
 
 async def test_only_an_account_admin_can_save_the_theme(anon, partner):
     assert (await anon.put("/api/partner/theme", json={"variables": {}})).status_code == 401
+
+
+async def test_a_partner_can_set_its_name_logo_and_side_menu(client, partner):
+    r = await client.put("/api/partner/theme", json={"variables": {
+        "colorSidebar": "#1E3A8A", "colorSidebarText": "#fde68a", "brandName": "Acme <b>CRM</b>", "logoUrl": "https://acme.test/logo.svg"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["theme"]["variables"] == {"colorSidebar": "#1e3a8a", "colorSidebarText": "#fde68a", "brandName": "Acme bCRM/b",
+                                              "logoUrl": "https://acme.test/logo.svg"}
+
+
+async def test_a_logo_must_be_a_plain_https_address(client, partner):
+    for bad in ("http://acme.test/l.png", "javascript:alert(1)", "data:image/svg+xml;base64,AAAA", "//acme.test/l.png", "/logo.png",
+                "https://user:pw@acme.test/l.png", "https://acme.test/a b.png", "x" * 400):
+        r = await client.put("/api/partner/theme", json={"variables": {"logoUrl": bad}})
+        assert r.status_code == 400, bad
+    r = await client.put("/api/partner/theme", json={"variables": {"brandName": "<>"}})
+    assert r.status_code == 400
+    assert (await client.put("/api/partner/theme", json={"variables": {"colorSidebar": "navy"}})).status_code == 400

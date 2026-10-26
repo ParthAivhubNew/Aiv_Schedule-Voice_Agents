@@ -1,8 +1,9 @@
 // The look of an embedded screen. A partner passes an appearance when it mounts a screen, or saves a default in its
 // dashboard. Only the keys below are read and each value is checked, so a partner can change colours, font and corners
-// but cannot inject styles. backend/app/services/embed_theme.py applies the same rules to the saved default.
+// the sidebar, and show their own name and logo, but cannot inject styles. backend/app/services/embed_theme.py applies the
+// same rules to the saved default.
 
-export const COLOR_KEYS = ["colorPrimary", "colorBackground", "colorSurface", "colorText", "colorDanger"];
+export const COLOR_KEYS = ["colorPrimary", "colorBackground", "colorSurface", "colorText", "colorDanger", "colorSidebar", "colorSidebarText"];
 export const FONTS = {
   system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   inter: '"Inter", system-ui, sans-serif',
@@ -11,7 +12,20 @@ export const FONTS = {
   mono: 'ui-monospace, "JetBrains Mono", Menlo, monospace',
 };
 export const MAX_RADIUS = 24;
+export const MAX_NAME = 40;
+const MAX_URL = 300;
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+// An https address for a picture, nothing else (no data:, javascript:, http: or relative address).
+export function cleanLogo(v) {
+  if (typeof v !== "string" || v.length > MAX_URL || /[\u0000-\u001f\u007f<>\s]/.test(v.trim())) return "";
+  try {
+    const u = new URL(v.trim());
+    return u.protocol === "https:" && u.hostname && !u.username && !u.password ? v.trim() : "";
+  } catch (_) {
+    return "";
+  }
+}
 
 // The valid part of an appearance: { variables }. Unknown or bad values are dropped.
 export function cleanAppearance(raw) {
@@ -24,6 +38,10 @@ export function cleanAppearance(raw) {
   if (typeof vars.borderRadius === "number" && Number.isFinite(vars.borderRadius) && vars.borderRadius >= 0 && vars.borderRadius <= MAX_RADIUS) {
     out.borderRadius = Math.round(vars.borderRadius);
   }
+  const name = typeof vars.brandName === "string" ? vars.brandName.replace(/[\u0000-\u001f\u007f<>]/g, "").trim().slice(0, MAX_NAME) : "";
+  if (name) out.brandName = name;
+  const logo = cleanLogo(vars.logoUrl);
+  if (logo) out.logoUrl = logo;
   return { variables: out };
 }
 
@@ -31,6 +49,12 @@ function rgb(hex) {
   let h = hex.replace("#", "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+// How light a colour is, 0 (black) to 1 (white).
+export function luminance(hex) {
+  const [r, g, b] = rgb(hex).map((c) => c / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 // `amount` of the way from colour a to colour b.
@@ -61,8 +85,20 @@ export function themeVars(appearance) {
     Object.assign(root, { "--ui-ink": v.colorText, "--ui-ink-2": mix(v.colorText, bg, 0.2), "--ui-muted": mix(v.colorText, bg, 0.5), "--ui-faint": mix(v.colorText, bg, 0.65) });
   }
   if (v.colorDanger) Object.assign(root, { "--ui-bad": v.colorDanger, "--ui-bad-soft": mix(v.colorDanger, "#ffffff", 0.9) });
+  if (v.colorSidebar) {
+    const text = v.colorSidebarText || (luminance(v.colorSidebar) > 0.5 ? "#1f2937" : "#ffffff");
+    const t = rgb(text).join(", ");
+    Object.assign(root, {
+      "--ui-side-bg": v.colorSidebar, "--ui-side-ink": mix(text, v.colorSidebar, 0.15), "--ui-side-strong": text, "--ui-side-muted": mix(text, v.colorSidebar, 0.45),
+      "--ui-side-hover": `rgba(${t}, 0.08)`, "--ui-side-active": `rgba(${t}, 0.14)`, "--ui-side-line": `rgba(${t}, 0.12)`,
+    });
+  } else if (v.colorSidebarText) {
+    const t = rgb(v.colorSidebarText).join(", ");
+    Object.assign(root, { "--ui-side-ink": v.colorSidebarText, "--ui-side-strong": v.colorSidebarText, "--ui-side-muted": mix(v.colorSidebarText, "#111520", 0.45),
+      "--ui-side-hover": `rgba(${t}, 0.08)`, "--ui-side-active": `rgba(${t}, 0.14)`, "--ui-side-line": `rgba(${t}, 0.12)` });
+  }
   if (v.borderRadius !== undefined) Object.assign(root, { "--ui-r": `${v.borderRadius}px`, "--ui-r-sm": `${Math.max(0, v.borderRadius - 2)}px` });
-  return { accent, root, font: v.fontFamily ? FONTS[v.fontFamily] : "", background: v.colorBackground || "" };
+  return { accent, root, font: v.fontFamily ? FONTS[v.fontFamily] : "", background: v.colorBackground || "", brand: { name: v.brandName || "", logoUrl: v.logoUrl || "" } };
 }
 
 // The CSS for an appearance, for the page of an embedded screen.

@@ -112,7 +112,7 @@ Answer: `{ "token": "…", "expires_at": 1767225600, "component": "leads", "acce
 |---|---|
 | `getToken` | Function returning a token, or a promise of one. Preferred: it is called again when the token ends. |
 | `token` | A token string, if you cannot use `getToken`. It cannot be renewed. |
-| `appearance` | See [Look and feel](#look-and-feel). |
+| `appearance` | See [Look and feel](#look-and-feel). Use `"auto"` to match your page. |
 | `height` | Inline height. Default `640px`. |
 | `onReady(info)` | The screen has loaded. |
 | `onError({ message })` | The screen or your token request failed. |
@@ -221,16 +221,57 @@ outreach.create("leads", {
 | `colorSurface` | hex | Cards and panels |
 | `colorText` | hex | Text (the lighter greys are derived from it) |
 | `colorDanger` | hex | Errors |
+| `colorSidebar` | hex | The side menu's background. Its hover, selected and line colours are worked out from it. |
+| `colorSidebarText` | hex | The side menu's text. Left out, it is white or dark grey, whichever is readable on the menu colour. |
 | `fontFamily` | `system`, `inter`, `serif`, `rounded`, `mono` | The font |
 | `borderRadius` | 0 to 24 | Corner roundness of cards and fields |
+| `brandName` | up to 40 characters | Replaces the app's name above the menu ("Leads", "Voice"...). `<` and `>` are removed. |
+| `logoUrl` | an `https` address of a picture | Replaces the app's icon above the menu. If you leave it out, the logo saved on your integration is used. |
 
-- **Save a default** in Partner programme → Look and feel, with a live preview. A page's own `appearance` wins over it.
-- Only these keys and values are read. Anything else (a colour name, a URL, a font you invented) is ignored, so a theme can
-  never inject styles or scripts. The dashboard refuses a bad value instead of quietly dropping it.
-- The sidebar keeps its dark background, and status colours and charts keep their own so they stay readable. Some parts of the
-  app draw their own colours and corners; your colours reach everything that uses the app's palette, which is most of it.
+- **Save a default** in Partner programme, Look and feel, which has a live preview. A page's own `appearance` wins over it.
+- Only these keys and values are read. Anything else (a colour name, a URL that is not `https`, a font you invented) is ignored, so a
+  theme can never inject styles or scripts. The dashboard refuses a bad value instead of quietly dropping it.
+- Status colours and charts keep their own so they stay readable. Some parts of the app draw their own colours (for example each
+  app's icon badge); your colours reach everything that uses the app's palette, which is most of it.
 - Change it live with `screen.update({ appearance })`.
 - There is no dark theme yet (see [What is not there yet](#what-is-not-there-yet)).
+
+### Match my software (automatic)
+
+Instead of choosing colours, let the screen read your page and match it:
+
+```js
+outreach.create("leads", { getToken, appearance: "auto" }).mount("#box");
+
+// When the guess is not right, say where to look. Anything you set yourself wins.
+outreach.create("leads", {
+  getToken,
+  appearance: {
+    auto: { primary: "--brand-color",   // a CSS variable on your page, or a selector such as ".btn-primary"
+            danger: "--error",          // a CSS variable
+            sidebar: "#app-sidebar" },  // the selector of your own side menu
+    variables: { borderRadius: 12 },    // your values win over what was read
+  },
+});
+```
+
+`embed.js` runs in your page, so it can read it; the screen (on Outreach's address) cannot. What it reads:
+
+| Taken from | Used for |
+|---|---|
+| The CSS variable you name, else common names (`--primary`, `--brand`, `--accent`, `--color-primary`, `--bs-primary`...), else the colour of the element you name, else the first coloured button, else a link | Buttons and highlights |
+| The same button (or the first input) | Corner roundness |
+| The page body | Background and text |
+| The body's font | The nearest of our five fonts. We cannot load a font from your site. |
+| `--danger`, `--error`, `--destructive`... or the variable you name | Errors |
+| The element you name, else the first `<aside>` or `<nav>` with a solid colour | The side menu |
+
+- **It keeps following the page.** When your page's theme class, `data-theme` or colour scheme changes, the screen is updated a
+  moment later.
+- **Dark pages:** the screens have no dark theme yet, so on a dark page the screen keeps its own light background and text and
+  only takes the button colour, corners, font, error colour and side menu from you.
+- **It is a guess when you name nothing.** Naming the CSS variable or the element makes it exact.
+- Grey buttons are ignored when looking for your brand colour, and a colour it cannot read is skipped.
 
 ## Data and privacy
 

@@ -6,7 +6,7 @@ import { useBodyClass } from "../components/usePhone";
 import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
 import { NavItem } from "./NavItem";
-import { useEmbedded } from "../embed/EmbedContext";
+import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 
 // The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
 // the pages in labelled groups, then (at the bottom) the app's credits and Log out.
@@ -17,12 +17,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
-        <div style={{ width: 32, height: 32, borderRadius: 6, background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Icon size={17} />
-        </div>
-        <div style={{ fontWeight: 600, fontSize: 15, color: "#fff" }}>{name}</div>
-      </div>
+      <SidebarBrand icon={Icon} accent={accent} name={name} />
       {!embedded && <AppSwitcher current={appId} onHome={onHome} />}
       <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
         {groups.map((group) => {
