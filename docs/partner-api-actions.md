@@ -173,6 +173,7 @@ use, so ask the user first. Use a script by sending its id as `script_id` in `ca
 
 | Action | Input (`data`) | Output |
 |---|---|---|
+| `connect` | `return_url` (one of your registered return URLs) | `{connect_url, expires_at}`. Open `connect_url` in a popup: the user searches, buys and uploads the business documents on our page, and it ends at your `return_url` with `?status=connected&provider=number&number_id=`. Partner keys only. The popup also posts `{type: "outreach.number", status, number_id}` to the opener. Listen for `number.ready` and `number.verification_changed` for the real outcome |
 | `list` | none | `numbers`, `orders`, `verification` and `price` (`monthlyCredits`, `setupCredits`) |
 | `search` | `country`, `number_type`, optional `locality`, `area_code`, `contains` | `{data: [{phone_number, region, features, monthly_credits}]}` |
 | `order` | `phone_number`, `country`, `number_type` | the order; poll `list` or wait for `number.ready` |
@@ -186,7 +187,11 @@ use, so ask the user first. Use a script by sending its id as `script_id` in `ca
 - `documents` is `{field: {filename, content_type, content_base64}}`.
 - Prices are in the user's credits. Ordering fails if credits are short.
 - Only numbers bought through Outreach are supported through the API.
-- Test keys return simulated numbers, and `verification.submit` returns an approved verification at once.
+- Test keys return simulated numbers, and `verification.submit` returns an approved verification at once. `connect` with a test key
+  goes straight to your `return_url` with `number_id=num_test`.
+- `account.wallet` → `connected.phone_number_status` counts `active`, `held`, `pending` (orders being set up),
+  `verification_pending` and `verification_rejected`.
+- To call from a given number, send `from_number` in `call.start`. Without it the user's default number is used.
 
 ## Webhooks
 

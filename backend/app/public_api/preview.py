@@ -123,7 +123,7 @@ def render(v: Dict[str, Any], token: str, company: str, tz: str, notice: str = "
     return _page("Post preview", body).replace("</head>", refresh + "</head>", 1)
 
 
-async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) -> HTMLResponse:
+async def _handle(request: Request, token: str, form: Optional[Dict[str, str]], files: Optional[Dict[str, Any]] = None) -> HTMLResponse:
     from app.public_api import social as S
     from app.services.approval_mail import _company_name
     from app.services.org_settings import org_timezone
@@ -140,6 +140,9 @@ async def _handle(request: Request, token: str, form: Optional[Dict[str, str]]) 
     mailbox_data = links.read_token(token, "mailbox_connect")
     if mailbox_data:
         return await _handle_mailbox(mailbox_data, form)
+    numbers_data = links.read_token(token, "numbers_connect")
+    if numbers_data:
+        return await _handle_numbers(numbers_data, form, files or {}, dict(request.query_params))
     data = links.read_token(token, "post")
     if not data:
         return HTMLResponse(_GONE, status_code=404)
@@ -206,6 +209,23 @@ async def _handle_mailbox(data: Dict[str, Any], form: Optional[Dict[str, str]]) 
                 return HTMLResponse(mailbox_page.render(company, res["error"], kept, data.get("e") or ""), status_code=400)
     dispatch_event(data["o"], "email.mailbox.connected", {"mailbox_id": res["mailbox_id"], "email": res["email"], "org_id": data["o"]})
     return HTMLResponse(mailbox_page.done(data["r"], res["mailbox_id"], res["email"]))
+
+
+async def _handle_numbers(data: Dict[str, Any], form: Optional[Dict[str, str]], files: Dict[str, Any], query: Dict[str, str]) -> HTMLResponse:
+    """A partner's popup: buy a number and verify the business on our page, then go back to the partner's page."""
+    from app.public_api import numbers_page
+    from app.services.approval_mail import _company_name
+
+    with org_scope(data["o"]):
+        async with AsyncSessionLocal() as db:
+            company = await _company_name(db)
+            res: Dict[str, Any] = {"query": query}
+            if form:
+                res = await numbers_page.act(db, data, form, files)
+                if "finished" in res:
+                    return HTMLResponse(numbers_page.done(data["r"], res["finished"]))
+            return HTMLResponse(await numbers_page.render(db, data, company, res.get("notice", ""), res.get("error", ""),
+                                                          res.get("results"), res.get("query")))
 
 
 async def _handle_book(org: str, ref_raw: str, form: Optional[Dict[str, str]]) -> HTMLResponse:
@@ -298,5 +318,10 @@ async def preview_get(token: str, request: Request):
 
 @router.post("/p/{token}", response_class=HTMLResponse)
 async def preview_post(token: str, request: Request):
-    form = {k: str(v) for k, v in (await request.form()).items()}
-    return await _handle(request, token, form)
+    raw = await request.form()
+    form = {k: str(v) for k, v in raw.items() if not hasattr(v, "read")}
+    files: Dict[str, Any] = {}
+    for key, value in raw.multi_items():
+        if key.startswith("doc_") and hasattr(value, "read"):
+            files[key[4:]] = (value.filename or "document", await value.read(), (value.content_type or "").lower())
+    return await _handle(request, token, form, files)

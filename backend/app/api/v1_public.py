@@ -58,7 +58,15 @@ async def get_wallet_balances(
                 for a in (await db.execute(select(SocialAccount))).scalars().all()]
     mailboxes = [{"id": m.id, "email": m.email, "status": m.status, "daily_limit": m.daily_cap}
                  for m in (await db.execute(select(EmailMailbox))).scalars().all()]
-    numbers = [n.e164 for n in (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.status == "active"))).scalars().all()]
+    all_numbers = (await db.execute(select(OrgPhoneNumber))).scalars().all()
+    numbers = [n.e164 for n in all_numbers if n.status == "active"]
+    from app.models.models import NumberOrder, VerificationSubmission
+
+    waiting = (await db.execute(select(NumberOrder).where(NumberOrder.status == "pending"))).scalars().all()
+    reviews = (await db.execute(select(VerificationSubmission))).scalars().all()
+    number_counts = {"active": len(numbers), "held": sum(1 for n in all_numbers if n.status == "held"),
+                     "pending": len(waiting), "verification_pending": sum(1 for v in reviews if v.status == "pending"),
+                     "verification_rejected": sum(1 for v in reviews if v.status in ("declined", "expired"))}
     sub = await B.subscription_row(db)
     setup = [
         {"item": "social_channels", "ok": any(c["status"] == "connected" for c in channels), "needed_for": "social posts",
@@ -76,7 +84,7 @@ async def get_wallet_balances(
             for item, r in card.items()
         ],
         "plan": {"status": getattr(sub, "status", None) or "none", "services": sorted((getattr(sub, "plans", None) or {}).keys())},
-        "connected": {"social_channels": channels, "mailboxes": mailboxes, "phone_numbers": numbers},
+        "connected": {"social_channels": channels, "mailboxes": mailboxes, "phone_numbers": numbers, "phone_number_status": number_counts},
         "setup": setup,
         "key": {"id": ctx.get("key_id"), "name": ctx.get("name"), "scopes": ctx.get("scopes") or ["full_access"],
                 "test_mode": bool(ctx.get("test"))},

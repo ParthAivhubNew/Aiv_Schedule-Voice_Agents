@@ -201,7 +201,7 @@ async def _numbers(request: Request, action: Any, id_: Any, data: Any, query: bo
     if not isinstance(action, str) or action not in NU.ACTIONS:
         return _refuse(422, "unknown_action", f"'{action}' is not an action of 'numbers'. Use one of: " + ", ".join(NU.ACTIONS) + ".",
                        plugin="numbers", actions=list(NU.ACTIONS))
-    if query and action not in ("list", "search", "verification.requirements", "verification.status"):
+    if query and action not in ("list", "search", "verification.requirements", "verification.status"):  # "connect" changes something
         return _refuse(405, "read_only", f"'numbers.{action}' changes something, so send it as POST /v1/run, not GET.", plugin="numbers", action=action)
     if data is None:
         data = {}

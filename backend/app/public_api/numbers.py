@@ -20,6 +20,8 @@ SCOPE = "voice:calls"
 
 # action -> what it does
 ACTIONS: Dict[str, str] = {
+    "connect": "Open a popup where the user buys a number and verifies the business. data: return_url (one of your registered return URLs). "
+               "Returns connect_url; the popup ends at return_url with ?status=connected&number_id=",
     "list": "Your numbers, their orders and the state of your business verification",
     "search": "Numbers you can buy. data: country, number_type, locality?, area_code?, contains?",
     "order": "Buy a number. data: phone_number, country, number_type",
@@ -65,6 +67,39 @@ def _documents(raw: Any) -> Dict[str, Any]:
     return files
 
 
+async def _connect(db: AsyncSession, ctx: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+    """The popup link, as for social channels and mailboxes: the user buys the number and uploads documents on our page."""
+    import time
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from app.models.models import PartnerLink
+    from app.public_api import links
+    from app.public_api.social import _partner_of
+    from app.services import approval_mail
+    from app.services import partners as PT
+
+    partner = await _partner_of(db, ctx)
+    if not partner:
+        fail(403, "partner_only", "Connecting a number from your own page is for keys issued through the partner program.")
+    try:
+        url = PT.check_return_url(partner, str(data.get("return_url") or ""))
+    except PT.PartnerError as err:
+        fail(err.status, err.code, err.message)
+    if PT._origin(url) not in (partner.allowed_origins or []):
+        fail(422, "return_url_origin_not_allowed", "The return_url's web address must also be one of your allowed web addresses.")
+    expires = int(time.time()) + 1800
+    iso = datetime.utcfromtimestamp(expires).isoformat() + "Z"
+    if is_test(ctx):
+        sep = "&" if "?" in url else "?"
+        return {"connect_url": f"{url}{sep}status=connected&provider=number&number_id=num_test", "expires_at": iso, "simulated": True}
+    link = (await db.execute(select(PartnerLink).where(PartnerLink.key_id == str(ctx.get("key_id") or ""), PartnerLink.status == "active"))).scalars().first()
+    token = approval_mail.sign({"k": "numbers_connect", "i": partner.id, "o": ctx["org_id"], "r": url,
+                                "op": getattr(link, "operator_id", "") or "", "x": expires})
+    return {"connect_url": f"{links.public_base()}/api/p/{token}", "expires_at": iso}
+
+
 async def handle(request: Request, db: AsyncSession, action: str, id_: str, data: Dict[str, Any]) -> Dict[str, Any]:
     if action not in ACTIONS:
         fail(422, "unknown_action", f"'{action}' is not a numbers action. Use one of: " + ", ".join(ACTIONS) + ".", actions=list(ACTIONS))
@@ -72,6 +107,8 @@ async def handle(request: Request, db: AsyncSession, action: str, id_: str, data
     request.state.audit_action = f"#{action}"
     if action == "release" and not id_:
         fail(422, "id_required", "'release' needs the 'id' of the number.")
+    if action == "connect":
+        return await _connect(db, ctx, data)
     if is_test(ctx) and action.startswith("check."):
         items = data.get("items") if isinstance(data.get("items"), list) else []
         return {"rows": [{"key": str((i or {}).get("key") or n), "phone": str((i or {}).get("phone") or ""), "status": "valid"} for n, i in enumerate(items)],
