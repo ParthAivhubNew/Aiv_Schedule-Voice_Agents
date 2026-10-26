@@ -59,6 +59,16 @@ def company_name_problem(name: str) -> str:
             "Shorten it (for example drop words like \"company\" or \"limited\"), then try again.")
 
 
+async def log_number_event(process: str, message: str, level: str = "INFO", **details) -> None:
+    """One line in the organisation's activity log for anything that happens to its phone numbers. Never raises."""
+    try:
+        from app.services.process_logger import log_process_event
+
+        await log_process_event(subsystem="telephony", process_name=process, message=message, level=level, details=details)
+    except Exception:
+        pass
+
+
 def platform_ready() -> bool:
     return bool(platform_key())
 
@@ -413,6 +423,10 @@ def _partner_event(event: str, record, data: dict) -> None:
 
 
 async def _notify_verification(sub, was_approved: bool = False) -> None:
+    await log_number_event("verification_changed", f"Business verification for {sub.country} {sub.number_type} is now {sub.status}"
+                           + (f": {sub.reason}" if sub.status in ("declined", "expired") and sub.reason else ""),
+                           "SUCCESS" if sub.status == "approved" else ("WARN" if sub.status in ("declined", "expired") else "INFO"),
+                           verification_id=sub.id, status=sub.status, country=sub.country, number_type=sub.number_type)
     _partner_event("number.verification_changed", sub, {"status": sub.status, "reason": (sub.reason or "") if sub.status in ("declined", "expired") else ""})
     try:
         from app.core.notify import notify
@@ -521,6 +535,8 @@ async def _activate(db, order, telnyx_order: Dict[str, Any]) -> None:
             number_id = str(pn.get("id") or "")
     has_default = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.is_default.is_(True)))).scalars().first()
     new_id = f"num_{uuid.uuid4().hex[:10]}"
+    await log_number_event("number_ready", f"Number {order.phone_number} is active and ready for calls", "SUCCESS",
+                           number=order.phone_number, number_id=new_id, order_id=order.id)
     db.add(OrgPhoneNumber(id=new_id, e164=order.phone_number, label="",
                           provider="telnyx", provider_ref=number_id, capabilities=["voice"],
                           status="active", is_default=not has_default, rent_due_at=rent_due))

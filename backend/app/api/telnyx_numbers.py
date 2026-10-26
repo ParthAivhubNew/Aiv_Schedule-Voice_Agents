@@ -33,6 +33,12 @@ def _admin(request: Request) -> Dict[str, Any]:
     return ctx
 
 
+def _who(ctx: Dict[str, Any]) -> str:
+    """Who did it, for the activity log: the person, or the API key / partner popup that acted for them."""
+    via = "API key" if ctx.get("type") == "api_key" else "app"
+    return f"{ctx.get('name') or ctx.get('email') or 'someone'} ({via})"
+
+
 def _staff(ctx: Dict[str, Any]) -> bool:
     """Outreach staff see what Telnyx charges us; customers only ever see our own prices."""
     from app.core.auth_middleware import platform_org
@@ -210,6 +216,10 @@ async def submit_documents(db: AsyncSession, ctx: Dict[str, Any], country: str, 
     if not prior and sub.status != "error":
         await K.charge(db, "number_setup", 1, f"setup:{ctx.get('org_id')}:{country.upper()}:{number_type}", "Phone number setup fee")
     await db.commit()
+    await TP.log_number_event(
+        "verification_submitted", f"Business documents sent for {country.upper()} {number_type} ({entity_type}) by {_who(ctx)}: {sub.status}",
+        "ERROR" if sub.status == "error" else "INFO", verification_id=sub.id, country=country.upper(), number_type=number_type,
+        entity_type=entity_type, documents=len(files), status=sub.status, by=_who(ctx))
     if sub.status == "error":
         raise HTTPException(status_code=502, detail=sub.reason or "The submission was not accepted.")
     return _sub_json(sub)
@@ -274,6 +284,11 @@ async def order(body: OrderBody, request: Request, db: AsyncSession = Depends(ge
                              number_type=body.numberType, requirement_group_id=group_id, cost=cost,
                              by=ctx.get("name", ""))
     await db.commit()
+    await TP.log_number_event(
+        "number_order", f"Number {o.phone_number} ordered ({body.country.upper()} {body.numberType}) by {_who(ctx)}: {o.status}"
+        + (f" ({o.error})" if o.status == "failure" and o.error else ""),
+        "ERROR" if o.status == "failure" else "INFO", number=o.phone_number, country=body.country.upper(), number_type=body.numberType,
+        order_id=o.id, status=o.status, by=_who(ctx), verification_required=bool(group_id))
     if o.status == "failure":
         raise HTTPException(status_code=502, detail=o.error or "The order could not be placed.")
     return {"id": o.id, "status": o.status, "phoneNumber": o.phone_number}
@@ -294,7 +309,7 @@ async def _release_number(db: AsyncSession, n: Any) -> None:
 async def release(number_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     from app.models.models import OrgPhoneNumber
 
-    _admin(request)
+    ctx = _admin(request)
     n = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.id == number_id))).scalars().first()
     if not n:
         raise HTTPException(status_code=404, detail="Number not found.")
@@ -303,6 +318,7 @@ async def release(number_id: str, request: Request, db: AsyncSession = Depends(g
     except TelnyxError as err:
         raise HTTPException(status_code=502, detail=f"This number could not be released: {scrub(err)}")
     await db.commit()
+    await TP.log_number_event("number_release", f"Number {n.e164} released by {_who(ctx)}", "INFO", number=n.e164, number_id=n.id, by=_who(ctx))
     return {"ok": True}
 
 

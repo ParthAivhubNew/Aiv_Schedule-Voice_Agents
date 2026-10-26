@@ -186,6 +186,8 @@ async def act(db: AsyncSession, data: Dict[str, Any], form: Dict[str, str], file
             return {"finished": form.get("number_id", "")}
     except HTTPException as err:
         await db.rollback()
+        if isinstance(err.detail, dict) and err.detail.get("code") == "verification_required":
+            query["verify"] = "1"  # the business documents are asked for right here, then the number can be bought
         return {"error": _msg(err), "query": query, "results": None}
     except Exception as err:
         logger.warning(f"numbers page {action} failed: {err}")

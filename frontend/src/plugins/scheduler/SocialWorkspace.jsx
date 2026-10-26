@@ -374,7 +374,7 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
         <div
           ref={scrollerRef}
           style={{
-            maxHeight: "min(340px, 38vh)",
+            maxHeight: "min(520px, 55vh)",
             overflowY: "auto",
             padding: "10px 12px",
             borderRadius: 10,
@@ -386,11 +386,11 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
             <div key={m.id} style={{ marginBottom: 8, display: "flex", justifyContent: m.who === "user" ? "flex-end" : "flex-start" }}>
               <div style={{
                 maxWidth: "88%",
-                padding: "8px 11px",
+                padding: "10px 13px",
                 borderRadius: m.who === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
                 background: m.who === "user" ? C.ink : "#fff",
                 color: m.who === "user" ? "#fff" : C.textInk,
-                fontSize: 12.5,
+                fontSize: 14,
                 lineHeight: 1.45,
                 border: m.who === "user" ? "none" : `1px solid ${C.border}`,
               }}>
@@ -407,10 +407,10 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          style={{ flex: 1, height: 38, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 12px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff", boxSizing: "border-box" }}
+          style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 14px", fontFamily: FONT_BODY, fontSize: 14, background: "#fff", boxSizing: "border-box" }}
         />
         <button type="submit" aria-label="Send" disabled={disabled || !(value || "").trim()}
-          style={{ ...priBtn, height: 38, width: 38, flexShrink: 0, padding: 0, justifyContent: "center", background: C.teal, opacity: disabled || !(value || "").trim() ? 0.5 : 1, cursor: disabled || !(value || "").trim() ? "default" : "pointer" }}>
+          style={{ ...priBtn, height: 44, width: 44, flexShrink: 0, padding: 0, justifyContent: "center", background: C.teal, opacity: disabled || !(value || "").trim() ? 0.5 : 1, cursor: disabled || !(value || "").trim() ? "default" : "pointer" }}>
           <Send size={15} aria-hidden="true" />
         </button>
       </form>
@@ -1547,6 +1547,7 @@ function ApprovalsBoard({
               position: "fixed",
               inset: 0,
               background: "rgba(18,20,28,0.4)",
+              fontFamily: FONT_BODY,
               zIndex: 60,
               display: "flex",
               alignItems: "stretch",
@@ -1572,7 +1573,7 @@ function ApprovalsBoard({
               onClick={(e) => e.stopPropagation()}
               style={{
               width: "100%",
-              maxWidth: wide ? "none" : asPage ? (editMode ? 1000 : 680) : (editMode ? 860 : 560),
+              maxWidth: wide ? "none" : asPage ? (editMode ? 1320 : 680) : (editMode ? 860 : 560),
               background: "#fff",
               border: `1px solid ${C.border}`,
               borderRadius: 16,
@@ -1905,7 +1906,7 @@ function ApprovalsBoard({
                 {/* Edit chat — only when Edit pressed */}
                 {editMode && canEdit ? (
                   <div style={{
-                    width: fullScreen ? "100%" : "clamp(340px, 36%, 460px)",
+                    width: fullScreen ? "100%" : "clamp(420px, 42%, 620px)",
                     flexShrink: 0,
                     overflowY: "auto",
                     borderLeft: fullScreen ? "none" : `1px solid ${C.border}`,
@@ -1928,12 +1929,12 @@ function ApprovalsBoard({
                           onClick={() => setEditTab(t.id)}
                           style={{
                             flex: 1,
-                            height: 30,
+                            height: 38,
                             border: "none",
                             borderRadius: 8,
                             cursor: "pointer",
                             fontWeight: 700,
-                            fontSize: 11,
+                            fontSize: 13,
                             background: editTab === t.id ? "#fff" : "transparent",
                             color: editTab === t.id ? C.ink : C.slate,
                             boxShadow: editTab === t.id ? "0 1px 3px rgba(18,20,28,0.08)" : "none",
@@ -1953,7 +1954,7 @@ function ApprovalsBoard({
                               type="button"
                               disabled={copyBusy === expandedPost.id || expandedPost.enriching}
                               onClick={() => sendCopyChat(expandedPost, q.ask)}
-                              style={{ ...chipBtn, height: 30 }}
+                              style={{ ...chipBtn, height: 34, fontSize: 12.5, padding: "0 12px" }}
                             >
                               {q.label}
                             </button>
@@ -1972,8 +1973,8 @@ function ApprovalsBoard({
                           disabled={copyBusy === expandedPost.id || expandedPost.enriching}
                           placeholder="What should change in the caption?"
                         />
-                        <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
-                          <Sparkles size={14} /> Fresh rewrite
+                        <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={{ ...secBtn, width: "100%", justifyContent: "center", height: 42, fontSize: 14 }}>
+                          <Sparkles size={15} /> Fresh rewrite
                         </button>
                       </div>
                     ) : editTab === "video" ? (
@@ -2270,7 +2271,7 @@ function reuseAskText(existing, dates, channels) {
   return (
     "Already have " + existing.length + " draft" + (existing.length === 1 ? "" : "s")
     + " for " + day + " on " + ch
-    + ". Open To approve to edit those, or Generate / Send again only if you want a new set."
+    + ". Open Post approve to edit those, or Generate / Send again only if you want a new set."
   );
 }
 
@@ -2721,10 +2722,10 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
   );
 }
 
-// Tabs shown above a page that holds two screens (Library, Accounts & plan). Lined up with the page content below.
+// Tabs shown above a page that holds two screens (Library, Results & Ideas). Lined up with the page content below.
 function PageTabs({ label, tabs, page, onGo, width = 980 }) {
   return (
-    <div style={{ padding: "16px 28px 0", background: HUB_PAPER, flexShrink: 0 }}>
+    <div style={{ padding: "16px 28px 0", background: HUB_PAPER }}>
       <div role="tablist" aria-label={label} style={{ display: "flex", gap: 8, maxWidth: width, margin: "0 auto" }}>
         {tabs.map(([id, text, Icon, hint]) => (
           <button key={id} type="button" role="tab" aria-selected={page === id} title={hint} onClick={() => onGo(id)}
@@ -3856,7 +3857,7 @@ export function SocialWorkspace({
           const failed = changed.filter((p) => p.status === "failed").length;
           const bits = [];
           if (posted) bits.push(posted + " post" + (posted === 1 ? "" : "s") + " went live");
-          if (failed) bits.push(failed + " failed — open To approve");
+          if (failed) bits.push(failed + " failed — open Post approve");
           showToast(bits.join(" · ") + ".");
         }
       } finally {
@@ -4019,7 +4020,7 @@ export function SocialWorkspace({
           ? (perChannel
             ? ("Drafting a different caption + image for each of " + created.length + " slots, because you asked for per-channel versions.")
             : ("Drafting one caption + one image for " + created.length + " slots (" + dates.length + " day" + (dates.length === 1 ? "" : "s") + " × " + channels.length + " channel" + (channels.length === 1 ? "" : "s") + ")."))
-          : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open To approve to edit image or copy, then approve."),
+          : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open Post approve to edit image or copy, then approve."),
       },
     ]);
   };
@@ -4389,12 +4390,12 @@ export function SocialWorkspace({
   const navGroups = [
     { label: "Posts", items: [
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
-      { id: "approvals", label: "To approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+      { id: "approvals", label: "Post approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
       { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
       { id: "library", label: "Library", icon: ImageIcon, active: (page === "media" || page === "import") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
     ] },
     { label: "Setup", items: [
-      { id: "accounts", label: "Accounts & plan", short: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
+      { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
     ] },
   ];
   const topTitles = {
@@ -4405,10 +4406,10 @@ export function SocialWorkspace({
     media: ["Library", "Pictures and videos to reuse in posts."],
     import: ["Library", "Add many posts at once from a CSV or Excel file."],
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    approvals: ["To approve", "Posts waiting for your yes before they go out."],
-    accounts: ["Accounts & plan", "The social accounts your posts go to."],
+    approvals: ["Post approve", "Posts waiting for your yes before they go out."],
+    accounts: ["Accounts", "The social accounts your posts go to."],
     audience: ["Results & Ideas", "Who you are talking to, and what to post about."],
-    subscription: ["Accounts & plan", "Your Social plan, credits and top-ups."],
+    subscription: ["Plan & credits", "Your Social plan, credits and top-ups."],
   };
   const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];
   return (
@@ -4514,11 +4515,6 @@ export function SocialWorkspace({
             <SubscriptionPage wallet="scheduler" back="/scheduler" />
           </div>
         ) : page === "accounts" ? (
-          <>
-            {operator?.is_admin ? <PageTabs label="Accounts & plan" page={page} onGo={goPage} tabs={[
-              ["accounts", "Connected accounts", Plug, "The social networks your posts go to"],
-              ["subscription", "Plan & credits", CreditCard, "Your Social plan, credits and top-ups"],
-            ]} /> : null}
           <SimpleAccountsPage
             accounts={accounts}
             connecting={connecting}
@@ -4533,10 +4529,9 @@ export function SocialWorkspace({
             extras={extras}
             onExtrasChange={setExtras}
           />
-          </>
         ) : page === "media" || page === "import" ? (
-          <>
-            <PageTabs label="Library" page={page} onGo={goPage} width={page === "media" ? 1100 : 980} tabs={[
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
+            <PageTabs label="Library" page={page} onGo={goPage} width={1100} tabs={[
               ["media", "Pictures & videos", ImageIcon, "Your saved pictures and videos, ready to use in posts"],
               ["import", "Import posts", Upload, "Add many posts at once from a CSV or Excel file"],
             ]} />
@@ -4545,40 +4540,35 @@ export function SocialWorkspace({
             ) : (
               <ImportPage showToast={showToast} onOpenApprovals={() => { refreshPosts(); openApprovals(); }} onOpenCalendar={() => { refreshPosts(); goPage("plan"); }} />
             )}
-          </>
+          </div>
         ) : page === "listening" ? (
-          <>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
             <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
             ]} />
             <ListeningPage showToast={showToast} />
-          </>
+          </div>
         ) : page === "audience" ? (
-          <>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
             <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
             ]} />
             <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
-          </>
+          </div>
         ) : page === "insights" || page === "reports" ? (
-          <>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
             <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
             ]} />
             <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
-          </>
+          </div>
         ) : page === "subscription" ? (
-          <>
-            {operator?.is_admin ? <PageTabs label="Accounts & plan" page={page} onGo={goPage} tabs={[
-              ["accounts", "Connected accounts", Plug, "The social networks your posts go to"],
-              ["subscription", "Plan & credits", CreditCard, "Your Social plan, credits and top-ups"],
-            ]} /> : null}
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div style={{ maxWidth: 980, margin: "0 auto" }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Plan & credits</div>
@@ -4586,7 +4576,6 @@ export function SocialWorkspace({
               <SubscriptionPage wallet="scheduler" back="/scheduler" />
             </div>
           </div>
-          </>
         ) : (
         <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -4875,7 +4864,7 @@ export function SocialWorkspace({
 
             {drafts.length ? (
               <button type="button" onClick={() => openApprovals()} style={{ ...secBtn, justifyContent: "center", width: "100%" }}>
-                Open To approve ({drafts.length} draft{drafts.length === 1 ? "" : "s"})
+                Open Post approve ({drafts.length} draft{drafts.length === 1 ? "" : "s"})
               </button>
             ) : null}
           </div>

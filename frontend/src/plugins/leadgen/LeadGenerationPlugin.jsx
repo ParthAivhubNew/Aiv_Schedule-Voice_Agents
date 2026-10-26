@@ -20,7 +20,6 @@ import {
   Activity,
   Globe,
   Tag,
-  CreditCard,
   MessageSquare,
   ListChecks,
   Lock,
@@ -157,7 +156,6 @@ export default function LeadGenerationPlugin({
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
     { id: "mailboxes", label: "Email accounts", icon: Layers, group: "Outreach" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
-    ...(operator?.is_admin ? [{ id: "subscription", label: "Plan & credits", icon: CreditCard, group: "Setup" }] : []),
   ];
   const navGroups = ["Outreach", "Setup"].map((label) => ({
     label,

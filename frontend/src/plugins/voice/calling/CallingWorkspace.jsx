@@ -97,7 +97,7 @@ const PAGES = [
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
   { label: "Outreach", ids: ["list", "logs", "schedule", "analytics"] },
-  { label: "Settings", ids: ["ai", "company", "subscription"] },
+  { label: "Settings", ids: ["ai", "company"] },
 ];
 
 function canSee(operator, section) {

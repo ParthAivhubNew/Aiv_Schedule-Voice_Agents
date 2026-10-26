@@ -15,7 +15,7 @@ export function PluginCredits({ wallet, operator, onOpen, refreshKey }) {
   if (!w) return null;
   const state = w.empty ? "empty" : w.low ? "low" : undefined;
   return (
-    <button type="button" onClick={onOpen} className="ui-credits" data-state={state} title={w.empty ? "Out of credits: this app is paused" : "Plan and credits"}>
+    <button type="button" onClick={onOpen} className="ui-credits" data-state={state} title={w.empty ? "Out of credits: this app is paused. Click to top up" : "Click to see your plan and credits, and to top up"}>
       <span>
         <span className="ui-credits-label">{w.empty ? "Out of credits" : w.low ? "Credits running low" : "Credits"}</span>
         <span className="ui-credits-num">{Number(w.balance || 0).toLocaleString()}</span>

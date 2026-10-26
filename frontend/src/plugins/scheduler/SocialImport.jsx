@@ -93,7 +93,7 @@ export function ImportPage({ showToast, onOpenApprovals, onOpenCalendar }) {
   const rows = checked ? checked.rows.filter((r) => !onlyProblems || r.issues.length) : [];
   return (
     <div style={page}>
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
         {done ? (
           <section style={{ ...card, borderColor: C.teal }} aria-live="polite">
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 15 }}>
