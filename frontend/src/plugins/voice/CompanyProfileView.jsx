@@ -13,6 +13,7 @@ import {
   PenLine,
   PlusCircle,
   RefreshCw,
+  Save,
   Search,
   ShieldCheck,
   Sparkles,
@@ -33,7 +34,10 @@ import {
   TIMEZONES,
 } from "../../app/constants";
 import { Field, SectionIntro, TopBar } from "../../app/ui";
+import { KnowledgeChat } from "./KnowledgeChat";
 import { announceOrgUpdated } from "../../org/orgSettings";
+
+const FAQ_PAGE_SIZE = 4;
 
 export function CompanyProfileView({ profile, setProfile, notifications, setNotifications, sources = [], setSources, services = [], setServices, faq = [], setFaq, embedded = false, onDirtyChange }) {
   const [tab, setTab] = useState("identity");
@@ -43,9 +47,9 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [activeChunkModal, setActiveChunkModal] = useState(null);
-  const [testQuery, setTestQuery] = useState("");
-  const [testResults, setTestResults] = useState(null);
-  const [testingQuery, setTestingQuery] = useState(false);
+  const [faqPage, setFaqPage] = useState(1);
+  const faqPageCount = Math.max(1, Math.ceil(faq.length / FAQ_PAGE_SIZE));
+  const faqPageNo = Math.min(faqPage, faqPageCount);
   const [resyncingId, setResyncingId] = useState(null);
   const [dirty, setDirty] = useState(false);
 
@@ -159,38 +163,24 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
     <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginTop: 8 }}>
       <button
         type="button"
+        className="ui-btn ui-btn--primary"
         onClick={() => save(true)}
         disabled={saving}
-        style={{
-          background: saved ? "#059669" : saving ? "#4b5563" : "linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)",
-          color: "#fff",
-          border: "none",
-          borderRadius: 8,
-          padding: "10px 20px",
-          fontFamily: FONT_BODY,
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: saving ? "wait" : "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 7,
-          transition: "all 0.2s ease",
-          boxShadow: saved ? "0 4px 12px rgba(5, 150, 105, 0.3)" : "0 4px 12px rgba(42, 71, 174, 0.25)",
-        }}
+        style={{ height: 38, padding: "0 18px", ...(saved ? { background: "#059669" } : {}), ...(saving ? { cursor: "wait" } : {}) }}
       >
         {saving ? (
           <>
             <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
-            <span>Saving changes...</span>
+            <span>Saving…</span>
           </>
         ) : saved ? (
           <>
             <Check size={14} />
-            <span>Changes Saved!</span>
+            <span>Saved</span>
           </>
         ) : (
           <>
-            <span>💾</span>
+            <Save size={14} />
             <span>{label}</span>
           </>
         )}
@@ -298,20 +288,6 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
     try {
       await api.deleteSource(id);
     } catch (_) {}
-  };
-
-  const runTestQuery = async () => {
-    if (!testQuery.trim()) return;
-    setTestingQuery(true);
-    setTestResults(null);
-    try {
-      const res = await api.testKnowledgeQuery(testQuery.trim());
-      setTestResults(res);
-    } catch (err) {
-      setTestResults({ query: testQuery, matches: [], count: 0, error: err.message || "Failed to search" });
-    } finally {
-      setTestingQuery(false);
-    }
   };
 
 
@@ -428,10 +404,11 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
       }>
         {renderProfileTabs(embedded ? "pills" : "rail")}
 
-        <div style={{ width: "100%", maxWidth: embedded ? "100%" : ((tab === "services" || tab === "knowledge") ? 1040 : 760), transition: "max-width 0.25s ease" }}>
+        <div style={{ width: "100%", maxWidth: embedded ? "100%" : ((tab === "services" || tab === "knowledge" || tab === "identity") ? 1040 : 760), transition: "max-width 0.25s ease" }}>
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", columnGap: 18 }}>
               <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
               <Field
                 label="Say company name as (spoken)"
@@ -503,16 +480,18 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   </select>
                 </div>
               </div>
-              <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 9, background: C.paperSoft || "#F7F8FA", border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
+              <div style={{ gridColumn: "1 / -1", marginBottom: 14, padding: "10px 12px", borderRadius: 9, background: C.paperSoft || "#F7F8FA", border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
                 Calling hours, meeting hours and lunch breaks are set in <strong>Working Hours</strong>. They are kept in one place so they never disagree.
               </div>
               <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
+              </div>
               {renderSaveBtn("Save changes")}
             </div>
           )}
 
           {tab === "knowledge" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 16, alignItems: "start" }}>
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 {(() => {
                   const ragFailed = sources.filter((s) => s.status === "failed").length;
@@ -776,81 +755,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                 )}
               </div>
 
-              {/* Interactive RAG Vector Retrieval Tester */}
-              <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
-                <SectionIntro
-                  icon={Sparkles}
-                  title="Test AI knowledge retrieval (Semantic vector search)"
-                  desc="Simulate a prospect asking a specific question. This runs real-time cosine vector matching against your stored chunks to verify what exact facts the AI retrieves on calls."
-                />
-                
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <input
-                    value={testQuery}
-                    onChange={(e) => setTestQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && runTestQuery()}
-                    placeholder="e.g. What is your pricing structure? or Do you support CRM integration?"
-                    style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
-                  />
-                  <button
-                    onClick={runTestQuery}
-                    disabled={testingQuery || !testQuery.trim()}
-                    style={{
-                      background: C.ink,
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "9px 20px",
-                      fontFamily: FONT_BODY,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: testingQuery ? "default" : "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6
-                    }}
-                  >
-                    {testingQuery ? <RefreshCw size={13} style={{ animation: "spin 1.5s linear infinite" }} /> : <Search size={13} />}
-                    Test Retrieval
-                  </button>
-                </div>
+              <KnowledgeChat />
 
-                {testResults && (
-                  <div style={{ marginTop: 14, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.textInk }}>
-                        Retrieved Chunks for: <span style={{ color: C.cobalt }}>"{testResults.query}"</span>
-                      </span>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>
-                        {testResults.matches?.length || 0} matches found
-                      </span>
-                    </div>
-
-                    {(!testResults.matches || testResults.matches.length === 0) ? (
-                      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, padding: "10px 0" }}>
-                        No vector chunks matched above the similarity threshold. Add more sources or re-crawl your website.
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {testResults.matches.map((m, i) => (
-                          <div key={m.id || i} style={{ background: C.paper, borderRadius: 8, padding: 10, border: `1px solid ${C.borderLight}` }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                              <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.textInk }}>
-                                {m.title || "Knowledge Chunk"}
-                              </span>
-                              <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4 }}>
-                                {Math.round((m.score || 0) * 100)}% Match
-                              </span>
-                            </div>
-                            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
-                              {m.content}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Chunks Inspection Modal */}
@@ -910,8 +816,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
 
               <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
                 <SectionIntro icon={HelpCircle} title="Common questions & approved answers" desc="When a prospect asks something the AI hasn't heard before, it falls back to these — write answers the way you'd want a new hire to say them." />
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {faq.map((f) => (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 10 }}>
+                  {faq.slice((faqPageNo - 1) * FAQ_PAGE_SIZE, faqPageNo * FAQ_PAGE_SIZE).map((f) => (
                     <div key={f.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ display: "flex", gap: 8 }}>
                         <input value={f.q} onChange={(e) => updateFaq(f.id, "q", e.target.value)} placeholder="Question a prospect might ask" style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", fontWeight: 600 }} />
@@ -921,7 +827,14 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                     </div>
                   ))}
                 </div>
-                <button onClick={addFaq} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
+                {faq.length > FAQ_PAGE_SIZE ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
+                    <button type="button" disabled={faqPageNo <= 1} onClick={() => setFaqPage(faqPageNo - 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: faqPageNo <= 1 ? "default" : "pointer", opacity: faqPageNo <= 1 ? 0.5 : 1 }}>‹ Previous</button>
+                    <span>Page {faqPageNo} of {faqPageCount}</span>
+                    <button type="button" disabled={faqPageNo >= faqPageCount} onClick={() => setFaqPage(faqPageNo + 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: faqPageNo >= faqPageCount ? "default" : "pointer", opacity: faqPageNo >= faqPageCount ? 0.5 : 1 }}>Next ›</button>
+                  </div>
+                ) : null}
+                <button onClick={() => { addFaq(); setFaqPage(Math.floor(faq.length / FAQ_PAGE_SIZE) + 1); }} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
                   <PlusCircle size={13} /> Add a question
                 </button>
               </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Pause, PhoneCall, Play, Save, ShieldCheck, UserRound } from "lucide-react";
+import { Pause, PhoneCall, Play, Save, ShieldCheck, UserRound } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { BehaviourFields, CompanyVoices, VoiceFields, box, btn, input, label } from "./AssistantOptions";
@@ -18,13 +18,13 @@ function Message({ msg }) {
 // Voice & rules (the second tab of Call setup): how the AI caller sounds and behaves. Each user picks their voice and adds their
 // phone (test calls, taking over calls); admins set the company's rules and which script each
 // campaign uses. Scripts themselves are written in Call scripts; knowledge on the Company page.
-export function AgentStudio({ onOpenPage, staff = false }) {
+export function AgentStudio({ onOpenPage, staff = false, active = true }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [me, setMe] = useState({ voice: "", model: "", phone: "", settings: {} });
   const [company, setCompany] = useState(null);
   const [testScript, setTestScript] = useState("");
-  const [msg, setMsg] = useState({ me: {}, company: {}, test: {}, campaign: {} });
+  const [msg, setMsg] = useState({ me: {}, company: {}, test: {} });
   const [busy, setBusy] = useState("");
   const [playing, setPlaying] = useState("");
   const audio = useRef(null);
@@ -42,6 +42,8 @@ export function AgentStudio({ onOpenPage, staff = false }) {
     }
   }, []);
   useEffect(() => { load("all"); }, [load]);
+  // Kept mounted in the background: coming back refreshes quietly without touching what is typed.
+  useEffect(() => { if (active) load("data"); }, [active, load]);
   useEffect(() => () => audio.current && audio.current.pause(), []);
 
   const say = (key, text, isError = false) => setMsg((m) => ({ ...m, [key]: { text, error: isError } }));
@@ -78,7 +80,7 @@ export function AgentStudio({ onOpenPage, staff = false }) {
 
   if (error && !data) return <div role="alert" style={{ color: C.red, fontSize: 13 }}>{error}</div>;
   if (!data || !company) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
-  const { catalogue, templates, campaigns } = data;
+  const { catalogue, templates } = data;
   const outbound = templates.filter((t) => t.direction === "outbound");
   const inbound = templates.filter((t) => t.direction === "inbound");
   const chosenVoice = catalogue.voices.find((v) => v.id === me.voice);
@@ -128,7 +130,7 @@ export function AgentStudio({ onOpenPage, staff = false }) {
             </button>
           )}
         </div>
-        <button type="button" style={btn(true, busy === "me")} disabled={busy === "me"}
+        <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "me"}
           onClick={() => run("me", () => api.saveAgentStudioMe(me), "Saved. Your next call uses it.")}>
           <Save size={13} /> Save
         </button>
@@ -197,7 +199,7 @@ export function AgentStudio({ onOpenPage, staff = false }) {
             </label>
           )}
           <BehaviourFields a={company.assistant} set={(patch) => setCompany({ ...company, assistant: { ...company.assistant, ...patch } })} />
-          <button type="button" style={btn(true, busy === "company")} disabled={busy === "company"}
+          <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "company"}
             onClick={() => run("company", () => api.saveAgentStudioCompany({
               agentName: company.agentName, tone: company.tone, handoverWhen: company.handoverWhen, neverSay: company.neverSay,
               captureFields: company.captureText.split(",").map((s) => s.trim()).filter(Boolean), recordCalls: company.recordCalls,
@@ -208,29 +210,6 @@ export function AgentStudio({ onOpenPage, staff = false }) {
           </button>
         </fieldset>
         <Message msg={msg.company} />
-      </div>
-
-      <div style={box}>
-        {title(BookOpen, "Script per campaign")}
-        <div style={{ fontSize: 12.5, color: C.slate }}>
-          Write and edit scripts in <button type="button" onClick={() => onOpenPage && onOpenPage("templates")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>Call scripts</button>;
-          what the AI knows comes from the <button type="button" onClick={() => onOpenPage && onOpenPage("company")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>Company</button> page.
-        </div>
-        {campaigns.length === 0 ? <div style={{ fontSize: 13, color: C.slate }}>No campaigns yet.</div> : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {campaigns.map((m) => (
-              <div key={m.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ flex: "1 1 200px", fontSize: 13, fontWeight: 600 }}>{m.title}</span>
-                <select aria-label={`Script for ${m.title}`} value={m.templateId} style={{ ...input, width: 280 }}
-                  onChange={(e) => run("campaign", () => api.setCampaignScript(m.id, e.target.value), `${m.title} now uses that script.`)}>
-                  <option value="">Default outbound script</option>
-                  {outbound.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-        )}
-        <Message msg={msg.campaign} />
       </div>
     </div>
   );

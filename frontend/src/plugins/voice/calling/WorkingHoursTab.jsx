@@ -184,7 +184,7 @@ export function WorkingHoursTab({ operator }) {
         </div>
         {canEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <button type="button" onClick={saveCalls} disabled={saving === "calls"} style={{ ...pill(true), display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button type="button" onClick={saveCalls} disabled={saving === "calls"} className="ui-btn ui-btn--primary">
               {saving === "calls" && <RefreshCw size={13} className="animate-spin" />} Save calling hours
             </button>
           </div>
@@ -213,7 +213,7 @@ export function WorkingHoursTab({ operator }) {
         </div>
         {canEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <button type="button" onClick={saveMeetings} disabled={saving === "meet"} style={{ ...pill(true), display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button type="button" onClick={saveMeetings} disabled={saving === "meet"} className="ui-btn ui-btn--primary">
               {saving === "meet" && <RefreshCw size={13} className="animate-spin" />} Save meeting hours
             </button>
           </div>
