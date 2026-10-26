@@ -2258,7 +2258,7 @@ function reuseAskText(existing, dates, channels) {
   return (
     "Already have " + existing.length + " draft" + (existing.length === 1 ? "" : "s")
     + " for " + day + " on " + ch
-    + ". Open Approvals to edit those, or Generate / Send again only if you want a new set."
+    + ". Open To approve to edit those, or Generate / Send again only if you want a new set."
   );
 }
 
@@ -2705,6 +2705,23 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
           </span>
         </label>
       </section>
+    </div>
+  );
+}
+
+// Tabs shown above a page that holds two screens (Library, Accounts & plan). Lined up with the page content below.
+function PageTabs({ label, tabs, page, onGo }) {
+  return (
+    <div style={{ padding: "16px 28px 0", background: HUB_PAPER, flexShrink: 0 }}>
+      <div role="tablist" aria-label={label} style={{ display: "flex", gap: 8, maxWidth: 980, margin: "0 auto" }}>
+        {tabs.map(([id, text, Icon, hint]) => (
+          <button key={id} type="button" role="tab" aria-selected={page === id} title={hint} onClick={() => onGo(id)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+              border: `1px solid ${page === id ? "#12141C" : "#E6E3DC"}`, background: page === id ? "#12141C" : "#fff", color: page === id ? "#fff" : "#12141C" }}>
+            <Icon size={14} /> {text}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3834,7 +3851,7 @@ export function SocialWorkspace({
           const failed = changed.filter((p) => p.status === "failed").length;
           const bits = [];
           if (posted) bits.push(posted + " post" + (posted === 1 ? "" : "s") + " went live");
-          if (failed) bits.push(failed + " failed — open Approvals");
+          if (failed) bits.push(failed + " failed — open To approve");
           showToast(bits.join(" · ") + ".");
         }
       } finally {
@@ -3997,7 +4014,7 @@ export function SocialWorkspace({
           ? (perChannel
             ? ("Drafting a different caption + image for each of " + created.length + " slots, because you asked for per-channel versions.")
             : ("Drafting one caption + one image for " + created.length + " slots (" + dates.length + " day" + (dates.length === 1 ? "" : "s") + " × " + channels.length + " channel" + (channels.length === 1 ? "" : "s") + ")."))
-          : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open Approvals to edit image or copy, then approve."),
+          : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open To approve to edit image or copy, then approve."),
       },
     ]);
   };
@@ -4395,33 +4412,31 @@ export function SocialWorkspace({
   };
   const navGroups = [
     { label: "Posts", items: [
-      { id: "plan", label: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
-      { id: "approvals", label: "Approvals", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
-      { id: "import", label: "Import", icon: Upload, active: page === "import" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("import") },
-      { id: "media", label: "Media library", icon: ImageIcon, active: page === "media" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
+      { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
+      { id: "approvals", label: "To approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+      { id: "library", label: "Library", icon: ImageIcon, active: (page === "media" || page === "import") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
     ] },
     { label: "Results", items: [
-      { id: "insights", label: "Insights", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
-      { id: "listening", label: "Listening", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
+      { id: "insights", label: "Post results", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
+      { id: "listening", label: "Mentions", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
     ] },
     { label: "Setup", items: [
-      { id: "accounts", label: "Accounts", icon: Plug, active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
+      { id: "accounts", label: "Accounts & plan", short: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
       { id: "audience", label: "Audience & ideas", short: "Audience", icon: Users, active: page === "audience" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("audience") },
-      operator?.is_admin ? { id: "subscription", label: "Subscription", icon: CreditCard, active: page === "subscription" && !approvalOpen, onClick: () => goPage("subscription") } : null,
     ] },
   ];
   const topTitles = {
-    overview: ["Calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    insights: ["Insights", "How your published posts did, and reports to share with clients or your manager."],
-    reports: ["Insights", "How your published posts did, and reports to share with clients or your manager."],
-    listening: ["Listening", "Public posts that mention your brand, products or competitors."],
-    media: ["Media library", "Pictures and videos to reuse in posts."],
-    import: ["Import", "Add many posts at once from a CSV or Excel file."],
-    plan: ["Calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    approvals: ["Approvals", "Posts waiting for your yes before they go out."],
-    accounts: ["Accounts", "The social accounts your posts go to."],
+    overview: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
+    insights: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
+    reports: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
+    listening: ["Mentions", "Public posts that mention your brand, products or competitors."],
+    media: ["Library", "Pictures and videos to reuse in posts."],
+    import: ["Library", "Add many posts at once from a CSV or Excel file."],
+    plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
+    approvals: ["To approve", "Posts waiting for your yes before they go out."],
+    accounts: ["Accounts & plan", "The social accounts your posts go to."],
     audience: ["Audience & ideas", "Who you are talking to, and what to post about."],
-    subscription: ["Subscription", "Your Social plan, credits and top-ups."],
+    subscription: ["Accounts & plan", "Your Social plan, credits and top-ups."],
   };
   const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];
   return (
@@ -4469,6 +4484,11 @@ export function SocialWorkspace({
             <SubscriptionPage wallet="scheduler" back="/scheduler" />
           </div>
         ) : page === "accounts" ? (
+          <>
+            {operator?.is_admin ? <PageTabs label="Accounts & plan" page={page} onGo={goPage} tabs={[
+              ["accounts", "Connected accounts", Plug, "The social networks your posts go to"],
+              ["subscription", "Plan & credits", CreditCard, "Your Social plan, credits and top-ups"],
+            ]} /> : null}
           <SimpleAccountsPage
             accounts={accounts}
             connecting={connecting}
@@ -4483,10 +4503,19 @@ export function SocialWorkspace({
             extras={extras}
             onExtrasChange={setExtras}
           />
-        ) : page === "media" ? (
-          <MediaLibraryPage showToast={showToast} />
-        ) : page === "import" ? (
-          <ImportPage showToast={showToast} onOpenApprovals={() => { refreshPosts(); openApprovals(); }} onOpenCalendar={() => { refreshPosts(); goPage("plan"); }} />
+          </>
+        ) : page === "media" || page === "import" ? (
+          <>
+            <PageTabs label="Library" page={page} onGo={goPage} tabs={[
+              ["media", "Pictures & videos", ImageIcon, "Your saved pictures and videos, ready to use in posts"],
+              ["import", "Import posts", Upload, "Add many posts at once from a CSV or Excel file"],
+            ]} />
+            {page === "media" ? (
+              <MediaLibraryPage showToast={showToast} />
+            ) : (
+              <ImportPage showToast={showToast} onOpenApprovals={() => { refreshPosts(); openApprovals(); }} onOpenCalendar={() => { refreshPosts(); goPage("plan"); }} />
+            )}
+          </>
         ) : page === "listening" ? (
           <ListeningPage showToast={showToast} />
         ) : page === "audience" ? (
@@ -4494,13 +4523,19 @@ export function SocialWorkspace({
         ) : page === "insights" || page === "reports" ? (
           <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
         ) : page === "subscription" ? (
+          <>
+            {operator?.is_admin ? <PageTabs label="Accounts & plan" page={page} onGo={goPage} tabs={[
+              ["accounts", "Connected accounts", Plug, "The social networks your posts go to"],
+              ["subscription", "Plan & credits", CreditCard, "Your Social plan, credits and top-ups"],
+            ]} /> : null}
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div style={{ maxWidth: 980, margin: "0 auto" }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Subscription</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 4 }}>Plan & credits</div>
               <div style={{ fontSize: 13, color: C.slate, marginBottom: 16 }}>Your Social plan and credits. Change plan, top up, or cancel.</div>
               <SubscriptionPage wallet="scheduler" back="/scheduler" />
             </div>
           </div>
+          </>
         ) : (
         <>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -4789,7 +4824,7 @@ export function SocialWorkspace({
 
             {drafts.length ? (
               <button type="button" onClick={() => openApprovals()} style={{ ...secBtn, justifyContent: "center", width: "100%" }}>
-                Open Approvals ({drafts.length} draft{drafts.length === 1 ? "" : "s"})
+                Open To approve ({drafts.length} draft{drafts.length === 1 ? "" : "s"})
               </button>
             ) : null}
           </div>

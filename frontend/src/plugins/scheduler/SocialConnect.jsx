@@ -320,7 +320,7 @@ function Ideas({ toast, onDrafted, onOpenApprovals }) {
           {made.ai.started ? "The AI is writing it now; it usually takes a minute or two, and the text appears there when it is ready."
             : (made.ai.why ? `The AI did not start: ${made.ai.why} The draft has a starting text you can edit.` : "It has a starting text you can edit.")}
         </span>
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={onOpenApprovals}>Open Approvals</button>
+        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={onOpenApprovals}>Open To approve</button>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setMade(null)}>Dismiss</button>
       </div>
     ) : null}

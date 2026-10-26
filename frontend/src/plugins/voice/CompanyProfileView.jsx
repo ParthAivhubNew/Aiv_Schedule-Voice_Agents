@@ -411,7 +411,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
               <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Business</div>
-              <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
+              <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" maxLength={29} hint="Up to 29 characters. It names your phone line, so keep it short." />
               <Field
                 label="Say company name as (spoken)"
                 value={profile.spokenName || ""}

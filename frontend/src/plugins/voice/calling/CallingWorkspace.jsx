@@ -78,19 +78,20 @@ import { ConversationTemplatesView } from "../ConversationTemplatesView";
 import { LiveCallCard, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
+import { watchTooltips } from "../../../utils/autoTooltips";
 import { CALL_LIST_STAGED, peekCallList, setOpenList, takeCallList } from "../../../utils/leadToVoice";
 import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
-  { id: "list", label: "Call list", icon: List, section: "calling" },
-  { id: "logs", label: "Conversations", icon: FileText, section: "calling" },  // calls and WhatsApp
-  { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling" },
-  { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics" },
+  { id: "list", label: "Call list", icon: List, section: "calling", hint: "Make calls: call one number, or upload a list and call many people" },
+  { id: "logs", label: "Conversations", icon: FileText, section: "calling", hint: "Past calls with their summaries, and calls happening right now. WhatsApp chats too" },  // calls and WhatsApp
+  { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling", hint: "Meetings that were booked, and calls to try again later" },
+  { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics", hint: "How many calls were made, answered and turned into meetings" },
   { id: "templates", label: "AI caller", icon: Sparkles, section: "calling" },  // call scripts, and how the caller sounds and behaves ("studio" is its second tab)
-  { id: "ai", label: "AI config", icon: Plug, section: "connections" },
-  { id: "company", label: "Business Setup", icon: Users, section: "company" },  // company profile, working hours and the AI caller (scripts, voice & rules)
-  { id: "subscription", label: "Plan & credits", icon: CreditCard, section: "admin" },  // subscription & numbers
+  { id: "ai", label: "AI config", icon: Plug, section: "connections", hint: "Keys for the AI services (staff only)" },
+  { id: "company", label: "Business Setup", icon: Users, section: "company", hint: "Your company details, working hours and the AI caller" },  // company profile, working hours and the AI caller (scripts, voice & rules)
+  { id: "subscription", label: "Plan & credits", icon: CreditCard, section: "admin", hint: "Your plan, credits and phone numbers" },  // subscription & numbers
 ];
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
@@ -1458,6 +1459,9 @@ export function CallingWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [page]);
 
+  // Hover help on every control, including ones without a written description.
+  useEffect(() => watchTooltips(document.querySelector(".app-shell")), []);
+
   const refreshLogs = useCallback(async () => {
     try {
       const data = await api.getCallLogs();
@@ -2660,7 +2664,7 @@ export function CallingWorkspace({
                   const Icon = p.icon;
                   const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && (page === "hours" || page === "templates" || page === "studio")) || (p.id === "subscription" && page === "numbers");
                   return (
-                    <button key={p.id} type="button" className="ui-nav-item" onClick={() => goPage(p.id)} aria-current={active ? "page" : undefined} data-locked={pluginLocked && p.id !== "subscription" ? "true" : undefined}>
+                    <button key={p.id} type="button" className="ui-nav-item" title={p.hint} onClick={() => goPage(p.id)} aria-current={active ? "page" : undefined} data-locked={pluginLocked && p.id !== "subscription" ? "true" : undefined}>
                       <Icon size={16} strokeWidth={1.75} />
                       <span style={{ flex: 1 }}>{p.label}</span>
                       {p.id === "logs" && activeLive.length ? (
@@ -2675,7 +2679,7 @@ export function CallingWorkspace({
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         <PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} />
-        <button type="button" className="ui-nav-item" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+        <button type="button" className="ui-nav-item" title="Sign out of Outreach on this device" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
           <LogOut size={16} strokeWidth={1.75} /> Log out
         </button>
       </div>
@@ -3067,6 +3071,7 @@ export function CallingWorkspace({
                           setDirect((d) => ({ ...d, phone: e.target.value }));
                         }}
                         placeholder="Phone number"
+                        title="The number to call. Include the country code, or pick the country on the left"
                         inputMode="tel"
                         style={{
                           border: "none",
@@ -3081,14 +3086,14 @@ export function CallingWorkspace({
                         }}
                       />
                     </div>
-                    <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" className="ui-input" style={{ flex: "1 1 150px" }} />
+                    <input value={direct.name} onChange={(e) => setDirect((d) => ({ ...d, name: e.target.value }))} placeholder="Name (optional)" title="Who you are calling. The AI uses the name in the conversation. You can leave it empty" className="ui-input" style={{ flex: "1 1 150px" }} />
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       {digitsInPhone(direct.phone).length >= 7 ? (
                         <>
-                          <button type="button" className="ui-icon-btn" title="Send a text" onClick={() => openChannel("sms", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}>
+                          <button type="button" className="ui-icon-btn" title="Send this number a text message" onClick={() => openChannel("sms", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}>
                             <MessageSquare size={16} />
                           </button>
-                          <button type="button" className="ui-icon-btn" title="WhatsApp" onClick={() => openChannel("whatsapp", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}>
+                          <button type="button" className="ui-icon-btn" title="Open a WhatsApp chat with this number" onClick={() => openChannel("whatsapp", resolveDirectPhone() || direct.phone, direct.name, brandForMsg())}>
                             <MessageCircle size={16} />
                           </button>
                           <button type="button" className="ui-icon-btn" title="Save to your contacts" onClick={saveDirectContact}>
@@ -3096,7 +3101,7 @@ export function CallingWorkspace({
                           </button>
                         </>
                       ) : null}
-                      <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "direct" || needNumber || digitsInPhone(direct.phone).length < 7} onClick={directCall} title={needNumber ? "Get a phone number first" : undefined}>
+                      <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "direct" || needNumber || digitsInPhone(direct.phone).length < 7} onClick={directCall} title={needNumber ? "Get a phone number first, then you can call" : digitsInPhone(direct.phone).length < 7 ? "Type a phone number first" : "Start an AI call to this number now"}>
                         <Phone size={15} /> {busy === "direct" ? "Calling…" : "Call"}
                       </button>
                     </div>
@@ -3147,8 +3152,8 @@ export function CallingWorkspace({
                               <div style={{ fontSize: 12, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{c.phone}{c.company && c.name ? ` · ${c.company}` : ""}</div>
                             </button>
                             <button type="button" className="ui-icon-btn ui-icon-btn--sm" disabled={needNumber} title={needNumber ? "Get a phone number first" : "Call"} onClick={() => callOneRow(c)}><Phone size={15} /></button>
-                            <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Send a text" onClick={() => openChannel("sms", c.phone, c.name, c.company || brandForMsg())}><MessageSquare size={15} /></button>
-                            <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="WhatsApp" onClick={() => openChannel("whatsapp", c.phone, c.name, c.company || brandForMsg())}><MessageCircle size={15} /></button>
+                            <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Send this number a text message" onClick={() => openChannel("sms", c.phone, c.name, c.company || brandForMsg())}><MessageSquare size={15} /></button>
+                            <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Open a WhatsApp chat with this number" onClick={() => openChannel("whatsapp", c.phone, c.name, c.company || brandForMsg())}><MessageCircle size={15} /></button>
                             <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Remove from saved numbers" onClick={() => removeSavedContact(c.id)}><X size={15} /></button>
                           </div>
                         ))}
@@ -3304,21 +3309,21 @@ export function CallingWorkspace({
                         Drop a spreadsheet here, or add contacts by hand. You can tick who to call once the list is in.
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
-                        <button type="button" className="ui-btn ui-btn--primary" onClick={() => { if (fileRef.current) fileRef.current.click(); }}>
+                        <button type="button" className="ui-btn ui-btn--primary" title="Choose a spreadsheet with the people you want to call (CSV or Excel)" onClick={() => { if (fileRef.current) fileRef.current.click(); }}>
                           <Upload size={15} /> Upload CSV / Excel
                         </button>
-                        <button type="button" className="ui-btn ui-btn--secondary" onClick={() => { newList({ confirm: false }); addRow(); }}>
+                        <button type="button" className="ui-btn ui-btn--secondary" title="Type in one contact by hand" onClick={() => { newList({ confirm: false }); addRow(); }}>
                           <Plus size={15} /> Add a row
                         </button>
                       </div>
                       <div className="list-empty-exts" style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
                         {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
-                          <span key={ext} style={{ fontFamily: FONT_MONO, fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
+                          <span key={ext} title={`You can upload ${ext} files`} style={{ fontFamily: FONT_MONO, fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
                         ))}
                       </div>
                       <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
                         Or
-                        <button type="button" className="ui-link" onClick={() => { if (chatInputRef.current) chatInputRef.current.focus(); }}>
+                        <button type="button" className="ui-link" title="Let the AI search the web for companies to call. Type what you need in the chat on the right" onClick={() => { if (chatInputRef.current) chatInputRef.current.focus(); }}>
                           ask List AI to find companies <ArrowRight size={14} />
                         </button>
                       </div>
@@ -3533,10 +3538,10 @@ export function CallingWorkspace({
                 <div style={{ display: "flex", alignItems: "center", gap: 2, height: 48, padding: "0 8px 0 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
                   <Sparkles size={16} color={C.cobalt} />
                   <div style={{ fontWeight: 600, fontSize: 13.5, color: C.textInk, flex: 1, marginLeft: 6 }}>List AI</div>
-                  <button type="button" className="ui-icon-btn" title="Past chats" aria-pressed={histOpen} onClick={() => setHistOpen((v) => !v)}>
+                  <button type="button" className="ui-icon-btn" title="Past chats: open an earlier conversation with List AI" aria-pressed={histOpen} onClick={() => setHistOpen((v) => !v)}>
                     <History size={16} />
                   </button>
-                  <button type="button" className="ui-icon-btn" title="New chat" onClick={newChat}>
+                  <button type="button" className="ui-icon-btn" title="Start a new chat. The current one is saved in Past chats" onClick={newChat}>
                     <SquarePen size={16} />
                   </button>
                 </div>
@@ -3691,13 +3696,13 @@ export function CallingWorkspace({
                     {chat.filter((m) => m && m.text && !isChatJunk(m)).length <= 1 && busy !== "chat" ? (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, marginTop: 2 }}>
                         <span style={{ fontSize: 12, color: C.slateLight }}>Try</span>
-                        <button type="button" className="ui-chip" onClick={() => { setChatInput("Find 20 dental practices in Leeds"); if (chatInputRef.current) chatInputRef.current.focus(); }}>
+                        <button type="button" className="ui-chip" title="Fills the message box with an example. Press send to find companies" onClick={() => { setChatInput("Find 20 dental practices in Leeds"); if (chatInputRef.current) chatInputRef.current.focus(); }}>
                           <Search size={14} color={C.slate} /> Find dental practices in Leeds
                         </button>
-                        <button type="button" className="ui-chip" disabled={!rows.length || busy === "find"} onClick={findMissing} title={rows.length ? undefined : "Add contacts first"}>
+                        <button type="button" className="ui-chip" disabled={!rows.length || busy === "find"} onClick={findMissing} title={rows.length ? "The AI looks up phone numbers and emails that are missing in your list" : "Add contacts first, then the AI can fill the gaps"}>
                           <Sparkles size={14} color={C.slate} /> Fill missing phones and emails
                         </button>
-                        <button type="button" className="ui-chip" onClick={() => newList({})}>
+                        <button type="button" className="ui-chip" title="Clear the current list and start with an empty one" onClick={() => newList({})}>
                           <Plus size={14} color={C.slate} /> Start a new list
                         </button>
                       </div>
@@ -3708,8 +3713,8 @@ export function CallingWorkspace({
                 )}
                 <div style={{ padding: 12, borderTop: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
                   <form className="ui-field" onSubmit={(e) => { e.preventDefault(); sendChat(e); }} style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 4px 4px 10px", background: "#fff" }}>
-                    <input ref={chatInputRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Find companies, fill gaps, or start a list" aria-label="Message List AI" disabled={busy === "chat" || busy === "find"} style={{ flex: 1, minWidth: 0, height: 30, border: 0, outline: 0, background: "transparent", fontFamily: FONT_BODY, fontSize: 13, color: C.textInk }} />
-                    <button type="submit" className="ui-btn ui-btn--primary" title="Send" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ width: 30, height: 30, padding: 0 }}>
+                    <input ref={chatInputRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Find companies, fill gaps, or start a list" aria-label="Message List AI" title="Tell List AI what you need, for example: find 20 dental practices in Leeds" disabled={busy === "chat" || busy === "find"} style={{ flex: 1, minWidth: 0, height: 30, border: 0, outline: 0, background: "transparent", fontFamily: FONT_BODY, fontSize: 13, color: C.textInk }} />
+                    <button type="submit" className="ui-btn ui-btn--primary" title="Send your message to List AI" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ width: 30, height: 30, padding: 0 }}>
                       <ArrowUp size={16} />
                     </button>
                   </form>

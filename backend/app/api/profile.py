@@ -77,7 +77,12 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         profile = CompanyProfile(id="default")
         db.add(profile)
         
-    if "name" in payload: profile.name = payload["name"]
+    if "name" in payload:
+        from app.services.telnyx_provisioning import company_name_problem
+
+        if str(payload["name"] or "").strip() != (profile.name or "").strip() and company_name_problem(payload["name"]):
+            raise HTTPException(status_code=422, detail=company_name_problem(payload["name"]))
+        profile.name = payload["name"]
     if "spokenName" in payload or "spoken_name" in payload:
         raw = payload.get("spokenName") if "spokenName" in payload else payload.get("spoken_name")
         profile.spoken_name = (str(raw).strip() if raw is not None else "") or None

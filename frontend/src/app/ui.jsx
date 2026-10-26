@@ -417,7 +417,7 @@ export function SectionIntro({ icon: Icon, title, desc }) {
   );
 }
 
-export function Field({ label, value, onChange, placeholder, textarea, hint }) {
+export function Field({ label, value, onChange, placeholder, textarea, hint, maxLength }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>{label}</div>
@@ -433,6 +433,7 @@ export function Field({ label, value, onChange, placeholder, textarea, hint }) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          maxLength={maxLength}
           style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", boxSizing: "border-box" }}
         />
       )}

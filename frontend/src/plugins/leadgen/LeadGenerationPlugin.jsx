@@ -152,12 +152,12 @@ export default function LeadGenerationPlugin({
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = [
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
-    { id: "lists", label: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
-    { id: "outreach", label: "Campaigns", icon: Send, group: "Outreach" },
+    { id: "lists", label: "My lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
+    { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
-    { id: "mailboxes", label: "Mailboxes", icon: Layers, group: "Outreach" },
+    { id: "mailboxes", label: "Email accounts", icon: Layers, group: "Outreach" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
-    ...(operator?.is_admin ? [{ id: "subscription", label: "Subscription", icon: CreditCard, group: "Setup" }] : []),
+    ...(operator?.is_admin ? [{ id: "subscription", label: "Plan & credits", icon: CreditCard, group: "Setup" }] : []),
   ];
   const navGroups = ["Outreach", "Setup"].map((label) => ({
     label,
@@ -183,12 +183,12 @@ export default function LeadGenerationPlugin({
 
   const viewTitles = {
     find_leads: { title: "Find Leads", desc: "Search for companies by what they do and where, narrow the results with the AI, or import your own spreadsheet." },
-    lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
-    outreach: { title: "Campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
+    lists: { title: "My lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
+    outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
     mail: { title: "Mail", desc: "Your mailboxes, and everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
-    mailboxes: { title: "Mailboxes", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
+    mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
-    subscription: { title: "Subscription & Credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
+    subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
 
   return (
@@ -230,7 +230,7 @@ export default function LeadGenerationPlugin({
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Subscription Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Plan Required</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Leads.</div>
                 </div>
               </div>

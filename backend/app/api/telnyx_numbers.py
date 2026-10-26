@@ -50,8 +50,14 @@ async def _our_price(db: AsyncSession) -> Dict[str, Any]:
 
 
 async def _org_name(db: AsyncSession, org_id: str) -> str:
+    """The name the user sees as "Company name" in Business Setup; the organisation's own name when that is empty."""
     from sqlalchemy import text
 
+    from app.models.models import CompanyProfile
+
+    shown = ((await db.execute(select(CompanyProfile.name).where(CompanyProfile.id == "default"))).scalar() or "").strip()
+    if shown:
+        return shown
     row = (await db.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": org_id})).first()
     return row[0] if row else org_id
 
@@ -59,7 +65,11 @@ async def _org_name(db: AsyncSession, org_id: str) -> str:
 async def _ready_client(db: AsyncSession, ctx: Dict[str, Any]):
     if not TP.platform_ready():
         raise HTTPException(status_code=503, detail="Phone numbers are not switched on yet. The Outreach team is setting this up.")
-    setup = await TP.ensure_setup(db, await _org_name(db, ctx["org_id"]), ctx.get("email") or "")
+    name = await _org_name(db, ctx["org_id"])
+    existing = await TP.get_setup(db)
+    if not (existing is not None and existing.status == "ready") and TP.company_name_problem(name):
+        raise HTTPException(status_code=422, detail=TP.company_name_problem(name))
+    setup = await TP.ensure_setup(db, name, ctx.get("email") or "")
     await db.commit()
     if setup.status != "ready":
         raise HTTPException(status_code=503, detail=_clean(setup.last_error) or "Your phone line is still being set up. Try again in a minute.")

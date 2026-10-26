@@ -44,6 +44,21 @@ def account_mode() -> str:
     return "managed_account" if m in ("managed", "managed_account", "managed_accounts") else "billing_group"
 
 
+# Telnyx names a company's call app "Outreach calls: <company> (<org id>)" and refuses names over 64 characters. The longest
+# org id is "org_" + 12 characters, so this is how long the company name can be. We do not shorten names for people: they choose a short one.
+CALL_APP_NAME_MAX = 64
+MAX_COMPANY_NAME = CALL_APP_NAME_MAX - len("Outreach calls: ") - len(" (org_000000000000)")
+
+
+def company_name_problem(name: str) -> str:
+    """Why this company name cannot be used for a phone line, or "" when it can."""
+    n = len((name or "").strip())
+    if n <= MAX_COMPANY_NAME:
+        return ""
+    return (f"Your company name is {n} characters long, and a phone line can use at most {MAX_COMPANY_NAME}. "
+            "Shorten it (for example drop words like \"company\" or \"limited\"), then try again.")
+
+
 def platform_ready() -> bool:
     return bool(platform_key())
 

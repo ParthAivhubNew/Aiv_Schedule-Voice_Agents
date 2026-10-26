@@ -135,6 +135,25 @@ async def _email_taken(db: AsyncSession, email: str) -> bool:
     return (await db.execute(q)).scalars().first() is not None
 
 
+FREE_MAIL_DOMAINS = ("gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "me.com", "proton.me", "protonmail.com")
+
+
+def default_company_name(name: str, domain: str) -> str:
+    """The company a Google sign-up starts with, short enough for a phone line (see telnyx_provisioning.MAX_COMPANY_NAME).
+    A work address gives the company name from its domain. A personal address gives the person's own name: the full name when it
+    fits, else first and last, else the first name, else its first characters. Nothing the person typed is changed."""
+    from app.services.telnyx_provisioning import MAX_COMPANY_NAME
+
+    limit = MAX_COMPANY_NAME
+    if (domain or "").lower() not in FREE_MAIL_DOMAINS:
+        return ((domain or "").split(".")[0].title() or name)[:limit].strip()
+    words = (name or "").split()
+    for candidate in (" ".join(words), " ".join(words[:1] + words[-1:]), words[0] if words else ""):
+        if candidate and len(candidate) <= limit:
+            return candidate
+    return ((words[0] if words else name or "My company")[:limit]).strip()
+
+
 async def _create_org(db: AsyncSession, company: str, name: str, email: str, password: Optional[str],
                       status: str, google_sub: Optional[str] = None) -> Operator:
     org_id = f"org_{uuid.uuid4().hex[:12]}"
@@ -264,6 +283,10 @@ async def register(db: AsyncSession, request: Request, *, company: str, name: st
     company, name, email = company.strip()[:120], name.strip()[:120], email.strip()
     if not company or not name:
         raise HTTPException(status_code=400, detail="Company and your name are required.")
+    from app.services.telnyx_provisioning import company_name_problem
+
+    if company_name_problem(company):
+        raise HTTPException(status_code=400, detail=company_name_problem(company).replace("Your company name is", "That company name is"))
     if not _EMAIL_RE.match(email) or len(email) > 254:
         raise HTTPException(status_code=400, detail="That email address does not look right.")
     problem = password_problem(password)
@@ -460,7 +483,7 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, db: AsyncSessio
             raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["no_account"])
         name = str(g.get("name") or email.split("@")[0])
         domain = email.split("@")[1]
-        company = name + "'s company" if domain in ("gmail.com", "googlemail.com") else domain.split(".")[0].title()
+        company = default_company_name(name, domain)
         op = await _create_org(db, company, name, email, None, "active", google_sub=sub)
     if op.is_active is False:
         raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["disabled"])
