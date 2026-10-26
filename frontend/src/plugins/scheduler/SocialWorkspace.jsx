@@ -1027,6 +1027,7 @@ function ApprovalsBoard({
   onReconnect,
   trackDefault,
   onRefresh,
+  asPage = false,
 }) {
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
@@ -1062,7 +1063,8 @@ function ApprovalsBoard({
   const org = useOrg();
   const [bodyRef, bodyWidth] = useElementWidth();
   // Wide window: list on the left, the open post beside it instead of on top of the list.
-  const wide = bodyWidth >= 820;
+  // As a page the list takes the whole width and the open post is a pop-up over it.
+  const wide = !asPage && bodyWidth >= 820;
   // A phone opens the post over the whole screen: inside the list area it got a strip too short
   // to read the post or reach its buttons.
   const fullScreen = usePhone() && !wide;
@@ -1528,7 +1530,7 @@ function ApprovalsBoard({
         ) : null}
 
         {expandedPost ? (
-          <OnTop when={fullScreen}>
+          <OnTop when={fullScreen || asPage}>
           <div
             role="presentation"
             onClick={wide ? undefined : closePreview}
@@ -1541,6 +1543,16 @@ function ApprovalsBoard({
               display: "flex",
               paddingTop: "env(safe-area-inset-top)",
               paddingBottom: "env(safe-area-inset-bottom)",
+            } : asPage ? {
+              position: "fixed",
+              inset: 0,
+              background: "rgba(18,20,28,0.4)",
+              zIndex: 60,
+              display: "flex",
+              alignItems: "stretch",
+              justifyContent: "center",
+              padding: 16,
+              cursor: "pointer",
             } : {
               position: "absolute",
               inset: 0,
@@ -1560,7 +1572,7 @@ function ApprovalsBoard({
               onClick={(e) => e.stopPropagation()}
               style={{
               width: "100%",
-              maxWidth: wide ? "none" : (editMode ? 860 : 560),
+              maxWidth: wide ? "none" : asPage ? (editMode ? 1000 : 680) : (editMode ? 860 : 560),
               background: "#fff",
               border: `1px solid ${C.border}`,
               borderRadius: 16,
@@ -2937,13 +2949,6 @@ export function SocialWorkspace({
   const [expandedApprovalId, setExpandedApprovalId] = useState("");
   const [approvalTargetDate, setApprovalTargetDate] = useState("");
   const [approvalScope, setApprovalScope] = useState({ scope: "waiting" });
-  const [approvalPos, setApprovalPos] = useState({ x: 0, y: 0 });
-  // Dragging moves the window for this visit only: every opening starts centred.
-  useEffect(() => {
-    if (approvalOpen) setApprovalPos({ x: 0, y: 0 });
-  }, [approvalOpen]);
-  const [approvalDragging, setApprovalDragging] = useState(false);
-  const approvalDragRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const dayClickTimerRef = useRef({});
   const [pinnedDates, setPinnedDates] = useState(() => {
     const saved = readJson(LS_PINS, []);
@@ -4239,7 +4244,6 @@ export function SocialWorkspace({
     setExpandedApprovalId("");
     setApprovalTargetDate("");
   };
-  useEscapeLayer(approvalOpen, 1, closeApprovals);
 
   // Day list: the whole day, every channel and status, nothing opened yet.
   const openDayList = (targetDate) => {
@@ -4275,34 +4279,6 @@ export function SocialWorkspace({
     }
     setApprovalOpen(true);
   };
-
-  const onApprovalHeaderDown = (e) => {
-    if (e.target.closest("button") || e.target.closest("input") || e.target.closest("a")) return;
-    setApprovalDragging(true);
-    approvalDragRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      posX: approvalPos.x,
-      posY: approvalPos.y,
-    };
-  };
-
-  useEffect(() => {
-    if (!approvalDragging) return;
-    const onMove = (e) => {
-      setApprovalPos({
-        x: approvalDragRef.current.posX + (e.clientX - approvalDragRef.current.x),
-        y: approvalDragRef.current.posY + (e.clientY - approvalDragRef.current.y),
-      });
-    };
-    const onUp = () => setApprovalDragging(false);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [approvalDragging]);
 
   const cta = (() => {
     if (drafts.length) return { label: drafts.length + " need" + (drafts.length === 1 ? "s" : "") + " review", disabled: false, action: () => openApprovals(selectedId), tone: "approve" };
@@ -4455,7 +4431,65 @@ export function SocialWorkspace({
             <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} onClick={() => goPage("accounts")}>Change</button>
           </div>
         ) : null}
-        {pluginLocked && page !== "subscription" ? (
+        {approvalOpen && !pluginLocked ? (
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: HUB_PAPER }}>
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12.5, color: C.slate }}>
+                  {drafts.length ? drafts.length + " post" + (drafts.length === 1 ? "" : "s") + " need you. Open one to read it, edit it and approve." : "Nothing waiting"}
+                </div>
+                <ApprovalMailLine />
+              </div>
+              {drafts.length > 1 ? (
+                <button type="button" onClick={approveAllDrafts} disabled={!!publishing} style={priBtn} title="Approve every draft that is waiting">
+                  <Check size={14} /> Approve all drafts
+                </button>
+              ) : null}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <ApprovalsBoard
+                asPage
+                waitingList={waitingList}
+                doneList={doneList}
+                expandedId={expandedApprovalId}
+                setExpandedId={(id) => {
+                  setExpandedApprovalId(id);
+                  if (id) setSelectedId(id);
+                }}
+                initialDate={approvalTargetDate || (posts.find((p) => p.id === selectedId) || {}).date || ""}
+                requestedScope={approvalScope}
+                statusColor={statusColor}
+                statusLabel={statusLabel}
+                imageBusy={imageBusy}
+                imageNote={imageNote}
+                setImageNote={setImageNote}
+                sendImageChat={sendImageChat}
+                regenImage={regenImage}
+                applyImageToBatch={applyImageToBatch}
+                copyBusy={copyBusy}
+                copyNote={copyNote}
+                setCopyNote={setCopyNote}
+                sendCopyChat={sendCopyChat}
+                fillPackages={fillPackages}
+                approveOne={approveOne}
+                publishing={publishing}
+                revertTouched={revertTouched}
+                updateSchedule={updateSchedule}
+                editPostFields={editPostFields}
+                restoreVersion={restoreVersion}
+                deletePost={deletePost}
+                genProgress={genProgress}
+                scheduleNames={scheduleNames}
+                retryGeneration={retryGeneration}
+                showToast={showToast}
+                onReconnect={() => { closeApprovals(); setPage("accounts"); }}
+                trackDefault={extras ? extras.trackLinks : true}
+                onRefresh={refreshPosts}
+              />
+            </div>
+          </div>
+        ) : null}
+        {approvalOpen && !pluginLocked ? null : pluginLocked && page !== "subscription" ? (
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div
               style={{
@@ -4514,7 +4548,7 @@ export function SocialWorkspace({
           </>
         ) : page === "listening" ? (
           <>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
@@ -4523,7 +4557,7 @@ export function SocialWorkspace({
           </>
         ) : page === "audience" ? (
           <>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
@@ -4532,7 +4566,7 @@ export function SocialWorkspace({
           </>
         ) : page === "insights" || page === "reports" ? (
           <>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
               ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
               ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
               ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
@@ -5149,97 +5183,6 @@ export function SocialWorkspace({
           loadScheduleNames();
         }}
       />
-      {approvalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 12 }} onClick={closeApprovals}>
-          <div
-            style={{
-              width: "min(1760px, 97vw)",
-              maxWidth: "100%",
-              height: "min(1040px, calc(100vh - 24px))",
-              background: HUB_PAPER,
-              borderRadius: 16,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              boxShadow: "0 24px 64px rgba(18,20,28,0.28)",
-              transform: `translate(${approvalPos.x}px, ${approvalPos.y}px)`,
-              transition: approvalDragging ? "none" : "transform 0.05s ease-out",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              onMouseDown={onApprovalHeaderDown}
-              style={{
-                padding: "14px 18px",
-                borderBottom: `1px solid ${C.border}`,
-                background: "#fff",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                flexShrink: 0,
-                cursor: approvalDragging ? "grabbing" : "grab",
-                userSelect: "none",
-              }}
-              title="Drag to move"
-            >
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Approvals</div>
-                <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>
-                  {drafts.length ? drafts.length + " post" + (drafts.length === 1 ? "" : "s") + " need you" : "Nothing waiting"}
-                </div>
-                <ApprovalMailLine />
-              </div>
-              {drafts.length > 1 ? (
-                <button type="button" onClick={approveAllDrafts} disabled={!!publishing} style={priBtn}>
-                  <Check size={14} /> Approve all drafts
-                </button>
-              ) : null}
-              <button type="button" onClick={closeApprovals} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
-            </div>
-            <div style={{ flex: 1, minHeight: 0, padding: 14, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <ApprovalsBoard
-                waitingList={waitingList}
-                doneList={doneList}
-                expandedId={expandedApprovalId}
-                setExpandedId={(id) => {
-                  setExpandedApprovalId(id);
-                  if (id) setSelectedId(id);
-                }}
-                initialDate={approvalTargetDate || (posts.find((p) => p.id === selectedId) || {}).date || ""}
-                requestedScope={approvalScope}
-                statusColor={statusColor}
-                statusLabel={statusLabel}
-                imageBusy={imageBusy}
-                imageNote={imageNote}
-                setImageNote={setImageNote}
-                sendImageChat={sendImageChat}
-                regenImage={regenImage}
-                applyImageToBatch={applyImageToBatch}
-                copyBusy={copyBusy}
-                copyNote={copyNote}
-                setCopyNote={setCopyNote}
-                sendCopyChat={sendCopyChat}
-                fillPackages={fillPackages}
-                approveOne={approveOne}
-                publishing={publishing}
-                revertTouched={revertTouched}
-                updateSchedule={updateSchedule}
-                editPostFields={editPostFields}
-                restoreVersion={restoreVersion}
-                deletePost={deletePost}
-                genProgress={genProgress}
-                scheduleNames={scheduleNames}
-                retryGeneration={retryGeneration}
-                showToast={showToast}
-                onReconnect={() => { closeApprovals(); setPage("accounts"); }}
-                trackDefault={extras ? extras.trackLinks : true}
-                onRefresh={refreshPosts}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
       <style>{`.aiv-hide-scrollbar::-webkit-scrollbar{display:none;height:0;width:0}`}</style>
 
       {toast ? (

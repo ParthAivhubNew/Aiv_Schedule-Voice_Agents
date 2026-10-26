@@ -147,7 +147,7 @@ export function ListeningPage({ showToast }) {
   const topics = (over && over.topics) || [];
   return (
     <div style={page}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)", gap: 16, alignItems: "start" }} className="listen-layout">
+      <div style={{ maxWidth: 1320, margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)", gap: 16, alignItems: "start" }} className="listen-layout">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {editing ? (
             <TopicForm initial={editing} available={over && over.sources} showToast={showToast} onCancel={() => setEditing(null)}

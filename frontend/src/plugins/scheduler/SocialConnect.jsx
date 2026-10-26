@@ -428,7 +428,7 @@ export function SocialConnect({ showToast, onDrafted, onOpenApprovals }) {
   ];
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ maxWidth: 1320, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ ...card, background: TEAL_SOFT, borderColor: "#C7E9E3", padding: "14px 16px", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ flex: "1 1 360px", minWidth: 0 }}>
             <div style={{ ...text, fontWeight: 700, fontSize: 14, color: TEAL_INK }}>Turn your posts into customers</div>
@@ -444,14 +444,14 @@ export function SocialConnect({ showToast, onDrafted, onOpenApprovals }) {
           ) : null}
         </div>
 
-        <div role="tablist" aria-label="Audience and ideas" style={{ display: "flex", gap: 4, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 4, alignSelf: "flex-start", maxWidth: "100%" }}>
+        <div role="tablist" aria-label="Audience and ideas" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {tabs.map((t) => {
             const on = tab === t.id;
             const Icon = t.icon;
             return (
               <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 14px", border: "none", borderRadius: 9, cursor: "pointer",
-                  fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, background: on ? TEAL : "transparent", color: on ? "#fff" : C.slate }}>
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13,
+                  border: `1px solid ${on ? "#12141C" : C.border}`, background: on ? "#12141C" : "#fff", color: on ? "#fff" : "#12141C" }}>
                 <Icon size={14} /> {t.label}
                 {t.count != null ? <span style={{ fontSize: 11, borderRadius: 99, padding: "0 7px", background: on ? "rgba(255,255,255,0.22)" : HUB_PAPER, color: on ? "#fff" : C.slate }}>{t.count}</span> : null}
               </button>

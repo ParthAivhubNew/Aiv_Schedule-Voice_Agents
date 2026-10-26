@@ -299,7 +299,7 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
   const accountOptions = accountsForChannel.map((a) => ({ id: a.id, label: `${title(a.platform)} · ${a.handle || a.id}`, dot: DOTS[a.platform] }));
   return (
     <div style={page}>
-      <div style={{ maxWidth: side ? 1560 : 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20 }}>
+      <div style={{ maxWidth: side ? 1320 : 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20 }}>
       <div id="insights-main" style={{ flex: "1 1 620px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <div role="group" aria-label="Time range" style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden", background: "#fff" }}>
