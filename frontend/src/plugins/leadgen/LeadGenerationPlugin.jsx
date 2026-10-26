@@ -41,6 +41,7 @@ import { DialogHost } from "./Dialogs";
 import { CampaignWizard } from "./CampaignWizard";
 import { ProfileBox } from "./EmailWriter";
 import { takeOpenLead } from "../../connections/ConnectedHome";
+import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
 
 
 // Leads is purple: its buttons, selections and highlights follow this instead of Voice's blue.
@@ -78,6 +79,7 @@ export default function LeadGenerationPlugin({
     }
   });
   const nav = useMobileNav(view);
+  const embedViews = useEmbedViews(); // set when this app is shown inside a partner's page: only those pages
   // Find Leads stays alive (just hidden) once opened, so a search, its results and a drawn map area are
   // still there when the user comes back from another tab.
   const [findOpened, setFindOpened] = useState(view === "find_leads");
@@ -149,14 +151,14 @@ export default function LeadGenerationPlugin({
   });
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
-  const navItems = [
+  const navItems = onlyEmbedViews([
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "My lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach" },
     { id: "mailboxes", label: "Email accounts", icon: Layers, group: "Outreach" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
-  ];
+  ], embedViews);
   const navGroups = ["Outreach", "Setup"].map((label) => ({
     label,
     items: navItems.filter((item) => item.group === label).map((item) => ({
@@ -211,7 +213,7 @@ export default function LeadGenerationPlugin({
 
         {/* Main Content Area */}
         <div className="app-page" style={{ flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
-          {isLocked && view !== "subscription" ? (
+          {isLocked && embedViews ? <EmbedPlanNotice app="Leads" /> : isLocked && view !== "subscription" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div
                 style={{

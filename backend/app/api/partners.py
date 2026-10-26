@@ -166,6 +166,40 @@ async def rotate_webhook_secret(request: Request, db: AsyncSession = Depends(get
     return PT.partner_json(p)
 
 
+@router.post("/secret/rotate")
+async def rotate_secret(request: Request, db: AsyncSession = Depends(get_db)):
+    """A new secret key for the partner's server (it asks for embed tokens with it). Shown once; the old one stops working."""
+    from app.services import embed as EM
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    if p.status == "suspended":
+        raise HTTPException(status_code=403, detail="Your integration is paused. Contact the Outreach team.")
+    raw, prefix, hashed = EM.new_secret(live=p.status == "live")
+    p.secret_hash, p.secret_prefix = hashed, prefix
+    await db.commit()
+    return {"secretKey": raw, "prefix": prefix, "mode": "live" if p.status == "live" else "test"}
+
+
+class ThemeBody(BaseModel):
+    variables: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.put("/theme")
+async def save_theme(body: ThemeBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """The default look of the partner's embedded screens. Anything that is not a valid value is refused, not quietly dropped."""
+    from app.services import embed_theme as TH
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    bad = TH.problems({"variables": body.variables})
+    if bad:
+        raise HTTPException(status_code=400, detail="These could not be used: " + "; ".join(bad[:6]) + ".")
+    p.theme = TH.clean_appearance({"variables": body.variables})
+    await db.commit()
+    return PT.partner_json(p)
+
+
 @router.post("/request-live")
 async def request_live(request: Request, db: AsyncSession = Depends(get_db)):
     ctx = admin_ctx(request)
@@ -189,6 +223,25 @@ async def request_live(request: Request, db: AsyncSession = Depends(get_db)):
     return PT.partner_json(p)
 
 
+async def _credits_used(partner_id: str, org_ids: List[str], days: int = 30) -> Dict[str, int]:
+    """Credits each linked account used in the last `days` days through this partner's screens (only lines stamped with the partner)."""
+    from datetime import timedelta
+
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import CreditEntry
+
+    if not org_ids:
+        return {}
+    since = datetime.utcnow() - timedelta(days=days)
+    with system_scope():
+        async with AsyncSessionLocal() as s:
+            rows = (await s.execute(select(CreditEntry.org_id, func.sum(-CreditEntry.amount)).where(
+                CreditEntry.partner_id == partner_id, CreditEntry.kind == "usage", CreditEntry.created_at >= since,
+                CreditEntry.org_id.in_(org_ids)).group_by(CreditEntry.org_id))).all()
+    return {org: int(total or 0) for org, total in rows}
+
+
 @router.get("/links")
 async def links(request: Request, status: str = "", offset: int = 0, db: AsyncSession = Depends(get_db)):
     ctx = admin_ctx(request)
@@ -198,8 +251,9 @@ async def links(request: Request, status: str = "", offset: int = 0, db: AsyncSe
     if status in ("active", "revoked"):
         q = q.where(PartnerLink.status == status)
     rows = (await db.execute(q.order_by(PartnerLink.created_at.desc()).offset(max(0, offset)).limit(LINK_PAGE))).all()
-    return {"links": [{"id": l.id, "orgId": l.org_id, "company": name or "", "status": l.status, "createdAccount": bool(l.created_account),
-                       "consentVersion": l.consent_version, "connectedAt": l.consented_at.isoformat() if l.consented_at else None,
+    used = await _credits_used(p.id, [l.org_id for l, _ in rows])
+    return {"links": [{"id": l.id, "creditsUsed30d": used.get(l.org_id, 0), "orgId": l.org_id, "company": name or "", "status": l.status, "createdAccount": bool(l.created_account),
+                       "consentVersion": l.consent_version, "externalId": l.external_id or "", "connectedAt": l.consented_at.isoformat() if l.consented_at else None,
                        "lastLoginAt": l.last_login_at.isoformat() if l.last_login_at else None,
                        "revokedBy": l.revoked_by or "", "revokedAt": l.revoked_at.isoformat() if l.revoked_at else None}
                       for l, name in rows]}

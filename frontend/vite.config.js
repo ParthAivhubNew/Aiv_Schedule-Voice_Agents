@@ -13,13 +13,25 @@ const adminPortalPaths = {
   },
 };
 
+// Embedded screens (inside a partner's page) are their own page too, served for every /embed/... path.
+const embedPaths = {
+  name: 'embed-paths',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      if (/^\/embed(\/|$|\?)/.test(req.url || '')) req.url = '/embed.html' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
+      next();
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), adminPortalPaths],
+  plugins: [react(), adminPortalPaths, embedPaths],
   build: {
     rollupOptions: {
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         admin: resolve(import.meta.dirname, 'admin.html'),
+        embed: resolve(import.meta.dirname, 'embed.html'),
       },
     },
   },

@@ -1,5 +1,8 @@
 # Partner API: connecting accounts and what you can call
 
+> **Older integration path.** New partners show Outreach screens inside their software instead (see `partner-embed.md`). This direct
+> API keeps working for integrations already built on it.
+
 For partners whose users sign in to Outreach from the partner's own pages. Everything goes through one door:
 
 ```

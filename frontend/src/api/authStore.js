@@ -41,8 +41,16 @@ function write(key, value) {
   } catch (_) {}
 }
 
+// Inside a partner's page the token comes from the partner's server, lives only in memory, and is renewed by asking
+// that page (see src/embed). Nothing is written to storage.
+let embedAuth = null;
+
+export function setEmbedAuth(auth) {
+  embedAuth = auth;
+}
+
 export function getAccessToken() {
-  return read(ACCESS_KEY);
+  return embedAuth ? embedAuth.token : read(ACCESS_KEY);
 }
 
 export function setSession({ access_token, refresh_token, operator } = {}) {
@@ -73,6 +81,7 @@ let refreshing = null;
 
 // Gets a new access token with the refresh token. Several callers share one request.
 export function refreshSession() {
+  if (embedAuth) return embedAuth.refresh();
   if (refreshing) return refreshing;
   const refresh_token = read(REFRESH_KEY);
   if (!refresh_token) return Promise.resolve(false);

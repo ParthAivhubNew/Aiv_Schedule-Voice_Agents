@@ -340,6 +340,24 @@ button, input, select, textarea {
 .ui-nav-item[aria-current="page"] { background: var(--ui-side-active); color: var(--ui-side-strong); }
 .ui-nav-item[aria-current="page"] svg { color: var(--ui-side-active-icon); }
 .ui-nav-item[data-locked="true"] { opacity: 0.4; cursor: not-allowed; }
+.ui-nav-chevron { margin-left: auto; opacity: 0.6; }
+.ui-nav-item .ui-nav-count + .ui-nav-chevron { margin-left: 6px; }
+.ui-nav-sub { height: 30px; padding-left: 36px; font-size: 12.5px; }
+.ui-nav-flyout {
+  position: fixed; z-index: 400; min-width: 200px; padding: 6px;
+  background: var(--ui-side-bg); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.ui-nav-flyout-title { font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ui-side-muted); padding: 6px 10px 4px; }
+.ui-nav-flyout-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 10px;
+  color: var(--ui-side-ink); background: transparent; border: 0; border-radius: var(--ui-r-sm);
+  font: 500 13px 'Inter', sans-serif; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.ui-nav-flyout-item svg { color: var(--ui-side-muted); flex-shrink: 0; }
+.ui-nav-flyout-item:hover, .ui-nav-flyout-item:focus-visible { background: var(--ui-side-hover); color: var(--ui-side-strong); }
+.ui-nav-flyout-item[aria-current="page"] { background: var(--ui-side-active); color: var(--ui-side-strong); }
+.ui-nav-flyout-item[aria-current="page"] svg { color: var(--ui-side-active-icon); }
 .ui-nav-count--live { background: var(--ui-accent); color: #FFFFFF; }
 .ui-nav-count {
   margin-left: auto;

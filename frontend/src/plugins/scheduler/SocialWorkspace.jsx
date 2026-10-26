@@ -2722,23 +2722,6 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
   );
 }
 
-// Tabs shown above a page that holds two screens (Library, Results & Ideas). Lined up with the page content below.
-function PageTabs({ label, tabs, page, onGo, width = 980 }) {
-  return (
-    <div style={{ padding: "16px 28px 0", background: HUB_PAPER }}>
-      <div role="tablist" aria-label={label} style={{ display: "flex", gap: 8, maxWidth: width, margin: "0 auto" }}>
-        {tabs.map(([id, text, Icon, hint]) => (
-          <button key={id} type="button" role="tab" aria-selected={page === id} title={hint} onClick={() => onGo(id)}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
-              border: `1px solid ${page === id ? "#12141C" : "#E6E3DC"}`, background: page === id ? "#12141C" : "#fff", color: page === id ? "#fff" : "#12141C" }}>
-            <Icon size={14} /> {text}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function SimpleAccountsPage({
   accounts,
   connecting,
@@ -4391,8 +4374,17 @@ export function SocialWorkspace({
     { label: "Posts", items: [
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "Post approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
-      { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
-      { id: "library", label: "Library", icon: ImageIcon, active: (page === "media" || page === "import") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
+      { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights"),
+        children: [
+          { id: "insights", label: "Post results", icon: BarChart3, title: "How your published posts did, and reports to share", active: (page === "insights" || page === "reports") && !approvalOpen, onClick: () => goPage("insights") },
+          { id: "audience", label: "Audience & ideas", icon: Users, title: "Who you are talking to, and what to post about", active: page === "audience" && !approvalOpen, onClick: () => goPage("audience") },
+          { id: "listening", label: "Mentions", icon: Ear, title: "Public posts that mention your brand, products or competitors", active: page === "listening" && !approvalOpen, onClick: () => goPage("listening") },
+        ] },
+      { id: "library", label: "Library", icon: ImageIcon, active: (page === "media" || page === "import") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media"),
+        children: [
+          { id: "media", label: "Pictures & videos", icon: ImageIcon, title: "Your saved pictures and videos, ready to use in posts", active: page === "media" && !approvalOpen, onClick: () => goPage("media") },
+          { id: "import", label: "Import posts", icon: Upload, title: "Add many posts at once from a CSV or Excel file", active: page === "import" && !approvalOpen, onClick: () => goPage("import") },
+        ] },
     ] },
     { label: "Setup", items: [
       { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
@@ -4531,10 +4523,6 @@ export function SocialWorkspace({
           />
         ) : page === "media" || page === "import" ? (
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
-            <PageTabs label="Library" page={page} onGo={goPage} width={1100} tabs={[
-              ["media", "Pictures & videos", ImageIcon, "Your saved pictures and videos, ready to use in posts"],
-              ["import", "Import posts", Upload, "Add many posts at once from a CSV or Excel file"],
-            ]} />
             {page === "media" ? (
               <MediaLibraryPage showToast={showToast} />
             ) : (
@@ -4543,29 +4531,14 @@ export function SocialWorkspace({
           </div>
         ) : page === "listening" ? (
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
-              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
-              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
-              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
-            ]} />
             <ListeningPage showToast={showToast} />
           </div>
         ) : page === "audience" ? (
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
-              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
-              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
-              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
-            ]} />
             <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
           </div>
         ) : page === "insights" || page === "reports" ? (
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
-            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={1320} tabs={[
-              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
-              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
-              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
-            ]} />
             <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
           </div>
         ) : page === "subscription" ? (

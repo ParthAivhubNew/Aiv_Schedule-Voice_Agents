@@ -99,11 +99,11 @@ async def signup(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Di
     return {"ok": True, "verify_email": False, **(await _with_key(db, partner, op, version, created=True))}
 
 
-async def login(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
+async def admin_operator(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Operator:
+    """The account admin who proves they own an Outreach account with its email and password (the same checks as the sign-in page)."""
     from app.api import auth as A
     from app.core.accounts import effective_access
 
-    partner = await _partner_for(request, data)
     try:
         op = await A.check_credentials(db, _text(data, "email", 254), data.get("password") if isinstance(data.get("password"), str) else "", request)
         await A.assert_can_sign_in(db, op)
@@ -115,6 +115,12 @@ async def login(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dic
     is_admin, _, _ = await effective_access(db, op)
     if not is_admin:
         fail(403, "admin_required", "Only an admin of the Outreach account can connect it. Ask your admin.")
+    return op
+
+
+async def login(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
+    partner = await _partner_for(request, data)
+    op = await admin_operator(request, db, data)
     existing = await PT.link_for(db, partner.id, op.org_id)
     if existing is not None and existing.status == "active" and data.get("consent") is not True:
         version = existing.consent_version or PT.CONSENT_VERSION

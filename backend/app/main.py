@@ -53,6 +53,7 @@ from app.api.vapi_router import router as vapi_router
 from app.api.retell_router import router as retell_router
 from app.api.custom_voice_router import router as custom_voice_router
 from app.api.conversation_templates import router as conversation_templates_router
+from app.api.call_lists import router as call_lists_router
 from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
@@ -62,6 +63,8 @@ from app.api.mail_client import router as mail_client_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
 from app.api.partners import router as partners_router
+from app.api.embed import router as embed_router
+from app.api.embed_connect import router as embed_connect_router
 from app.api.v1_public import router as v1_public_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
@@ -860,6 +863,7 @@ app.include_router(retell_router, prefix=settings.API_PREFIX)
 app.include_router(retell_router)  # Direct /retell compatibility
 app.include_router(custom_voice_router, prefix=settings.API_PREFIX)
 app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
+app.include_router(call_lists_router, prefix=settings.API_PREFIX)
 app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)
 app.include_router(conversation_templates_router)  # Direct /conversation-templates compatibility
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
@@ -871,6 +875,8 @@ app.include_router(mail_client_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)
 app.include_router(partners_router, prefix=settings.API_PREFIX)
+app.include_router(embed_router, prefix=settings.API_PREFIX)
+app.include_router(embed_connect_router, prefix=settings.API_PREFIX)
 app.include_router(v1_public_router)  # Direct /v1 API compatibility
 app.include_router(v1_public_router, prefix=settings.API_PREFIX)  # /api/v1 compatibility
 app.include_router(preview_router, prefix=settings.API_PREFIX)  # /api/p/<token>: preview pages, no sign-in

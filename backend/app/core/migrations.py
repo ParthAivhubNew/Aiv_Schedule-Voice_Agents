@@ -757,6 +757,23 @@ async def _org_referred_by_partner(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_organizations_referred_by_partner_id ON organizations (referred_by_partner_id)"))
 
 
+async def _embed_links_and_ledger_stamps(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE partner_links ADD COLUMN IF NOT EXISTS external_id VARCHAR DEFAULT ''"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_partner_links_external_id ON partner_links (external_id)"))
+    await conn.execute(text("ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS partner_id VARCHAR"))
+    await conn.execute(text("ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS payer_org_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_credit_ledger_partner_id ON credit_ledger (partner_id)"))
+
+
+async def _partner_embed_theme(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS theme JSON"))
+
+
+async def _partner_secret_key(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS secret_hash VARCHAR DEFAULT ''"))
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS secret_prefix VARCHAR DEFAULT ''"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -805,6 +822,9 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_09_mailbox_mail_state", _mailbox_mail_state),
     ("2026_11_10_api_key_mailboxes", _api_key_mailboxes),
     ("2026_11_11_org_referred_by_partner", _org_referred_by_partner),
+    ("2026_11_12_partner_secret_key", _partner_secret_key),
+    ("2026_11_13_embed_links_and_ledger_stamps", _embed_links_and_ledger_stamps),
+    ("2026_11_14_partner_embed_theme", _partner_embed_theme),
 ]
 
 

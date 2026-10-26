@@ -162,8 +162,10 @@ def expand_scopes(scopes: List[str]) -> List[str]:
 
 def _forget_keys() -> None:
     from app.core.auth_middleware import forget_api_keys
+    from app.services import embed
 
     forget_api_keys()
+    embed.forget()  # embed tokens of a revoked or paused link stop working at once, not when they expire
 
 
 async def _drop_key(db: AsyncSession, key_id: str) -> None:
@@ -326,7 +328,7 @@ def partner_json(p: Partner, secret: bool = True) -> Dict[str, Any]:
         "id": p.id, "clientId": p.client_id, "name": p.name, "status": p.status,
         "allowedOrigins": p.allowed_origins or [], "returnUrls": p.return_urls or [],
         "scopes": p.scopes or DEFAULT_SCOPES, "logoUrl": p.logo_url or "", "accentColor": p.accent_color or "",
-        "webhookUrl": p.webhook_url or "", "liveRequestedAt": p.live_requested_at.isoformat() if p.live_requested_at else None,
+        "webhookUrl": p.webhook_url or "", "secretKeyPrefix": p.secret_prefix or "", "theme": p.theme or {"variables": {}}, "liveRequestedAt": p.live_requested_at.isoformat() if p.live_requested_at else None,
         "termsVersion": p.terms_version or "", "createdAt": p.created_at.isoformat() if p.created_at else None,
     }
     if secret:

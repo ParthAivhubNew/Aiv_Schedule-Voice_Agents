@@ -12,9 +12,16 @@ function notify() {
   } catch (_) {}
 }
 
+// Inside a partner's page the address bar belongs to our frame, so the app keeps its place in memory instead.
+let virtualPath = null;
+
+export function setVirtualRoute(path) {
+  virtualPath = path;
+}
+
 // "#/voice/list" for /voice/list, "" for /.
 export function routeHash() {
-  const path = (window.location.pathname || "/").replace(/\/+$/, "");
+  const path = (virtualPath !== null ? virtualPath : window.location.pathname || "/").replace(/\/+$/, "");
   return path && path !== "/" ? `#${path}` : "";
 }
 
@@ -25,6 +32,13 @@ function toPath(hashLike) {
 
 export function navigateHash(hashLike) {
   const path = toPath(hashLike);
+  if (virtualPath !== null) {
+    if (virtualPath !== path) {
+      virtualPath = path;
+      notify();
+    }
+    return;
+  }
   if (window.location.pathname === path) return;
   window.history.pushState(null, "", path);
   notify();
@@ -32,6 +46,13 @@ export function navigateHash(hashLike) {
 
 export function replaceHash(hashLike) {
   const path = toPath(hashLike);
+  if (virtualPath !== null) {
+    if (virtualPath !== path) {
+      virtualPath = path;
+      notify();
+    }
+    return;
+  }
   if (window.location.pathname === path) return;
   window.history.replaceState(null, "", path);
   notify();

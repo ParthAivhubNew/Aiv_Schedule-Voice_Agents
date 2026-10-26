@@ -5,11 +5,14 @@ import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
 import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
+import { NavItem } from "./NavItem";
+import { useEmbedded } from "../embed/EmbedContext";
 
 // The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
 // the pages in labelled groups, then (at the bottom) the app's credits and Log out.
 // groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
 export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey, nav, tabs }) {
+  const embedded = useEmbedded(); // inside a partner's page: no switching apps, no credits or log out (the partner owns those)
   const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
   return (
     <>
@@ -20,7 +23,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         </div>
         <div style={{ fontWeight: 600, fontSize: 15, color: "#fff" }}>{name}</div>
       </div>
-      <AppSwitcher current={appId} onHome={onHome} />
+      {!embedded && <AppSwitcher current={appId} onHome={onHome} />}
       <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
         {groups.map((group) => {
           const items = group.items.filter(Boolean);
@@ -28,25 +31,18 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
           return (
             <React.Fragment key={group.label}>
               <div className="ui-nav-label">{group.label}</div>
-              {items.map((it) => {
-                const ItemIcon = it.icon;
-                return (
-                  <button key={it.id} type="button" className="ui-nav-item" title={it.title} onClick={it.onClick} aria-current={it.active ? "page" : undefined} data-locked={it.locked ? "true" : undefined}>
-                    <ItemIcon size={16} strokeWidth={1.75} />
-                    <span style={{ flex: 1 }}>{it.label}</span>
-                    {it.count ? <span className="ui-nav-count">{it.count}</span> : null}
-                  </button>
-                );
-              })}
+              {items.map((it) => <NavItem key={it.id} item={it} />)}
             </React.Fragment>
           );
         })}
       </nav>
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {wallet ? <PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /> : null}
-      <button type="button" className="ui-nav-item" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-        <LogOut size={16} strokeWidth={1.75} /> Log out
-      </button>
+      {wallet && !embedded ? <PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /> : null}
+      {!embedded && (
+        <button type="button" className="ui-nav-item" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+          <LogOut size={16} strokeWidth={1.75} /> Log out
+        </button>
+      )}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
     </>

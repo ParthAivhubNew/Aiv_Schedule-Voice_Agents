@@ -668,6 +668,8 @@ class CreditEntry(Base):
     ref = Column(String, nullable=True, index=True)
     note = Column(String, default="")
     by = Column(String, default="")
+    partner_id = Column(String, nullable=True, index=True)  # the partner whose embedded screen caused this line
+    payer_org_id = Column(String, nullable=True)  # the organisation whose balance this line changed (org_id is who used it)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -2042,6 +2044,9 @@ class Partner(Base):
     accent_color = Column(String, default="")
     webhook_url = Column(String, default="")
     webhook_secret = Column(String, default="")  # whsec_...: signs the events sent to webhook_url
+    secret_hash = Column(String, default="")  # SHA-256 of the partner's secret key (psk_...); the key itself is shown once
+    secret_prefix = Column(String, default="")
+    theme = Column(JSON, default=dict)  # the saved default look of embedded screens (see services/embed_theme.py)
     terms_version = Column(String, default="")
     terms_accepted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -2059,6 +2064,7 @@ class PartnerLink(Base):
     created_account = Column(Boolean, default=False)  # true when the account was created through this partner
     consent_version = Column(String, default="")
     consented_at = Column(DateTime, nullable=True)
+    external_id = Column(String, default="", index=True)  # the user's id in the partner's own software
     key_id = Column(String, default="")  # the API key currently issued to the partner for this account
     status = Column(String, default="active", index=True)  # active | revoked
     revoked_by = Column(String, default="")  # user | partner | staff
@@ -2084,3 +2090,20 @@ def _cover_follows_image(target, value, oldvalue, initiator):
         target.media = [dict(media[0], url=value, **({} if same_file else {"id": None, "width": None, "height": None}))] + media[1:]
     elif not value and oldvalue and media[0].get("url") == oldvalue:
         target.media = media[1:]
+
+
+class CallList(Base):
+    """A saved Call list: the table of people a user wants the AI to call (name, phone, company, notes and
+    any extra columns from an imported file). Rows are kept whole, as the Call list screen edits them."""
+    __tablename__ = "call_lists"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    headers = Column(JSON, default=list)
+    rows = Column(JSON, default=list)
+    row_count = Column(Integer, default=0)
+    called_count = Column(Integer, default=0)  # rows that already have a call, as of the last save
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -49,6 +49,11 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
     _OPT_API + r"meeting-links/[^/]+/callback$",  # return page; the signed state names the organisation
     _OPT_API + r"p/[A-Za-z0-9_.\-]+$",  # preview pages: the signed link is the sign-in
+    _OPT_API + r"embed/sessions$",  # a partner's server, with its secret key (checked in the handler)
+    _OPT_API + r"embed/connect-sessions$",  # the same, to start linking one of its users
+    _OPT_API + r"embed/links/[^/]+$",  # the same, to look up the account linked to one of its users
+    _OPT_API + r"embed/connect/(info|login|signup)$",  # the connect screen; a connect token from the partner's server is the sign-in
+    _OPT_API + r"embed/frame-policy$",  # asked by our web server, which sets the embed page's frame rule
     # Images social networks and email clients fetch
     _OPT_API + r"scheduler/media/[^/]+$",
     r"^/media/generated/",
@@ -314,6 +319,23 @@ class AuthMiddleware:
             from app.core.tenancy import org_scope
             with org_scope(key_ctx["org_id"]):
                 return await self.app(scope, receive, send)
+
+        if token and not websocket:
+            from app.services import embed as EM
+
+            emb = await EM.context(token)
+            if emb:
+                rel = api_path(path)
+                if not EM.may_use(emb, rel, method):
+                    return await _deny(scope, receive, send, 403, "This embedded page cannot use that.", code="embed_scope")
+                need = P.required(rel, method)
+                if need and not P.allows(emb["perms"], need[0], need[1]):
+                    return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
+                scope.setdefault("state", {})["auth"] = emb
+                from app.core.tenancy import org_scope
+
+                with org_scope(emb["org_id"]), EM.partner_scope(emb["partner_id"]):
+                    return await self.app(scope, receive, send)
 
         claims = decode_token(token, "access") if token else None
         ctx = await load_context(claims["sub"], claims.get("sid", "")) if claims else None
