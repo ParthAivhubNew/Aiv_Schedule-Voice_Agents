@@ -2710,10 +2710,10 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
 }
 
 // Tabs shown above a page that holds two screens (Library, Accounts & plan). Lined up with the page content below.
-function PageTabs({ label, tabs, page, onGo }) {
+function PageTabs({ label, tabs, page, onGo, width = 980 }) {
   return (
     <div style={{ padding: "16px 28px 0", background: HUB_PAPER, flexShrink: 0 }}>
-      <div role="tablist" aria-label={label} style={{ display: "flex", gap: 8, maxWidth: 980, margin: "0 auto" }}>
+      <div role="tablist" aria-label={label} style={{ display: "flex", gap: 8, maxWidth: width, margin: "0 auto" }}>
         {tabs.map(([id, text, Icon, hint]) => (
           <button key={id} type="button" role="tab" aria-selected={page === id} title={hint} onClick={() => onGo(id)}
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
@@ -4414,28 +4414,24 @@ export function SocialWorkspace({
     { label: "Posts", items: [
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "To approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+      { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
       { id: "library", label: "Library", icon: ImageIcon, active: (page === "media" || page === "import") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("media") },
-    ] },
-    { label: "Results", items: [
-      { id: "insights", label: "Post results", icon: BarChart3, active: (page === "insights" || page === "reports") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights") },
-      { id: "listening", label: "Mentions", icon: Ear, active: page === "listening" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("listening") },
     ] },
     { label: "Setup", items: [
       { id: "accounts", label: "Accounts & plan", short: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
-      { id: "audience", label: "Audience & ideas", short: "Audience", icon: Users, active: page === "audience" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("audience") },
     ] },
   ];
   const topTitles = {
     overview: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    insights: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
-    reports: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
-    listening: ["Mentions", "Public posts that mention your brand, products or competitors."],
+    insights: ["Results & Ideas", "How your published posts did, and reports to share with clients or your manager."],
+    reports: ["Results & Ideas", "How your published posts did, and reports to share with clients or your manager."],
+    listening: ["Results & Ideas", "Public posts that mention your brand, products or competitors."],
     media: ["Library", "Pictures and videos to reuse in posts."],
     import: ["Library", "Add many posts at once from a CSV or Excel file."],
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
     approvals: ["To approve", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts & plan", "The social accounts your posts go to."],
-    audience: ["Audience & ideas", "Who you are talking to, and what to post about."],
+    audience: ["Results & Ideas", "Who you are talking to, and what to post about."],
     subscription: ["Accounts & plan", "Your Social plan, credits and top-ups."],
   };
   const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];
@@ -4444,7 +4440,7 @@ export function SocialWorkspace({
       <MobileNavBackdrop nav={nav} />
       <AppChrome />
       <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} wallet="scheduler" operator={operator}
-        onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "accounts", "audience"]} />
+        onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "insights", "accounts"]} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <PluginHeader nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar} />
@@ -4506,7 +4502,7 @@ export function SocialWorkspace({
           </>
         ) : page === "media" || page === "import" ? (
           <>
-            <PageTabs label="Library" page={page} onGo={goPage} tabs={[
+            <PageTabs label="Library" page={page} onGo={goPage} width={page === "media" ? 1100 : 980} tabs={[
               ["media", "Pictures & videos", ImageIcon, "Your saved pictures and videos, ready to use in posts"],
               ["import", "Import posts", Upload, "Add many posts at once from a CSV or Excel file"],
             ]} />
@@ -4517,11 +4513,32 @@ export function SocialWorkspace({
             )}
           </>
         ) : page === "listening" ? (
-          <ListeningPage showToast={showToast} />
+          <>
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
+              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
+              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
+            ]} />
+            <ListeningPage showToast={showToast} />
+          </>
         ) : page === "audience" ? (
-          <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
+          <>
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
+              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
+              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
+            ]} />
+            <SocialConnect showToast={showToast} onDrafted={refreshPosts} onOpenApprovals={() => openApprovals()} />
+          </>
         ) : page === "insights" || page === "reports" ? (
-          <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
+          <>
+            <PageTabs label="Results & Ideas" page={page === "reports" ? "insights" : page} onGo={goPage} width={page === "insights" || page === "reports" ? 1560 : 1100} tabs={[
+              ["insights", "Post results", BarChart3, "How your published posts did, and reports to share"],
+              ["audience", "Audience & ideas", Users, "Who you are talking to, and what to post about"],
+              ["listening", "Mentions", Ear, "Public posts that mention your brand, products or competitors"],
+            ]} />
+            <InsightsPage onOpenPost={(id) => openApprovals(id)} showToast={showToast} side={<ReportsPage embedded showToast={showToast} />} />
+          </>
         ) : page === "subscription" ? (
           <>
             {operator?.is_admin ? <PageTabs label="Accounts & plan" page={page} onGo={goPage} tabs={[
