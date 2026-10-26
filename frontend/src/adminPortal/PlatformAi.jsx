@@ -63,7 +63,7 @@ export function PlatformAi({ canEdit, scope = "scheduler", showCatalogue = true 
 
 const EMPTY = { voices: [], models: [] };
 
-// The voices and models clients may pick for their call assistant in Call setup. Use the
+// The voices and models clients may pick for their call assistant in Business Setup (AI caller). Use the
 // names exactly as Telnyx shows them (e.g. in the Telnyx portal's assistant voice list).
 function VoiceCatalogue({ canEdit }) {
   const [data, err, reload] = useLoad(adminApi.voiceCatalogue);
@@ -98,7 +98,7 @@ function VoiceCatalogue({ canEdit }) {
   );
   return (
     <>
-      <div style={heading}>Call assistant voices and models (Call setup)</div>
+      <div style={heading}>Call assistant voices and models (Business Setup → AI caller)</div>
       <Note error>{err}</Note>
       <Note error={msg.error}>{msg.text}</Note>
       <div style={{ ...card, display: "grid", gap: 12 }}>

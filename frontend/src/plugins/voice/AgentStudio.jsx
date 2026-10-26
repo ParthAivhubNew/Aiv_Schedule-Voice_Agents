@@ -15,7 +15,7 @@ function Message({ msg }) {
   return <div role={msg.error ? "alert" : "status"} style={{ fontSize: 12.5, color: msg.error ? C.red : C.teal }}>{msg.text}</div>;
 }
 
-// Voice & rules (the second tab of Call setup): how the AI caller sounds and behaves. Each user picks their voice and adds their
+// Voice & rules (the second tab of AI caller in Business Setup): how the AI caller sounds and behaves. Each user picks their voice and adds their
 // phone (test calls, taking over calls); admins set the company's rules and which script each
 // campaign uses. Scripts themselves are written in Call scripts; knowledge on the Company page.
 export function AgentStudio({ onOpenPage, staff = false, active = true }) {
@@ -155,13 +155,8 @@ export function AgentStudio({ onOpenPage, staff = false, active = true }) {
         {title(ShieldCheck, "Company rules for every call")}
         {!data.canChangeCompany && <div style={{ fontSize: 12.5, color: C.slate }}>Only admins can change these.</div>}
         <fieldset disabled={!data.canChangeCompany} style={{ border: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            <label style={label}>Agent's name
-              <input aria-label="Agent name" value={company.agentName} onChange={(e) => setCompany({ ...company, agentName: e.target.value })} style={input} />
-            </label>
-            <label style={label}>Tone
-              <input aria-label="Tone" placeholder="Warm, concise, professional" value={company.tone} onChange={(e) => setCompany({ ...company, tone: e.target.value })} style={input} />
-            </label>
+          <div style={{ fontSize: 12.5, color: C.slate }}>
+            The agent's name and tone are set in <button type="button" onClick={() => onOpenPage && onOpenPage("company")} style={{ border: "none", background: "none", color: C.cobalt, cursor: "pointer", padding: 0, font: "inherit" }}>Company profile → Basics</button>.
           </div>
           <label style={label}>Hand over to a person when…
             <textarea aria-label="Hand over when" rows={2} placeholder="they ask about a refund, a complaint, or want to speak to the owner" value={company.handoverWhen}
@@ -201,7 +196,7 @@ export function AgentStudio({ onOpenPage, staff = false, active = true }) {
           <BehaviourFields a={company.assistant} set={(patch) => setCompany({ ...company, assistant: { ...company.assistant, ...patch } })} />
           <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "company"}
             onClick={() => run("company", () => api.saveAgentStudioCompany({
-              agentName: company.agentName, tone: company.tone, handoverWhen: company.handoverWhen, neverSay: company.neverSay,
+              handoverWhen: company.handoverWhen, neverSay: company.neverSay,
               captureFields: company.captureText.split(",").map((s) => s.trim()).filter(Boolean), recordCalls: company.recordCalls,
               disclosure: company.disclosure, defaultOutboundTemplateId: company.defaultOutboundTemplateId, defaultInboundTemplateId: company.defaultInboundTemplateId,
               assistant: company.assistant,

@@ -224,7 +224,7 @@ export function LiveCallCard({
                 </button>
               </>
             ) : (
-              <button type="button" disabled={busy === "takeover"} onClick={() => run("takeover", onPhoneTakeover)} style={btn({})} title="Pauses the AI and rings your phone (set it in Call setup → Voice & rules)">
+              <button type="button" disabled={busy === "takeover"} onClick={() => run("takeover", onPhoneTakeover)} style={btn({})} title="Pauses the AI and rings your phone (set it in Business Setup → AI caller → Voice & rules)">
                 {busy === "takeover" ? "Ringing your phone…" : "Take over"}
               </button>
             )

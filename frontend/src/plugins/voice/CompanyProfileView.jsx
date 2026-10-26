@@ -408,7 +408,9 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
           {tab === "identity" && (
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", columnGap: 18 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Business</div>
               <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" />
               <Field
                 label="Say company name as (spoken)"
@@ -418,12 +420,18 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                 hint="Optional. Blank = say the company name as written."
               />
               <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
+              </div>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Online</div>
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
+              </div>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>AI caller</div>
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
               {ownedNumbers.length === 0 ? (
                 <Field label="Caller ID number shown" value={profile.callerId} onChange={(v) => update("callerId", v)} placeholder="+44…"
-                  hint="Get a phone number under Subscription → Numbers and it appears here." />
+                  hint="Get a phone number under Plan & credits → Phone numbers and it appears here." />
               ) : ownedNumbers.length === 1 ? (
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Caller ID number shown</div>
@@ -443,6 +451,12 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>The number people see when the AI calls. Choose a different one on a call from the calling screen.</div>
                 </div>
               )}
+              <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
+              </div>
+              </div>
+              <div style={{ marginTop: 16, border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Region and time</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", columnGap: 18 }}>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Organisation timezone</div>
                 <select
@@ -480,10 +494,10 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   </select>
                 </div>
               </div>
-              <div style={{ gridColumn: "1 / -1", marginBottom: 14, padding: "10px 12px", borderRadius: 9, background: C.paperSoft || "#F7F8FA", border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
+                </div>
+              <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 9, background: C.paperSoft || "#F7F8FA", border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12, color: C.slate, lineHeight: 1.5 }}>
                 Calling hours, meeting hours and lunch breaks are set in <strong>Working Hours</strong>. They are kept in one place so they never disagree.
               </div>
-              <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
               </div>
               {renderSaveBtn("Save changes")}
             </div>

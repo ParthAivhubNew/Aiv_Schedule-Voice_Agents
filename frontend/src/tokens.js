@@ -212,7 +212,7 @@ export function notificationActionLabel(n) {
   if (n && n.targetAction) return n.targetAction;
   const { targetView } = resolveNotificationTarget(n);
   if (targetView === "meetings") return "Open List view →";
-  if (targetView === "live") return "Open Conversations →";
+  if (targetView === "live") return "Open Live →";
   if (targetView === "calllog") return "Open Call history →";
   if (targetView === "schedule") return "Open Schedule →";
   if (targetView === "provider") return "Open AI config →";

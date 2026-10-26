@@ -202,10 +202,10 @@ function SharePanel({ onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.45)", zIndex: 330, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "85vh", overflowY: "auto", padding: 20, fontFamily: FONT_BODY }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, flex: 1 }}>Share Analytics</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, flex: 1 }}>Share call stats</div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", cursor: "pointer", color: MUTED }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14 }}>Analytics starts visible to admins only. Choose who else can see it.</div>
+        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14 }}>This page starts visible to admins only. Choose who else can see it.</div>
         {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
         {people.map((p) => (
           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 0", borderTop: `1px solid ${C.borderLight}` }}>

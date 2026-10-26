@@ -75,7 +75,7 @@ import { CallingSchedule } from "./CallingSchedule";
 import { LiveKitBrowserCallModal } from "../../../components/LiveKitBrowserCallModal";
 import { VoicePicker } from "../VoicePicker";
 import { ConversationTemplatesView } from "../ConversationTemplatesView";
-import { LiveCallCard, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
+import { LiveCallCard, RecentlyEndedList, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
 import { CALL_LIST_STAGED, peekCallList, setOpenList, takeCallList } from "../../../utils/leadToVoice";
@@ -83,20 +83,21 @@ import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
-  { id: "list", label: "List", icon: List, section: "calling" },
+  { id: "list", label: "Call list", icon: List, section: "calling" },
+  { id: "live", label: "Live calls", icon: Radio, section: "calling" },
   { id: "logs", label: "Conversations", icon: FileText, section: "calling" },  // calls and WhatsApp
-  { id: "schedule", label: "Schedule", icon: PhoneCall, section: "calling" },
-  { id: "analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
-  { id: "templates", label: "Call setup", icon: Sparkles, section: "calling" },  // call scripts, and how the caller sounds and behaves ("studio" is its second tab)
+  { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling" },
+  { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics" },
+  { id: "templates", label: "AI caller", icon: Sparkles, section: "calling" },  // call scripts, and how the caller sounds and behaves ("studio" is its second tab)
   { id: "ai", label: "AI config", icon: Plug, section: "connections" },
-  { id: "company", label: "Company", icon: Users, section: "company" },  // company profile & working hours
-  { id: "subscription", label: "Subscription", icon: CreditCard, section: "admin" },  // subscription & numbers
+  { id: "company", label: "Business Setup", icon: Users, section: "company" },  // company profile, working hours and the AI caller (scripts, voice & rules)
+  { id: "subscription", label: "Plan & credits", icon: CreditCard, section: "admin" },  // subscription & numbers
 ];
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
-  { label: "Outreach", ids: ["list", "logs", "schedule", "analytics"] },
-  { label: "Settings", ids: ["templates", "ai", "company", "subscription"] },
+  { label: "Outreach", ids: ["list", "live", "logs", "schedule", "analytics"] },
+  { label: "Settings", ids: ["ai", "company", "subscription"] },
 ];
 
 function canSee(operator, section) {
@@ -109,35 +110,17 @@ function canSee(operator, section) {
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
-const LOG_PAGE_SIZE = 10;
-
-// The Conversations pop-up: past calls on the left in pages, live calls with their transcript on the right.
-const CONV_WINDOW_CSS = `
-  .conv-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(18,20,28,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
-  .conv-window { width: 100%; max-width: 1400px; height: 100%; max-height: 900px; background: #F8F7F4; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(18,20,28,0.35); }
-  .conv-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: #fff; border-bottom: 1px solid #E6E3DC; flex-shrink: 0; }
-  .conv-head h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; }
-  .conv-close { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  .conv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 14px; }
-  .conv-body--single { display: block; overflow: auto; }
-  .conv-pane { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
-  .conv-pane > div:not(.conv-pane-title) { min-height: 0; overflow: auto; }
-  .conv-pane--live { overflow: auto; }
-  .conv-pane-title { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #5B6170; flex-shrink: 0; }
-  .conv-tabs { display: none; }
-  @media (max-width: 900px) {
-    .conv-overlay { padding: 0; }
-    .conv-window { border-radius: 0; max-height: none; }
-    .conv-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-    .conv-tabs { display: flex; gap: 8px; }
-    .conv-tabs button { flex: 1; height: 38px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; font-weight: 700; cursor: pointer; }
-    .conv-tabs button[aria-selected="true"] { background: #12141C; color: #fff; border-color: #12141C; }
-    .conv-body[data-pane="logs"] .conv-pane--live, .conv-body[data-pane="live"] .conv-pane--logs { display: none; }
-    .conv-pane-title { display: none; }
-  }
+const WA_POPUP_CSS = `
+  .wa-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(18,20,28,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+  .wa-window { width: 100%; max-width: 1200px; height: 100%; max-height: 860px; background: #F8F7F4; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(18,20,28,0.35); }
+  .wa-head { display: flex; align-items: center; padding: 12px 18px; background: #fff; border-bottom: 1px solid #E6E3DC; flex-shrink: 0; }
+  .wa-head h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; }
+  .wa-close { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .wa-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+  @media (max-width: 900px) { .wa-overlay { padding: 0; } .wa-window { border-radius: 0; max-height: none; } }
 `;
 
-const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "live", "whatsapp", "hours", "numbers", "studio"]);  // WhatsApp, Working Hours, Numbers and Voice & rules are sub-tabs
+const SIMPLE_PAGES = new Set([...PAGES.map((p) => p.id), "whatsapp", "hours", "numbers", "studio"]);  // WhatsApp, Working Hours, Numbers and Voice & rules are sub-tabs
 
 const MAX_CONCURRENT = 2;
 
@@ -239,7 +222,7 @@ function callingPageId(raw) {
   const id = String(raw || "");
   if (id === "setup") return "company";
   if (id === "booked" || id === "meetings") return "schedule";
-  if (id === "calllog" || id === "history" || id === "live") return "logs";
+  if (id === "calllog" || id === "history") return "logs";
   if (id === "tasks" || id === "prospects" || id === "contacts") return "list";
   return SIMPLE_PAGES.has(id) ? id : "";
 }
@@ -990,9 +973,6 @@ export function CallingWorkspace({
   const [logQuery, setLogQuery] = useState("");
   const [logOutcome, setLogOutcome] = useState("all");
   const [openLogId, setOpenLogId] = useState("");
-  const [logPage, setLogPage] = useState(1);
-  const [convPane, setConvPane] = useState("logs");
-  const lastWorkPageRef = useRef("list");
   const [activeAudioLogId, setActiveAudioLogId] = useState("");
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const globalAudioRef = useRef(null);
@@ -1250,7 +1230,7 @@ export function CallingWorkspace({
   // Clients call from their own numbers: until this user has one, calls wait on the setup card.
   const needNumber = numbersLoaded && myNumbers.length === 0 && !operator?.is_platform_org;
   const noNumberYet = () => {
-    if (needNumber) showToast(operator?.is_admin ? "Get a phone number first: Subscription → Numbers." : "Ask your admin to add a phone number for you first.");
+    if (needNumber) showToast(operator?.is_admin ? "Get a phone number first: Plan & credits → Phone numbers." : "Ask your admin to add a phone number for you first.");
     return needNumber;
   };
   // A page this user may not open (e.g. an old bookmark to Analytics) falls back to the list.
@@ -1262,14 +1242,8 @@ export function CallingWorkspace({
     if (page === "numbers" && !operator?.is_admin) setPage("list");
   }, [operator, page]);
 
-  const goPage = (requested) => {
-    const next = requested === "live" ? "logs" : requested;
-    if (!next || next === page) {
-      if (requested === "live") setConvPane("live");
-      return;
-    }
-    if (requested === "live") setConvPane("live");
-    if (next !== "logs" && next !== "whatsapp") lastWorkPageRef.current = next;
+  const goPage = (next) => {
+    if (!next || next === page) return;
     if (pluginLocked && next !== "subscription") {
       showToast("Choose a plan or buy a top-up to unlock Voice.");
       return;
@@ -1454,14 +1428,12 @@ export function CallingWorkspace({
     }
   }, []);
 
-  useEffect(() => { setLogPage(1); }, [logQuery, logOutcome]);
-
   useEffect(() => {
-    if (page !== "logs" && page !== "whatsapp") return undefined;
-    const onKey = (e) => { if (e.key === "Escape") closeConversations(); };
+    if (page !== "whatsapp") return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setPage("logs"); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [page]);
 
   const refreshLogs = useCallback(async () => {
     try {
@@ -2618,25 +2590,19 @@ export function CallingWorkspace({
       return blob.includes(q);
     });
   }, [logs, logQuery, logOutcome]);
-  const logPageCount = Math.max(1, Math.ceil(filteredLogs.length / LOG_PAGE_SIZE));
-  const logPageNo = Math.min(logPage, logPageCount);
-  const pagedLogs = filteredLogs.slice((logPageNo - 1) * LOG_PAGE_SIZE, logPageNo * LOG_PAGE_SIZE);
-  const closeConversations = () => {
-    setOpenLogId("");
-    goPage(lastWorkPageRef.current || "list");
-  };
   const titles = {
-    list: ["Today's list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
+    list: ["Call list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
+    live: ["Live calls", "Listen, take over, book from their words, or end. Transcript stays on the card."],
     logs: ["Conversations", "Every call and WhatsApp chat in one place. Search, filter, expand transcript."],
-    schedule: ["Schedule", "Park a call on the left. Calendar for slots · List view for bookings."],
-    templates: ["Call setup", "What your AI caller says: the greeting, the pitch, answers to objections and how it books a meeting."],
-    studio: ["Call setup", "How your AI caller sounds and behaves: its voice, your company rules, and which script each campaign uses."],
+    schedule: ["Meetings & callbacks", "Park a call on the left. Calendar for slots · List view for bookings."],
+    templates: ["Business Setup", "What your AI caller says: the greeting, the pitch, answers to objections and how it books a meeting."],
+    studio: ["Business Setup", "How your AI caller sounds and behaves: its voice, your company rules, and which script each campaign uses."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Company", "Identity, knowledge & FAQs, services, compliance, and working hours."],
-    analytics: ["Analytics", "Calls, connect rate, meetings booked and the best times to call."],
-    hours: ["Company", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
-    numbers: ["Subscription", "Verify your business, buy UK numbers and turn on WhatsApp."],
-    subscription: ["Subscription", "Your calling plan, credits, and phone numbers."],
+    company: ["Business Setup", "Your company profile, working hours and AI caller."],
+    analytics: ["Call stats", "Calls, connect rate, meetings booked and the best times to call."],
+    hours: ["Business Setup", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
+    numbers: ["Plan & credits", "Verify your business, buy UK numbers and turn on WhatsApp."],
+    subscription: ["Plan & credits", "Your calling plan, credits, and phone numbers."],
     whatsapp: ["Conversations", "WhatsApp chats on your own numbers. You reply; you are emailed when something new arrives."],
   };
 
@@ -2667,12 +2633,12 @@ export function CallingWorkspace({
                 <div className="ui-nav-label">{group.label}</div>
                 {items.map((p) => {
                   const Icon = p.icon;
-                  const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && page === "hours") || (p.id === "templates" && page === "studio") || (p.id === "subscription" && page === "numbers");
+                  const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && (page === "hours" || page === "templates" || page === "studio")) || (p.id === "subscription" && page === "numbers");
                   return (
                     <button key={p.id} type="button" className="ui-nav-item" onClick={() => goPage(p.id)} aria-current={active ? "page" : undefined} data-locked={pluginLocked && p.id !== "subscription" ? "true" : undefined}>
                       <Icon size={16} strokeWidth={1.75} />
                       <span style={{ flex: 1 }}>{p.label}</span>
-                      {p.id === "logs" && activeLive.length ? (
+                      {p.id === "live" && activeLive.length ? (
                         <span className="ui-nav-count ui-nav-count--live">{activeLive.length}</span>
                       ) : null}
                     </button>
@@ -2689,9 +2655,10 @@ export function CallingWorkspace({
         </button>
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
-        { id: "list", short: "List", icon: List },
-        { id: "logs", short: "Conversations", icon: FileText, count: activeLive.length || null },
-        { id: "schedule", short: "Schedule", icon: PhoneCall },
+        { id: "list", short: "Call list", icon: List },
+        { id: "live", short: "Live calls", icon: Radio, count: activeLive.length || null },
+        { id: "logs", short: "History", icon: FileText },
+        { id: "schedule", short: "Meetings", icon: PhoneCall },
       ].filter((t) => visiblePages.some((p) => p.id === t.id)).map((t) => ({
         ...t,
         label: t.short,
@@ -2802,7 +2769,7 @@ export function CallingWorkspace({
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>Subscription Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>Plan Required</div>
                   <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Voice.</div>
                 </div>
               </div>
@@ -2810,7 +2777,7 @@ export function CallingWorkspace({
             </div>
           ) : (
             <>
-          {page === "logs" && needNumber && (
+          {page === "live" && needNumber && (
             <PhoneLineSetup isAdmin={!!operator?.is_admin} onGetNumber={() => goPage("numbers")} style={{ marginBottom: 14 }} />
           )}
           {page === "list" && (
@@ -3728,34 +3695,98 @@ export function CallingWorkspace({
             </div>
           )}
 
-          {(page === "logs" || page === "whatsapp") && canSee(operator, "calling") && (
-            <div className="conv-overlay" onClick={closeConversations}>
-              <style>{CONV_WINDOW_CSS}</style>
-              <div className="conv-window" role="dialog" aria-modal="true" aria-label="Conversations" onClick={(e) => e.stopPropagation()}>
-                <div className="conv-head">
-                  <h2>Conversations</h2>
-                  <div role="tablist" aria-label="Conversations" style={{ display: "flex", gap: 8 }}>
-                    {[["logs", "Calls", PhoneCall], ["whatsapp", "WhatsApp", MessageCircle]].map(([id, label, Icon]) => (
-                      <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
-                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                          border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
-                          <Icon size={14} /> {label}
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" className="conv-close" onClick={closeConversations} aria-label="Close Conversations" title="Close"><X size={18} /></button>
+          {page === "live" && (
+            <div style={{ display: "grid", gap: 12 }}>
+              <style>{LIVE_CARD_KEYFRAMES}</style>
+              {assistantQueued > 0 ? (
+                <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the AI Assistant — the next one dials as soon as a line frees up.</span>
+                  <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
                 </div>
-                {page === "whatsapp" ? (
-                  <div className="conv-body conv-body--single"><WhatsappInbox /></div>
-                ) : (
-                  <div className="conv-body" data-pane={convPane}>
-                    <div className="conv-tabs" role="tablist" aria-label="Show">
-                      <button type="button" role="tab" aria-selected={convPane === "logs"} onClick={() => setConvPane("logs")}>Past calls</button>
-                      <button type="button" role="tab" aria-selected={convPane === "live"} onClick={() => setConvPane("live")}>Live now{activeLive.length ? ` (${activeLive.length})` : ""}</button>
-                    </div>
-                    <section className="conv-pane conv-pane--logs" aria-label="Past calls">
-                      <div className="conv-pane-title">Past calls</div>
+              ) : null}
+              {!activeLive.length ? (
+                <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, marginBottom: 6 }}>No calls in progress</div>
+                  <div style={{ fontSize: 13 }}>Dial someone from <b>Call anyone</b> or start calls from a list — they show here the moment they ring.</div>
+                  <button type="button" onClick={() => goPage("list")} style={{ marginTop: 14, height: 36, padding: "0 14px", borderRadius: 9, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Go to list</button>
+                </div>
+              ) : activeLive.map((c) => {
+                const id = c.id || c.call_sid;
+                return (
+                  <LiveCallCard
+                    key={id}
+                    call={c}
+                    listening={listeningId === id}
+                    taken={takenId === id}
+                    confirmingEnd={endingId === id}
+                    onListen={() => toggleListen(id)}
+                    onTakeover={() => toggleTakeover(id)}
+                    onPhoneTakeover={() => phoneTakeover(id)}
+                    onHandBack={(note) => handBack(id, note)}
+                    onBook={() => bookMeeting(id)}
+                    onAskEnd={() => setEndingId(id)}
+                    onCancelEnd={() => setEndingId(null)}
+                    onConfirmEnd={() => endCall(id)}
+                  />
+                );
+              })}
+              <RecentlyEndedList calls={recentEnded} onOpenHistory={() => goPage("logs")} />
+            </div>
+          )}
 
+          {(page === "logs" || page === "whatsapp") && canSee(operator, "calling") && (
+            <div role="tablist" aria-label="Conversations" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["logs", "Calls", PhoneCall], ["whatsapp", "WhatsApp", MessageCircle]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "company" || page === "hours" || page === "templates" || page === "studio") && (
+            <div role="tablist" aria-label="Business Setup" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[
+                ["company", "Company profile", Users, "company", page === "company"],
+                ["hours", "Working hours", Clock, "company", page === "hours"],
+                ["templates", "AI caller", Sparkles, "calling", page === "templates" || page === "studio"],
+              ].filter(([, , , section]) => canSee(operator, section)).map(([id, label, Icon, , on]) => (
+                <button key={id} type="button" role="tab" aria-selected={on} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${on ? C.textInk : C.border}`, background: on ? C.textInk : "#fff", color: on ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "templates" || page === "studio") && (
+            <div role="tablist" aria-label="AI caller" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["templates", "What the AI says", Sparkles], ["studio", "Voice & rules", SlidersHorizontal]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "subscription" || page === "numbers") && operator?.is_admin && (
+            <div role="tablist" aria-label="Subscription and Numbers" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {[["subscription", "Plan & credits", CreditCard], ["numbers", "Phone numbers", Phone]].map(([id, label, Icon]) => (
+                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(page === "logs" || page === "whatsapp") && (
             <div style={{ display: "grid", gap: 14 }}>
               <div style={{ ...card(), display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
                 <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
@@ -3806,7 +3837,7 @@ export function CallingWorkspace({
                 <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>
                   {logs.length ? "No logs match this filter." : "No logs yet. Ended calls land here."}
                 </div>
-              ) : pagedLogs.map((l) => {
+              ) : filteredLogs.map((l) => {
                 const open = openLogId === l.id;
                 const name = logDisplayName(l);
                 const outcome = String(l.outcome || "ended").replace(/_/g, " ");
@@ -4050,97 +4081,8 @@ export function CallingWorkspace({
                   </div>
                 );
               })}
-                          {filteredLogs.length > LOG_PAGE_SIZE ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                  <button type="button" className="ui-btn" disabled={logPageNo <= 1} onClick={() => { setLogPage(logPageNo - 1); setOpenLogId(""); }}>‹ Previous</button>
-                  <span style={{ fontSize: 12.5, color: C.slate }}>Page {logPageNo} of {logPageCount}</span>
-                  <button type="button" className="ui-btn" disabled={logPageNo >= logPageCount} onClick={() => { setLogPage(logPageNo + 1); setOpenLogId(""); }}>Next ›</button>
-                </div>
-              ) : null}
-</div>
-                    </section>
-                    <section className="conv-pane conv-pane--live" aria-label="Live calls">
-                      <div className="conv-pane-title">Live now{activeLive.length ? ` · ${activeLive.length}` : ""}</div>
-
-            <div style={{ display: "grid", gap: 12 }}>
-              <style>{LIVE_CARD_KEYFRAMES}</style>
-              {assistantQueued > 0 ? (
-                <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
-                  <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the AI Assistant — the next one dials as soon as a line frees up.</span>
-                  <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
-                </div>
-              ) : null}
-              {!activeLive.length ? (
-                <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, marginBottom: 6 }}>No calls in progress</div>
-                  <div style={{ fontSize: 13 }}>Dial someone from <b>Call anyone</b> or start calls from a list — they show here the moment they ring.</div>
-                  <button type="button" onClick={closeConversations} style={{ marginTop: 14, height: 36, padding: "0 14px", borderRadius: 9, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Go to list</button>
-                </div>
-              ) : activeLive.map((c) => {
-                const id = c.id || c.call_sid;
-                return (
-                  <LiveCallCard
-                    key={id}
-                    call={c}
-                    listening={listeningId === id}
-                    taken={takenId === id}
-                    confirmingEnd={endingId === id}
-                    onListen={() => toggleListen(id)}
-                    onTakeover={() => toggleTakeover(id)}
-                    onPhoneTakeover={() => phoneTakeover(id)}
-                    onHandBack={(note) => handBack(id, note)}
-                    onBook={() => bookMeeting(id)}
-                    onAskEnd={() => setEndingId(id)}
-                    onCancelEnd={() => setEndingId(null)}
-                    onConfirmEnd={() => endCall(id)}
-                  />
-                );
-              })}
-            </div>
-                    </section>
-                  </div>
-                )}
-              </div>
             </div>
           )}
-
-
-          {(page === "templates" || page === "studio") && (
-            <div role="tablist" aria-label="Call setup" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              {[["templates", "Call scripts", Sparkles], ["studio", "Voice & rules", SlidersHorizontal]].map(([id, label, Icon]) => (
-                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {(page === "company" || page === "hours") && canSee(operator, "company") && (
-            <div role="tablist" aria-label="Company" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              {[["company", "Company profile", Users], ["hours", "Working hours", Clock]].map(([id, label, Icon]) => (
-                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {(page === "subscription" || page === "numbers") && operator?.is_admin && (
-            <div role="tablist" aria-label="Subscription and Numbers" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              {[["subscription", "Subscription & Credits", CreditCard], ["numbers", "Numbers", Phone]].map(([id, label, Icon]) => (
-                <button key={id} type="button" role="tab" aria-selected={page === id} onClick={() => goPage(id)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    border: `1px solid ${page === id ? C.textInk : C.border}`, background: page === id ? C.textInk : "#fff", color: page === id ? "#fff" : C.textInk }}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
-          )}
-
 
           {page === "schedule" && (
             <CallingSchedule
@@ -4233,7 +4175,18 @@ export function CallingWorkspace({
           {!pluginLocked && canSee(operator, "calling") && (
             <div hidden={page !== "studio"}><AgentStudio onOpenPage={goPage} staff={Boolean(operator?.is_platform_org)} active={page === "studio"} /></div>
           )}
-          {page === "whatsapp" && canSee(operator, "calling") && <WhatsappInbox />}
+          {page === "whatsapp" && canSee(operator, "calling") && (
+            <div className="wa-overlay" onClick={() => goPage("logs")}>
+              <style>{WA_POPUP_CSS}</style>
+              <div className="wa-window" role="dialog" aria-modal="true" aria-label="WhatsApp" onClick={(e) => e.stopPropagation()}>
+                <div className="wa-head">
+                  <h2>WhatsApp</h2>
+                  <button type="button" className="wa-close" onClick={() => goPage("logs")} aria-label="Close WhatsApp" title="Close"><X size={18} /></button>
+                </div>
+                <div className="wa-body"><WhatsappInbox /></div>
+              </div>
+            </div>
+          )}
 
           {page === "hours" && canSee(operator, "company") && (
             <WorkingHoursTab operator={operator} />
@@ -4304,7 +4257,7 @@ export function CallingWorkspace({
                   Unsaved changes
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
-                  You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "Call scripts" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
+                  You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "What the AI says" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
                 </div>
               </div>
               <button

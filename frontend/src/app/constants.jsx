@@ -546,10 +546,10 @@ export const STATUS_MAP = {
 };
 
 export const PROFILE_TABS = [
-  { id: "identity", label: "Identity", icon: Users },
-  { id: "knowledge", label: "Knowledge Sources", icon: BookOpen },
-  { id: "services", label: "Services", icon: Package },
-  { id: "compliance", label: "Compliance", icon: ShieldCheck },
+  { id: "identity", label: "Basics", icon: Users },
+  { id: "knowledge", label: "What the AI knows", icon: BookOpen },
+  { id: "services", label: "What you sell", icon: Package },
+  { id: "compliance", label: "Legal details", icon: ShieldCheck },
 ];
 
 export const SOURCE_TYPES = [
