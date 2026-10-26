@@ -109,17 +109,16 @@ function canSee(operator, section) {
 
 const EXTRA_SLOTS = ["Phone", "Email", "Website", "LinkedIn", "Contact"];
 const DEFAULT_LIST_HEADERS = ["Company", "Contact", "Phone", "Email", "Website", "LinkedIn"];
-const LOG_PAGE_SIZE = 10;
+const LOG_PAGE_SIZE = 3;
 
 // Conversations: call history on the left, calls happening now (with their transcript) on the right.
 const CONV_SPLIT_CSS = `
   .conv-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-  .conv-pane { min-width: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 4px; }
+  .conv-pane { min-width: 0; }
   .conv-pane-title { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #5B6170; margin-bottom: 10px; }
   .conv-tabs { display: none; }
   @media (max-width: 900px) {
     .conv-split { grid-template-columns: minmax(0, 1fr); }
-    .conv-pane { max-height: none; }
     .conv-tabs { display: flex; gap: 8px; }
     .conv-tabs button { flex: 1; height: 38px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; font-weight: 700; cursor: pointer; }
     .conv-tabs button[aria-selected="true"] { background: #12141C; color: #fff; border-color: #12141C; }
