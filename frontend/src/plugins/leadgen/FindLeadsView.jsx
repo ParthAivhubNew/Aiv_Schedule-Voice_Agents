@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BadgeCheck, Check, ChevronDown, Clock, ExternalLink, FileSpreadsheet, Globe, List, Map as MapIcon, Plus, RefreshCw, RotateCcw, Trash2, Search, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
+import { ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -11,6 +11,7 @@ import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
+import { CompaniesTable, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar } from "./FindLeadsParts";
 
 const FAVOURITES = "Favourites";
 const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters as the Filters panel, so what I find and what you see always match. Say \"remove X\" to drop a company." };
@@ -24,8 +25,10 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const SIZE_LABEL = Object.fromEntries(SIZE_OPTIONS);
-const EMPTY_FORM = { sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "" };
+const EMPTY_FORM = { sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
+const GROUP_KEYS = { industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
+const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name", "Name A to Z"]];
 const IDEAS = [
   ["Cafes in London", { sector: "cafe, restaurant", town: "London" }],
   ["Accountants in Leeds", { sector: "accounting, bookkeeping", town: "Leeds" }],
@@ -39,6 +42,9 @@ const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "s
 const CHAT_CSS = `
 .fl-thread{max-height:0;padding:0 14px;overflow:hidden;border-top:0 solid transparent;transition:max-height .45s cubic-bezier(.2,.8,.2,1),padding .3s ease}
 .fl-thread[data-open="true"]{max-height:min(430px,56vh);padding:12px 14px;overflow-y:auto;border-top:1px solid var(--ui-border,#E3E6EF)}
+.fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
+.fl-main{flex:1 1 560px;min-width:0}
+@media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-msg{animation:flIn .28s ease both}
 @keyframes flIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .fl-hist{position:absolute;right:10px;top:46px;z-index:20;width:min(360px,calc(100% - 20px));background:#fff;border:1px solid var(--ui-border,#E3E6EF);border-radius:12px;box-shadow:0 12px 32px rgba(20,24,40,.16);animation:flIn .18s ease both}
@@ -79,6 +85,10 @@ function formToFilters(f) {
   if (f.hasWebsite) out.has_website = true;
   if (f.hasPhone) out.has_phone = true;
   if (f.hasEmail) out.has_email = true;
+  if (splitList(f.notSector).length) out.not_keyword = splitList(f.notSector);
+  if (splitList(f.notTown).length) out.not_towns = splitList(f.notTown);
+  if (splitList(f.notCategory).length) out.not_company_category = splitList(f.notCategory);
+  if (f.saved === "only" || f.saved === "exclude") out.saved = f.saved;
   return out;
 }
 
@@ -94,6 +104,8 @@ function filtersToForm(fl) {
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
     hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
+    notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
+    saved: fl.saved || "", title: "",
   };
 }
 
@@ -218,47 +230,6 @@ function ContactsPanel({ company }) {
   );
 }
 
-function CompanyRow({ c, saved, onSave, onRemove, onCall, onCallLocked, last }) {
-  const [open, setOpen] = useState(false);
-  const d = domainOf(c.website);
-  return (
-    <div style={{ padding: "12px 16px", borderBottom: last ? "none" : `1px solid ${C.borderLight}` }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {c.name} <TierBadge tier={c.tier} />
-          </div>
-          <div style={{ ...muted, fontSize: 12.5, marginTop: 2 }}>
-            {[c.industry, c.region && `${c.region}${c.postcode ? ` ${c.postcode}` : ""}`, c.status, c.company_category].filter(Boolean).join(" · ")}
-          </div>
-          <div style={{ ...muted, fontSize: 12, display: "flex", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
-            {c.registration_number ? <span>No. {c.registration_number}</span> : null}
-            {c.incorporation_date ? <span>Incorporated {c.incorporation_date}</span> : null}
-            {c.size_band && c.size_band !== "unknown" ? <span title="From the company's filed accounts category, not headcount">Size (accounts): {SIZE_LABEL[c.size_band] || c.size_band}</span> : null}
-            {d ? <a href={c.website.startsWith("http") ? c.website : `https://${c.website}`} target="_blank" rel="noreferrer" style={{ color: C.slate, display: "inline-flex", alignItems: "center", gap: 3 }}>{d} <ExternalLink size={11} /></a> : null}
-            {c.phone ? <span style={{ fontVariantNumeric: "tabular-nums" }}>{c.phone}</span> : null}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button title="Show the contacts found for this company" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-            <Users size={14} /> Contacts <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
-          </button>
-          {c.phone && onCall ? (
-            <CallButton label="Save & call" lockedLabel="Call · add Voice" variant="ghost" title="Save it to your Unsorted list and have your AI caller phone them" onClick={() => onCall(c)} onLocked={() => onCallLocked?.(c)} />
-          ) : null}
-          {saved ? (
-            <span style={{ ...text, fontSize: 12.5, color: C.green, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><Check size={14} /> Saved</span>
-          ) : (
-            <button title="Save this company to your Unsorted list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onSave(c)}><Plus size={14} /> Save</button>
-          )}
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onRemove(c)} aria-label={`Remove ${c.name} from this list`} title="Remove from this list">×</button>
-        </div>
-      </div>
-      {open ? <ContactsPanel company={c} /> : null}
-    </div>
-  );
-}
-
 // Under the Town box: once one town is typed, a dropdown of its postcode districts with how many companies
 // each has. Ticking one adds it to "Postcode starts with". Only counts are shown here, never companies.
 function DistrictPicker({ town, includeClosed, postcode, onChange }) {
@@ -334,6 +305,21 @@ function FindLeadsSearch({ store, listsStore }) {
   const [capped, setCapped] = useState(false);
   const [excluded, setExcluded] = useState([]);
   const [searched, setSearched] = useState(false);
+  const [tab, setTab] = useState("companies"); // companies | people
+  const [sort, setSort] = useState("best");
+  const [page, setPage] = useState(1);
+  const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
+  const [savedTotal, setSavedTotal] = useState(0);
+  const [picked, setPicked] = useState(() => new Set());
+  const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
+  const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
+  const [groups, setGroups] = useState({ industry: true, location: true, size: true, company: false, contact: false, lists: false, person: true });
+  const [people, setPeople] = useState([]);
+  const [peopleTotal, setPeopleTotal] = useState(0); // companies that have people on file
+  const [fillIds, setFillIds] = useState([]);
+  const [filling, setFilling] = useState(null); // null, or {done, of} while the registry is being read for people
+  const fillRun = useRef(0);
+  const fillTried = useRef("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Phones: which pane shows. Search holds the AI chat and the Filters drop-down; Results holds the companies.
@@ -367,12 +353,6 @@ function FindLeadsSearch({ store, listsStore }) {
   const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
   const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  // The filters open under the chat; bring them into view so the tap shows something on a phone.
-  const filtersRef = useRef(null);
-  useEffect(() => {
-    if (filtersOpen && filtersRef.current) filtersRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [filtersOpen]);
   // Map view: bring the map into view when it is chosen and whenever a search starts or finishes, so nobody scrolls to it each time.
   const mapRef = useRef(null);
   useEffect(() => {
@@ -443,7 +423,7 @@ function FindLeadsSearch({ store, listsStore }) {
     if (busy) setPane("results");
   }, [busy]);
 
-  const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride) => {
+  const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
@@ -459,18 +439,16 @@ function FindLeadsSearch({ store, listsStore }) {
     setBusy(true);
     setError("");
     const myRun = ++runId.current;
-    if (!offset) {
-      // A new search never leaves the last one's companies, filters and words on screen: if it fails,
-      // only the error shows, not results that belong to something else.
-      setCompanies([]);
-      setTotal(0);
-      setCapped(false);
-      setChips([]);
-      setUnderstood([]);
-    }
+    // A new search (or page) never leaves the last one's companies, filters and words on screen: if it fails,
+    // only the error shows, not results that belong to something else.
+    setCompanies([]);
+    setTotal(0);
+    setCapped(false);
+    setChips([]);
+    setUnderstood([]);
     let r;
     try {
-      r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop });
+      r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop, sort: sortOverride || sort });
     } catch (err) {
       if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
       return;
@@ -480,7 +458,11 @@ function FindLeadsSearch({ store, listsStore }) {
     searchHold.settle(() => {
       if (myRun !== runId.current) return;
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
-      setCompanies((prev) => (offset ? [...prev, ...r.companies] : r.companies));
+      setCompanies(r.companies);
+      setPage(Math.floor(offset / pageRef.current) + 1);
+      setPicked(new Set());
+      setTiers(r.tiers || null);
+      setSavedTotal(r.saved_total || 0);
       setTotal(r.total);
       setCapped(r.total_capped);
       setApplied(r.filters);
@@ -506,6 +488,15 @@ function FindLeadsSearch({ store, listsStore }) {
     stopArea.current = true;
     pausedRef.current = false;
     setPaused(false);
+    fillRun.current += 1;
+    setFilling(null);
+    setPeople([]);
+    setPeopleTotal(0);
+    setFillIds([]);
+    setTiers(null);
+    setSavedTotal(0);
+    setPicked(new Set());
+    setPage(1);
     setForm(EMPTY_FORM);
     setExcluded([]);
     setArea(null);
@@ -526,6 +517,86 @@ function FindLeadsSearch({ store, listsStore }) {
     setPageSize(n);
     try { localStorage.setItem("aivhub_find_page_size", String(n)); } catch { /* the choice just isn't remembered */ }
     if (searched && !area && !busy) search(null, form, 0, null); // reload the list at the new size
+  };
+
+  const goPage = (n) => {
+    if (tab === "people") searchPeople(null, form, (n - 1) * pageRef.current);
+    else search(null, form, (n - 1) * pageRef.current, null);
+  };
+  const changeSort = (v) => {
+    setSort(v);
+    if (!searched || area) return;
+    if (tab === "people") searchPeople(null, form, 0, v);
+    else search(null, form, 0, null, undefined, v);
+  };
+  const changeTab = (next) => {
+    if (next === tab) return;
+    setTab(next);
+    if (!searched || area) return;
+    if (next === "people") searchPeople(null, form, 0, undefined, "people");
+    else search(null, form, 0, null);
+  };
+  // Total / Net new / Saved: tapping one searches again with that filter on (tap again to clear it).
+  const pickSaved = (v) => {
+    const f = { ...form, saved: v };
+    setForm(f);
+    if (tab === "people") searchPeople(null, f, 0);
+    else search(null, f, 0, null);
+  };
+
+  // The People tab: the people the registry lists at the companies that match. Companies whose people have not been
+  // read yet are read from the registry (free), the best-ranked first, and the list is searched again.
+  const searchPeople = async (e, overrideForm, offset = 0, sortOverride) => {
+    if (e) e.preventDefault();
+    const f = overrideForm || form;
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const myRun = ++runId.current;
+    setPeople([]);
+    setCompanies([]);
+    setTotal(0);
+    let r;
+    try {
+      r = await api.searchPeople({ filters: formToFilters(f), limit: pageRef.current, offset, title: f.title || "", sort: sortOverride || sort });
+    } catch (err) {
+      if (myRun === runId.current) { setError(err.message || "The search didn't finish. Try again."); setBusy(false); }
+      return;
+    }
+    if (myRun !== runId.current) return;
+    setPeople(r.people);
+    setPeopleTotal(r.companies_total);
+    setTotal(r.companies_total);
+    setCapped(r.total_capped);
+    setApplied(r.filters);
+    setChips(r.chips || []);
+    setFillIds(r.fill_ids || []);
+    setPage(Math.floor(offset / pageRef.current) + 1);
+    setSearched(true);
+    setBusy(false);
+    const key = JSON.stringify(formToFilters(f));
+    if (r.fill_ids?.length && r.people.length < 10 && fillTried.current !== key) {
+      fillTried.current = key;
+      fillPeople(r.fill_ids, f);
+    }
+  };
+  const fillPeople = async (ids, f = form) => {
+    const mine = ++fillRun.current;
+    let done = 0;
+    setFilling({ done, of: ids.length });
+    const queue = [...ids];
+    const worker = async () => {
+      while (queue.length && fillRun.current === mine) {
+        const id = queue.shift();
+        try { await api.companyContacts(id, { include_web: false }); } catch { /* one company the registry would not answer for: the others go on */ }
+        done += 1;
+        if (fillRun.current === mine) setFilling({ done, of: ids.length });
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (fillRun.current !== mine) return;
+    setFilling(null);
+    searchPeople(null, f, 0);
   };
 
   const dropTerm = (term) => {
@@ -699,7 +770,6 @@ function FindLeadsSearch({ store, listsStore }) {
       else await store.save([{ ...asAccount(c), notes: [asAccount(c).notes, note.trim()].filter(Boolean).join("\n") }]);
     },
   };
-  const unsaved = companies.filter((c) => !isSaved(c));
 
   const newChat = () => {
     chatRun.current += 1; chatHold.clear(); setChatBusy(false);
@@ -750,6 +820,11 @@ function FindLeadsSearch({ store, listsStore }) {
           setUnderstood([]);
           setDropTerms([]);
           setArea(null); // the chat runs its own search, so a drawn area no longer applies
+          setTab("companies");
+          setPage(1);
+          setPicked(new Set());
+          setTiers(res.registry.tiers || null);
+          setSavedTotal(res.registry.saved_total || 0);
           setCompanies(res.registry.companies);
           setTotal(res.registry.total);
           setCapped(res.registry.total_capped);
@@ -791,7 +866,11 @@ function FindLeadsSearch({ store, listsStore }) {
   };
 
   const filterCount = Object.keys(formToFilters(form)).length;
-  const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 180px", minWidth: 0 };
+  const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
+  const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
+  const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
+  const pickedRows = companies.filter((c) => picked.has(c.id));
+  const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 0", minWidth: 0 };
   const label = { ...text, fontSize: 12, fontWeight: 600, color: C.slate };
   const check = (k, t) => (
     <label title={CHECK_TIPS[k]} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
@@ -806,7 +885,7 @@ function FindLeadsSearch({ store, listsStore }) {
         <PaneSwitch value={pane} onChange={setPane}
           panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       ) : null}
-      <div data-pane="chat" className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div data-pane="chat" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", alignSelf: "flex-start", background: C.bgSoft || "#F4F5F9", border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3, flexWrap: "wrap" }}>
           {[["register", "Company register", "Free"], ["web", "Open web", webRate == null ? "" : `${creditWord(webRate)} per company found`]].map(([id, name, price]) => (
             <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
@@ -816,10 +895,10 @@ function FindLeadsSearch({ store, listsStore }) {
             </button>
           ))}
         </div>
-        <div style={{ ...muted, fontSize: 12.5 }}>
+        <div style={{ ...muted, fontSize: 12.5, flex: "1 1 280px", minWidth: 0 }}>
           {source === "register"
-            ? "The official register: reliable names, addresses, status and sector. Contact details are often missing, and you can fill them in later from Lists. Searching is free."
-            : "Public web pages and directories: slower and unverified, but results usually come with a website and phone number. You only pay for companies that are found."}
+            ? "The official register: reliable names, addresses, status and sector. Searching is free."
+            : "Public web pages and directories: slower and unverified, but usually with a website and phone. You only pay for companies found."}
         </div>
       </div>
       {source === "register" ? (<>
@@ -883,10 +962,6 @@ function FindLeadsSearch({ store, listsStore }) {
             <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 40 }} title="Send to the AI">
               {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Search
             </button>
-            <button type="button" className={`ui-btn ${filtersOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} style={{ height: 40 }} aria-expanded={filtersOpen}
-              title="Set the filters yourself instead: industry, town, size, age and more" onClick={() => setFiltersOpen((o) => !o)}>
-              <SlidersHorizontal size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""} <ChevronDown size={13} style={{ transform: filtersOpen ? "rotate(180deg)" : "none" }} />
-            </button>
           </form>
           {!chatStarted ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -898,100 +973,148 @@ function FindLeadsSearch({ store, listsStore }) {
           ) : null}
         </div>
       </div>
-      {filtersOpen ? (
-      <form ref={filtersRef} data-pane="chat" onSubmit={(e) => { setExcluded([]); search(e); }} className="ui-card" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Industry or company name</span>
-            <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
-          <div style={field}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }} title="One or more towns, separated by commas"><span style={label}>Town / city</span>
-              <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
-            <DistrictPicker town={form.town} includeClosed={form.includeClosed} postcode={form.postcode} onChange={(v) => setField("postcode", v)} />
-          </div>
-          <label style={{ ...field, flex: "0 1 150px" }} title="Only companies whose postcode begins with this, like EC1 or M1"><span style={label}>Postcode starts with</span>
-            <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
-        </div>
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ ...field, flex: "1 1 260px" }}>
-            <span style={label} title="From each company's filed accounts category. It is not a headcount.">Size (from filed accounts)</span>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      {filtersShown ? (
+      <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
+        <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }}>
+          {tab === "people" ? (
+            <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")}>
+              <label style={field} title="A word from their role, like director or secretary"><span style={label}>Role includes</span>
+                <input className="ui-input" value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder="director, secretary" /></label>
+            </FilterGroup>
+          ) : null}
+          <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")}>
+            <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
+              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
+            <label style={field} title="Leave out companies whose name or sector has any of these words"><span style={label}>Leave out</span>
+              <input className="ui-input" value={form.notSector} onChange={(e) => setField("notSector", e.target.value)} placeholder="franchise, holdings" /></label>
+          </FilterGroup>
+          <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")}>
+            <div style={field}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }} title="One or more towns, separated by commas"><span style={label}>Town / city</span>
+                <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
+              <DistrictPicker town={form.town} includeClosed={form.includeClosed} postcode={form.postcode} onChange={(v) => setField("postcode", v)} />
+            </div>
+            <label style={field} title="Only companies whose postcode begins with this, like EC1 or M1"><span style={label}>Postcode starts with</span>
+              <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
+            <label style={field} title="Leave out companies in these towns"><span style={label}>Leave out towns</span>
+              <input className="ui-input" value={form.notTown} onChange={(e) => setField("notTown", e.target.value)} placeholder="Bradford" /></label>
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ alignSelf: "flex-start" }} title="See results as pins and draw an area to search inside it" onClick={() => { setTab("companies"); setView("map"); }}>
+              <MapIcon size={14} /> Search on map
+            </button>
+          </FilterGroup>
+          <FilterGroup title="Size (filed accounts)" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
               {SIZE_OPTIONS.map(([id, name]) => (
                 <button key={id} type="button" title="Only companies of this size" className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
                   style={form.sizes.includes(id) ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
               ))}
             </div>
+          </FilterGroup>
+          <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")}>
+            <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
+              <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
+            <label style={field} title="Leave out these legal forms"><span style={label}>Leave out types</span>
+              <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP" /></label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={field} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
+                <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="5" /></label>
+              <label style={field} title="Only companies that are no older than this many years"><span style={label}>Trading ≤ years</span>
+                <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="2" /></label>
+            </div>
+            {check("includeClosed", "Include closed / dissolved")}
+          </FilterGroup>
+          <FilterGroup title="Contact details on file" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
+            {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
+          </FilterGroup>
+          <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[["", "Any"], ["exclude", "Not in my lists"], ["only", "In my lists"]].map(([v, name]) => (
+                <button key={name} type="button" className="ui-chip" aria-pressed={form.saved === v} onClick={() => setField("saved", v)}
+                  style={form.saved === v ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
+              ))}
+            </div>
+          </FilterGroup>
+          <div style={{ position: "sticky", bottom: 0, background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
+              <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
+            </button>
+            <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ marginLeft: "auto", height: 38 }} title="Search the company register. It costs no credits">
+              {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
+            </button>
           </div>
-          <label style={{ ...field, flex: "0 1 110px" }} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
-            <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="5" /></label>
-          <label style={{ ...field, flex: "0 1 110px" }} title="Only companies that are no older than this many years"><span style={label}>Trading ≤ years</span>
-            <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="2" /></label>
-          <label style={{ ...field, flex: "0 1 190px" }} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
-            <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
-        </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-          {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}{check("includeClosed", "Include closed / dissolved")}
-          <button type="button" className="ui-btn ui-btn--secondary" style={{ height: 40, marginLeft: "auto" }} title="See results as pins and draw an area to search inside it" onClick={() => setView("map")}>
-            <MapIcon size={15} /> Search on map
-          </button>
-          <button type="button" className="ui-btn ui-btn--ghost" style={{ height: 40 }} onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
-            <RotateCcw size={15} /> Reset
-          </button>
-          <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ height: 40 }} title="Search the company register. It costs no credits">
-            {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : "Find companies"}
-          </button>
-        </div>
-        <div style={{ ...muted, fontSize: 12.5 }}>Searches the official company registry we hold. Free, and only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
-      </form>
+          <div style={{ ...muted, fontSize: 12, paddingBottom: 12 }}>Free to search. Only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
+        </form>
+      </aside>
       ) : null}
-
+      <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div role="tablist" aria-label="What to look for" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
+            {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => changeTab(id)}
+                style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, background: tab === id ? "#fff" : "transparent", color: tab === id ? C.ink : C.slate, boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
+                <Icon size={15} /> {name}
+              </button>
+            ))}
+          </div>
+          {searched && tab === "companies" ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
+        </div>
       {busy ? (
-        <div data-pane="results"><SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
+        <div><SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
           detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." paused={searchHold.paused} holding onPause={searchHold.pause} onResume={searchHold.resume} onCancel={cancelSearch} /></div>
       ) : null}
-      {error ? <div data-pane="results" role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
+      {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
       {!busy && !error && !searched && view !== "map" ? (
-        <div data-pane="results" className="ui-card phone-only" style={{ padding: 20, flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
+        <div className="ui-card phone-only" style={{ padding: 20, flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>No search yet</div>
           <div style={{ ...muted, fontSize: 14 }}>Ask the AI who you're after, or set the filters. The companies you find show here.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={() => setPane("chat")}><Sparkles size={15} /> Ask AI</button>
-            <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { setPane("chat"); setFiltersOpen(true); }}>Set filters</button>
+            <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { setPane("chat"); setFiltersShown(true); }}>Set filters</button>
           </div>
         </div>
       ) : null}
 
       {searched || view === "map" ? (
-        <div data-pane="results" className="ui-card" style={{ overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        <div className="ui-card" style={{ overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm hide-mobile" aria-pressed={filtersShown} title={filtersShown ? "Hide the filters to give the results more room" : "Show the filters"}
+              onClick={() => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; })}>
+              {filtersShown ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />} {filtersShown ? "Hide filters" : `Show filters${filterCount ? ` · ${filterCount}` : ""}`}
+            </button>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-              {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : (
-                <>
-                  {total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}
-                  <span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span>
-                </>
+              {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
+                <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"} with people on file</span></>
+              ) : (
+                <>{total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}<span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span></>
               )}
             </div>
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                Sort
+                <select className="ui-input" aria-label="Sort results" value={sort} disabled={busy} onChange={(e) => changeSort(e.target.value)} style={{ height: 30, padding: "0 6px", width: "auto" }}>
+                  {sortLabels.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+            ) : null}
+            {!area ? (
+              <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Show
-                <select className="ui-input" aria-label="Companies to load at a time" value={pageSize} disabled={busy}
+                <select className="ui-input" aria-label="Results per page" value={pageSize} disabled={busy}
                   onChange={(e) => changePageSize(Number(e.target.value))} style={{ height: 30, padding: "0 6px", width: "auto" }}>
                   {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
-                at a time
+                per page
               </label>
             ) : null}
-            <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
-              {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                <button key={id} type="button" title={id === "map" ? "See the results as pins on a map" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
-                  className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
-              ))}
-            </div>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!companies.length} title="Put every company shown into your Favourites list"
-              onClick={() => store.save(companies.map(asAccount), FAVOURITES)}>★ Favourite all</button>
-            <button title="Save every company shown into your Unsorted list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!unsaved.length} onClick={async () => { const name = await askText({ title: `Save these ${unsaved.length.toLocaleString()} companies into a list`, label: "Name the list", initial: "Unsorted", confirm: "Save", maxLength: 80 }); if (name) store.save(unsaved.map(asAccount), name); }}>
-              <Plus size={14} /> {unsaved.length ? `Save all ${unsaved.length}` : "All saved"}
-            </button>
+            {tab === "companies" ? (
+              <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
+                {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
+                  <button key={id} type="button" title={id === "map" ? "See the results as pins on a map" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
+                    className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {chips.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
@@ -1080,19 +1203,78 @@ function FindLeadsSearch({ store, listsStore }) {
               </div>
             </div>
           ) : null}
-          {companies.length ? companies.map((c, i) => (
-            <CompanyRow key={c.id} c={c} saved={isSaved(c)} onSave={saveOne} onRemove={removeCompany} onCall={callOne}
-              onCallLocked={(co) => call.open({ kind: "one", id: "", name: co.name }, true)} last={i === companies.length - 1} />
-          )) : searched && !inArea ? (
-            <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
-          ) : null}
-          {companies.length < total ? (
-            <div style={{ padding: 12, textAlign: "center" }}>
-              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} title="Load the next page of results" onClick={() => search(null, form, companies.length)}>Show more</button>
-            </div>
-          ) : null}
+          {tab === "people" ? (
+            <>
+              {filling ? (
+                <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...text, fontSize: 13, color: C.textInk }}>
+                  <RefreshCw size={14} className="ui-spin" /> Reading the registry for the people at {filling.done} of {filling.of} companies. Free.
+                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { fillRun.current += 1; setFilling(null); searchPeople(null, form, 0); }}>Stop and show what is found</button>
+                </div>
+              ) : fillIds.length ? (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...muted, fontSize: 12.5 }}>
+                  People are read from the registry company by company, so only some of these companies have them on file yet.
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} title="Read the registry for the best-ranked companies that have no people on file yet. Free" onClick={() => fillPeople(fillIds)}>
+                    <Users size={14} /> Find people at the next {fillIds.length} companies
+                  </button>
+                </div>
+              ) : null}
+              {people.length ? (
+                <PeopleTable rows={people} onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
+              ) : searched && !busy && !filling ? (
+                <div style={{ ...muted, padding: 16 }}>No people are on file yet for these companies{form.title ? ` with "${form.title}" in their role` : ""}. Use "Find people" above to read them from the registry.</div>
+              ) : null}
+              {people.length ? <Pager page={page} size={pageSize} total={peopleTotal} capped={capped} shown={new Set(people.map((x) => x.company.id)).size} onPage={goPage} busy={busy} unit="Companies" /> : null}
+            </>
+          ) : (
+            <>
+              <SelectionBar count={picked.size} onClear={() => setPicked(new Set())}>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => { store.save(pickedRows.map(asAccount)); setPicked(new Set()); }}><Plus size={14} /> Save</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askText({ title: `Add ${pickedRows.length} companies to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) { store.save(pickedRows.map(asAccount), name); setPicked(new Set()); } }}><List size={14} /> Add to list</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => { store.save(pickedRows.map(asAccount), FAVOURITES); setPicked(new Set()); }}><Star size={14} /> Favourite</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { pickedRows.forEach(removeCompany); setPicked(new Set()); }}><X size={14} /> Remove</button>
+              </SelectionBar>
+              {companies.length ? (
+                <CompaniesTable rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && !area} tiers={tiers} capped={capped}
+                  onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
+                  onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
+                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
+              ) : searched && !inArea ? (
+                <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
+              ) : null}
+              {companies.length && !area ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
+            </>
+          )}
         </div>
       ) : null}
+      </div>
+      </div>
+      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} title={openCo?.name || ""} sub={openCo ? [openCo.industry, openCo.region].filter(Boolean).join(" · ") : ""}
+        actions={openCo ? (
+          <>
+            {isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>
+              : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => saveOne(openCo)}><Plus size={14} /> Save</button>}
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => store.save([asAccount(openCo)], FAVOURITES)}><Star size={14} /> Favourite</button>
+            {openCo.phone ? <CallButton label="Save & call" lockedLabel="Call · add Voice" variant="ghost" title="Save it to your Unsorted list and have your AI caller phone them" onClick={() => (canCall ? callOne(openCo) : call.open({ kind: "one", id: "", name: openCo.name }, true))} onLocked={() => call.open({ kind: "one", id: "", name: openCo.name }, true)} /> : null}
+          </>
+        ) : null}>
+        {openCo ? (
+          <>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 0" }}><ProfileBadge profile={openCo.profile} /> <TierBadge tier={openCo.tier} /></div>
+            <Fact label="Registered no.">{openCo.registration_number}</Fact>
+            <Fact label="Status">{openCo.status}</Fact>
+            <Fact label="Type">{openCo.company_category}</Fact>
+            <Fact label="Incorporated">{openCo.incorporation_date}</Fact>
+            <Fact label="Size (accounts)">{openCo.size_band && openCo.size_band !== "unknown" ? SIZE_LABEL[openCo.size_band] || openCo.size_band : ""}</Fact>
+            <Fact label="Sector">{openCo.sic_text || openCo.industry}</Fact>
+            <Fact label="Address">{openCo.address}</Fact>
+            <Fact label="Website">{openCo.website}</Fact>
+            <Fact label="Phone">{openCo.phone}</Fact>
+            <Fact label="Email">{openCo.email}</Fact>
+            <ContactsPanel key={openCo.id} company={openCo} />
+          </>
+        ) : null}
+      </Drawer>
 
 
       </>) : (

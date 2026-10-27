@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { LogOut, Menu } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { C } from "../tokens";
 import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
@@ -8,15 +8,42 @@ import { AppSwitcher } from "./AppSwitcher";
 import { NavItem } from "./NavItem";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 
+// The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
+// It only applies on wide screens (global.css); phones keep their slide-out menu.
+export function useSidebarCollapse() {
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("aivhub_sidebar") === "collapsed"; } catch { return false; } });
+  useEffect(() => {
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    return () => document.body.classList.remove("sidebar-collapsed");
+  }, [collapsed]);
+  const toggle = () => setCollapsed((c) => {
+    const next = !c;
+    try { localStorage.setItem("aivhub_sidebar", next ? "collapsed" : "open"); } catch { /* the choice just isn't remembered */ }
+    return next;
+  });
+  return [collapsed, toggle];
+}
+
+export function SidebarToggle({ collapsed, onToggle }) {
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  return (
+    <button type="button" className="sidebar-toggle" onClick={onToggle} aria-pressed={collapsed} aria-label={collapsed ? "Expand the menu" : "Collapse the menu"} title={collapsed ? "Expand the menu" : "Collapse the menu to icons"}>
+      <Icon size={16} strokeWidth={1.75} />
+    </button>
+  );
+}
+
 // The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
 // the pages in labelled groups, then (at the bottom) the app's credits and Log out.
 // groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
 export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey, nav, tabs }) {
+  const [collapsed, toggleCollapsed] = useSidebarCollapse();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, no credits or log out (the partner owns those)
   const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
+      <SidebarToggle collapsed={collapsed} onToggle={toggleCollapsed} />
       <SidebarBrand icon={Icon} accent={accent} name={name} />
       {!embedded && <AppSwitcher current={appId} onHome={onHome} />}
       <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
@@ -32,10 +59,10 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         })}
       </nav>
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {wallet && !embedded ? <PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /> : null}
+      {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded && (
-        <button type="button" className="ui-nav-item" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-          <LogOut size={16} strokeWidth={1.75} /> Log out
+        <button type="button" className="ui-nav-item" title="Log out" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+          <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
         </button>
       )}
     </div>

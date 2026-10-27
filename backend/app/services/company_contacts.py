@@ -128,5 +128,6 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     raw = dict(biz.raw_data or {})
     raw["contacts_web"] = found
     biz.raw_data = raw
+    business_records.refresh_rank(biz)
     await db.flush()
     return {**found, "found": True, "cached": False}

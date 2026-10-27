@@ -174,6 +174,8 @@ class SearchIn(BaseModel):
     area: Optional[List[List[float]]] = None  # a drawn map area: [[lat, lng], ...] corners
     scan: int = 0  # with an area: where this step starts reading the districts it touches (see search_in_area)
     drop_terms: List[str] = []  # words the user removed from "how your words were read" (see phrase_understanding)
+    sort: str = "best"  # best (filled-in and well-known first), newest, name
+    title: str = ""  # People tab only: a job title word, like "director"
     widen: bool = False  # with an area: the typed words found nothing when counted, so the nearby words are used (see /search/area-count)
 
 
@@ -197,7 +199,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         else:
             out, understood = await phrase_understanding.widen_if_empty(
                 db, body.filters, body.drop_terms,
-                lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids))
+                lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                                                           sort=body.sort if body.sort in business_records.SORTS else "best"))
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
@@ -209,9 +212,34 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
-    return {"companies": [lead_filters.card(r) for r in out["rows"]], "total": out["total"],
+    mine = await business_records.saved_ids(db, [r.id for r in out["rows"]])
+    return {"companies": [{**lead_filters.card(r), "saved": r.id in mine} for r in out["rows"]], "total": out["total"],
             "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
-            "next_scan": out.get("next_scan"), "understood": understood}
+            "next_scan": out.get("next_scan"), "understood": understood,
+            "tiers": out.get("tiers"), "saved_total": out.get("saved_total")}
+
+
+@router.post("/people/search")
+async def search_people(body: SearchIn, db: AsyncSession = Depends(get_db)):
+    """The People tab: people the registry lists at the companies that match the same filters. Free. Names are
+    public registry facts; an email or phone is only ever found (and charged) for one named person at a time."""
+    from app.services import lead_filters
+
+    try:
+        out = await business_records.search_people(db, body.filters, title=body.title, limit=body.limit, offset=body.offset,
+                                                   sort=body.sort if body.sort in business_records.SORTS else "best")
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
+        raise
+    mine = await business_records.saved_ids(db, [p["company"].id for p in out["people"]])
+    people = [{"id": f'{p["company"].id}:{p["name"]}', "name": p["name"], "first_name": p.get("first_name", ""), "last_name": p.get("last_name", ""),
+               "role": p["role"], "appointed_on": p["appointed_on"], "company": {**lead_filters.card(p["company"]), "saved": p["company"].id in mine}}
+              for p in out["people"]]
+    return {"people": people, "companies_total": out["companies_total"], "total_capped": out["total_capped"],
+            "filters": out["filters"], "chips": lead_filters.describe(out["filters"]), "fill_ids": out["fill_ids"]}
 
 
 async def _candidates_as_total(pending) -> Dict[str, Any]:
@@ -653,6 +681,7 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
             # not this organisation's private data -- every other organisation's saved account for
             # the same company gets it too, for free, via _apply_shared_record above.
             shared_row.shared_research = {k: v for k, v in row.research.items() if k != "filled"}  # what this run filled in is this account's own
+            business_records.refresh_rank(shared_row)
             await db.flush()
         except ValueError:
             pass  # nothing identifiable enough to be worth caching for anyone else

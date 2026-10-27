@@ -57,7 +57,7 @@ import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { SidebarBrand, useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
-import { PhoneTabBar } from "../../../hub/PluginShell";
+import { PhoneTabBar, SidebarToggle, useSidebarCollapse } from "../../../hub/PluginShell";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
@@ -944,6 +944,7 @@ export function CallingWorkspace({
     return "list";
   });
   const nav = useMobileNav(page);
+  const [sidebarCollapsed, toggleSidebar] = useSidebarCollapse();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, credits or log out (the partner owns those)
   const { hasPlan: voiceHasPlan, loading: voicePlanLoading } = usePluginAccess("voice");
   const pluginLocked = !voicePlanLoading && !voiceHasPlan;
@@ -2734,6 +2735,7 @@ export function CallingWorkspace({
       <AppChrome />
       <MobileNavBackdrop nav={nav} />
       <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
+        <SidebarToggle collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         <SidebarBrand icon={PhoneCall} accent={C.cobalt} name="Voice" />
         {!embedded && <AppSwitcher current="voice" onHome={() => {
           if (page === "company" && companyDirty) {
@@ -2771,10 +2773,10 @@ export function CallingWorkspace({
           })}
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-        {!embedded && <PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} />}
+        {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
         {!embedded && (
           <button type="button" className="ui-nav-item" title="Sign out of Outreach on this device" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-            <LogOut size={16} strokeWidth={1.75} /> Log out
+            <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
           </button>
         )}
       </div>

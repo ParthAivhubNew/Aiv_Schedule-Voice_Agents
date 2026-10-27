@@ -119,7 +119,7 @@ async def _find(db: AsyncSession, filters: Dict[str, Any], area: Optional[List[L
     from app.services import business_records
 
     if not area:
-        out = await business_records.search_filtered(db, filters, limit=limit, offset=0)
+        out = await business_records.search_filtered(db, filters, limit=limit, offset=0, stats=False)
         return list(out["rows"])
     rows: List[BusinessRecord] = []
     scan: Optional[int] = 0

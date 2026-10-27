@@ -8,7 +8,7 @@ export function AppSwitcher({ current, onHome }) {
   return (
     <div role="navigation" aria-label="Outreach apps" className="ui-switcher">
       <button type="button" title="Home: all your apps" onClick={onHome} className="ui-switcher-btn ui-switcher-btn--home">
-        <Home size={15} /> Home
+        <Home size={15} /> <span>Home</span>
       </button>
       {APPS.map((app) => {
         const here = app.id === current;

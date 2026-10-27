@@ -48,6 +48,59 @@ SIZE_BANDS = {
     "FULL": "medium_large", "GROUP": "medium_large",
     "DORMANT": "dormant",
 }
+# How Find Leads orders companies: the most filled-in profiles first, and within each group the biggest and
+# best-known first. One stored number (BusinessRecord.rank_score) so a search can sort millions of rows.
+#   rank_score = tier * 10000 + prominence * 10 + filled
+# `filled` counts the six things that make a profile useful (website, phone, email, description, people on the
+# registry, a researched dossier); tier is Full (4+), Partial (2-3) or Basic (0-1). Prominence only uses what we
+# hold: a large-accounts filer, a PLC, how many more sources than the first confirm it, a known website, and (optional, added by the
+# backfill job) how high the company's own site ranks in a public popularity list.
+TIER_STEP = 10000
+TIER_NAMES = {2: "full", 1: "partial", 0: "basic"}
+
+
+def filled_count(*, website="", phone="", email="", description="", has_officers=False, has_dossier=False) -> int:
+    return sum(1 for v in (website, phone, email, description, has_officers, has_dossier) if v)
+
+
+def prominence_points(*, size_band="", company_category="", source_count=0, has_site=False) -> int:
+    points = 40 if size_band == "medium_large" else 0
+    category = str(company_category or "").lower()
+    if "public limited" in category or re.search(r"\bplc\b", category):
+        points += 20
+    return points + 5 * min(max(int(source_count or 0) - 1, 0), 3) + (5 if has_site else 0)
+
+
+def rank_score_of(*, filled: int, prominence: int) -> int:
+    tier = 2 if filled >= 4 else 1 if filled >= 2 else 0
+    return tier * TIER_STEP + min(max(int(prominence), 0), 99) * 10 + min(max(int(filled), 0), 9)
+
+
+def profile_of(rank: Optional[int]) -> str:
+    """full / partial / basic, from a stored rank_score."""
+    return TIER_NAMES[min(2, max(0, int(rank or 0) // TIER_STEP))]
+
+
+def _prominence_part(rank: Optional[int]) -> int:
+    return (int(rank or 0) % TIER_STEP) // 10
+
+
+def row_rank(row: Any, previous: Optional[int] = None) -> int:
+    """The rank of a stored company, never lowering a prominence bonus the backfill job added earlier."""
+    raw = row.raw_data or {}
+    filled = filled_count(website=row.website or row.domain, phone=row.phone, email=row.email, description=row.description,
+                          has_officers=bool(row.officers), has_dossier=bool(row.shared_research or raw.get("contacts_web")))
+    prominence = prominence_points(size_band=row.size_band or "", company_category=row.company_category or "",
+                                   source_count=len(row.sources or []), has_site=bool(row.website or row.domain))
+    return rank_score_of(filled=filled, prominence=max(prominence, _prominence_part(previous)))
+
+
+def refresh_rank(row: Any) -> int:
+    """Call after anything that adds a website, phone, email, officers or a dossier to a record."""
+    row.rank_score = row_rank(row, row.rank_score)
+    return row.rank_score
+
+
 _SIC_CODE_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)\s*-")
 _DATE_FORMATS = ("%d/%m/%Y", "%Y-%m-%d")
 
@@ -164,6 +217,7 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
     sources.append({"source_id": source_id, "source_type": source_type, "confirmed_at": datetime.utcnow().isoformat()})
     row.sources = sources
     row.fetched_at = row.updated_at = datetime.utcnow()
+    refresh_rank(row)
     if confidence_tier == "verified_registry":
         row.last_verified_at = datetime.utcnow()
     try:
@@ -220,6 +274,11 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
             row[field] = _clean(data.get(field), 2000 if field == "description" else 300)
         for field in _DERIVED:
             row[field] = derived.get(field)
+        rank = rank_score_of(
+            filled=filled_count(website=row.get("website") or row.get("domain"), phone=row.get("phone"), email=row.get("email"), description=row.get("description")),
+            prominence=prominence_points(size_band=derived.get("size_band") or "", company_category=row.get("company_category"),
+                                         source_count=1, has_site=bool(row.get("website") or row.get("domain"))))
+        row["rank_score"] = rank or None
         values_by_hash[ih] = row
     values = list(values_by_hash.values())
     if not values:
@@ -241,6 +300,7 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
     update_cols.update({f: case((only_this_source, func.coalesce(stmt.excluded[f], table.c[f])),
                                 else_=func.coalesce(table.c[f], stmt.excluded[f])) for f in _DERIVED})
     update_cols.update({
+        "rank_score": func.greatest(table.c.rank_score, stmt.excluded.rank_score),  # ignores NULL; never lowers what a lookup earned
         "confidence_tier": "verified_registry",
         # Every source that has described the company is listed once, and its full original row is
         # kept under its own source id -- adding a second source never loses the first.
@@ -374,7 +434,8 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 
 
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
-               "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone")
+               "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
+               "not_keyword", "not_towns", "not_company_category", "saved")
 COUNT_CAP = 10_000
 _NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
 
@@ -395,7 +456,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     """Keeps only the filter keys we know, in a predictable shape, so a model-written filter dict
     can never inject anything else into the query."""
     out: Dict[str, Any] = {}
-    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands"):
+    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands", "not_keyword", "not_towns", "not_company_category"):
         values = _as_list((filters or {}).get(key))
         if key == "sic_codes":
             values = [re.sub(r"\D", "", v) for v in values if re.sub(r"\D", "", v)]
@@ -417,6 +478,8 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("has_website", "has_email", "has_phone"):
         if (filters or {}).get(key):
             out[key] = True
+    if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
+        out["saved"] = str(filters["saved"])
     # Exactly "Active" unless the caller deliberately asks for something else or "any".
     out["status"] = out.get("status") or "Active"
     return out
@@ -461,11 +524,66 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     for key, col in (("has_website", B.website), ("has_email", B.email), ("has_phone", B.phone)):
         if f.get(key):
             conds.append(func.coalesce(col, "") != "")
+    # "Is none of": the same columns as the matching include filters, negated.
+    if f.get("not_keyword"):
+        conds.append(~or_(*[or_(B.name.ilike(_like(t), escape="\\"), func.coalesce(B.sic_text, "").ilike(_like(t), escape="\\"),
+                                func.coalesce(B.industry, "").ilike(_like(t), escape="\\")) for t in f["not_keyword"]]))
+    if f.get("not_towns"):
+        conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
+    if f.get("not_company_category"):
+        conds.append(~or_(*[func.coalesce(B.company_category, "").ilike(_like(t), escape="\\") for t in f["not_company_category"]]))
+    if f.get("saved"):
+        from app.models.models import LeadAccount
+
+        mine = select(LeadAccount.id).where(LeadAccount.business_record_id == B.id).exists()
+        conds.append(mine if f["saved"] == "only" else ~mine)
     return conds
 
 
+SORTS = ("best", "newest", "name")
+
+
+def _order(sort: str) -> list:
+    """Best match: filled-in, well-known companies first (see rank_score_of); the others re-order the same results."""
+    B = BusinessRecord
+    if sort == "name":
+        return [func.lower(B.name), B.id]
+    if sort == "newest":
+        return [B.incorporated_on.desc().nullslast(), B.id]
+    return [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
+
+
+async def _capped_count(db: AsyncSession, where) -> int:
+    capped = select(BusinessRecord.id).where(where).limit(COUNT_CAP + 1).subquery()
+    return int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
+
+
+async def result_stats(db: AsyncSession, where, total: int) -> Dict[str, Any]:
+    """What sits behind the first page: how many results are Full, Partial or Basic profiles, and how many are
+    already in this organisation's lists. Counted up to COUNT_CAP each, like the total."""
+    B = BusinessRecord
+    full = await _capped_count(db, and_(where, B.rank_score >= 2 * TIER_STEP))
+    partial = await _capped_count(db, and_(where, B.rank_score >= TIER_STEP, B.rank_score < 2 * TIER_STEP))
+    from app.models.models import LeadAccount
+
+    mine = select(LeadAccount.business_record_id).where(LeadAccount.business_record_id.isnot(None))
+    saved_sub = select(B.id).where(and_(where, B.id.in_(mine))).limit(COUNT_CAP + 1).subquery()
+    saved = int((await db.execute(select(func.count()).select_from(saved_sub))).scalar() or 0)
+    return {"tiers": {"full": full, "partial": partial, "basic": max(total - full - partial, 0)}, "saved_total": min(saved, total)}
+
+
+async def saved_ids(db: AsyncSession, ids: List[str]) -> set:
+    """Which of these companies this organisation already has in a list (row-level security limits it to their own)."""
+    from app.models.models import LeadAccount
+
+    if not ids:
+        return set()
+    rows = (await db.execute(select(LeadAccount.business_record_id).where(LeadAccount.business_record_id.in_(ids)))).all()
+    return {r[0] for r in rows}
+
+
 async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: int = 25, offset: int = 0,
-                          exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+                          exclude_ids: Optional[List[str]] = None, sort: str = "best", stats: bool = True) -> Dict[str, Any]:
     """The Apollo-style structured search over the shared store: every filter is an exact,
     explainable condition on a real column (nothing fuzzy or semantic), so the same filters always
     return the same companies and each result can be traced to the field that matched. Needs at
@@ -482,14 +600,46 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
-    capped = select(BusinessRecord.id).where(where).limit(COUNT_CAP + 1).subquery()
-    total = int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
+    total = await _capped_count(db, where)
     rows = (await db.execute(
-        select(BusinessRecord).where(where)
-        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id)
-        .limit(limit).offset(max(0, int(offset or 0)))
+        select(BusinessRecord).where(where).order_by(*_order(sort)).limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
-    return {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
+    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
+    if stats:
+        out.update(await result_stats(db, where, out["total"]))
+    return out
+
+
+async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str = "", limit: int = 25, offset: int = 0,
+                        sort: str = "best") -> Dict[str, Any]:
+    """The People tab: the people the registry lists for the companies that match the same filters. Only companies
+    whose officers have been read are in it (they are read on demand, see company_contacts), so `fill_ids` names
+    the best-ranked matching companies still to read, for the "find people" step. Names are public registry
+    facts; emails and phones are never here, they are found (and charged) per person."""
+    from app.services import company_contacts as CC
+
+    f = normalize_filters(filters)
+    if not any(f.get(k) for k in _NEEDS_ONE_OF):
+        raise ValueError("Add at least a sector, SIC code, town, postcode or company name to search.")
+    B = BusinessRecord
+    base = and_(*_filter_conditions(f))
+    with_people = and_(base, B.officers.isnot(None))
+    word = str(title or "").strip().lower()[:60]
+    if word:  # a cheap pre-filter on the stored JSON text; the exact role match is made below
+        with_people = and_(with_people, cast(B.officers, String).ilike(_like(word), escape="\\"))
+    limit = max(1, min(int(limit or 25), 100))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    total = await _capped_count(db, with_people)
+    rows = (await db.execute(select(B).where(with_people).order_by(*_order(sort)).limit(limit).offset(max(0, int(offset or 0))))).scalars().all()
+    people = []
+    for biz in rows:
+        for o in CC.active_officers(biz.officers):
+            if word and word not in (o["role"] or "").lower() and word not in o["name"].lower():
+                continue
+            people.append({**o, "company": biz})
+    fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*_order(sort)).limit(25))).scalars().all()
+    return {"people": people, "companies_total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill)}
 
 
 _DISTRICTS: Dict[str, Any] = {}  # town -> (when, rows); the shared store changes slowly, so a town is counted once in a while
@@ -586,7 +736,7 @@ async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     rows = (await db.execute(
         select(BusinessRecord).where(where)
-        .order_by(BusinessRecord.incorporated_on.desc().nullslast(), BusinessRecord.id).offset(scan).limit(chunk + 1)
+        .order_by(*_order("best")).offset(scan).limit(chunk + 1)
     )).scalars().all()
     more = len(rows) > chunk
     rows = rows[:chunk]
@@ -644,7 +794,7 @@ def as_dict(row: BusinessRecord) -> Dict[str, Any]:
         "description": row.description or "", "confidence_tier": row.confidence_tier or "scraped",
         "status": row.status or "", "company_category": row.company_category or "",
         "incorporation_date": row.incorporation_date or "", "sic_text": row.sic_text or "",
-        "postcode": row.postcode or "", "size_band": row.size_band or "", "officers": row.officers or [],
+        "postcode": row.postcode or "", "size_band": row.size_band or "", "rank_score": row.rank_score or 0, "officers": row.officers or [],
         "significant_control": row.significant_control or [],
         "sources": row.sources or [], "needs_review": bool(row.needs_review),
         "fetched_at": row.fetched_at.isoformat() + "Z" if row.fetched_at else None,

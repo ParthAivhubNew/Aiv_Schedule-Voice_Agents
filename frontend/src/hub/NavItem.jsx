@@ -31,7 +31,7 @@ export function NavItem({ item, current, children: extra }) {
   };
 
   const button = (
-    <button type="button" className="ui-nav-item" title={item.title} onClick={item.onClick} aria-current={active ? "page" : undefined}
+    <button type="button" className="ui-nav-item" title={item.title || item.label} onClick={item.onClick} aria-current={active ? "page" : undefined}
       aria-haspopup={subs.length ? "menu" : undefined} aria-expanded={subs.length ? open : undefined} data-locked={item.locked ? "true" : undefined}
       onKeyDown={(e) => {
         if (!subs.length) return;

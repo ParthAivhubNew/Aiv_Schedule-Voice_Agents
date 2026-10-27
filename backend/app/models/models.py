@@ -1893,6 +1893,9 @@ class BusinessRecord(Base):
     raw_data = Column(JSON, nullable=True)  # the FULL original record from each source, keyed by source_id --
     # nothing a source publishes is ever thrown away, even fields with no column of their own yet
     embedding = Column(Vector(384), nullable=True)  # for later semantic ("indirect business") search
+    # How well-filled-in and how well-known the company is, as one number for sorting (see business_records.rank_score_of):
+    # tier * 10000 + prominence * 10 + filled-in fields. NULL means a bare registry record.
+    rank_score = Column(Integer, nullable=True)
     needs_review = Column(Boolean, default=False)
     fetch_hash = Column(String, default="")  # hash of the last raw fetch; skips reprocessing unchanged content
     fetched_at = Column(DateTime, default=datetime.utcnow)

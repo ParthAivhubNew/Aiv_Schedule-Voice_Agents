@@ -1894,6 +1894,11 @@ async def upload_data_source_file(source_id: str, request: Request, name: str):
     finally:
         if part.exists():
             part.unlink()
+    async with AsyncSessionLocal() as db:
+        source = await _get_data_source(db, source_id)
+        if source.last_error:
+            source.last_error = ""  # a new file is the fix for a refused download; the next run reports afresh
+            await db.commit()
     return _file_out(final)
 
 

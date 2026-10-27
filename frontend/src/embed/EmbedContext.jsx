@@ -16,7 +16,7 @@ export function SidebarBrand({ icon: Icon, accent, name, size = 17 }) {
   const ctx = useContext(EmbedContext);
   const brand = (ctx && ctx.brand) || {};
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
+    <div className="sb-brand" style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
       {brand.logoUrl ? (
         <img src={brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ height: 32, maxWidth: 120, objectFit: "contain", flexShrink: 0 }} />
       ) : (
@@ -24,7 +24,7 @@ export function SidebarBrand({ icon: Icon, accent, name, size = 17 }) {
           <Icon size={size} />
         </div>
       )}
-      <div style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand.name || name}</div>
+      <div className="sb-brand-name" style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand.name || name}</div>
     </div>
   );
 }

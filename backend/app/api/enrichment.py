@@ -484,7 +484,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                         lambda f: business_records.search_filtered(db, f, limit=25, exclude_ids=req.exclude_ids or []))
                     found["filters"] = business_records.normalize_filters(plan["filters"])  # show what was asked, not the widened words
                     registry = {"filters": found["filters"], "total": found["total"], "capped": found["total_capped"],
-                                "leads": [lead_filters.card(r) for r in found["rows"]]}
+                                "leads": [lead_filters.card(r) for r in found["rows"]],
+                                "tiers": found.get("tiers"), "saved_total": found.get("saved_total")}
                 except ValueError as err:
                     registry = {"filters": plan["filters"], "total": 0, "capped": False, "leads": [], "needs": str(err)}
 
@@ -684,7 +685,8 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
             "leads": discovered_leads,
             "fills": fills,
             "registry": ({"companies": registry["leads"], "total": registry["total"], "total_capped": registry["capped"],
-                          "filters": registry["filters"], "chips": lead_filters.describe(registry["filters"])}
+                          "filters": registry["filters"], "chips": lead_filters.describe(registry["filters"]),
+                          "tiers": registry.get("tiers"), "saved_total": registry.get("saved_total")}
                          if registry is not None and not registry.get("needs") else None),
             "removed_names": removed_names,
             "incompleteCount": len(incomplete),

@@ -639,6 +639,12 @@ async def _business_record_search_columns(conn: AsyncConnection) -> None:
         await conn.execute(text(f"ALTER TABLE business_records ADD COLUMN IF NOT EXISTS {col} {typ}"))
 
 
+async def _business_record_rank_score(conn: AsyncConnection) -> None:
+    """The one number Find Leads sorts by (see BusinessRecord.rank_score). Added empty and instant; filling it
+    for the rows already imported, and its index, are part of scripts/backfill_business_records.py --ranking."""
+    await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS rank_score INTEGER"))
+
+
 async def _companies_house_search_fields(conn: AsyncConnection) -> None:
     """Teaches the Companies House bulk import to fill the search columns on every future run
     (all four SIC descriptions, the postcode, and the filed-accounts category the size band comes
@@ -866,6 +872,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_13_embed_links_and_ledger_stamps", _embed_links_and_ledger_stamps),
     ("2026_11_14_partner_embed_theme", _partner_embed_theme),
     ("2026_11_15_open_data_notes_and_pay_gap", _open_data_notes_and_pay_gap),
+    ("2026_11_16_business_record_rank_score", _business_record_rank_score),
 ]
 
 

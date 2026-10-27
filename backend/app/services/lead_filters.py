@@ -100,7 +100,7 @@ def card(biz) -> Dict[str, Any]:
         "company_category": biz.company_category or "", "incorporation_date": biz.incorporation_date or "",
         "size_band": biz.size_band or "", "website": biz.website or biz.domain or "", "phone": biz.phone or "",
         "email": biz.email or "", "tier": biz.confidence_tier or "scraped", "source_count": len(biz.sources or []),
-        "has_officers": bool(biz.officers),
+        "has_officers": bool(biz.officers), "profile": business_records.profile_of(biz.rank_score),
     }
 
 
@@ -131,4 +131,9 @@ def describe(filters: Dict[str, Any]) -> List[str]:
     for key, label in (("has_website", "Has website"), ("has_email", "Has email"), ("has_phone", "Has phone")):
         if filters.get(key):
             chips.append(label)
+    for key, label in (("not_keyword", "Not about"), ("not_towns", "Not in"), ("not_company_category", "Not type")):
+        if filters.get(key):
+            chips.append(label + ": " + ", ".join(filters[key]))
+    if filters.get("saved"):
+        chips.append("Already in your lists" if filters["saved"] == "only" else "Not in any of your lists")
     return chips
