@@ -549,7 +549,9 @@ def _order(sort: str) -> list:
     if sort == "name":
         return [func.lower(B.name), B.id]
     if sort == "newest":
-        return [B.incorporated_on.desc().nullslast(), B.id]
+        # Plain DESC (empty dates first, there are almost none) is the order the existing date index can walk; NULLS LAST is not,
+        # and would read and sort every company.
+        return [B.incorporated_on.desc(), B.id]
     return [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 
 
@@ -569,7 +571,7 @@ async def ranking_ready(db: AsyncSession) -> bool:
         small = (await db.execute(text("SELECT COALESCE(MAX(reltuples), 0) < 200000 FROM pg_class WHERE relname = 'business_records'"))).scalar()
         indexed = (await db.execute(text(
             "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid "
-            "WHERE c.relname = 'ix_business_records_rank_score' AND i.indisvalid AND i.indisready)"))).scalar()
+            "WHERE c.relname = 'ix_business_records_rank_order' AND i.indisvalid AND i.indisready)"))).scalar()
         ready = bool(small or indexed)
     _RANKING[0], _RANKING[1] = time.monotonic(), ready
     return ready

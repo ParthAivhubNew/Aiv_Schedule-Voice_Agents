@@ -112,6 +112,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/scheduler"), "scheduler"),
     (re.compile(r"^/email/u/"), None),  # unsubscribe links (public; signed)
     (re.compile(r"^/legal/"), None),  # public notice and opt-out pages
+    (re.compile(r"^/docs/partners"), None),  # public partner guides
     (re.compile(r"^/email"), "email"),
     (re.compile(r"^/calcom"), "calcom"),
     (re.compile(r"^/profile/org$"), "company"),

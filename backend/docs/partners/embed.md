@@ -4,7 +4,7 @@ Show Outreach's screens (Leads, Campaigns, Mail, Voice, Social) inside your own 
 layout in your code: inline, popup, side panel or full page. Your users sign in to Outreach, or create an account, without
 leaving your product, and you never see their password.
 
-This is the way to integrate from now on. The older direct API (`POST /v1/run`, see `partner-api-actions.md`) keeps working for
+This is the way to integrate from now on. The older direct API (`POST /v1/run`, see the [API reference](api.md)) keeps working for
 integrations built on it; new integrations should use screens.
 
 - [How it fits together](#how-it-fits-together)

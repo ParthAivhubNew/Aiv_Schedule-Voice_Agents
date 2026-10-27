@@ -108,8 +108,11 @@ async def build_index() -> None:
     async with engine.connect() as conn:
         conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
         started = time.time()
-        print("Building ix_business_records_rank_score ...", flush=True)
-        await conn.execute(text("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_rank_score ON business_records (rank_score DESC NULLS LAST)"))
+        print("Building ix_business_records_rank_order ...", flush=True)
+        # The same columns, in the same order, as the "best match" sort, so a page is read straight off the index.
+        await conn.execute(text("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_rank_order ON business_records "
+                                "(rank_score DESC NULLS LAST, incorporated_on DESC NULLS LAST, id)"))
+        await conn.execute(text("DROP INDEX CONCURRENTLY IF EXISTS ix_business_records_rank_score"))  # the first version of this index
         print(f"  done in {time.time() - started:.0f}s", flush=True)
 
 

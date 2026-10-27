@@ -101,9 +101,15 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind }) {
+function Reach({ value, kind, onFind, web, state }) {
+  if (!value && web) {
+    return <span title="Found on the web, not confirmed by the registry. Check it before you use it" style={{ whiteSpace: "nowrap" }}>{web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
+  }
+  if (!value && state === "busy") return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
+  if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
-  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={kind === "phone" ? "Open the profile to look for a phone number" : "Open the profile to look for an email"} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : "Find email"}</button>;
+  const tip = kind === "email" ? "Open the profile to look for an email" : "Look on the web for this company's website and phone. 1 credit if found (the deeper search is used only if the first finds no website, and only charged if it does). Nothing is charged for a miss";
+  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}</button>;
 }
 
 function SaveCell({ saved, onSave }) {
@@ -124,7 +130,7 @@ function Divider({ profile, count, cols }) {
   );
 }
 
-export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId }) {
+export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, lookups }) {
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
   const cols = 9;
   const seen = new Set();
@@ -170,8 +176,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <span style={{ color: C.slateLight }}>–</span>}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" onFind={() => onOpen(c)} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[c.id]} onFind={() => onFindSite(c)} />}</Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[c.id]} onFind={() => onFindSite(c)} /></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" onFind={() => onOpen(c)} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>

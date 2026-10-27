@@ -359,6 +359,7 @@ export const api = {
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
+  findCompanyWebsite: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: {}, timeoutMs: 60000 }),
   searchPeople: (body) => apiRequest('/leads/people/search', { method: 'POST', body, timeoutMs: 40000 }),
   townDistricts: (town, includeClosed = false) => apiRequest(`/leads/districts?town=${encodeURIComponent(town)}&include_closed=${includeClosed}`),
   areaCount: (body) => apiRequest('/leads/search/area-count', { method: 'POST', body, timeoutMs: 60000 }),

@@ -715,6 +715,22 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   const pickAmount = (n) => showFromArea(area, n, areaStep.candidates);
   const pinCount = companies.filter((c) => points[c.id]).length;
   const saveOne = (c) => store.save([asAccount(c)]);
+  // One click on an empty website or phone: look on the web (and, if that finds no website, the deeper search), fill the row.
+  const [lookups, setLookups] = useState({}); // company id -> "busy" | "none"
+  const findSite = async (c) => {
+    if (lookups[c.id] === "busy") return;
+    setLookups((m) => ({ ...m, [c.id]: "busy" }));
+    try {
+      const r = await api.findCompanyWebsite(c.id);
+      if (r.company) setCompanies((rows) => rows.map((x) => (x.id === c.id ? { ...x, ...r.company, saved: x.saved } : x)));
+      setOpenCo((o) => (o && o.id === c.id && r.company ? { ...o, ...r.company, saved: o.saved } : o));
+      setLookups((m) => { const n = { ...m }; if (r.found) delete n[c.id]; else n[c.id] = "none"; return n; });
+      store.toast(r.found ? `Found details for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
+    } catch (err) {
+      setLookups((m) => { const n = { ...m }; delete n[c.id]; return n; });
+      store.toast(err.message || "The lookup didn't finish. Nothing was charged.");
+    }
+  };
   const call = useCallDialog(store.toast);
   const { available: canCall } = useConnection("call_leads");
   // The saved copy of a search result, saving it first when it isn't saved yet. Calling needs a saved company
@@ -1035,13 +1051,26 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
               </button>
             ))}
           </div>
+          {tab === "companies" ? (
+            <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
+              {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
+                <button key={id} type="button" title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
+                  className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--secondary"}`}><Icon size={14} /> {name}</button>
+              ))}
+            </div>
+          ) : null}
           {searched && tab === "companies" ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
         </div>
       {busy ? (
         <div><SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
           detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." paused={searchHold.paused} holding onPause={searchHold.pause} onResume={searchHold.resume} onCancel={cancelSearch} /></div>
       ) : null}
-      {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
+      {error ? (
+        <div role="alert" style={{ ...muted, color: C.red, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {error}
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => (tab === "people" ? searchPeople(null, form, 0) : search(null, form, 0, null))}><RefreshCw size={13} /> Try again</button>
+        </div>
+      ) : null}
       {!busy && !error && !searched && view !== "map" ? (
         <div className="ui-card phone-only" style={{ padding: 20, flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>No search yet</div>
@@ -1083,14 +1112,6 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 </select>
                 per page
               </label>
-            ) : null}
-            {tab === "companies" ? (
-              <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
-                {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                  <button key={id} type="button" title={id === "map" ? "See the results as pins on a map" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
-                    className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--ghost"}`}><Icon size={14} /> {name}</button>
-                ))}
-              </div>
             ) : null}
           </div>
           {understood.length ? (
@@ -1210,7 +1231,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 <CompaniesTable rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
                   onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
-                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
+                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} lookups={lookups} />
               ) : searched && !inArea ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
               ) : null}

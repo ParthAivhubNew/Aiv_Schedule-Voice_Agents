@@ -154,3 +154,54 @@ async def test_before_the_ranking_job_has_run_the_list_still_opens_newest_first(
         out = (await c.post("/api/leads/search", json={"filters": {}})).json()
         assert out["ranked"] is False and out["tiers"] is None
         assert out["companies"][0]["name"] == "Tiny Cafe Ltd"  # newest first, no sort by rank
+
+
+@pytest.mark.db
+async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_only_for_a_find(db, monkeypatch):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    await BR.bulk_upsert(db, source_id="ds_ch", rows=[_row("101", "Web Cafe Ltd", "01/01/2015"), _row("102", "Deep Cafe Ltd", "01/01/2015"),
+                                                       _row("103", "Hidden Cafe Ltd", "01/01/2015"), _row("104", "Has Site Ltd", "01/01/2015", website="has.co.uk")])
+    await db.commit()
+    ids = {r.name: r.id for r in (await BR.search_filtered(db, {"towns": ["Leeds"]}))["rows"]}
+
+    async def fake_web(_db, biz, refresh=False):
+        if biz.name == "Web Cafe Ltd":
+            found = {"found": True, "cached": False, "website": "webcafe.co.uk", "phones": ["0113 000 111"], "emails": [], "team": []}
+            biz.raw_data = {**(biz.raw_data or {}), "contacts_web": found}  # the real lookup keeps what it finds here
+            return found
+        return {"found": False, "cached": False, "website": "", "phones": [], "emails": [], "team": []}
+
+    async def fake_places(query):
+        return {"place_id": "p1", "website": "https://deepcafe.co.uk", "phone": "0113 222 333", "name": "Deep Cafe"} if "Deep" in query else None
+
+    monkeypatch.setattr("app.services.company_contacts.web_contacts", fake_web)
+    monkeypatch.setattr("app.api.lead_accounts.search_google_places", fake_places)
+    _, token = await make_user(db, "fl8", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):
+        await K.add_credits(db, "leadgen", 200, source="grant", note="Trial")
+        await db.commit()
+    async with _client(token) as c:
+        r = await c.post(f"/api/leads/companies/{ids['Web Cafe Ltd']}/find-website")
+        assert r.status_code == 200, r.text
+        web = r.json()
+        assert web["found"] and web["source"] == "web" and web["charged"] == 1
+        assert web["company"]["web_website"] == "webcafe.co.uk" and web["company"]["website"] == ""  # labelled, not mixed into the registry's own field
+
+        r = await c.post(f"/api/leads/companies/{ids['Deep Cafe Ltd']}/find-website")
+        deep = r.json()
+        assert deep["found"] and deep["source"] == "deep" and deep["company"]["website"] == "https://deepcafe.co.uk" and deep["company"]["phone"] == "0113 222 333"
+
+        with org_scope("org_acme"):
+            before = await K.wallet_balance(db, "leadgen")
+        miss_r = await c.post(f"/api/leads/companies/{ids['Hidden Cafe Ltd']}/find-website")
+        assert miss_r.status_code == 200, miss_r.text
+        miss = miss_r.json()
+        assert not miss["found"] and miss["charged"] == 0 and "Nothing was charged" in miss["note"]
+        with org_scope("org_acme"):
+            assert await K.wallet_balance(db, "leadgen") == before
+
+        already = (await c.post(f"/api/leads/companies/{ids['Has Site Ltd']}/find-website")).json()
+        assert already["found"] and already["source"] == "stored" and already["charged"] == 0
+        assert (await c.post("/api/leads/companies/nope/find-website")).status_code == 404

@@ -350,6 +350,59 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
     }
 
 
+@router.post("/companies/{company_id}/find-website")
+async def find_company_website(company_id: str, db: AsyncSession = Depends(get_db)):
+    """One click from a result row that has no website: look on the open web first (1 Leads credit, only when a website or
+    phone is found), and if that finds no website, the deeper search (its own price, only when it finds one). Nothing is
+    charged for a miss. What the web finds stays labelled as web and unverified; the deeper search fills only empty fields
+    and never replaces what the registry holds. Shown to the user as "web" and "deeper search", never by vendor name."""
+    from app.services import company_contacts as CC, lead_filters
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    if biz.website or biz.domain:
+        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": lead_filters.card(biz)}
+    await _can_research(db)
+    charged, note, source = 0, "", ""
+    try:
+        web = await CC.web_contacts(db, biz)
+    except Exception:
+        web = None
+        note = "The web lookup didn't finish just now."
+    found_web = bool(web and web.get("found") and (web.get("website") or web.get("phones")))
+    if found_web:
+        source = "web"
+        await db.commit()
+        if not web.get("cached"):
+            await _charge_leads(db, 1, f"Website for {biz.name}")
+            charged += 1
+    if not (biz.website or biz.domain or (web or {}).get("website")):
+        try:
+            await _can_deep_search(db)
+            place = await search_google_places(f"{biz.name} {biz.region or ''}".strip())
+        except HTTPException:
+            place = None
+            note = "Nothing found on the web, and there are not enough credits for the deeper search."
+        if place and place.get("website"):
+            try:
+                await business_records.upsert(
+                    db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
+                    data={"name": biz.name, "registration_number": biz.registration_number, "website": place.get("website"),
+                          "phone": place.get("phone"), "region": biz.region})
+                await db.commit()
+                await _charge_deep_search(db, f"Deeper search: {biz.name}")
+                charged += 1
+                source = "deep"
+            except ValueError:
+                pass
+    await db.refresh(biz)
+    got = bool(biz.website or biz.domain or (((biz.raw_data or {}).get("contacts_web") or {}).get("website")))
+    if not got and not note:
+        note = "No website found for this company. Nothing was charged."
+    return {"found": got, "source": source, "charged": charged, "note": note, "company": lead_filters.card(biz)}
+
+
 @router.get("/accounts")
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(select(LeadAccount).order_by(LeadAccount.created_at.desc()))).scalars().all()

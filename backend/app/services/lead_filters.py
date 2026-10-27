@@ -101,6 +101,9 @@ def card(biz) -> Dict[str, Any]:
         "size_band": biz.size_band or "", "website": biz.website or biz.domain or "", "phone": biz.phone or "",
         "email": biz.email or "", "tier": biz.confidence_tier or "scraped", "source_count": len(biz.sources or []),
         "has_officers": bool(biz.officers), "profile": business_records.profile_of(biz.rank_score),
+        # Found by a web lookup and not yet vouched for by any registry: shown labelled, never mixed into the fields above.
+        "web_website": str(((biz.raw_data or {}).get("contacts_web") or {}).get("website") or ""),
+        "web_phone": str(next(iter(((biz.raw_data or {}).get("contacts_web") or {}).get("phones") or []), "") or ""),
     }
 
 
