@@ -162,9 +162,13 @@
     return this.client.host + "/embed/" + this.component + "?client_id=" + encodeURIComponent(this.client.clientId);
   };
 
+  var TITLES = { leads: "Leads", campaigns: "Email campaigns", mail: "Mail", voice: "Voice", social: "Social", connect: "Connect your account" };
+
   Screen.prototype._build = function (parent, height) {
     if (this.frame) return;
-    var f = el("iframe", "border:0;width:100%;height:" + height + ";display:block;background:transparent;", {
+    // In a popup or side panel the frame fills what is left under the header bar (height "fill"); inline it has its own height.
+    var size = height === "fill" ? "flex:1 1 auto;min-height:0;height:0;" : "height:" + height + ";";
+    var f = el("iframe", "border:0;width:100%;" + size + "display:block;background:transparent;", {
       src: this._src(), title: "Outreach " + this.component, allow: "clipboard-write; microphone",
     });
     f.setAttribute("referrerpolicy", "origin");
@@ -227,14 +231,22 @@
     var overlay = el("div", "position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.45);display:flex;" +
       (drawer ? "justify-content:" + (right ? "flex-end" : "flex-start") + ";" : "align-items:center;justify-content:center;padding:3vh 3vw;"),
       { role: "dialog", "aria-modal": "true", "aria-label": "Outreach " + this.component });
-    var panel = el("div", "position:relative;background:#fff;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);" +
+    var panel = el("div", "position:relative;display:flex;flex-direction:column;background:#fff;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);" +
       (drawer ? "height:100%;width:" + (opts.width || "min(560px,100vw)") + ";"
               : "width:" + (opts.width || "min(1100px,100%)") + ";height:" + (opts.height || "min(760px,100%)") + ";border-radius:12px;"));
-    var close = el("button", "position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;border:0;border-radius:16px;background:rgba(15,23,42,.08);cursor:pointer;font:20px/1 system-ui;color:#111;",
+    // Its own bar, so the close button never sits on top of the screen's header (notifications, tabs, account menu).
+    var bar = el("div", "flex:0 0 44px;display:flex;align-items:center;gap:8px;padding:0 8px 0 16px;background:#fff;border-bottom:1px solid #E3E6EB;font:600 13px/1 system-ui,-apple-system,'Segoe UI',sans-serif;color:#111827;");
+    var title = el("span", "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;");
+    title.textContent = this.options.title || TITLES[this.component] || "Outreach";
+    var close = el("button", "flex:0 0 auto;width:32px;height:32px;border:0;border-radius:8px;background:transparent;cursor:pointer;font:22px/1 system-ui;color:#4B5563;",
       { type: "button", "aria-label": "Close" });
-    close.textContent = "×";
+    close.textContent = "\u00d7"; // an escape, so a page without a UTF-8 charset still shows a cross
+    close.onmouseenter = function () { close.style.background = "#F1F3F6"; };
+    close.onmouseleave = function () { close.style.background = "transparent"; };
     close.onclick = function () { self.close(); };
-    panel.appendChild(close);
+    bar.appendChild(title);
+    bar.appendChild(close);
+    panel.appendChild(bar);
     overlay.appendChild(panel);
     overlay.addEventListener("mousedown", function (e) { if (e.target === overlay) self.close(); });
     this._esc = function (e) { if (e.key === "Escape") self.close(); };
@@ -242,7 +254,7 @@
     this._prevFocus = document.activeElement;
     document.body.appendChild(overlay);
     this.overlay = overlay;
-    this._build(panel, "100%");
+    this._build(panel, "fill");
     close.focus();
     return this;
   };
