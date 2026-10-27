@@ -166,6 +166,10 @@ async def _registry_for(db: AsyncSession, account_id: str) -> Optional[BusinessR
     return (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first()
 
 
+_PAGE_CACHE: Dict[str, Any] = {}  # one page of results for these filters -> (when, answer). Public company facts only, so it is shared.
+_PAGE_TTL = 300.0
+
+
 class SearchIn(BaseModel):
     filters: Dict[str, Any] = {}
     limit: int = 25
@@ -197,10 +201,19 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
                 wide = shown_filters
             out = await business_records.search_in_area(db, wide, body.area, scan=body.scan, exclude_ids=body.exclude_ids)
         else:
+            import json
+            import time
+
+            key = json.dumps([shown_filters, body.sort, body.limit, body.offset, body.drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
+            hit = _PAGE_CACHE.get(key) if not body.exclude_ids else None
+            if hit and time.monotonic() - hit[0] < _PAGE_TTL:
+                cached = hit[1]
+                mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
+                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in cached["companies"]]}
             out, understood = await phrase_understanding.widen_if_empty(
                 db, body.filters, body.drop_terms,
                 lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
-                                                           sort=body.sort if body.sort in business_records.SORTS else "best"))
+                                                           sort=body.sort if body.sort in business_records.SORTS else "best", stats=False))
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
@@ -212,11 +225,67 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
-    mine = await business_records.saved_ids(db, [r.id for r in out["rows"]])
-    return {"companies": [{**lead_filters.card(r), "saved": r.id in mine} for r in out["rows"]], "total": out["total"],
-            "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
-            "next_scan": out.get("next_scan"), "understood": understood,
-            "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True)}
+    cards = [lead_filters.card(r) for r in out["rows"]]
+    mine = await business_records.saved_ids(db, [c["id"] for c in cards])
+    answer = {"companies": [{**c, "saved": c["id"] in mine} for c in cards], "total": out["total"],
+              "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
+              "next_scan": out.get("next_scan"), "understood": understood,
+              "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True)}
+    if not body.area and not body.exclude_ids and not understood:
+        import time
+
+        if len(_PAGE_CACHE) > 200:
+            _PAGE_CACHE.clear()
+        _PAGE_CACHE[key] = (time.monotonic(), {**answer, "companies": cards})
+    return answer
+
+
+@router.post("/search/summary")
+async def search_summary(body: SearchIn, db: AsyncSession = Depends(get_db)):
+    """The slower figures for a search whose page is already on screen: real total, Full/Partial/Basic counts, how many are saved."""
+    try:
+        return await business_records.search_summary(db, body.filters)
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            return {"total": 0, "total_capped": False, "tiers": None, "saved_total": None, "total_all": None}
+        raise
+
+
+_UK_PC = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$")
+
+
+@router.get("/geocode-postcode")
+async def geocode_postcode(postcode: str = "", db: AsyncSession = Depends(get_db)):
+    """The centre point of one UK postcode, for "search around this postcode" on the map. Free."""
+    from app.services import geocoding
+
+    code = re.sub(r"\s+", " ", postcode.strip().upper())
+    if not _UK_PC.match(code):
+        raise HTTPException(status_code=422, detail="Type a full UK postcode, like LS1 4AP.")
+    points = await geocoding.geocode(db, [code])
+    point = points.get(geocoding.norm_postcode(code))
+    await db.commit()
+    if not point:
+        raise HTTPException(status_code=404, detail="That postcode wasn't found.")
+    return {"postcode": code, "lat": point[0], "lng": point[1]}
+
+
+@router.get("/companies/{company_id}/logo")
+async def company_logo(company_id: str, db: AsyncSession = Depends(get_db)):
+    """The company's logo from its own website's icon, or 404. Kept on our server so the browser never contacts the company's site."""
+    from fastapi.responses import Response
+
+    from app.services import lead_filters, logos
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="Not found.")
+    card = lead_filters.card(biz)
+    site = card["website"] or card["web_website"]
+    got = await logos.logo_for(site) if site else None
+    if not got:
+        return Response(status_code=204)  # no logo is an ordinary answer, not an error
+    return Response(content=got[0], media_type=got[1], headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/people/search")
@@ -361,7 +430,9 @@ async def find_company_website(company_id: str, db: AsyncSession = Depends(get_d
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
-    if biz.website or biz.domain:
+    from app.services import site_check
+
+    if lead_filters.card(biz)["website"]:
         return {"found": True, "source": "stored", "charged": 0, "note": "", "company": lead_filters.card(biz)}
     await _can_research(db)
     charged, note, source = 0, "", ""
@@ -370,6 +441,8 @@ async def find_company_website(company_id: str, db: AsyncSession = Depends(get_d
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
+    if web and web.get("website") and not site_check.plausible_site(biz.name, web["website"]):
+        web = {**web, "website": ""}  # a lookup stored earlier may hold a register or directory page
     found_web = bool(web and web.get("found") and (web.get("website") or web.get("phones")))
     if found_web:
         source = "web"
@@ -377,14 +450,14 @@ async def find_company_website(company_id: str, db: AsyncSession = Depends(get_d
         if not web.get("cached"):
             await _charge_leads(db, 1, f"Website for {biz.name}")
             charged += 1
-    if not (biz.website or biz.domain or (web or {}).get("website")):
+    if not (lead_filters.card(biz)["website"] or (web or {}).get("website")):
         try:
             await _can_deep_search(db)
             place = await search_google_places(f"{biz.name} {biz.region or ''}".strip())
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
-        if place and place.get("website"):
+        if place and place.get("website") and site_check.plausible_site(biz.name, place["website"], strict=False):
             try:
                 await business_records.upsert(
                     db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
@@ -397,10 +470,12 @@ async def find_company_website(company_id: str, db: AsyncSession = Depends(get_d
             except ValueError:
                 pass
     await db.refresh(biz)
-    got = bool(biz.website or biz.domain or (((biz.raw_data or {}).get("contacts_web") or {}).get("website")))
+    card = lead_filters.card(biz)
+    got = bool(card["website"] or card["web_website"])
     if not got and not note:
         note = "No website found for this company. Nothing was charged."
-    return {"found": got, "source": source, "charged": charged, "note": note, "company": lead_filters.card(biz)}
+    _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
+    return {"found": got, "source": source, "charged": charged, "note": note, "company": card}
 
 
 @router.get("/accounts")

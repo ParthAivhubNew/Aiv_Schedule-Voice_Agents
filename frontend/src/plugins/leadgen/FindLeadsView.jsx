@@ -11,7 +11,7 @@ import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
-import { CompaniesTable, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
+import { CompaniesTable, CompanyAvatar, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
 
 const FAVOURITES = "Favourites";
 const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters as the Filters panel, so what I find and what you see always match. Say \"remove X\" to drop a company." };
@@ -39,6 +39,12 @@ const CHAT_CSS = `
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
+.fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
+.fl-bar::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:var(--ui-accent,#3457D5);animation:flBar 1s ease-in-out infinite}
+@keyframes flBar{0%{left:-35%}100%{left:100%}}
+.fl-suggest{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;padding:4px 4px 6px;max-height:380px;overflow-y:auto;box-shadow:0 12px 32px rgba(20,24,40,.16)}
+.fl-suggest-item{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;font:13px Inter,sans-serif;color:var(--ui-ink,#111827)}
+.fl-suggest-item:hover,.fl-suggest-item:focus-visible{background:var(--ui-accent-soft,#EEF2FE)}
 .fl-msg{animation:flIn .28s ease both}
 @keyframes flIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .fl-hist{position:absolute;right:10px;top:46px;z-index:20;width:min(360px,calc(100% - 20px));background:#fff;border:1px solid var(--ui-border,#E3E6EF);border-radius:12px;box-shadow:0 12px 32px rgba(20,24,40,.16);animation:flIn .18s ease both}
@@ -300,6 +306,10 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   const [excluded, setExcluded] = useState([]);
   const [searched, setSearched] = useState(false);
   const [tab, setTab] = useState("companies"); // companies | people
+  const [askFocus, setAskFocus] = useState(false); // the AI box is selected: its suggestions show under it
+  const askRef = useRef(null);
+  const [profile, setProfile] = useState(null);
+  useEffect(() => { api.getProfile().then(setProfile).catch(() => {}); }, []);
   const [sort, setSort] = useState("best");
   const [page, setPage] = useState(1);
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
@@ -442,18 +452,13 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
     setBusy(true);
     setError("");
     const myRun = ++runId.current;
-    // A new search (or page) never leaves the last one's companies, filters and words on screen: if it fails,
-    // only the error shows, not results that belong to something else.
-    setCompanies([]);
-    setTotal(0);
-    setCapped(false);
-    setChips([]);
-    setUnderstood([]);
+    // The last results stay (dimmed) while the next page loads, so the screen never goes empty; if the search fails, only the
+    // error shows, not results that belong to something else.
     let r;
     try {
       r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop, sort: sortOverride || sort });
     } catch (err) {
-      if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
+      if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setCompanies([]); setTotal(0); setTiers(null); setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
       return;
     }
     if (myRun !== runId.current) return; // cancelled while it was running
@@ -469,6 +474,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       setSavedTotal(r.saved_total || 0);
       setTotal(r.total_all ?? r.total);
       setCapped(r.total_all == null && r.total_capped);
+      // The slower figures (real total, group counts, saved) arrive a moment after the page is already on screen.
+      if (!(r.understood || []).length) loadSummary(formToFilters(f));
+      if (!offset) rememberSearch(f);
       setApplied(r.filters);
       setChips(r.chips || []);
       setUnderstood(r.understood || []);
@@ -476,6 +484,28 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       setBusy(false);
     });
   };
+
+  const sumRun = useRef(0);
+  const loadSummary = async (filtersObj) => {
+    const mine = ++sumRun.current;
+    try {
+      const r = await api.searchSummary({ filters: filtersObj });
+      if (mine !== sumRun.current) return;
+      if (r.tiers) setTiers(r.tiers);
+      if (r.saved_total != null) setSavedTotal(r.saved_total);
+      if (r.total_all != null) { setTotal(r.total_all); setCapped(false); }
+    } catch { /* the page is already there; the extra figures just stay as they were */ }
+  };
+
+  // What the person searched last, kept in this browser, offered again when they click the AI box.
+  const [recents, setRecents] = useState(() => { try { return JSON.parse(localStorage.getItem("aivhub_find_recent") || "[]"); } catch { return []; } });
+  const saveRecents = (list) => { setRecents(list); try { localStorage.setItem("aivhub_find_recent", JSON.stringify(list)); } catch { /* not kept */ } };
+  const rememberSearch = (f) => {
+    if (!Object.keys(formToFilters(f)).length) return;
+    const label = [f.sector, f.town, f.postcode && `postcode ${f.postcode}`, f.category].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
+    if (label) saveRecents([{ label, form: f }, ...recents.filter((r) => r.label !== label)].slice(0, 8));
+  };
+  const rememberAsk = (message) => saveRecents([{ label: message }, ...recents.filter((r) => r.label !== message)].slice(0, 8));
 
   const cancelSearch = () => {
     runId.current += 1;
@@ -717,9 +747,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   const saveOne = (c) => store.save([asAccount(c)]);
   // One click on an empty website or phone: look on the web (and, if that finds no website, the deeper search), fill the row.
   const [lookups, setLookups] = useState({}); // company id -> "busy" | "none"
-  const findSite = async (c) => {
-    if (lookups[c.id] === "busy") return;
-    setLookups((m) => ({ ...m, [c.id]: "busy" }));
+  const findSite = async (c, kind = "website") => {
+    if (String(lookups[c.id] || "").startsWith("busy")) return;
+    setLookups((m) => ({ ...m, [c.id]: `busy:${kind}` }));
     try {
       const r = await api.findCompanyWebsite(c.id);
       if (r.company) setCompanies((rows) => rows.map((x) => (x.id === c.id ? { ...x, ...r.company, saved: x.saved } : x)));
@@ -800,10 +830,12 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   };
   const forgetChat = (id) => { setHistory((prev) => prev.filter((h) => h.id !== id)); api.deleteLeadsChat(id).catch(() => {}); };
 
-  const sendChat = async (e) => {
+  const sendChat = async (e, override) => {
     if (e) e.preventDefault();
-    const message = chatInput.trim();
+    const message = String(override ?? chatInput).trim();
     if (!message || chatBusy) return;
+    rememberAsk(message);
+    setAskFocus(false);
     setChatInput("");
     setChat((prev) => [...prev, { id: "m_" + Date.now(), role: "user", text: message }]);
     setChatBusy(true);
@@ -838,6 +870,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
           setPicked(new Set());
           setTiers(res.registry.tiers || null);
           setSavedTotal(res.registry.saved_total || 0);
+          loadSummary(res.registry.filters);
           setCompanies(res.registry.companies);
           setTotal(res.registry.total);
           setCapped(res.registry.total_capped);
@@ -879,6 +912,39 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   };
 
   const filterCount = Object.keys(formToFilters(form)).length;
+  // What the AI box offers when it is clicked: the person's own recent searches, then ideas from the companies they have saved
+  // and from what their own business does, then a few general ones. Narrowed as they type.
+  const suggestions = useMemo(() => {
+    const topOf = (list) => {
+      const n = new Map();
+      list.filter(Boolean).forEach((v) => n.set(v, (n.get(v) || 0) + 1));
+      return [...n.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v)[0] || "";
+    };
+    const sector = topOf(store.accounts.map((a) => String(a.industry || "").split(" | ")[0].replace(/^\d{4,5}\s*-\s*/, "").trim()));
+    const town = topOf(store.accounts.map((a) => String(a.region || "").trim()));
+    const mine = [];
+    if (sector && town) mine.push(`More ${sector.toLowerCase()} in ${town}`);
+    if (sector) mine.push(`${sector} that have been trading 5+ years`);
+    if (town) mine.push(`Small companies in ${town} with a website`);
+    const sells = profile && profile.name && profile.name !== "Your company" && profile.industry ? String(profile.industry).split("/")[0].trim().toLowerCase() : "";
+    if (sells) mine.push(`Companies that could use ${sells}`);
+    const general = ["Small accountants in Leeds trading 5+ years", "Cafes and restaurants in London", "Established dental practices", "Construction firms in Manchester"];
+    const q = chatInput.trim().toLowerCase();
+    const fits = (label) => !q || label.toLowerCase().includes(q);
+    const seen = new Set();
+    const keep = (items) => items.filter((it) => fits(it.label) && !seen.has(it.label) && seen.add(it.label));
+    return [
+      { title: "Your recent searches", icon: <Clock size={13} color={C.slate} />, items: keep(recents.slice(0, 5).map((r) => ({ label: r.label, form: r.form }))) },
+      { title: "Suggested for you", icon: <Sparkles size={13} color="#8B5CF6" />, items: keep(mine.slice(0, 4).map((label) => ({ label }))) },
+      { title: "Ideas", icon: <Search size={13} color={C.slate} />, items: keep(general.map((label) => ({ label }))).slice(0, 3) },
+    ].filter((g) => g.items.length);
+  }, [recents, store.accounts, profile, chatInput]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickSuggestion = (it) => {
+    setAskFocus(false);
+    if (it.form) { setChatInput(""); setForm(it.form); setExcluded([]); setArea(null); setTab("companies"); search(null, it.form, 0, null); return; }
+    setChatInput("");
+    sendChat(null, it.label);
+  };
   const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
@@ -911,10 +977,25 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
             ))}
           </div>
           {source === "register" ? (
-            <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
+            <form onSubmit={sendChat} onClick={() => askRef.current && askRef.current.focus()} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
               <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
                 <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 10 }} />
-                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
+                {askFocus && suggestions.length ? (
+                  <div role="listbox" aria-label="Suggested searches" className="ui-card fl-suggest" onMouseDown={(e) => e.preventDefault()}>
+                    {suggestions.map((g) => (
+                      <div key={g.title}>
+                        <div style={{ ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", padding: "8px 10px 4px" }}>{g.title}</div>
+                        {g.items.map((it) => (
+                          <button key={it.label} type="button" role="option" className="fl-suggest-item" onClick={() => pickSuggestion(it)}>
+                            {g.icon} <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <input ref={askRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
+                  onFocus={() => setAskFocus(true)} onBlur={() => setTimeout(() => setAskFocus(false), 120)} onKeyDown={(e) => { if (e.key === "Escape") { setAskFocus(false); e.currentTarget.blur(); } }}
                   placeholder={chatStarted ? "Reply, or change the search" : 'Ask the AI: "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 36, paddingLeft: 34 }}
                   title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
               </div>
@@ -1043,6 +1124,11 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button type="button" className={`ui-btn ui-btn--sm hide-mobile ${filtersShown ? "ui-btn--secondary" : "ui-btn--primary"}`} aria-pressed={filtersShown} style={{ height: 36 }}
+            title={filtersShown ? "Hide the filters to give the results more room" : "Show the filters"}
+            onClick={() => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; })}>
+            {filtersShown ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />} {filtersShown ? "Hide filters" : `Filters${filterCount ? ` · ${filterCount}` : ""}`}
+          </button>
           <div role="tablist" aria-label="What to look for" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
             {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
               <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => changeTab(id)}
@@ -1059,9 +1145,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
               ))}
             </div>
           ) : null}
-          {searched && tab === "companies" ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
+          {searched && tab === "companies" && !area ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
         </div>
-      {busy ? (
+      {busy && !companies.length && !people.length ? (
         <div><SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
           detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." paused={searchHold.paused} holding onPause={searchHold.pause} onResume={searchHold.resume} onCancel={cancelSearch} /></div>
       ) : null}
@@ -1083,12 +1169,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       ) : null}
 
       {searched || view === "map" ? (
-        <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden" }}>
+        <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
+          {busy ? <div className="fl-bar" aria-hidden="true" /> : null}
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm hide-mobile" aria-pressed={filtersShown} title={filtersShown ? "Hide the filters to give the results more room" : "Show the filters"}
-              onClick={() => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; })}>
-              {filtersShown ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />} {filtersShown ? "Hide filters" : `Show filters${filterCount ? ` · ${filterCount}` : ""}`}
-            </button>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"} with people on file</span></>
@@ -1228,7 +1311,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { pickedRows.forEach(removeCompany); setPicked(new Set()); }}><X size={14} /> Remove</button>
               </SelectionBar>
               {companies.length ? (
-                <CompaniesTable rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
+                <CompaniesTable busy={busy} rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
                   onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
                   onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} lookups={lookups} />
@@ -1242,7 +1325,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       ) : null}
       </div>
       </div>
-      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} title={openCo?.name || ""} sub={openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : ""}
+      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={openCo?.name || ""} sub={openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : ""}
         actions={openCo ? (
           <>
             {isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>

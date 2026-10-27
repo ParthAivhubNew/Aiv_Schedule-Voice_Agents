@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
+import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
 
 const text = { fontFamily: FONT_BODY };
@@ -23,8 +24,45 @@ export function ProfileBadge({ profile }) {
   return <span title={p.note} style={{ ...text, fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: p.bg, color: p.fg, whiteSpace: "nowrap" }}>{p.short}</span>;
 }
 
-// A coloured tile with the company's initials. No picture is fetched from anywhere, so searching never tells a third party who you looked up.
-export function Avatar({ name, size = 32 }) {
+// The company's own logo, read from its website by our server (the browser never contacts the company's site), a few at a time.
+const logoCache = new Map(); // company id -> object URL, or "" when there is none
+const logoQueue = [];
+let logoRunning = 0;
+function nextLogo() {
+  while (logoRunning < 4 && logoQueue.length) {
+    const { id, done } = logoQueue.shift();
+    logoRunning += 1;
+    api.companyLogo(id)
+      .then((blob) => { const url = blob && blob.size ? URL.createObjectURL(blob) : ""; logoCache.set(id, url); done(url); })
+      .catch(() => { logoCache.set(id, ""); done(""); })
+      .finally(() => { logoRunning -= 1; nextLogo(); });
+  }
+}
+function useLogo(id, hasSite) {
+  const [src, setSrc] = useState(() => (id && logoCache.get(id)) || "");
+  useEffect(() => {
+    if (!id || !hasSite) { setSrc(""); return undefined; }
+    if (logoCache.has(id)) { setSrc(logoCache.get(id)); return undefined; }
+    let live = true;
+    logoQueue.push({ id, done: (url) => { if (live) setSrc(url); } });
+    nextLogo();
+    return () => { live = false; };
+  }, [id, hasSite]);
+  return src;
+}
+
+// The logo when there is one, otherwise a coloured tile with the company's initials.
+export function CompanyAvatar({ c, size = 32 }) {
+  const logo = useLogo(c && c.id, Boolean(c && (c.website || c.web_website)));
+  return <Avatar name={c ? c.name : ""} size={size} logo={logo} />;
+}
+
+export function Avatar({ name, size = 32, logo = "" }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [logo]);
+  if (logo && !broken) {
+    return <img src={logo} alt="" onError={() => setBroken(true)} style={{ width: size, height: size, borderRadius: 6, flexShrink: 0, objectFit: "contain", background: "#fff", border: `1px solid ${C.borderLight}`, boxSizing: "border-box", padding: 2 }} />;
+  }
   const words = String(name || "?").replace(/\b(ltd|limited|plc|llp|the)\b/gi, "").trim().split(/\s+/).filter(Boolean);
   const initials = ((words[0] || "?")[0] + (words[1] ? words[1][0] : "")).toUpperCase();
   let h = 0;
@@ -105,11 +143,13 @@ function Reach({ value, kind, onFind, web, state }) {
   if (!value && web) {
     return <span title="Found on the web, not confirmed by the registry. Check it before you use it" style={{ whiteSpace: "nowrap" }}>{web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
-  if (!value && state === "busy") return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
+  const busyHere = state === `busy:${kind}`;
+  const busyElsewhere = typeof state === "string" && state.startsWith("busy:") && !busyHere; // the other cell asked: this one waits, it does not claim to be searching
+  if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
   if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const tip = kind === "email" ? "Open the profile to look for an email" : "Look on the web for this company's website and phone. 1 credit if found (the deeper search is used only if the first finds no website, and only charged if it does). Nothing is charged for a miss";
-  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}</button>;
+  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}</button>;
 }
 
 function SaveCell({ saved, onSave }) {
@@ -130,12 +170,12 @@ function Divider({ profile, count, cols }) {
   );
 }
 
-export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, lookups }) {
+export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, lookups, busy }) {
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
   const cols = 9;
   const seen = new Set();
   return (
-    <div className="ui-scroll fl-table">
+    <div className="ui-scroll fl-table" style={busy ? { opacity: 0.55, pointerEvents: "none", transition: "opacity .15s" } : { transition: "opacity .15s" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
         <thead>
           <tr>
@@ -163,7 +203,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   <Cell style={{ ...pinned(0), width: 36, background: bg }}><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onClick={(e) => e.stopPropagation()} onChange={() => onPick(c.id)} /></Cell>
                   <Cell style={{ ...pinned(36), background: bg, minWidth: 260 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <Avatar name={c.name} />
+                      <CompanyAvatar c={c} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
@@ -176,8 +216,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[c.id]} onFind={() => onFindSite(c)} />}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[c.id]} onFind={() => onFindSite(c)} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[c.id]} onFind={() => onFindSite(c, "website")} />}</Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[c.id]} onFind={() => onFindSite(c, "phone")} /></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" onFind={() => onOpen(c)} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>
@@ -266,7 +306,7 @@ export function SelectionBar({ count, onClear, children }) {
 }
 
 // The profile of one company, sliding in from the right.
-export function Drawer({ open, title, sub, onClose, actions, children }) {
+export function Drawer({ open, title, sub, onClose, actions, avatar, children }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -282,7 +322,7 @@ export function Drawer({ open, title, sub, onClose, actions, children }) {
       <aside ref={ref} tabIndex={-1} role="dialog" aria-label={title} className="fl-drawer"
         style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(480px, 100vw)", background: "#fff", zIndex: 401, boxShadow: "-12px 0 32px rgba(20,24,40,.18)", display: "flex", flexDirection: "column", outline: "none" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
-          <Avatar name={title} size={40} />
+          {avatar || <Avatar name={title} size={40} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...text, fontSize: 16, fontWeight: 700, color: C.ink, overflowWrap: "anywhere" }}>{title}</div>
             {sub ? <div style={{ ...muted, fontSize: 12.5 }}>{sub}</div> : null}

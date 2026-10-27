@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Eraser, Eye, Pencil, Phone, Globe, X } from "lucide-react";
+import { Eraser, Eye, MapPin, Minus, Pencil, Phone, Globe, Plus, X } from "lucide-react";
+import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { shapeFromPath } from "./drawShape";
 import { directionsUrl, legendFor, pinHtml, pinKind } from "./mapPins";
@@ -17,6 +18,20 @@ const TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://tile.openstreetma
 const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_TILE_ATTRIBUTION || "&copy; OpenStreetMap contributors";
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>')}") 2 22, crosshair`;
 
+const MILES = [0.25, 0.5, 1, 2, 3, 5, 10, 15, 25];
+const KM_PER_MILE = 1.609344;
+
+// A ring of corners around a centre: the same kind of area the pencil draws, so the search treats them alike.
+export function circleArea(lat, lng, miles, corners = 36) {
+  const km = miles * KM_PER_MILE;
+  const dLat = km / 111.32;
+  const dLng = km / (111.32 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+  return Array.from({ length: corners }, (_, i) => {
+    const a = (2 * Math.PI * i) / corners;
+    return [lat + dLat * Math.sin(a), lng + dLng * Math.cos(a)];
+  });
+}
+
 // Map of the companies in the results, with a pencil to draw an area. Plain Leaflet (no wrapper library).
 // `points` is {companyId: [lat, lng]}; `area` is the drawn polygon [[lat, lng], ...] or null.
 // Each pin shows the kind of business (see mapPins.js); clicking one opens a card with the company's details
@@ -31,6 +46,13 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   const shape = useRef(null);
   const draft = useRef({ pts: [], line: null });
   const [drawing, setDrawing] = useState(false);
+  // Search around one postcode: the postcode is the middle, the radius grows or shrinks the ring around it.
+  const [pc, setPc] = useState("");
+  const [radius, setRadius] = useState(1);
+  const [centre, setCentre] = useState(null); // {lat, lng, postcode}
+  const [pcBusy, setPcBusy] = useState(false);
+  const [pcError, setPcError] = useState("");
+  const dots = useRef([]);
   const cbs = useRef({ onArea });
   cbs.current = { onArea, statusOf, actions, hint };
   // What the user has narrowed the map to: kinds switched off in the legend, and "has a phone / website".
@@ -156,15 +178,27 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     const m = map.current;
     if (!m) return;
     if (shape.current) { shape.current.remove(); shape.current = null; }
+    dots.current.forEach((d) => d.remove());
+    dots.current = [];
     if (area && area.length >= 3) {
       shape.current = L.polygon(area, { color: BRAND, weight: 2, fillOpacity: 0.08 }).addTo(m);
       m.fitBounds(shape.current.getBounds(), { padding: [30, 30] });
+      // A dot on every corner of the border. Drag one to reshape the area; the search runs again when you let go.
+      const dotIcon = L.divIcon({ className: "area-dot", html: '<span style="display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2.5px solid #111;box-shadow:0 0 0 1px rgba(255,255,255,.9),0 1px 3px rgba(0,0,0,.35);cursor:grab"></span>', iconSize: [12, 12], iconAnchor: [6, 6] });
+      const corners = area.map((pt) => [...pt]);
+      area.forEach((pt, i) => {
+        const dot = L.marker(pt, { icon: dotIcon, draggable: true, keyboard: false, zIndexOffset: 1000, title: "Drag to reshape the area" }).addTo(m);
+        dot.on("drag", () => { const ll = dot.getLatLng(); corners[i] = [ll.lat, ll.lng]; if (shape.current) shape.current.setLatLngs(corners); });
+        dot.on("dragend", () => cbs.current.onArea(corners.map((c) => [...c])));
+        dots.current.push(dot);
+      });
     }
   }, [area]);
 
   const resetDraft = () => {
     if (draft.current.line) draft.current.line.remove();
-    draft.current = { pts: [], line: null };
+    if (draft.current.start) draft.current.start.remove();
+    draft.current = { pts: [], line: null, start: null };
   };
 
   // The pencil: press, drag, let go.
@@ -185,6 +219,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
       resetDraft();
       draft.current.pts = [at(e)];
       draft.current.line = L.polyline(draft.current.pts, { color: BRAND, weight: 3 }).addTo(m);
+      draft.current.start = L.circleMarker(draft.current.pts[0], { radius: 6, color: "#111", weight: 2.5, fillColor: "#fff", fillOpacity: 1 }).addTo(m);
       e.preventDefault();
     };
     const onMove = (e) => {
@@ -224,16 +259,59 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   }, [drawing]);
 
   const btn = { display: "inline-flex", alignItems: "center", gap: 6 };
+  const around = (c, miles) => { cbs.current.onArea(circleArea(c.lat, c.lng, miles)); };
+  const goPostcode = async (e) => {
+    if (e) e.preventDefault();
+    const code = pc.trim();
+    if (!code || pcBusy) return;
+    setPcBusy(true);
+    setPcError("");
+    try {
+      const r = await api.geocodePostcode(code);
+      const c = { lat: r.lat, lng: r.lng, postcode: r.postcode };
+      setCentre(c);
+      setPc(r.postcode);
+      around(c, radius);
+    } catch (err) {
+      setPcError(err.message || "That postcode wasn't found.");
+    } finally {
+      setPcBusy(false);
+    }
+  };
+  // A bigger or smaller ring around the same postcode.
+  const resize = (miles) => {
+    setRadius(miles);
+    if (centre) around(centre, miles);
+  };
+  const step = (dir) => {
+    const i = MILES.indexOf(radius);
+    const next = MILES[Math.max(0, Math.min(MILES.length - 1, (i < 0 ? 2 : i) + dir))];
+    resize(next);
+  };
   return (
     <div style={{ position: "relative" }}>
       <div ref={el} style={{ height, width: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, zIndex: 0 }} aria-label="Map of the companies found" />
-      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6 }}>
+      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100% - 20px)" }}>
+        {!drawing ? (
+          <form onSubmit={goPostcode} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,.96)", borderRadius: 8, padding: 3, boxShadow: "0 1px 4px rgba(0,0,0,.18)" }}>
+            <MapPin size={14} color={C.slate} style={{ marginLeft: 6 }} />
+            <input value={pc} onChange={(e) => { setPc(e.target.value); setPcError(""); }} aria-label="Search around a postcode" placeholder="Postcode, like LS1 4AP" className="ui-input"
+              title={pcError || "Type a postcode to search around it"} style={{ height: 28, width: 150, border: "none", boxShadow: "none", background: "transparent", fontSize: 13, color: pcError ? C.red : undefined }} />
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Smaller radius" title="Smaller radius" onClick={() => step(-1)} disabled={busy || radius <= MILES[0]} style={{ ...btn, padding: "0 6px", height: 28 }}><Minus size={13} /></button>
+            <select className="ui-input" aria-label="Radius around the postcode" value={radius} onChange={(e) => resize(Number(e.target.value))} disabled={busy}
+              style={{ height: 28, width: "auto", padding: "0 4px", fontSize: 12.5 }}>
+              {MILES.map((m) => <option key={m} value={m}>{m} {m === 1 ? "mile" : "miles"}</option>)}
+            </select>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Bigger radius" title="Bigger radius" onClick={() => step(1)} disabled={busy || radius >= MILES[MILES.length - 1]} style={{ ...btn, padding: "0 6px", height: 28 }}><Plus size={13} /></button>
+            <button type="submit" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy || pcBusy || !pc.trim()} style={{ ...btn, height: 28 }} title="Search inside this ring around the postcode">{pcBusy ? "…" : "Go"}</button>
+          </form>
+        ) : null}
         {drawing ? (
           <button title="Close without saving" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { resetDraft(); setDrawing(false); }}><X size={14} /> Cancel</button>
         ) : (
           <button type="button" title="Draw a shape on the map and search only inside it" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><Pencil size={14} /> {area ? "Redraw area" : "Draw area"}</button>
         )}
-        {area && !drawing ? <button title="Remove the drawn shape" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClear}><Eraser size={14} /> Clear area</button> : null}
+        {area && !drawing ? <button title="Remove the drawn shape" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { setCentre(null); onClear(); }}><Eraser size={14} /> Clear area</button> : null}
       </div>
       {placed.length ? (
         <div style={{ position: "absolute", left: 10, top: 10, zIndex: 500, background: "rgba(255,255,255,.96)", padding: "6px 8px", borderRadius: 8, ...text, fontSize: 12, color: C.ink, maxHeight: height - 60, maxWidth: 230, overflowY: "auto", boxShadow: "0 1px 4px rgba(0,0,0,.15)" }}>
@@ -269,6 +347,9 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
             </>
           ) : null}
         </div>
+      ) : null}
+      {pcError && !drawing ? (
+        <div role="alert" style={{ position: "absolute", right: 10, top: 52, zIndex: 500, background: "#fff", color: C.red, padding: "4px 10px", borderRadius: 6, ...text, fontSize: 12.5, boxShadow: "0 1px 4px rgba(0,0,0,.18)" }}>{pcError}</div>
       ) : null}
       {drawing ? (
         <div style={{ position: "absolute", left: 10, bottom: 28, zIndex: 500, background: "rgba(255,255,255,.95)", padding: "6px 10px", borderRadius: 6, ...text, fontSize: 12.5, color: C.ink }}>

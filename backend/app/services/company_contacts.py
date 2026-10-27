@@ -103,6 +103,10 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     site = data.get("domain") or ""
     if site and (_is_directory_host(site) or _is_junk_web_host(site)):
         site = ""  # a directory page about the company, not its own website
+    from app.services import site_check
+
+    if site and not site_check.plausible_site(biz.name, site):
+        site = ""  # a register, rating site or some other business's page: not this company's own website
     host = _host_of(site)
 
     def _own_email(e: str) -> bool:

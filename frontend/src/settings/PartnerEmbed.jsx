@@ -36,15 +36,15 @@ function Code({ children }) {
 }
 
 // The secret key: the partner's server uses it to ask Outreach for embed tokens. It is shown once, when it is made.
-export function SecretKeyBox({ partner, busy, act }) {
+export function SecretKeyBox({ partner, busy, act, bare = false }) {
   const [fresh, setFresh] = useState("");
   const make = () => act(async () => {
     const out = await api.rotatePartnerSecret();
     setFresh(out.secretKey);
   }, "New secret key created. Copy it now: it is not shown again.");
   return (
-    <div style={box}>
-      <h3 style={h3}>Keys</h3>
+    <div style={bare ? undefined : box}>
+      {!bare && <h3 style={h3}>Keys</h3>}
       <div style={hint}>The publishable key goes in your web page. The secret key stays on your server: it asks Outreach for a short-lived token for each user. Never put it in a web page.</div>
       <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, fontWeight: 600 }}>Publishable</span>
@@ -105,7 +105,7 @@ function Preview({ appearance }) {
 }
 
 // The default look of the partner's embedded screens. A page can still pass its own when it mounts a screen.
-export function ThemeBox({ partner, busy, act }) {
+export function ThemeBox({ partner, busy, act, bare = false }) {
   const saved = cleanAppearance(partner.theme).variables;
   const [vars, setVars] = useState(saved);
   useEffect(() => { setVars(cleanAppearance(partner.theme).variables); }, [partner.theme]);
@@ -119,8 +119,8 @@ export function ThemeBox({ partner, busy, act }) {
   const changed = JSON.stringify(cleanAppearance(appearance).variables) !== JSON.stringify(saved);
   const dropped = ["brandName", "logoUrl"].filter((k) => vars[k] && !cleanAppearance(appearance).variables[k]); // typed, but not usable
   return (
-    <div style={box}>
-      <h3 style={h3}>Look and feel</h3>
+    <div style={bare ? undefined : box}>
+      {!bare && <h3 style={h3}>Look and feel</h3>}
       <div style={hint}>The default colours, font and corners of every screen you embed. A page can pass its own <code>appearance</code> when it mounts a screen, which wins over this. Anything you leave blank keeps Outreach's own look.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginTop: 12 }}>
         <div>
@@ -164,7 +164,7 @@ export function ThemeBox({ partner, busy, act }) {
 }
 
 // Copy-paste code for the partner's developers.
-export function EmbedSnippets({ partner }) {
+export function EmbedSnippets({ partner, bare = false }) {
   const host = window.location.origin;
   const [tab, setTab] = useState("server");
   const tabs = [["server", "1. Your server"], ["inline", "2. Inline"], ["modal", "Popup"], ["drawer", "Side panel"], ["full", "Full page"], ["connect", "Connect a user"], ["auto", "Match my software"]];
@@ -222,8 +222,8 @@ outreach.connect({
 // The person signs in to Outreach, or creates an account, inside our page. Your software never sees the password.`,
   };
   return (
-    <div style={box}>
-      <h3 style={h3}>Show Outreach in your software</h3>
+    <div style={bare ? undefined : box}>
+      {!bare && <h3 style={h3}>Show Outreach in your software</h3>}
       <div style={hint}>Every screen can be placed inline, as a popup, as a side panel, or as a full page. The screens are the same; you choose the layout in your code. Add your page's web address above first: only those addresses may show the screens.</div>
       <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "10px 0 2px" }}>
         {tabs.map(([id, label]) => (

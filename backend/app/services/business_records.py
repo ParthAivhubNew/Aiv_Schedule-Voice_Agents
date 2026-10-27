@@ -678,8 +678,22 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
         out.update(await result_stats(db, where, out["total"]))
     elif stats:
         out.update({"tiers": None, "saved_total": None})
-        if out["total_capped"]:
-            out["total_all"] = await exact_total(db, where, f, exclude_ids)
+    return out
+
+
+async def search_summary(db: AsyncSession, filters: Dict[str, Any]) -> Dict[str, Any]:
+    """The figures that sit beside a page of results but are slower to count: the real total (past 10,000), how many are Full,
+    Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen."""
+    f = normalize_filters(filters)
+    where = and_(*_filter_conditions(f))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    total = await _capped_count(db, where)
+    out: Dict[str, Any] = {"total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "tiers": None, "saved_total": None, "total_all": None}
+    if await ranking_ready(db):
+        out.update(await result_stats(db, where, out["total"]))
+    if out["total_capped"]:
+        out["total_all"] = await exact_total(db, where, f)
     return out
 
 

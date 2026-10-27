@@ -481,7 +481,7 @@ async def copilot_chat(req: CopilotChatRequest, db: AsyncSession = Depends(get_d
                     # The typed words first; nearby words only when they find nothing (the panel's box works the same way).
                     found, _ = await phrase_understanding.widen_if_empty(
                         db, plan["filters"], None,
-                        lambda f: business_records.search_filtered(db, f, limit=25, exclude_ids=req.exclude_ids or []))
+                        lambda f: business_records.search_filtered(db, f, limit=25, exclude_ids=req.exclude_ids or [], stats=False))
                     found["filters"] = business_records.normalize_filters(plan["filters"])  # show what was asked, not the widened words
                     registry = {"filters": found["filters"], "total": found["total"], "capped": found["total_capped"],
                                 "leads": [lead_filters.card(r) for r in found["rows"]],

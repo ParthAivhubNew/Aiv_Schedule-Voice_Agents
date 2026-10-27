@@ -1,6 +1,7 @@
 """The partner guides as public web pages, so a partner can read them without an account.
 
 GET /docs/partners          the two guides and what each is for
+GET /docs/partners/start    Get started, step by step
 GET /docs/partners/embed    Embedding Outreach in your software
 GET /docs/partners/api      Partner API: connecting accounts and what you can call
 
@@ -21,8 +22,9 @@ from app.services import mini_markdown as MD
 router = APIRouter(prefix="/docs/partners", tags=["Partner docs"])
 _DIR = Path(__file__).resolve().parents[2] / "docs" / "partners"
 _GUIDES = {
-    "embed": ("Embedding Outreach in your software", "Show Outreach's screens inside your product. The way to integrate from now on."),
-    "api": ("Partner API reference", "Connect accounts and call Outreach from your server. The older path, still supported."),
+    "start": ("Get started", "New here? Seven steps from nothing to an Outreach screen inside your product, with code to copy."),
+    "embed": ("Embedding reference", "Every option for showing screens: popups, side panels, colours, connecting users, security."),
+    "api": ("API reference", "Use an account from your server: calls, lists, webhooks. The older path, still supported."),
 }
 _STYLE = ("body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#12141C;line-height:1.65;background:#fff}"
           "main{max-width:820px;margin:0 auto;padding:32px 16px 80px}h1{font-size:28px}h2{font-size:21px;margin-top:40px;border-top:1px solid #E3E6EB;padding-top:24px}"
@@ -38,7 +40,8 @@ _STYLE = ("body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;margi
 def _page(title: str, body: str) -> HTMLResponse:
     doc = (f'<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
            f"<title>{html.escape(title)}</title><style>{_STYLE}</style></head><body><main>{body}</main></body></html>")
-    return HTMLResponse(doc, headers={"Cache-Control": "public, max-age=300"})
+    # SAMEORIGIN lets the Partner programme screen show the page in place; other sites still cannot frame it.
+    return HTMLResponse(doc, headers={"Cache-Control": "public, max-age=300", "X-Frame-Options": "SAMEORIGIN"})
 
 
 def _link(href: str) -> str:

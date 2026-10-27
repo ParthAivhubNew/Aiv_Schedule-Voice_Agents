@@ -18,7 +18,12 @@ def test_the_team_only_section_and_its_contents_line_are_dropped():
 
 
 def test_each_guide_renders_without_the_team_section_and_links_to_the_other():
-    for name in ("embed", "api"):
+    for name in ("start", "embed", "api"):
         page = P._guide_html(name)
         assert "<h2" in page and "Deploying this" not in page
     assert "/docs/partners/api" in P._guide_html("embed") and "api.md" not in P._guide_html("embed")
+
+
+def test_the_pages_can_be_framed_by_the_app_but_no_other_site():
+    page = P._page("t", "<p>x</p>")
+    assert page.headers["x-frame-options"] == "SAMEORIGIN"

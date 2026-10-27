@@ -89,6 +89,20 @@ async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, 
     return {"action": "search", "filters": filters, "remove_names": []}
 
 
+def _own_site(biz) -> str:
+    from app.services import site_check
+
+    site = biz.website or biz.domain or ""
+    return site if site_check.plausible_site(biz.name, site, strict=False) else ""
+
+
+def _web_site(biz) -> str:
+    from app.services import site_check
+
+    site = str(((biz.raw_data or {}).get("contacts_web") or {}).get("website") or "")
+    return site if site_check.plausible_site(biz.name, site) else ""
+
+
 def card(biz) -> Dict[str, Any]:
     """One company as the Find Leads table shows it. Every field is copied from the stored record
     (nothing computed by a model), and `tier` says how far to trust it."""
@@ -98,11 +112,11 @@ def card(biz) -> Dict[str, Any]:
         "status": biz.status or "", "industry": sic_first, "sic_text": biz.sic_text or "",
         "region": biz.region or "", "postcode": biz.postcode or "", "address": biz.address or "",
         "company_category": biz.company_category or "", "incorporation_date": biz.incorporation_date or "",
-        "size_band": biz.size_band or "", "website": biz.website or biz.domain or "", "phone": biz.phone or "",
+        "size_band": biz.size_band or "", "website": _own_site(biz), "phone": biz.phone or "",
         "email": biz.email or "", "tier": biz.confidence_tier or "scraped", "source_count": len(biz.sources or []),
         "has_officers": bool(biz.officers), "profile": business_records.profile_of(biz.rank_score),
         # Found by a web lookup and not yet vouched for by any registry: shown labelled, never mixed into the fields above.
-        "web_website": str(((biz.raw_data or {}).get("contacts_web") or {}).get("website") or ""),
+        "web_website": _web_site(biz),
         "web_phone": str(next(iter(((biz.raw_data or {}).get("contacts_web") or {}).get("phones") or []), "") or ""),
     }
 

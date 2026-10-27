@@ -33,6 +33,16 @@ def _row(number, name, born, category="Private Limited Company", accounts="MICRO
             "company_category": category, "raw": {"CompanyNumber": number}, **extra}
 
 
+@pytest.fixture(autouse=True)
+def _fresh_caches():
+    from app.api import lead_accounts
+
+    lead_accounts._PAGE_CACHE.clear()
+    BR._RANKING[0] = 0.0
+    BR._TOTALS.clear()
+    yield
+
+
 def _client(token):
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"})
 
@@ -62,7 +72,9 @@ async def test_best_match_puts_full_profiles_and_big_names_first_and_counts_the_
         out = await _search(c)
         assert [x["name"] for x in out["companies"]] == ["Big Cafe Group PLC", "Mid Cafe Ltd", "Half Cafe Ltd", "Tiny Cafe Ltd"]
         assert [x["profile"] for x in out["companies"]] == ["full", "full", "partial", "basic"]
-        assert out["tiers"] == {"full": 2, "partial": 1, "basic": 1} and out["total"] == 4
+        assert out["total"] == 4
+        summary = (await c.post("/api/leads/search/summary", json={"filters": {"towns": ["Leeds"]}})).json()
+        assert summary["tiers"] == {"full": 2, "partial": 1, "basic": 1} and summary["total"] == 4
         newest = await _search(c, sort="newest")
         assert [x["name"] for x in newest["companies"]] == ["Tiny Cafe Ltd", "Half Cafe Ltd", "Mid Cafe Ltd", "Big Cafe Group PLC"]
         by_name = await _search(c, sort="name")
@@ -80,8 +92,11 @@ async def test_saved_counts_and_filter_cover_only_your_own_lists(db):
         r = await c.post("/api/leads/accounts", json={"accounts": [{"name": mid["name"], "website": mid["website"], "business_record_id": mid["id"]}]})
         assert r.status_code == 200 and r.json()["added"] == 1
         out = await _search(c)
-        assert out["saved_total"] == 1 and [x["name"] for x in out["companies"] if x["saved"]] == ["Mid Cafe Ltd"]
-        assert (await _search(o))["saved_total"] == 0  # another organisation's lists are not counted
+        assert [x["name"] for x in out["companies"] if x["saved"]] == ["Mid Cafe Ltd"]
+        mine = (await c.post("/api/leads/search/summary", json={"filters": {"towns": ["Leeds"]}})).json()
+        assert mine["saved_total"] == 1
+        theirs = (await o.post("/api/leads/search/summary", json={"filters": {"towns": ["Leeds"]}})).json()
+        assert theirs["saved_total"] == 0  # another organisation's lists are not counted
         only = await _search(c, filters={"saved": "only"})
         assert [x["name"] for x in only["companies"]] == ["Mid Cafe Ltd"]
         new = await _search(c, filters={"saved": "exclude"})
@@ -205,3 +220,34 @@ async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_onl
         already = (await c.post(f"/api/leads/companies/{ids['Has Site Ltd']}/find-website")).json()
         assert already["found"] and already["source"] == "stored" and already["charged"] == 0
         assert (await c.post("/api/leads/companies/nope/find-website")).status_code == 404
+
+
+
+def test_a_register_or_rating_page_is_never_taken_for_the_company_own_website():
+    from app.services import site_check as S
+
+    assert not S.plausible_site("Creative Cheesecakes", "https://ratings.food.gov.uk/")
+    assert not S.plausible_site("Acme Ltd", "https://find-and-update.company-information.service.gov.uk/company/123")
+    assert not S.plausible_site("Acme Ltd", "https://www.facebook.com/acme")
+    assert not S.plausible_site("Creative Cheesecakes", "https://totallyunrelated.co.uk")  # a web find must carry the company's name
+    assert S.plausible_site("Creative Cheesecakes", "https://www.creativecheesecakes.co.uk/")
+    assert S.plausible_site("Teddy Bears Pre-School", "https://teddybears-preschool.co.uk")
+    assert S.plausible_site("Leeds City Council", "https://www.leeds.gov.uk")
+    assert S.plausible_site("Totally Unrelated Name", "https://registry-copy.co.uk", strict=False)  # a stored registry value is only checked for listing sites
+
+
+def test_a_logo_is_found_from_the_sites_icon_links_best_first():
+    from app.services import logos
+
+    html = ('<link rel="icon" href="/small.png" sizes="16x16"><link rel="apple-touch-icon" href="/touch.png"><link rel="mask-icon" href="/m.svg">'
+            '<link rel="shortcut icon" href="https://cdn.example/f.ico">')
+    assert logos._icon_links(html, "https://acme.co.uk/") == ["https://acme.co.uk/touch.png", "https://acme.co.uk/small.png", "https://cdn.example/f.ico"]
+    assert logos._kind(b"\x89PNG\r\n\x1a\nxxxx") == "image/png" and logos._kind(b"<html>") == ""
+
+
+async def test_a_logo_is_never_fetched_from_a_private_address(tmp_path, monkeypatch):
+    from app.services import logos
+
+    monkeypatch.setattr(logos, "LOGO_DIR", tmp_path)
+    assert await logos.logo_for("http://127.0.0.1/") is None
+    assert await logos.logo_for("localhost") is None
