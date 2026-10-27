@@ -216,7 +216,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     return {"companies": [{**lead_filters.card(r), "saved": r.id in mine} for r in out["rows"]], "total": out["total"],
             "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
             "next_scan": out.get("next_scan"), "understood": understood,
-            "tiers": out.get("tiers"), "saved_total": out.get("saved_total")}
+            "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all")}
 
 
 @router.post("/people/search")

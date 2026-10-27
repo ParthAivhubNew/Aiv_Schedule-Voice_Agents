@@ -572,6 +572,38 @@ async def result_stats(db: AsyncSession, where, total: int) -> Dict[str, Any]:
     return {"tiers": {"full": full, "partial": partial, "basic": max(total - full - partial, 0)}, "saved_total": min(saved, total)}
 
 
+_TOTALS: Dict[str, Any] = {}  # filters -> (when, count); the shared store changes slowly, so a big count is made once in a while
+_TOTALS_TTL = 600.0
+
+
+async def exact_total(db: AsyncSession, where, f: Dict[str, Any], exclude_ids: Optional[List[str]] = None) -> Optional[int]:
+    """The real number of matches when there are more than COUNT_CAP (so the screen can say 5.7 million, not 10,000+).
+    Counted with its own short time limit and remembered for a few minutes; None when it takes too long, and the
+    screen then shows the capped number as before."""
+    import json
+    import time
+
+    if exclude_ids:
+        return None
+    key = json.dumps(f, sort_keys=True, default=str)
+    hit = _TOTALS.get(key)
+    if hit and time.monotonic() - hit[0] < _TOTALS_TTL:
+        return hit[1]
+    try:
+        async with db.begin_nested():
+            if db.get_bind().dialect.name == "postgresql":
+                await db.execute(text("SET LOCAL statement_timeout = '8s'"))
+            n = int((await db.execute(select(func.count()).select_from(BusinessRecord).where(where))).scalar() or 0)
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            return None
+        raise
+    if len(_TOTALS) > 300:
+        _TOTALS.clear()
+    _TOTALS[key] = (time.monotonic(), n)
+    return n
+
+
 async def saved_ids(db: AsyncSession, ids: List[str]) -> set:
     """Which of these companies this organisation already has in a list (row-level security limits it to their own)."""
     from app.models.models import LeadAccount
@@ -591,8 +623,6 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     in the UK" is not a search. Returns the page, the (capped) total, and the normalised filters
     actually applied, so the caller can show them back to the user."""
     f = normalize_filters(filters)
-    if not any(f.get(k) for k in _NEEDS_ONE_OF):
-        raise ValueError("Add at least a sector, SIC code, town, postcode or company name to search.")
     conds = _filter_conditions(f)
     if exclude_ids:
         conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
@@ -607,6 +637,8 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
     if stats:
         out.update(await result_stats(db, where, out["total"]))
+        if out["total_capped"]:
+            out["total_all"] = await exact_total(db, where, f, exclude_ids)
     return out
 
 
@@ -619,8 +651,6 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     from app.services import company_contacts as CC
 
     f = normalize_filters(filters)
-    if not any(f.get(k) for k in _NEEDS_ONE_OF):
-        raise ValueError("Add at least a sector, SIC code, town, postcode or company name to search.")
     B = BusinessRecord
     base = and_(*_filter_conditions(f))
     with_people = and_(base, B.officers.isnot(None))

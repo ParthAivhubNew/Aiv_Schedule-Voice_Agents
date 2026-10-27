@@ -58,10 +58,9 @@ async def test_sic_code_postcode_size_and_age_filters(db):
     assert [r.name for r in young["rows"]] == ["Corner Cafe Ltd"]
 
 
-async def test_a_search_needs_something_to_narrow_by_and_user_text_cannot_act_as_a_wildcard(db):
+async def test_a_search_may_have_no_narrowing_filter_and_user_text_cannot_act_as_a_wildcard(db):
     await _seed(db)
-    with pytest.raises(ValueError):
-        await BR.search_filtered(db, {"status": "Active", "size_bands": ["micro"]})
+    assert (await BR.search_filtered(db, {"status": "Active", "size_bands": ["micro"]}))["rows"]  # browsing the whole store is allowed
     assert (await BR.search_filtered(db, {"towns": ["%"]}))["rows"] == []  # a literal "%", not "everything"
     assert (await BR.search_filtered(db, {"towns": ["L_NDON"]}))["rows"] == []
 
@@ -92,7 +91,7 @@ async def test_search_endpoint_returns_stored_records_with_their_tier_and_chips(
     assert [c["name"] for c in body["companies"]] == ["Corner Cafe Ltd"]
     assert body["companies"][0]["tier"] == "verified_registry" and body["companies"][0]["size_band"] == "micro"
     assert "Status: Active" in body["chips"]
-    assert (await client.post("/api/leads/search", json={"filters": {"size_bands": ["micro"]}})).status_code == 422
+    assert (await client.post("/api/leads/search", json={"filters": {"size_bands": ["micro"]}})).status_code == 200
 
 
 async def test_chat_runs_the_same_filters_and_can_drop_companies(client, db, monkeypatch):

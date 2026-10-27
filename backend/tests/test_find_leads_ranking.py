@@ -126,3 +126,16 @@ async def test_people_tab_lists_registry_people_and_says_which_companies_still_n
         assert len(out["fill_ids"]) == 3 and big.id not in out["fill_ids"]
         none = await c.post("/api/leads/people/search", json={"filters": {"towns": ["Leeds"]}, "title": "secretary"})
         assert none.json()["people"] == []
+
+
+@pytest.mark.db
+async def test_opening_with_no_filters_lists_the_whole_store_best_first(db):
+    await _seed(db)
+    _, token = await make_user(db, "fl6", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        r = await c.post("/api/leads/search", json={"filters": {}})
+        assert r.status_code == 200, r.text
+        out = r.json()
+        assert out["total"] == 4 and out["companies"][0]["name"] == "Big Cafe Group PLC"
+        assert out["total_all"] is None  # only counted separately when there are more than 10,000
+        assert (await c.post("/api/leads/people/search", json={"filters": {}})).status_code == 200

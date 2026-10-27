@@ -185,7 +185,7 @@ export default function LeadGenerationPlugin({
   }));
 
   const viewTitles = {
-    find_leads: { title: "Find Leads", desc: "Search for companies by what they do and where, narrow the results with the AI, or import your own spreadsheet." },
+    find_leads: { title: "Find Leads", desc: "Every company on the register, best profiles first. Filter them, or ask the AI." },
     lists: { title: "My lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
     mail: { title: "Mail", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list. Switch to Email accounts to connect or check a mailbox." },
@@ -223,7 +223,7 @@ export default function LeadGenerationPlugin({
         </PluginHeader>
 
         {/* Main Content Area */}
-        <div className="app-page" style={{ flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
+        <div className={view === "find_leads" ? "app-page fl-fit" : "app-page"} style={{ flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
           {isLocked && embedViews ? <EmbedPlanNotice app="Leads" /> : isLocked && view !== "subscription" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div
@@ -250,7 +250,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
           )}
 
 

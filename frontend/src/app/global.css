@@ -1172,3 +1172,18 @@ button, input, select, textarea {
   body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home { padding: 0; width: 100%; justify-content: center; }
   body.sidebar-collapsed .app-sidebar .sb-brand { justify-content: center; padding-left: 0; padding-right: 0; }
 }
+
+/* Find Leads: on a wide screen the page itself never scrolls; the filters and the table scroll inside their own boxes. */
+.fl-table { overflow: auto; max-height: 70vh; min-height: 200px; }
+@media (min-width: 821px) {
+  .app-page.fl-fit { display: flex; flex-direction: column; overflow: hidden !important; padding-top: 12px !important; padding-bottom: 12px !important; }
+  .fl-fit .fl-host, .fl-fit .fl-view, .fl-fit .fl-root { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .fl-fit .fl-top { flex-shrink: 0; }
+  .fl-fit .fl-body { flex: 1 1 auto; min-height: 0; flex-wrap: nowrap !important; align-items: stretch !important; }
+  .fl-fit .fl-filters { position: static; max-height: none; overflow-y: auto; }
+  .fl-fit .fl-main { min-height: 0; }
+  .fl-fit .fl-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .fl-fit .fl-card[data-map="true"] { overflow: auto !important; }
+  .fl-fit .fl-card > * { flex-shrink: 0; }
+  .fl-fit .fl-card > .fl-table { flex: 1 1 auto; flex-shrink: 1; min-height: 0; max-height: none; }
+}

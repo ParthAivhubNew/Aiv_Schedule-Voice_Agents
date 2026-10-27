@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -11,7 +11,7 @@ import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
-import { CompaniesTable, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar } from "./FindLeadsParts";
+import { CompaniesTable, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
 
 const FAVOURITES = "Favourites";
 const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters as the Filters panel, so what I find and what you see always match. Say \"remove X\" to drop a company." };
@@ -29,12 +29,6 @@ const EMPTY_FORM = { sector: "", town: "", postcode: "", sizes: [], minAge: "", 
 const GROUP_KEYS = { industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name", "Name A to Z"]];
-const IDEAS = [
-  ["Cafes in London", { sector: "cafe, restaurant", town: "London" }],
-  ["Accountants in Leeds", { sector: "accounting, bookkeeping", town: "Leeds" }],
-  ["Small construction firms in Manchester", { sector: "construction, building", town: "Manchester", sizes: ["micro", "small"] }],
-  ["Established dental practices", { sector: "dental", minAge: "10" }],
-];
 
 const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -296,7 +290,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore }) {
+function FindLeadsSearch({ store, listsStore, onImport }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -414,6 +408,14 @@ function FindLeadsSearch({ store, listsStore }) {
     })();
   }, [view, companies]);
 
+  // Opening Find Leads shows the whole register, best profiles and biggest names first; filters then narrow it.
+  const browsed = useRef(false);
+  useEffect(() => {
+    if (browsed.current) return;
+    browsed.current = true;
+    search(null, EMPTY_FORM, 0, null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const searchHold = useHold();
   const countHold = useHold();
   const chatHold = useHold();
@@ -463,8 +465,8 @@ function FindLeadsSearch({ store, listsStore }) {
       setPicked(new Set());
       setTiers(r.tiers || null);
       setSavedTotal(r.saved_total || 0);
-      setTotal(r.total);
-      setCapped(r.total_capped);
+      setTotal(r.total_all ?? r.total);
+      setCapped(r.total_all == null && r.total_capped);
       setApplied(r.filters);
       setChips(r.chips || []);
       setUnderstood(r.understood || []);
@@ -605,13 +607,6 @@ function FindLeadsSearch({ store, listsStore }) {
     search(null, form, 0, undefined, next);
   };
 
-  const runIdea = (patch) => {
-    const f = { ...EMPTY_FORM, ...patch };
-    setForm(f);
-    setExcluded([]);
-    setArea(null);
-    search(null, f, 0, null);
-  };
 
   // Step 1: how many companies could be in the area. Free and quick.
   const countArea = async (shape, f = form, drop = dropTerms) => {
@@ -879,44 +874,49 @@ function FindLeadsSearch({ store, listsStore }) {
   );
 
   return (
-    <div className="pane-root" data-active={source === "register" ? pane : "chat"} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="pane-root fl-root" data-active={source === "register" ? pane : "chat"} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
       {source === "register" ? (
         <PaneSwitch value={pane} onChange={setPane}
           panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       ) : null}
-      <div data-pane="chat" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", alignSelf: "flex-start", background: C.bgSoft || "#F4F5F9", border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3, flexWrap: "wrap" }}>
-          {[["register", "Company register", "Free"], ["web", "Open web", webRate == null ? "" : `${creditWord(webRate)} per company found`]].map(([id, name, price]) => (
-            <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
-              title={id === "register" ? "Search the official company register. Free" : "Search public web pages and directories for businesses that are not in the register"}
-              style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, background: source === id ? "#fff" : "transparent", color: source === id ? C.ink : C.slate, boxShadow: source === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
-              {name}{price ? <span style={{ fontWeight: 500, color: price === "Free" ? "#15803D" : C.slate }}> · {price}</span> : null}
-            </button>
-          ))}
-        </div>
-        <div style={{ ...muted, fontSize: 12.5, flex: "1 1 280px", minWidth: 0 }}>
-          {source === "register"
-            ? "The official register: reliable names, addresses, status and sector. Searching is free."
-            : "Public web pages and directories: slower and unverified, but usually with a website and phone. You only pay for companies found."}
-        </div>
-      </div>
-      {source === "register" ? (<>
-      <div data-pane="chat" ref={chatCardRef} className="ui-card" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
+      <div data-pane="chat" ref={chatCardRef} className="ui-card fl-top" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
         <style>{CHAT_CSS}</style>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
-          <Sparkles size={15} color="#8B5CF6" />
-          <span style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Ask the AI</span>
-          <span style={{ ...muted, fontSize: 12 }}>Searching is free</span>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            {history.length ? (
-              <button type="button" className={`ui-btn ui-btn--sm ${historyOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} aria-expanded={historyOpen}
-                title="Open an earlier chat" onClick={() => setHistoryOpen((o) => !o)}><Clock size={13} /> History</button>
-            ) : null}
-            {chatStarted ? (
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Start a new chat. This one is kept in History and your results stay as they are" onClick={newChat}><RotateCcw size={13} /> New chat</button>
-            ) : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", flexWrap: "wrap" }}>
+          <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
+            {[["register", "Company register"], ["web", "Open web"]].map(([id, name]) => (
+              <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
+                title={id === "register" ? "The official register: reliable names, addresses, status and sector. Searching is free" : `Public web pages and directories: slower and unverified, usually with a website and phone. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none`}`}
+                style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, background: source === id ? "#fff" : "transparent", color: source === id ? C.ink : C.slate, boxShadow: source === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
+                {name}
+              </button>
+            ))}
           </div>
+          {source === "register" ? (
+            <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
+              <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 10 }} />
+                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
+                  placeholder={chatStarted ? "Reply, or change the search" : 'Ask the AI: "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 36, paddingLeft: 34 }}
+                  title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
+              </div>
+              <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 36 }} title="Send to the AI">
+                {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Ask
+              </button>
+            </form>
+          ) : <span style={{ ...muted, fontSize: 12.5, flex: "1 1 280px" }}>Public web pages and directories: unverified, and you only pay for companies found.</span>}
+          {source === "register" ? (
+            <div style={{ display: "flex", gap: 6 }}>
+              {history.length ? (
+                <button type="button" className={`ui-btn ui-btn--sm ${historyOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} aria-expanded={historyOpen}
+                  title="Open an earlier chat" onClick={() => setHistoryOpen((o) => !o)}><Clock size={13} /> History</button>
+              ) : null}
+              {chatStarted ? (
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Start a new chat. This one is kept in History and your results stay as they are" onClick={newChat}><RotateCcw size={13} /> New chat</button>
+              ) : null}
+            </div>
+          ) : null}
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Bring in your own spreadsheet of companies" onClick={onImport}><FileSpreadsheet size={14} /> Import</button>
         </div>
         {historyOpen ? (
           <div className="fl-hist" role="dialog" aria-label="Earlier chats">
@@ -951,28 +951,8 @@ function FindLeadsSearch({ store, listsStore }) {
             {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
           </div>
         </div>
-        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, borderTop: chatStarted ? `1px solid ${C.borderLight}` : "none" }}>
-          <form onSubmit={sendChat} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ position: "relative", flex: "1 1 320px", minWidth: 0 }}>
-              <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 13 }} />
-              <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
-                placeholder={chatStarted ? "Reply, or change the search" : 'Tell the AI who you are after, like "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 40, paddingLeft: 34 }}
-                title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
-            </div>
-            <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 40 }} title="Send to the AI">
-              {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Search
-            </button>
-          </form>
-          {!chatStarted ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Try</span>
-              {IDEAS.map(([name, patch]) => (
-                <button key={name} type="button" title="Run a ready-made search" className="ui-chip" disabled={busy} onClick={() => runIdea(patch)} style={{ padding: "5px 9px" }}>{name}</button>
-              ))}
-            </div>
-          ) : null}
-        </div>
       </div>
+      {source === "register" ? (<>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
       <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
@@ -999,9 +979,6 @@ function FindLeadsSearch({ store, listsStore }) {
               <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
             <label style={field} title="Leave out companies in these towns"><span style={label}>Leave out towns</span>
               <input className="ui-input" value={form.notTown} onChange={(e) => setField("notTown", e.target.value)} placeholder="Bradford" /></label>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ alignSelf: "flex-start" }} title="See results as pins and draw an area to search inside it" onClick={() => { setTab("companies"); setView("map"); }}>
-              <MapIcon size={14} /> Search on map
-            </button>
           </FilterGroup>
           <FilterGroup title="Size (filed accounts)" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
@@ -1039,11 +1016,10 @@ function FindLeadsSearch({ store, listsStore }) {
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
               <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
             </button>
-            <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ marginLeft: "auto", height: 38 }} title="Search the company register. It costs no credits">
+            <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ marginLeft: "auto", height: 36 }} title="Search the company register. It costs no credits">
               {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
             </button>
           </div>
-          <div style={{ ...muted, fontSize: 12, paddingBottom: 12 }}>Free to search. Only active companies unless you tick "Include closed". Credits are used only when you look up contacts.</div>
         </form>
       </aside>
       ) : null}
@@ -1076,7 +1052,7 @@ function FindLeadsSearch({ store, listsStore }) {
       ) : null}
 
       {searched || view === "map" ? (
-        <div className="ui-card" style={{ overflow: "hidden" }}>
+        <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm hide-mobile" aria-pressed={filtersShown} title={filtersShown ? "Hide the filters to give the results more room" : "Show the filters"}
               onClick={() => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; })}>
@@ -1085,9 +1061,7 @@ function FindLeadsSearch({ store, listsStore }) {
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"} with people on file</span></>
-              ) : (
-                <>{total.toLocaleString()}{capped ? "+" : ""} {total === 1 ? "company matches" : "companies match"}<span style={{ fontWeight: 400, color: C.slate }}> · showing {companies.length}</span></>
-              )}
+              ) : null}
             </div>
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -1116,11 +1090,6 @@ function FindLeadsSearch({ store, listsStore }) {
               </div>
             ) : null}
           </div>
-          {chips.length ? (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
-              {chips.map((c) => <span key={c} className="ui-chip" style={{ cursor: "default" }}>{c}</span>)}
-            </div>
-          ) : null}
           {understood.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
               <span style={{ ...muted, fontSize: 12.5 }}>Also looking for:</span>
@@ -1249,7 +1218,7 @@ function FindLeadsSearch({ store, listsStore }) {
       ) : null}
       </div>
       </div>
-      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} title={openCo?.name || ""} sub={openCo ? [openCo.industry, openCo.region].filter(Boolean).join(" · ") : ""}
+      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} title={openCo?.name || ""} sub={openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : ""}
         actions={openCo ? (
           <>
             {isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>
@@ -1260,17 +1229,13 @@ function FindLeadsSearch({ store, listsStore }) {
         ) : null}>
         {openCo ? (
           <>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 0" }}><ProfileBadge profile={openCo.profile} /> <TierBadge tier={openCo.tier} /></div>
+            <div style={{ padding: "10px 0" }}><ProfileBadge profile={openCo.profile} /></div>
             <Fact label="Registered no.">{openCo.registration_number}</Fact>
             <Fact label="Status">{openCo.status}</Fact>
             <Fact label="Type">{openCo.company_category}</Fact>
             <Fact label="Incorporated">{openCo.incorporation_date}</Fact>
             <Fact label="Size (accounts)">{openCo.size_band && openCo.size_band !== "unknown" ? SIZE_LABEL[openCo.size_band] || openCo.size_band : ""}</Fact>
-            <Fact label="Sector">{openCo.sic_text || openCo.industry}</Fact>
             <Fact label="Address">{openCo.address}</Fact>
-            <Fact label="Website">{openCo.website}</Fact>
-            <Fact label="Phone">{openCo.phone}</Fact>
-            <Fact label="Email">{openCo.email}</Fact>
             <ContactsPanel key={openCo.id} company={openCo} />
           </>
         ) : null}
@@ -1333,24 +1298,16 @@ function FindLeadsSearch({ store, listsStore }) {
   );
 }
 
-const SUB_TABS = [
-  ["search", "Find Leads", Sparkles],
-  ["import", "Import", FileSpreadsheet],
-];
-
 export function FindLeadsView({ store, listsStore, onGo }) {
   const [sub, setSub] = useState("search");
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {SUB_TABS.map(([id, label, Icon]) => (
-          <button key={id} type="button" title={`Go to ${label}`} onClick={() => setSub(id)}
-            className={`ui-btn ui-btn--sm ${sub === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
-            <Icon size={14} /> {label}
-          </button>
-        ))}
-      </div>
-      {sub === "search" && <FindLeadsSearch store={store} listsStore={listsStore} />}
+    <div className="fl-view" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {sub === "import" ? (
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => setSub("search")}>
+          <ArrowLeft size={14} /> Back to Find Leads
+        </button>
+      ) : null}
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

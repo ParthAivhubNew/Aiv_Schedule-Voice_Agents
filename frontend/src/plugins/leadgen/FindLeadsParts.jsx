@@ -129,7 +129,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   const cols = 9;
   const seen = new Set();
   return (
-    <div className="ui-scroll" style={{ overflow: "auto", maxHeight: "calc(100vh - 330px)", minHeight: 240 }}>
+    <div className="ui-scroll fl-table">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
         <thead>
           <tr>
@@ -141,7 +141,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
             <th style={th}>Phone</th>
             <th style={th}>Email</th>
             <th style={th} title="From the company's filed accounts, not headcount">Size (accounts)</th>
-            <th style={{ ...th, textAlign: "right" }}>Actions</th>
+            <th style={{ ...th, textAlign: "right" }} aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -161,8 +161,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
-                          {c.tier === "verified_registry" ? <span title="Read from an official registry record" style={{ color: C.green, display: "inline-flex" }}><BadgeCheck size={13} /></span> : null}
-                          <ProfileBadge profile={c.profile} />
+                          {c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web, unverified</span> : null}
+                          {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
                         <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{[c.company_category, c.registration_number && `No. ${c.registration_number}`].filter(Boolean).join(" · ")}</div>
                       </div>
@@ -187,7 +187,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
 
 export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
   return (
-    <div className="ui-scroll" style={{ overflow: "auto", maxHeight: "calc(100vh - 330px)", minHeight: 200 }}>
+    <div className="ui-scroll fl-table">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 960 }}>
         <thead>
           <tr>
@@ -198,7 +198,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
             <th style={th}>Email</th>
             <th style={th}>Company phone</th>
             <th style={th}>On the register since</th>
-            <th style={{ ...th, textAlign: "right" }}>Actions</th>
+            <th style={{ ...th, textAlign: "right" }} aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -210,7 +210,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
                 <Cell style={{ ...pinned(0), minWidth: 230 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar name={name} />
-                    <div style={{ fontWeight: 600, color: C.ink }}>{name} <span title="Named on the official registry" style={{ color: C.green, display: "inline-flex", verticalAlign: "middle" }}><BadgeCheck size={13} /></span></div>
+                    <div style={{ fontWeight: 600, color: C.ink }}>{name}</div>
                   </div>
                 </Cell>
                 <Cell style={{ whiteSpace: "nowrap" }}>{p.role || "Officer"}</Cell>
@@ -230,16 +230,19 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
 }
 
 // Pages of 25 (or the size chosen), like Apollo's footer.
+// Only the first 10,000 results can be paged through; filters narrow the rest.
+const PAGEABLE = 10000;
+
 export function Pager({ page, size, total, capped, shown, onPage, busy, unit }) {
-  const pages = Math.max(1, Math.ceil(total / size));
+  const pages = Math.max(1, Math.ceil(Math.min(total, PAGEABLE) / size));
   const from = total ? (page - 1) * size + 1 : 0;
   const to = (page - 1) * size + shown;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: `1px solid ${C.border}`, flexWrap: "wrap" }}>
       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Previous page" disabled={busy || page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>
-      <span style={{ ...text, fontSize: 13, color: C.textInk }}>Page {page} of {pages.toLocaleString()}{capped ? "+" : ""}</span>
+      <span style={{ ...text, fontSize: 13, color: C.textInk }}>{page} of {pages.toLocaleString()}</span>
       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Next page" disabled={busy || page >= pages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button>
-      <span style={{ ...muted, fontSize: 12.5, marginLeft: "auto" }}>{unit ? `${unit} ` : ""}{from.toLocaleString()} to {to.toLocaleString()} of {total.toLocaleString()}{capped ? "+" : ""}</span>
+      <span style={{ ...muted, fontSize: 12.5, marginLeft: "auto" }}>{total > PAGEABLE ? "First 10,000 can be paged. Add filters to narrow. " : ""}{unit ? `${unit} ` : ""}{from.toLocaleString()} to {to.toLocaleString()} of {total.toLocaleString()}{capped ? "+" : ""}</span>
     </div>
   );
 }
