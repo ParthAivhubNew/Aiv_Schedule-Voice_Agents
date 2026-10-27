@@ -183,7 +183,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
       </div>
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 460px", minWidth: 0, display: "grid", gap: 16 }}>
+        <div style={{ flex: "3 1 480px", minWidth: 0, display: "grid", gap: 16 }}>
           <div className="ui-card" style={{ padding: 16, display: "grid", gap: 12 }}>
             <h3 style={h2}>Who</h3>
             {listsStore.lists.length ? (
@@ -310,7 +310,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
           </div>
         </div>
 
-        <div style={{ flex: "1 1 340px", maxWidth: 460, minWidth: 0, display: "grid", gap: 16, position: "sticky", top: 8 }}>
+        <div style={{ flex: "2 1 360px", minWidth: 0, display: "grid", gap: 16, position: "sticky", top: 8 }}>
           <MailPreview email={e} opener={emails[0]} leads={leads} lines={lines} sender={sender} />
           <div className="ui-card" style={{ padding: 16, display: "grid", gap: 10 }}>
             <h3 style={h2}>Before you launch</h3>

@@ -51,7 +51,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"p/[A-Za-z0-9_.\-]+$",  # preview pages: the signed link is the sign-in
     _OPT_API + r"embed/sessions$",  # a partner's server, with its secret key (checked in the handler)
     _OPT_API + r"embed/connect-sessions$",  # the same, to start linking one of its users
-    _OPT_API + r"embed/links/[^/]+$",  # the same, to look up the account linked to one of its users
+    _OPT_API + r"embed/links/[^/]+(/key)?$",  # the same, to look up the account linked to one of its users, or get its API key
     _OPT_API + r"embed/connect/(info|login|signup)$",  # the connect screen; a connect token from the partner's server is the sign-in
     _OPT_API + r"embed/frame-policy$",  # asked by our web server, which sets the embed page's frame rule
     # Images social networks and email clients fetch

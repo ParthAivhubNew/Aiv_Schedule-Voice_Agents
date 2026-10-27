@@ -98,6 +98,22 @@ async def link_of(external_id: str, request: Request) -> Dict[str, Any]:
     return _link_json(link)
 
 
+@router.post("/links/{external_id}/key")
+async def link_key(external_id: str, request: Request) -> Dict[str, Any]:
+    """A fresh API key for a linked account, for the partner's server to keep. Shown once; the one issued before stops working."""
+    partner = await _partner_by_secret(request)
+    if check_rate(f"embedsess:{partner.id}", False):
+        raise HTTPException(status_code=429, detail="Too many requests. Slow down and try again shortly.")
+    async with AsyncSessionLocal() as db:
+        with system_scope():
+            link = await _link_by_external(db, partner.id, external_id.strip())
+            if link is None:
+                raise HTTPException(status_code=404, detail="No account is linked to that user.")
+            raw = await PT.issue_key(db, partner, link)
+            await db.commit()
+    return {"api_key": raw, "key_mode": "test" if raw.startswith("sk_test_") else "live", **_link_json(link)}
+
+
 def _claims(request: Request) -> Dict[str, Any]:
     claims = EM.read_connect(_bearer(request))
     if claims is None:

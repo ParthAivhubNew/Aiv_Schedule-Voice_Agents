@@ -74,6 +74,24 @@ async def test_an_existing_account_connects_after_proving_it_and_agreeing(anon, 
                             headers=_server(secret))).status_code == 422
 
 
+async def test_the_partners_server_can_get_a_key_for_a_linked_account(anon, db, partner, secret):
+    from app.models.models import ApiKey
+
+    await make_user(db, "kim", "Admin", org_id="org_kim")
+    path = "/api/embed/links/user-42/key"
+    assert (await anon.post(path, headers=_server(secret))).status_code == 404  # not linked yet
+    token = (await _connect_token(anon, secret))["connect_token"]
+    assert (await anon.post("/api/embed/connect/login", json={"email": "kim", "password": PW, **_agree()}, headers=_as(token))).status_code == 200
+    assert (await anon.post(path)).status_code == 401
+    assert (await anon.post(path, headers={**_server(secret), "Origin": "https://app.partner.test"})).status_code == 403
+    first = (await anon.post(path, headers=_server(secret))).json()
+    assert first["api_key"].startswith("sk_") and first["external_id"] == "user-42"
+    second = (await anon.post(path, headers=_server(secret))).json()
+    assert second["api_key"] != first["api_key"]
+    keys = (await db.execute(select(ApiKey).where(ApiKey.org_id == "org_kim"))).scalars().all()
+    assert len(keys) == 1  # the first key was replaced
+
+
 async def test_only_an_admin_with_the_right_password_can_connect(anon, db, partner, secret):
     await make_user(db, "carl", "Admin", org_id="org_acme")
     await make_user(db, "sam", "Operator", org_id="org_acme")

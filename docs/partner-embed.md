@@ -168,6 +168,14 @@ A screen shows an Outreach account's data, so each of your users needs a **link*
    The connect screen asks the person to sign in (or create an account) and to agree to what you can do, in words that match the
    screen. When they agree it links them and opens the screen they asked for.
 3. **Later**: `GET /api/embed/links/{external_id}` (server only, secret key) returns the link, or `404`.
+4. **An API key for `/v1/run`** (to use the same account from your server without the embed):
+   ```
+   POST /api/embed/links/{external_id}/key      Authorization: Bearer psk_…
+   ```
+   Returns `{ "api_key": "sk_…", "key_mode": "test" | "live", "link_id": … }`. Server only: a call with an `Origin` header is
+   refused, so the key never passes through a browser. The key is shown once and has the scopes your programme was approved
+   for. Calling it again issues a new key and the old one stops working. Disconnecting the link deletes the key. `404` if the
+   user is not linked.
 
 Rules that protect your users:
 
