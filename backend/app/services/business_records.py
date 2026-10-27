@@ -553,6 +553,41 @@ def _order(sort: str) -> list:
     return [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 
 
+_RANKING: List[Any] = [0.0, True]  # [when checked, ready]
+
+
+async def ranking_ready(db: AsyncSession) -> bool:
+    """Whether "best match" can be used: the rank index exists (scripts/rank_business_records.py builds it), or the
+    store is small enough not to need one. Without it, sorting millions of rows by rank would hit the time limit,
+    so the search falls back to newest-first and skips the Full/Partial/Basic counts until the job has run."""
+    import time
+
+    if time.monotonic() - _RANKING[0] < 60:
+        return bool(_RANKING[1])
+    ready = True
+    if db.get_bind().dialect.name == "postgresql":
+        small = (await db.execute(text("SELECT COALESCE(MAX(reltuples), 0) < 200000 FROM pg_class WHERE relname = 'business_records'"))).scalar()
+        indexed = (await db.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE c.relname = 'ix_business_records_rank_score' AND i.indisvalid AND i.indisready)"))).scalar()
+        ready = bool(small or indexed)
+    _RANKING[0], _RANKING[1] = time.monotonic(), ready
+    return ready
+
+
+async def _guarded_count(db: AsyncSession, where, seconds: int = 6) -> Optional[int]:
+    """A capped count with its own short limit; None when it does not finish, so one slow figure never sinks the page."""
+    try:
+        async with db.begin_nested():
+            if db.get_bind().dialect.name == "postgresql":
+                await db.execute(text(f"SET LOCAL statement_timeout = '{int(seconds)}s'"))
+            return await _capped_count(db, where)
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            return None
+        raise
+
+
 async def _capped_count(db: AsyncSession, where) -> int:
     capped = select(BusinessRecord.id).where(where).limit(COUNT_CAP + 1).subquery()
     return int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
@@ -562,14 +597,15 @@ async def result_stats(db: AsyncSession, where, total: int) -> Dict[str, Any]:
     """What sits behind the first page: how many results are Full, Partial or Basic profiles, and how many are
     already in this organisation's lists. Counted up to COUNT_CAP each, like the total."""
     B = BusinessRecord
-    full = await _capped_count(db, and_(where, B.rank_score >= 2 * TIER_STEP))
-    partial = await _capped_count(db, and_(where, B.rank_score >= TIER_STEP, B.rank_score < 2 * TIER_STEP))
+    full = await _guarded_count(db, and_(where, B.rank_score >= 2 * TIER_STEP))
+    partial = await _guarded_count(db, and_(where, B.rank_score >= TIER_STEP, B.rank_score < 2 * TIER_STEP))
     from app.models.models import LeadAccount
 
     mine = select(LeadAccount.business_record_id).where(LeadAccount.business_record_id.isnot(None))
-    saved_sub = select(B.id).where(and_(where, B.id.in_(mine))).limit(COUNT_CAP + 1).subquery()
-    saved = int((await db.execute(select(func.count()).select_from(saved_sub))).scalar() or 0)
-    return {"tiers": {"full": full, "partial": partial, "basic": max(total - full - partial, 0)}, "saved_total": min(saved, total)}
+    saved = await _guarded_count(db, and_(where, B.id.in_(mine)))
+    out: Dict[str, Any] = {"saved_total": None if saved is None else min(saved, total)}
+    out["tiers"] = None if full is None or partial is None else {"full": full, "partial": partial, "basic": max(total - full - partial, 0)}
+    return out
 
 
 _TOTALS: Dict[str, Any] = {}  # filters -> (when, count); the shared store changes slowly, so a big count is made once in a while
@@ -630,13 +666,16 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    ranked = await ranking_ready(db)
     total = await _capped_count(db, where)
     rows = (await db.execute(
-        select(BusinessRecord).where(where).order_by(*_order(sort)).limit(limit).offset(max(0, int(offset or 0)))
+        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest")).limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
-    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f}
-    if stats:
+    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked}
+    if stats and ranked:
         out.update(await result_stats(db, where, out["total"]))
+    elif stats:
+        out.update({"tiers": None, "saved_total": None})
         if out["total_capped"]:
             out["total_all"] = await exact_total(db, where, f, exclude_ids)
     return out
@@ -660,15 +699,17 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     limit = max(1, min(int(limit or 25), 100))
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    ranked = await ranking_ready(db)
+    order = _order(sort if ranked or sort != "best" else "newest")
     total = await _capped_count(db, with_people)
-    rows = (await db.execute(select(B).where(with_people).order_by(*_order(sort)).limit(limit).offset(max(0, int(offset or 0))))).scalars().all()
+    rows = (await db.execute(select(B).where(with_people).order_by(*order).limit(limit).offset(max(0, int(offset or 0))))).scalars().all()
     people = []
     for biz in rows:
         for o in CC.active_officers(biz.officers):
             if word and word not in (o["role"] or "").lower() and word not in o["name"].lower():
                 continue
             people.append({**o, "company": biz})
-    fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*_order(sort)).limit(25))).scalars().all()
+    fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*order).limit(25))).scalars().all()
     return {"people": people, "companies_total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill)}
 
 
@@ -766,7 +807,7 @@ async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     rows = (await db.execute(
         select(BusinessRecord).where(where)
-        .order_by(*_order("best")).offset(scan).limit(chunk + 1)
+        .order_by(*_order("best" if await ranking_ready(db) else "newest")).offset(scan).limit(chunk + 1)
     )).scalars().all()
     more = len(rows) > chunk
     rows = rows[:chunk]

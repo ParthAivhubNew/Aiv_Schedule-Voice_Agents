@@ -139,3 +139,18 @@ async def test_opening_with_no_filters_lists_the_whole_store_best_first(db):
         assert out["total"] == 4 and out["companies"][0]["name"] == "Big Cafe Group PLC"
         assert out["total_all"] is None  # only counted separately when there are more than 10,000
         assert (await c.post("/api/leads/people/search", json={"filters": {}})).status_code == 200
+
+
+@pytest.mark.db
+async def test_before_the_ranking_job_has_run_the_list_still_opens_newest_first(db, monkeypatch):
+    await _seed(db)
+
+    async def not_ready(_db):
+        return False
+
+    monkeypatch.setattr(BR, "ranking_ready", not_ready)
+    _, token = await make_user(db, "fl7", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        out = (await c.post("/api/leads/search", json={"filters": {}})).json()
+        assert out["ranked"] is False and out["tiers"] is None
+        assert out["companies"][0]["name"] == "Tiny Cafe Ltd"  # newest first, no sort by rank

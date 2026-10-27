@@ -302,6 +302,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   const [tab, setTab] = useState("companies"); // companies | people
   const [sort, setSort] = useState("best");
   const [page, setPage] = useState(1);
+  const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
   const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
   const [savedTotal, setSavedTotal] = useState(0);
   const [picked, setPicked] = useState(() => new Set());
@@ -464,6 +465,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       setPage(Math.floor(offset / pageRef.current) + 1);
       setPicked(new Set());
       setTiers(r.tiers || null);
+      setRanked(r.ranked !== false);
       setSavedTotal(r.saved_total || 0);
       setTotal(r.total_all ?? r.total);
       setCapped(r.total_all == null && r.total_capped);
@@ -1063,6 +1065,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"} with people on file</span></>
               ) : null}
             </div>
+            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="The best-first ranking of the register has not been prepared on the server yet, so the newest companies are shown first">Showing newest first</span> : null}
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Sort
@@ -1204,7 +1207,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { pickedRows.forEach(removeCompany); setPicked(new Set()); }}><X size={14} /> Remove</button>
               </SelectionBar>
               {companies.length ? (
-                <CompaniesTable rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && !area} tiers={tiers} capped={capped}
+                <CompaniesTable rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
                   onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
                   onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
