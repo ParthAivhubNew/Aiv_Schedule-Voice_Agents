@@ -275,7 +275,8 @@ def _finish_row(mapped: Dict[str, Any], raw: Any, cfg: Dict[str, Any]) -> Option
         mapped.setdefault(key, value)
     if not (mapped.get("name") or mapped.get("registration_number")):
         return None
-    mapped["raw"] = raw
+    drop = set(cfg.get("bulk_drop_fields") or [])  # columns we never keep, not even in the stored copy of the row (named individuals)
+    mapped["raw"] = {k: v for k, v in raw.items() if k not in drop} if drop and isinstance(raw, dict) else raw
     return mapped
 
 
@@ -469,6 +470,17 @@ async def _iter_paged(source, alias_map: Dict[str, Any], first_page_only: bool =
                     await asyncio.sleep(delay)
 
 
+def _blocked_message(source, err: Exception) -> str:
+    """Plain words for a publisher that said no to our server, in place of the raw HTTP error."""
+    code = getattr(getattr(err, "response", None), "status_code", None)
+    where = (source.config or {}).get("bulk_index_url") or source.base_url or "the publisher's website"
+    if code in (401, 403, 429):
+        why = f"{source.name}'s website refuses automated downloads (HTTP {code})."
+    else:
+        why = f"We could not reach {source.name}'s download ({err.__class__.__name__})."
+    return f"{why} Download the file in your browser from {where}, upload it under Files & preview, then start the import again."
+
+
 async def stream_bulk_rows(source, *, preview_rows: int = 0) -> AsyncIterator[Dict[str, Any]]:
     """Yields one mapped BusinessRecord dict per row of the source's dataset, whichever of the
     four places it comes from (see the comment above). Remote files are streamed to a temp file on
@@ -492,19 +504,38 @@ async def stream_bulk_rows(source, *, preview_rows: int = 0) -> AsyncIterator[Di
         if not targets:
             raise ConnectorError("No files to import yet. Upload one, or put files in this source's folder on the server.")
     else:
-        urls = await discover_bulk_files(source) if mode == "index" else list(cfg.get("bulk_file_urls") or [])
-        if not urls:
-            raise ConnectorError("No download links found. Check the index page and link pattern, or the file URLs.")
-        for url in urls:
-            if preview_rows and url.lower().split("?")[0].endswith(".zip"):
-                raise ConnectorError("Preview can't open a remote ZIP without downloading all of it. Upload a small sample file to preview the mapping, or just start the import.")
-        targets = [(None, u) for u in urls]
+        try:
+            urls = await discover_bulk_files(source) if mode == "index" else list(cfg.get("bulk_file_urls") or [])
+        except httpx.HTTPError as err:
+            # A publisher that refuses automated downloads: use the file staff uploaded, or say what to do.
+            targets = [(f, None) for f in local_files(source)]
+            if not targets:
+                raise ConnectorError(_blocked_message(source, err)) from err
+            logger.info(f"[data_source_connector] {source.name}: download refused, using {len(targets)} uploaded file(s)")
+            urls = []
+        else:
+            if not urls:
+                raise ConnectorError("No download links found. Check the index page and link pattern, or the file URLs.")
+            for url in urls:
+                if preview_rows and url.lower().split("?")[0].endswith(".zip"):
+                    raise ConnectorError("Preview can't open a remote ZIP without downloading all of it. Upload a small sample file to preview the mapping, or just start the import.")
+            targets = [(None, u) for u in urls]
     for path, url in targets:
         tmp = None
         try:
             if url:
                 logger.info(f"[data_source_connector] {source.name}: downloading {url}")
-                tmp = await _download(url, cfg.get("bulk_headers"), limit_bytes=2 << 20 if preview_rows else 0)
+                try:
+                    tmp = await _download(url, cfg.get("bulk_headers"), limit_bytes=2 << 20 if preview_rows else 0)
+                except httpx.HTTPError as err:
+                    uploaded = local_files(source)
+                    if not uploaded:
+                        raise ConnectorError(_blocked_message(source, err)) from err
+                    logger.info(f"[data_source_connector] {source.name}: download refused, using {len(uploaded)} uploaded file(s)")
+                    for up in uploaded:
+                        for row in iter_file_rows(up, cfg, alias_map):
+                            yield row
+                    return
                 path = Path(tmp.name)
             for row in iter_file_rows(path, cfg, alias_map):
                 yield row

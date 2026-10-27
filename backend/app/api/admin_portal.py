@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, text
 from sqlalchemy.future import select
 
+from app.config import settings
 from app.core import staff as S
 from app.core.security import decode_token, hash_password, password_problem, verify_password
 from app.database import AsyncSessionLocal
@@ -1650,6 +1651,107 @@ async def put_unit_costs(body: UnitCostsBody, request: Request):
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
     return out
+
+
+# ── Compliance for the shared business data (staff only) ────────────────────
+class NoticeBody(BaseModel):
+    controller: str = ""
+    address: str = ""
+    contact_email: str = ""
+    ico_number: str = ""
+    retention: str = ""
+
+
+class OptOutBody(BaseModel):
+    email: str = ""
+    phone: str = ""
+
+
+@router.get("/compliance/notice")
+async def get_data_notice(request: Request):
+    """What the public notice at /api/legal/business-data says about who is responsible, and what is still missing."""
+    from app.services import optouts as OO
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        notice = await OO.load_notice(db)
+    return {"notice": notice, "missing": OO.notice_gaps(notice), "noticeUrl": f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/business-data",
+            "optOutUrl": f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/opt-out"}
+
+
+@router.put("/compliance/notice")
+async def put_data_notice(body: NoticeBody, request: Request):
+    from app.services import optouts as OO
+
+    _admin_only(request)
+    if body.contact_email.strip() and not OO.clean_email(body.contact_email):
+        raise HTTPException(status_code=400, detail="Enter a valid contact email.")
+    async with AsyncSessionLocal() as db:
+        notice = await OO.save_notice(db, body.model_dump())
+        await db.commit()
+    return {"notice": notice, "missing": OO.notice_gaps(notice)}
+
+
+@router.get("/compliance/opt-outs")
+async def list_opt_outs(request: Request, q: str = ""):
+    from app.models.models import PlatformOptOut
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        stmt = select(PlatformOptOut).order_by(PlatformOptOut.created_at.desc()).limit(200)
+        term = q.strip().lower()
+        digits = re.sub(r"\D", "", term)
+        if term:
+            match = PlatformOptOut.email.ilike(f"%{term}%")
+            stmt = stmt.where(match | PlatformOptOut.phone_key.like(f"%{digits}%")) if digits else stmt.where(match)
+        rows = (await db.execute(stmt)).scalars().all()
+        total = (await db.execute(select(func.count(PlatformOptOut.id)))).scalar() or 0
+    return {"total": total, "optOuts": [{"id": r.id, "email": r.email, "phoneEnding": r.phone_key[-4:] if r.phone_key else "", "source": r.source,
+                                         "createdAt": r.created_at.isoformat() + "Z" if r.created_at else None} for r in rows]}
+
+
+@router.post("/compliance/opt-outs")
+async def add_opt_out(body: OptOutBody, request: Request):
+    """Staff add someone who asked by phone or email. Same effect as the public page, without the confirmation step."""
+    from app.services import data_sources as DS
+    from app.services import optouts as OO
+
+    _admin_only(request)
+    if not (OO.clean_email(body.email) or OO.phone_key(body.phone)):
+        raise HTTPException(status_code=400, detail="Enter an email address or a phone number.")
+    async with AsyncSessionLocal() as db:
+        entry = await OO.record(db, body.email, body.phone, source="staff")
+        await db.commit()
+        out = {"id": entry.id}
+
+    async def clean() -> None:
+        try:
+            async with AsyncSessionLocal() as db:
+                await OO.scrub(db, body.email, body.phone)
+        except Exception as err:
+            logger.error(f"[compliance] could not clear details for an opt-out: {err}")
+
+    DS.spawn(clean())
+    return {**out, "ok": True}
+
+
+@router.delete("/compliance/opt-outs/{entry_id}")
+async def remove_opt_out(entry_id: str, request: Request):
+    """Only for a person who asked to be added back. Their details are not restored; a later import may bring them in again."""
+    from app.models.models import EmailSuppression, PlatformOptOut
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(PlatformOptOut, entry_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Not found.")
+        if row.email:
+            for s in (await db.execute(select(EmailSuppression).where(EmailSuppression.org_id.is_(None), EmailSuppression.email == row.email,
+                                                                      EmailSuppression.reason == "objection"))).scalars().all():
+                await db.delete(s)
+        await db.delete(row)
+        await db.commit()
+    return {"ok": True}
 
 
 # ── Data Sources (shared business-data scraping/lookup, staff only) ─────────

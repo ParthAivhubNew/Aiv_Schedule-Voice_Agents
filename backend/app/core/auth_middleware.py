@@ -46,6 +46,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"l/[A-Za-z0-9]{4,12}$",  # tracked short links in published posts
     _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"email/o/[A-Za-z0-9_.-]+$",  # the open marker in a cold email (signed)
+    _OPT_API + r"legal/(business-data|opt-out|opt-out/confirm/[A-Za-z0-9_.-]+)$",  # notice and opt-out for people in the business data
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
     _OPT_API + r"meeting-links/[^/]+/callback$",  # return page; the signed state names the organisation
     _OPT_API + r"p/[A-Za-z0-9_.\-]+$",  # preview pages: the signed link is the sign-in

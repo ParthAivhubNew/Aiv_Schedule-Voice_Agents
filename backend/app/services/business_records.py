@@ -126,6 +126,10 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
     if not (name or registration_number or domain):
         raise ValueError("A business record needs at least a name, domain or registration number.")
     ih = identity_hash(registration_number=registration_number, domain=domain, name=name, postcode=derive_search_fields(data).get("postcode", ""))
+    from app.services.optouts import strip_blocked
+
+    data = dict(data)
+    await strip_blocked(db, [data])  # a person who opted out is never put back by a later lookup
     row = (await db.execute(select(BusinessRecord).where(BusinessRecord.identity_hash == ih))).scalars().first()
     incoming_rank = _TRUST.get(confidence_tier, 0)
     if row is None:
@@ -187,6 +191,9 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
     records once something else (a live lookup, a chat answer) re-confirms them normally."""
     if not rows:
         return 0
+    from app.services.optouts import strip_blocked
+
+    await strip_blocked(db, rows)  # a person who opted out is never put back by a later import
     now = datetime.utcnow()
     values_by_hash: Dict[str, Dict[str, Any]] = {}  # one row per company per statement (Postgres rejects the same key twice)
     for data in rows:

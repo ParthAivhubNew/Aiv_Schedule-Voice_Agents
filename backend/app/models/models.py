@@ -1901,6 +1901,19 @@ class BusinessRecord(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PlatformOptOut(Base):
+    """A person who asked, on our public opt-out page or through staff, to be left out of the shared business data. Kept
+    on purpose after their details are removed: it is how a later import is stopped from putting them back. Not
+    organisation-scoped, like BusinessRecord."""
+    __tablename__ = "platform_optouts"
+
+    id = Column(String, primary_key=True)
+    email = Column(String, index=True, default="")
+    phone_key = Column(String, index=True, default="")  # the last ten digits of the number, so every way of writing it matches
+    source = Column(String, default="opt_out_page")  # opt_out_page | staff
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class PostcodeGeo(Base):
     """A UK postcode's centre point, looked up once (postcodes.io) and cached for everyone -- public
     geography, like BusinessRecord, so no org_id. lat/lng are NULL for a postcode that could not be

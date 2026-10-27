@@ -721,6 +721,19 @@ async def _seed_open_data_sources(conn: AsyncConnection) -> None:
             },
             "bulk_defaults": {"status": "Active"},  # the register lists food businesses currently registered
         }),
+        # Employers with 250+ staff report their headcount band every year. The oldest year is read first so the newest wins.
+        # ResponsiblePerson names an individual and is not kept.
+        "ds_gender_pay_gap": ("Gender Pay Gap Service (employer size)", "https://gender-pay-gap.service.gov.uk", "none", 500, {
+            "trust_tier": "verified_registry",
+            "bulk_file_urls": ["https://gender-pay-gap.service.gov.uk/viewing/download-data/2024",
+                               "https://gender-pay-gap.service.gov.uk/viewing/download-data/2025"],
+            "bulk_field_map": {
+                "name": ["CurrentName", "EmployerName"], "company_number": ["CompanyNumber"], "postcode": ["PostCode"],
+                "address": ["Address"], "employee_estimate": ["EmployerSize"],
+            },
+            "bulk_registration": [{"field": "company_number", "pad": 8}],
+            "bulk_drop_fields": ["ResponsiblePerson"],
+        }),
     }
     for source_id, (name, base_url, auth, delay, config) in sources.items():
         if (await conn.execute(text("SELECT 1 FROM data_sources WHERE id = :i"), {"i": source_id})).first():
@@ -732,6 +745,33 @@ async def _seed_open_data_sources(conn: AsyncConnection) -> None:
             "'idle', 'active', now(), now(), 'migration')"
         ), {"id": source_id, "name": name, "base": base_url, "auth": auth, "delay": delay, "config": json.dumps(config),
             "fields": json.dumps(["name", "address", "postcode", "phone", "website", "industry"])})
+
+
+_OGL = "Open Government Licence v3.0"
+_SOURCE_NOTES = {
+    "ds_companies_house": {"licence": _OGL, "attribution": "Contains public sector information from Companies House.", "personal_data": True},
+    "ds_cqc": {"licence": _OGL, "attribution": "Care Quality Commission directory of registered locations.", "personal_data": False,
+               "manual_upload_note": "CQC blocks automated downloads. Download the monthly directory CSV in a browser and upload it here."},
+    "ds_charity_commission": {"licence": _OGL, "attribution": "Charity Commission for England and Wales register of charities.", "personal_data": True},
+    "ds_food_hygiene": {"licence": _OGL, "attribution": "Food Standards Agency food hygiene ratings.", "personal_data": True},  # sole traders are people
+    "ds_gender_pay_gap": {"licence": _OGL, "attribution": "Gender Pay Gap Service, UK Government (employer size band).", "personal_data": False},
+}
+
+
+async def _open_data_notes_and_pay_gap(conn: AsyncConnection) -> None:
+    """Adds the Gender Pay Gap source, and records on each seeded source its licence, the credit it asks for, and whether its rows
+    can name people. The public notice (/api/legal/business-data) lists the credits, and the Data Sources screen shows them."""
+    import json
+
+    await _seed_open_data_sources(conn)
+    for source_id, notes in _SOURCE_NOTES.items():
+        row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = :i"), {"i": source_id})).first()
+        if not row:
+            continue
+        config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+        for key, value in notes.items():
+            config.setdefault(key, value)
+        await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = :i"), {"c": json.dumps(config), "i": source_id})
 
 
 async def _social_account_expiry(conn: AsyncConnection) -> None:
@@ -825,6 +865,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_12_partner_secret_key", _partner_secret_key),
     ("2026_11_13_embed_links_and_ledger_stamps", _embed_links_and_ledger_stamps),
     ("2026_11_14_partner_embed_theme", _partner_embed_theme),
+    ("2026_11_15_open_data_notes_and_pay_gap", _open_data_notes_and_pay_gap),
 ]
 
 

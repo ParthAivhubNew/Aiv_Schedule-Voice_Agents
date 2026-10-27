@@ -251,6 +251,10 @@ async def is_opted_out(db, number: str) -> bool:
 
     if await block_for(db, phone=number, channel="call"):  # the one do-not-contact list
         return True
+    from app.services.optouts import phone_blocked
+
+    if await phone_blocked(db, number):  # asked to be left out of the shared business data
+        return True
     rows = (await db.execute(_select(ContactRegistry).where(ContactRegistry.do_not_call.is_(True)))).scalars().all()
     for r in rows:
         for p in (r.phones or []):

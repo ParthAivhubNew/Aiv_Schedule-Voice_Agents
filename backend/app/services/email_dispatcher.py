@@ -161,7 +161,8 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
         link = unsubscribe_url(org_id, to)
         msg["List-Unsubscribe"] = f"<{link}>, <mailto:{mb.email}?subject=unsubscribe>"
         msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-        body += f"\n\n--\nNot interested? Unsubscribe: {link}"
+        body += (f"\n\n--\nNot interested? Unsubscribe: {link}"
+                 f"\nWhy you got this, and where we found your details: {settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/business-data")
     msg.set_content(body)
     page = _html_of(body)
     if open_marker and not warmup_id:  # lets Lead Gen see who is reading (Settings -> Connections can switch it off)

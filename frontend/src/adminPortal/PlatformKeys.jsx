@@ -4,6 +4,7 @@ import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
 import { PlatformAi } from "./PlatformAi";
 import { DataSourceFiles } from "./DataSourceFiles";
+import { DataCompliance } from "./DataCompliance";
 
 const NEEDS_PHONE = ["Telephony", "Messaging"];
 const blank = { key: "", model: "", baseUrl: "", phone: "" };
@@ -264,6 +265,9 @@ export function PlatformKeys({ canEdit }) {
         <div style={{ display: "grid", gap: 16 }}>
           <div style={heading}>Data Sources</div>
           <DataSources canEdit={canEdit} />
+
+          <div style={heading}>Privacy notice & opt-outs</div>
+          <DataCompliance canEdit={canEdit} />
 
           <div style={heading}>Scraped Data</div>
           <BusinessRecordsBrowser />
@@ -635,6 +639,13 @@ function DataSources({ canEdit }) {
               {s.status !== "active" && <Pill>{s.status}</Pill>}
             </div>
             {s.lastError && <div style={{ fontSize: 12, color: C.red || "#c0392b" }}>Last error: {s.lastError}</div>}
+            {s.lastError && s.config?.manual_upload_note && <div style={{ fontSize: 12, color: C.slate }}>{s.config.manual_upload_note}</div>}
+            {(s.config?.licence || s.config?.personal_data) && (
+              <div style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                {s.config.licence && <span>Licence: {s.config.licence}</span>}
+                {s.config.personal_data && <Pill tone="amber">Can contain personal data</Pill>}
+              </div>
+            )}
             {test && (
               <div style={{ fontSize: 12, color: test.ok ? (test.hits ? "#15803d" : C.slate) : (C.red || "#c0392b") }}>
                 {test.ok

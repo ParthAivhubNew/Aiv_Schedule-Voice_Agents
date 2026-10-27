@@ -54,6 +54,7 @@ from app.api.retell_router import router as retell_router
 from app.api.custom_voice_router import router as custom_voice_router
 from app.api.conversation_templates import router as conversation_templates_router
 from app.api.call_lists import router as call_lists_router
+from app.api.legal import router as legal_router
 from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
@@ -864,6 +865,7 @@ app.include_router(retell_router)  # Direct /retell compatibility
 app.include_router(custom_voice_router, prefix=settings.API_PREFIX)
 app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
 app.include_router(call_lists_router, prefix=settings.API_PREFIX)
+app.include_router(legal_router, prefix=settings.API_PREFIX)  # public notice and opt-out for people in the business data
 app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)
 app.include_router(conversation_templates_router)  # Direct /conversation-templates compatibility
 app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
