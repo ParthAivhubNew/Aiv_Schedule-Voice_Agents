@@ -21,7 +21,7 @@ def test_each_guide_renders_without_the_team_section_and_links_to_the_other():
     for name in ("start", "embed", "api"):
         page = P._guide_html(name)
         assert "<h2" in page and "Deploying this" not in page
-    assert "/docs/partners/api" in P._guide_html("embed") and "api.md" not in P._guide_html("embed")
+    assert "/docs/partners/start" in P._guide_html("embed") and "start.md" not in P._guide_html("embed")
 
 
 def test_the_pages_can_be_framed_by_the_app_but_no_other_site():

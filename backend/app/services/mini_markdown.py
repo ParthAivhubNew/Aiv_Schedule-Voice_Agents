@@ -79,7 +79,9 @@ def render(source: str, link: Callable[[str], str] = lambda href: href) -> str:
             while i < len(lines) and lines[i].startswith(">"):
                 quote.append(lines[i].lstrip(">").strip())
                 i += 1
-            out.append(f"<blockquote>{_inline(' '.join(quote), link)}</blockquote>")
+            text = " ".join(quote)
+            kind = "tip" if text.startswith("**Tip") else "warn" if text.startswith("**Careful") else "note"
+            out.append(f'<blockquote class="{kind}">{_inline(text, link)}</blockquote>')
         elif re.match(r"^-{3,}$", line.strip()):
             out.append("<hr>")
             i += 1
@@ -109,3 +111,16 @@ def drop_section(source: str, heading_contains: str) -> str:
             continue
         kept.append(line)
     return "\n".join(kept)
+
+
+def headings(source: str, level: int = 2) -> List[tuple]:
+    """(id, text) of each heading at the given level, outside code blocks, for a contents list."""
+    found: List[tuple] = []
+    in_code = False
+    for line in source.split(chr(10)):
+        if line.startswith("```"):
+            in_code = not in_code
+        elif not in_code and line.startswith("#" * level + " "):
+            text = line[level:].strip()
+            found.append((slug(text), re.sub(r"[`*]", "", text)))
+    return found

@@ -436,11 +436,11 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
     if (busy) setPane("results");
   }, [busy]);
 
-  const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride) => {
+  const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride, force = false) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
-    if (busy) return;
+    if (busy && !force) return;
     // New words start with a fresh reading; removing a word from the reading keeps the others as they are.
     let drop = dropOverride;
     if (drop === undefined) {
@@ -728,8 +728,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
     setAreaStep(null);
     setArea(null);
     setExcluded([]);
-    if (Object.keys(formToFilters(form)).some((k) => ["keyword", "towns", "postcode_prefixes"].includes(k))) search(null, form, 0, null);
-    else { setCompanies([]); setTotal(0); setChips([]); }
+    setError("");
+    setBusy(false);
+    search(null, form, 0, null, undefined, undefined, true); // back to the normal list for the filters (with none, the whole register), never an empty screen
   };
 
   const removeCompany = (c) => {
@@ -1140,7 +1141,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
           {tab === "companies" ? (
             <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
               {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                <button key={id} type="button" title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"} aria-pressed={view === id} onClick={() => setView(id)}
+                <button key={id} type="button" title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"} aria-pressed={view === id} onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}
                   className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--secondary"}`}><Icon size={14} /> {name}</button>
               ))}
             </div>

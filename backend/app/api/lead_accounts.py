@@ -166,8 +166,35 @@ async def _registry_for(db: AsyncSession, account_id: str) -> Optional[BusinessR
     return (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first()
 
 
-_PAGE_CACHE: Dict[str, Any] = {}  # one page of results for these filters -> (when, answer). Public company facts only, so it is shared.
+_PAGE_CACHE: Dict[str, Any] = {}  # one page of results for these filters -> (when, answer, ttl). Public company facts only, so it is shared.
 _PAGE_TTL = 300.0
+_BROWSE_TTL = 1200.0  # the opening list (no filters) changes slowly; it is also made ready at start-up and every 15 minutes (see warm_browse_pages)
+
+
+def _page_key(filters, sort, limit, offset, drop_terms) -> str:
+    import json
+
+    return json.dumps([filters, sort, limit, offset, drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
+
+
+async def warm_browse_pages() -> None:
+    """Read the opening list (every company, best first) for the usual page sizes into the page cache, so the first person to
+    open Find Leads after a restart does not wait for the whole register to be sorted."""
+    import time
+
+    from app.database import AsyncSessionLocal
+    from app.services import lead_filters
+
+    for limit in (25, 50, 100):
+        async with AsyncSessionLocal() as db:
+            out = await business_records.search_filtered(db, {}, limit=limit, offset=0, sort="best", stats=False)
+            cards = [lead_filters.card(r) for r in out["rows"]]
+        if not cards:
+            continue  # an empty register (before an import) must never be remembered as "no companies"
+        answer = {"companies": cards, "total": out["total"], "total_capped": out.get("total_capped", False), "filters": out["filters"],
+                  "chips": lead_filters.describe(out["filters"]), "points": {}, "next_scan": None, "understood": [],
+                  "tiers": None, "saved_total": None, "total_all": None, "ranked": out.get("ranked", True), "timing_ms": out.get("timing_ms")}
+        _PAGE_CACHE[_page_key(out["filters"], "best", limit, 0, [])] = (time.monotonic(), answer, _BROWSE_TTL)
 
 
 class SearchIn(BaseModel):
@@ -201,12 +228,11 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
                 wide = shown_filters
             out = await business_records.search_in_area(db, wide, body.area, scan=body.scan, exclude_ids=body.exclude_ids)
         else:
-            import json
             import time
 
-            key = json.dumps([shown_filters, body.sort, body.limit, body.offset, body.drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
+            key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms)
             hit = _PAGE_CACHE.get(key) if not body.exclude_ids else None
-            if hit and time.monotonic() - hit[0] < _PAGE_TTL:
+            if hit and time.monotonic() - hit[0] < hit[2]:
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
                 return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in cached["companies"]]}
@@ -230,13 +256,14 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     answer = {"companies": [{**c, "saved": c["id"] in mine} for c in cards], "total": out["total"],
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
               "next_scan": out.get("next_scan"), "understood": understood,
-              "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True)}
-    if not body.area and not body.exclude_ids and not understood:
+              "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
+              "timing_ms": out.get("timing_ms")}
+    if not body.area and not body.exclude_ids and not understood and cards:  # an empty answer is never remembered
         import time
 
         if len(_PAGE_CACHE) > 200:
             _PAGE_CACHE.clear()
-        _PAGE_CACHE[key] = (time.monotonic(), {**answer, "companies": cards})
+        _PAGE_CACHE[key] = (time.monotonic(), {**answer, "companies": cards}, _PAGE_TTL)
     return answer
 
 

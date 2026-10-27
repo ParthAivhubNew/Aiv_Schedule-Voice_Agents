@@ -172,6 +172,21 @@ async def _platform_balance_check_loop():
             logger.warning(f"[Balances] Check cycle failed: {loop_err}")
 
 
+async def _find_leads_warm_loop():
+    """Keeps the opening Find Leads list ready: read once soon after start-up, then every 15 minutes."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            from app.api.lead_accounts import warm_browse_pages
+
+            await warm_browse_pages()
+        except asyncio.CancelledError:
+            raise
+        except Exception as warm_err:
+            logger.warning(f"[FindLeads] Warm-up failed: {warm_err}")
+        await asyncio.sleep(900)
+
+
 async def _billing_upkeep_loop():
     """Every few hours: put each company's plans right with Stripe's view (a lost webhook never leaves anyone without the
     credits they paid for or with a plan that has ended), and send last month's report to the owner from the 1st."""
@@ -724,9 +739,11 @@ async def lifespan(app: FastAPI):
     social_token_task = asyncio.create_task(_social_token_refresh_loop())
     social_results_task = asyncio.create_task(_social_results_loop())
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
+    find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
 
     yield
 
+    find_leads_warm_task.cancel()
     social_results_task.cancel()
     billing_upkeep_task.cancel()
     email_task.cancel()

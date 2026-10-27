@@ -251,3 +251,30 @@ async def test_a_logo_is_never_fetched_from_a_private_address(tmp_path, monkeypa
     monkeypatch.setattr(logos, "LOGO_DIR", tmp_path)
     assert await logos.logo_for("http://127.0.0.1/") is None
     assert await logos.logo_for("localhost") is None
+
+
+@pytest.mark.db
+async def test_the_opening_list_is_ready_before_anyone_asks(db):
+    from app.api import lead_accounts
+
+    await _seed(db)
+    assert not lead_accounts._PAGE_CACHE
+    await lead_accounts.warm_browse_pages()
+    assert len(lead_accounts._PAGE_CACHE) == 3  # one per usual page size
+    _, token = await make_user(db, "fl9", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        out = (await c.post("/api/leads/search", json={"filters": {}, "limit": 25})).json()
+        assert out["companies"][0]["name"] == "Big Cafe Group PLC" and out["timing_ms"] is not None
+        assert "saved" in out["companies"][0]  # saved marks are still worked out for this organisation
+
+
+@pytest.mark.db
+async def test_an_empty_register_is_never_remembered_as_the_answer(db):
+    from app.api import lead_accounts
+
+    await lead_accounts.warm_browse_pages()  # nothing imported yet
+    assert not lead_accounts._PAGE_CACHE
+    await _seed(db)
+    _, token = await make_user(db, "fl10", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 4

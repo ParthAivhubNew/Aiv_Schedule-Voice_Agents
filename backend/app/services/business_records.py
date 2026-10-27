@@ -668,12 +668,21 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    import time
+
+    t0 = time.monotonic()
     ranked = await ranking_ready(db)
+    t1 = time.monotonic()
     total = await _capped_count(db, where)
+    t2 = time.monotonic()
     rows = (await db.execute(
         select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest")).limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
-    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked}
+    t3 = time.monotonic()
+    timing = {"ready": int((t1 - t0) * 1000), "count": int((t2 - t1) * 1000), "page": int((t3 - t2) * 1000)}
+    if t3 - t0 > 3:
+        logger.warning(f"[business_records] slow search {timing} ranked={ranked} sort={sort} filters={f}")
+    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked, "timing_ms": timing}
     if stats and ranked:
         out.update(await result_stats(db, where, out["total"]))
     elif stats:
