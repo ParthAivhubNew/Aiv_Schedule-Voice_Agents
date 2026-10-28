@@ -191,6 +191,38 @@ Any other language works too. Each call is a `POST` to `https://outreach.aivhub.
   file ends up in GitHub or in a page anyone can read. If a key was ever put in a file that is served or uploaded, revoke it in
   Partner programme and make a new one.
 
+### If your product has no server of its own (Vite, Lovable, Bolt, Create React App)
+
+These tools build only the web page. Nothing in them can keep a secret key, and the development server answers every unknown
+address with `index.html`. That is why the page asks for `/outreach-start` and gets a web page back (`Content-Type: text/html`)
+instead of JSON, and the Outreach box stays blank. The endpoint has to run somewhere that is not the browser. Pick one:
+
+**A. A small Node server next to your app.** Save the Step 4b Express code as `server.js` with `app.listen(3000)` at the end, and
+put `OUTREACH_SECRET` in a `.env` file next to it. Start it with `node --env-file=.env server.js`. Then tell Vite to pass that
+one address to it, in `vite.config.ts`:
+
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: { proxy: { "/outreach-start": "http://localhost:3000" } },
+});
+```
+
+Restart `npm run dev`. On your live site, do the same with your web server or host: send `/outreach-start` to the server.
+
+**B. A serverless function** (Supabase Edge Function, Vercel or Netlify function, Cloudflare Worker). Put the Step 4b code in
+the function, store `OUTREACH_SECRET` in the platform's secrets, and change the page's `fetch("/outreach-start…")` to the
+function's own address. The function must answer with the header `Access-Control-Allow-Origin` set to your site.
+
+**Do not** put the secret in a `.env` variable that starts with `VITE_` (or `NEXT_PUBLIC_`, `REACT_APP_`). Those are copied into
+the web page for anyone to read. The secret belongs only in the server's own settings.
+
+To check it worked, open `/outreach-start?component=leads` straight in the browser's address bar. You should see JSON such as
+`{"connect_token":"…"}`. If you see your app's page, the route is still not reaching the server.
+
 ### 4c. Test it before touching the page
 
 Start your server, then run this in a terminal, with your own key and a user id that exists in your product:
@@ -333,6 +365,7 @@ you can do. When they finish it closes and the screen appears. After that the sc
 | What you see | Why | Fix |
 |---|---|---|
 | An empty box, "refused to connect" | Your page's address is not in the list | Add it in Step 2, exactly as it appears in the browser |
+| A blank box, but your server answered `200` | The browser refused to put Outreach in your page, or the key given to `Outreach(...)` is not your publishable key | Open the browser console (F12) and look for "Refused to frame". Then run the check just below this table |
 | `403` when your server asks for a pass | The request came from a browser, or the key is wrong | Call Outreach only from your server, with the secret key |
 | `404` for a user | That user is not connected yet | Run the connect window for them (Step 5) |
 | The screen stops after 15 minutes | The page kept an old pass | Use `getToken` as in Step 5. It fetches a fresh one |
@@ -341,6 +374,16 @@ you can do. When they finish it closes and the screen appears. After that the sc
 | Console says `Unexpected token '<', "<!doctype "... is not valid JSON` | The page asked your own server for `/outreach-start` and got an HTML page back: the route does not exist, is served as a static file, or sits behind a catch-all that returns `index.html` | Add the Step 4 endpoint to your running server, before any catch-all, and check the address shows JSON (see "Things to get right"). Nothing is wrong at Outreach: the request never reached it |
 | The `outreach-start` request in the Network tab shows `200` or `304` with an HTML response | Same cause. `304` only means the browser re-used a saved copy of that page | Same fix. Click the request and read its **Response** tab: it must be JSON |
 | Your `curl` to `/api/embed/connect-sessions` works but the page still fails | Step 4c proves the key, not the route on your own site | Test `/outreach-start` itself, as in "Things to get right" |
+
+**Check which sites Outreach lets frame the screen.** Run this with your own publishable key:
+
+```
+curl -sI "https://outreach.aivhub.com/embed/leads?client_id=pk_paste_your_key_here" | grep -i content-security-policy
+```
+
+The answer must contain your page's address, for example `frame-ancestors https://app.yourproduct.com`. If it says `'none'`, the
+key is not recognised or the web address list is empty: check the key, and Step 2. If your address is not in the list it prints,
+add it exactly as the browser bar shows it, with `https://`, with or without `www.`, and with the port number if there is one.
 
 ## What next
 

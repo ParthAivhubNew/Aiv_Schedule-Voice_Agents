@@ -280,6 +280,7 @@ async def dial_via_telnyx_assistant(
         lead_id=lead_ref,
         prospect=label,
         mission=mission,
+        direction="outbound", phone=to_clean, our_number=from_clean,
         state="calling",
         carrier=CARRIER_TAG,
         channel="voice",

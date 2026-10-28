@@ -1004,7 +1004,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
             ))}
           </div>
           {source === "register" ? (
-            <form onSubmit={sendChat} onClick={() => askRef.current && askRef.current.focus()} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
+            <form onSubmit={sendChat} onClick={() => { if (askRef.current) askRef.current.focus(); setAskFocus(true); }} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
               <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
                 <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 10 }} />
                 {askFocus && suggestions.length ? (
@@ -1021,8 +1021,8 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                     ))}
                   </div>
                 ) : null}
-                <input ref={askRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)} aria-label="Ask the AI who to find" className="ui-input"
-                  onFocus={() => setAskFocus(true)} onBlur={() => setTimeout(() => setAskFocus(false), 120)} onKeyDown={(e) => { if (e.key === "Escape") { setAskFocus(false); e.currentTarget.blur(); } }}
+                <input ref={askRef} value={chatInput} onChange={(e) => { setChatInput(e.target.value); setAskFocus(true); }} aria-label="Ask the AI who to find" className="ui-input"
+                  onFocus={() => setAskFocus(true)} onClick={() => setAskFocus(true)} onBlur={() => setTimeout(() => setAskFocus(false), 120)} onKeyDown={(e) => { if (e.key === "Escape") { setAskFocus(false); e.currentTarget.blur(); } }}
                   placeholder={chatStarted ? "Reply, or change the search" : 'Ask the AI: "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 36, paddingLeft: 34 }}
                   title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
               </div>

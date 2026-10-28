@@ -323,6 +323,10 @@ async def _link_leads_and_calls(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_call_logs_lead_id ON call_logs (lead_id)"))
     await conn.execute(text("ALTER TABLE live_calls ADD COLUMN IF NOT EXISTS lead_id VARCHAR"))
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_live_calls_lead_id ON live_calls (lead_id)"))
+    # Which way a call went and the two numbers on it: the other person's, and ours.
+    for table in ("live_calls", "call_logs"):
+        for col in ("direction", "phone", "our_number"):
+            await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} VARCHAR"))
     for col in ("lead_id", "call_id", "registry_id", "source_post_id"):
         await conn.execute(text(f"ALTER TABLE meetings ADD COLUMN IF NOT EXISTS {col} VARCHAR"))
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_meetings_lead_id ON meetings (lead_id)"))

@@ -5,6 +5,7 @@ import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
 import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
+import { useRailTip } from "./RailTip";
 import { NavItem } from "./NavItem";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 
@@ -26,10 +27,14 @@ export function useSidebarCollapse() {
 
 export function SidebarToggle({ collapsed, onToggle }) {
   const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  const [tip, tipNode] = useRailTip();
   return (
-    <button type="button" className="sidebar-toggle" onClick={onToggle} aria-pressed={collapsed} aria-label={collapsed ? "Expand the menu" : "Collapse the menu"} title={collapsed ? "Expand the menu" : "Collapse the menu to icons"}>
-      <Icon size={16} strokeWidth={1.75} />
-    </button>
+    <>
+      <button type="button" className="sidebar-toggle" onClick={onToggle} aria-pressed={collapsed} {...tip(collapsed ? "Expand the menu" : "Collapse the menu", collapsed ? "Expand the menu" : "Collapse the menu to icons")}>
+        <Icon size={16} strokeWidth={1.75} />
+      </button>
+      {tipNode}
+    </>
   );
 }
 
@@ -49,6 +54,7 @@ export function SidebarHead({ icon, accent, name, collapsed, onToggle }) {
 // groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
 export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey, nav, tabs }) {
   const [collapsed, toggleCollapsed] = useSidebarCollapse();
+  const [logoutTip, logoutNode] = useRailTip();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, no credits or log out (the partner owns those)
   const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
   return (
@@ -71,9 +77,12 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
       {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded && (
-        <button type="button" className="ui-nav-item" title="Log out" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-          <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
-        </button>
+        <>
+          <button type="button" className="ui-nav-item" {...logoutTip("Log out")} onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+            <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
+          </button>
+          {logoutNode}
+        </>
       )}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}

@@ -175,6 +175,12 @@
     parent.appendChild(f);
     this.frame = f;
     this.container = parent;
+    // A screen the browser refused to frame (this page's address is not in the partner's list) never answers, and looks blank.
+    var self = this;
+    clearTimeout(this._wait);
+    this._wait = setTimeout(function () {
+      if (self.frame && !self.heard) self._fail("The Outreach screen did not open. Check that this page's address is in the web address list under Partner programme, exactly as it shows in the browser bar, and that Outreach(...) was given your publishable key (pk_...). The browser console shows a 'Refused to frame' message when the address is the problem.");
+    }, 12000);
   };
 
   Screen.prototype._send = function (msg) {
@@ -205,6 +211,8 @@
     var d = ev.data;
     if (!d || d.source !== "outreach-embed") return;
     var o = this.options, self = this;
+    this.heard = true;
+    clearTimeout(this._wait);
     if (d.type === "ready") this._init();
     else if (d.type === "ready-ui") { this.ready = true; this._watch(); if (o.onReady) o.onReady(d); }
     else if (d.type === "token-needed") {
@@ -290,6 +298,8 @@
   };
 
   Screen.prototype.close = function () {
+    clearTimeout(this._wait);
+    this.heard = false;
     this._unwatch();
     if (this.overlay) {
       document.removeEventListener("keydown", this._esc);

@@ -122,17 +122,73 @@ export function timezoneShort(tzId) {
 
 const GENERIC_LOG_NAMES = /^(valued prospect|prospect|caller|unknown|unknown caller|there|n\/a|na|none)$/i;
 
+const NOT_NAMES = new Set(["calling", "just", "from", "with", "here", "sorry", "not", "interested", "busy", "looking", "wondering", "returning", "ringing", "after", "about", "the", "an", "good", "fine", "great", "well", "okay", "sure", "afraid", "glad", "happy", "trying", "still", "going", "very", "really", "yes", "no", "hi", "hello", "hey", "please", "thanks", "thank", "there", "this", "everyone", "all", "valued",
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today", "tomorrow", "morning",
+  "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]);
+const TITLE = String.raw`(?:[Mm]r|[Mm]rs|[Mm]s|[Mm]iss|[Dd]r)\.?\s+`;
+const WORD = "[A-Z][a-zA-Z'’-]{1,30}";
+// "my name is Priya Shah", "this is Tom", "I'm Dana", "it's Raj", "call me Sam", "you're speaking to Lee": the keywords match in any
+// case, but the name after them must be written with capitals, so "this is regarding" or "I'm calling" never match.
+const KEY = /\b(?:my name(?:'s|’s| is)|name is|this is|it(?:'s|’s| is)|i am|i'm|i’m|call me|you(?:'re|’re| are) (?:speaking|talking) (?:to|with)|speaking (?:to|with))\s+/gi;
+const AFTER_KEY = new RegExp(String.raw`^(?:${TITLE})?(${WORD})(?:\s+(${WORD}))?`);
+const SPEAKING = new RegExp(String.raw`^\s*(?:${TITLE})?(${WORD})(?:\s+(${WORD}))?\s+(?:speaking|here)\b`);
+const CALLER_WHO = /^(them|prospect|caller|user|human|customer)$/i;
+
+function tidyName(first, last) {
+  const f = String(first || "").replace(/['’]s$/, "");
+  let l = String(last || "").replace(/['’]s$/, "");
+  if (!f || NOT_NAMES.has(f.toLowerCase())) return "";
+  if (l && NOT_NAMES.has(l.toLowerCase())) l = "";
+  return `${f} ${l}`.trim();
+}
+
+// [{ who: "caller" | "ai" | "system", text }] from a transcript of {who, text} objects or "AI: ..." / "Prospect: ..." strings.
+function turnsOf(transcript) {
+  const out = [];
+  (Array.isArray(transcript) ? transcript : []).forEach((item) => {
+    let who = "ai";
+    let text = "";
+    if (item && typeof item === "object") {
+      const w = String(item.who || "");
+      who = CALLER_WHO.test(w) ? "caller" : /^system$/i.test(w) ? "system" : "ai";
+      text = String(item.text || "");
+    } else {
+      text = String(item || "");
+      const m = text.match(/^(them|prospect|caller|user|human|customer|system|ai)\s*:\s*/i);
+      if (m) {
+        who = /^system$/i.test(m[1]) ? "system" : /^ai$/i.test(m[1]) ? "ai" : "caller";
+        text = text.slice(m[0].length);
+      }
+    }
+    if (text.trim()) out.push({ who, text: text.trim() });
+  });
+  return out;
+}
+
+// The name the other person gave on the call. Only their own lines count.
+export function nameStatedByCaller(transcript) {
+  for (const { who, text } of turnsOf(transcript)) {
+    if (who !== "caller") continue;
+    for (const k of text.matchAll(KEY)) {
+      const m = AFTER_KEY.exec(text.slice(k.index + k[0].length));
+      const name = m ? tidyName(m[1], m[2]) : "";
+      if (name) return name;
+    }
+    const sp = SPEAKING.exec(text);
+    const name = sp ? tidyName(sp[1], sp[2]) : "";
+    if (name) return name;
+  }
+  return "";
+}
+
+// The name the AI greeted them with (Hi Howard): a weaker source than what the caller said.
 export function nameFromTranscript(transcript) {
-  const lines = Array.isArray(transcript) ? transcript : [];
-  for (const item of lines) {
-    const text = typeof item === "string" ? item : (item && item.text) || "";
-    const cleaned = String(text).replace(/^(ai|system):\s*/i, "");
-    const m = cleaned.match(/\b(?:Hi|Hello|Hey)[, ]+([A-Z][a-zA-Z'’-]{1,40})(?:\s+([A-Z][a-zA-Z'’-]{1,40}))?/);
+  for (const { who, text } of turnsOf(transcript)) {
+    if (who !== "ai") continue;
+    const m = text.match(/\b(?:Hi|Hello|Hey)[, ]+([A-Z][a-zA-Z'’-]{1,40})(?:\s+([A-Z][a-zA-Z'’-]{1,40}))?/);
     if (!m) continue;
-    const first = m[1];
-    const last = m[2] || "";
-    if (/^(this|there|sam|san|everyone|all|valued)$/i.test(first)) continue;
-    return `${first} ${last}`.trim();
+    if (/^(this|there|sam|san|everyone|all|valued)$/i.test(m[1])) continue;
+    return `${m[1]} ${m[2] || ""}`.trim();
   }
   return "";
 }
@@ -150,14 +206,17 @@ export function isGenericLogName(value) {
 export function logDisplayName(entry) {
   if (!entry) return "Unknown caller";
   const person = entry.personListedAs || entry.personCanonical || "";
+  const stated = nameStatedByCaller(entry.transcript);
   const spoken = nameFromTranscript(entry.transcript);
   const listed = entry.listedAs || "";
   const company = entry.canonicalName || "";
+  if (stated) return stated; // what the person said on the call comes first
   if (!isGenericLogName(person)) return person;
+  if (entry.callerName) return entry.callerName; // the account's own contact that owns the number the call came from
   if (spoken) return spoken;
   if (!isGenericLogName(listed) && listed !== company) return listed;
   if (!isGenericLogName(company)) return company;
-  return spoken || "Unknown caller";
+  return spoken || entry.phone || "Unknown caller";
 }
 
 let _notifSeq = 0;

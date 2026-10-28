@@ -425,6 +425,7 @@ async def handle_telnyx_assistant_call_event(request: Request):
                     listed_as=caller_phone or "Unknown caller",
                     channel="voice",
                     mission="Telnyx AI Assistant — inbound",
+                    direction="inbound", phone=caller_phone or None,
                     started_at=now_str,
                     ended_at=now_str,
                     duration=f"{secs // 60:02d}:{secs % 60:02d} min",

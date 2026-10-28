@@ -18,6 +18,8 @@ import {
   Phone,
   MessageCircle,
   PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
   PhoneOff,
   Plug,
   Radio,
@@ -59,6 +61,7 @@ import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
+import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
@@ -946,6 +949,7 @@ export function CallingWorkspace({
   });
   const nav = useMobileNav(page);
   const [sidebarCollapsed, toggleSidebar] = useSidebarCollapse();
+  const [logoutTip, logoutNode] = useRailTip();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, credits or log out (the partner owns those)
   const { hasPlan: voiceHasPlan, loading: voicePlanLoading } = usePluginAccess("voice");
   const pluginLocked = !voicePlanLoading && !voiceHasPlan;
@@ -1001,6 +1005,7 @@ export function CallingWorkspace({
   const [liveKitTarget, setLiveKitTarget] = useState({ name: "Browser Caller", phone: "Browser WebRTC", company: "" });
   const [logQuery, setLogQuery] = useState("");
   const [logOutcome, setLogOutcome] = useState("all");
+  const [logDirection, setLogDirection] = useState("all"); // all | inbound | outbound
   const [openLogId, setOpenLogId] = useState("");
   const [logPage, setLogPage] = useState(1);
   const [convPane, setConvPane] = useState("logs");
@@ -2708,11 +2713,14 @@ export function CallingWorkspace({
     return (logs || []).filter((l) => {
       const outcome = String(l.outcome || "").toLowerCase();
       if (logOutcome !== "all" && outcome !== logOutcome) return false;
+      if (logDirection !== "all" && l.direction !== logDirection) return false;
       if (!q) return true;
-      const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.personListedAs || ""} ${l.mission || ""} ${l.outcome || ""}`.toLowerCase();
-      return blob.includes(q);
+      const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.personListedAs || ""} ${l.mission || ""} ${l.outcome || ""} ${l.phone || ""}`.toLowerCase();
+      const flat = (v) => String(v).replace(/\s+/g, ""); // a phone number is matched without its spaces
+      return blob.includes(q) || flat(blob).includes(flat(q));
     });
-  }, [logs, logQuery, logOutcome]);
+  }, [logs, logQuery, logOutcome, logDirection]);
+  const directionCount = { inbound: (logs || []).filter((l) => l.direction === "inbound").length, outbound: (logs || []).filter((l) => l.direction === "outbound").length };
   const logPageCount = Math.max(1, Math.ceil(filteredLogs.length / LOG_PAGE_SIZE));
   const logPageNo = Math.min(logPage, logPageCount);
   const pagedLogs = filteredLogs.slice((logPageNo - 1) * LOG_PAGE_SIZE, logPageNo * LOG_PAGE_SIZE);
@@ -2775,9 +2783,12 @@ export function CallingWorkspace({
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
         {!embedded && (
-          <button type="button" className="ui-nav-item" title="Sign out of Outreach on this device" onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-            <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
-          </button>
+          <>
+            <button type="button" className="ui-nav-item" {...logoutTip("Log out", "Sign out of Outreach on this device")} onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
+              <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
+            </button>
+            {logoutNode}
+          </>
         )}
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
@@ -3838,9 +3849,21 @@ export function CallingWorkspace({
                   <input
                     value={logQuery}
                     onChange={(e) => setLogQuery(e.target.value)}
-                    placeholder="Search name, company, mission…"
+                    placeholder="Search name, number, company, mission…"
                     style={{ ...fieldStyle(), paddingLeft: 34, height: 40 }}
                   />
+                </div>
+                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: "#fff" }} role="group" aria-label="Direction of the call">
+                  {[
+                    ["all", "All calls", null],
+                    ["inbound", "Incoming", directionCount.inbound],
+                    ["outbound", "Outgoing", directionCount.outbound],
+                  ].map(([id, label, n]) => (
+                    <button key={id} type="button" aria-pressed={logDirection === id} onClick={() => { setLogDirection(id); setLogPage(1); }}
+                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logDirection === id ? C.ink : "transparent", color: logDirection === id ? "#fff" : C.textInk }}>
+                      {label}{n ? ` · ${n}` : ""}
+                    </button>
+                  ))}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {[
@@ -3921,13 +3944,28 @@ export function CallingWorkspace({
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{name}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            {l.direction ? (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 999,
+                                color: l.direction === "inbound" ? C.teal : C.cobaltDeep, background: l.direction === "inbound" ? C.tealSoft : C.cobaltSoft }}>
+                                {l.direction === "inbound" ? <PhoneIncoming size={12} /> : <PhoneOutgoing size={12} />}
+                                {l.direction === "inbound" ? "Incoming" : "Outgoing"}
+                              </span>
+                            ) : null}
+                            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.ink }}>{name}</div>
+                          </div>
                           <div style={{ marginTop: 4, fontSize: 12.5, color: C.slate }}>
                             {[l.canonicalName && l.canonicalName !== name ? l.canonicalName : "", l.duration, l.creditsUsed ? `${l.creditsUsed} credits` : "", l.startedAt || l.endedAt]
                               .filter(Boolean)
                               .join(" · ")}
                           </div>
+                          {l.phone ? (
+                            <div style={{ marginTop: 2, fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>
+                              {l.direction === "inbound" ? "Called from " : "Called "}<strong style={{ color: C.textInk, fontWeight: 600 }}>{l.phone}</strong>
+                              {l.ourNumber ? <>{l.direction === "inbound" ? " on your number " : " from your number "}{l.ourNumber}</> : null}
+                            </div>
+                          ) : null}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <button

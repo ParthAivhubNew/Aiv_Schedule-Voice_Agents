@@ -335,6 +335,9 @@ class LiveCall(Base):
     transcript = Column(JSON, default=list)
     summary = Column(Text, default="")  # AI summary of the call so far (final once it ends)
     prospect_timezone = Column(String, nullable=True)
+    direction = Column(String, nullable=True)  # "inbound" (they called us) or "outbound" (we called them); empty on older calls
+    phone = Column(String, nullable=True)  # the other person's number, as dialled or as it reached us
+    our_number = Column(String, nullable=True)  # the number of ours the call was on
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class CallLog(Base):
@@ -359,6 +362,9 @@ class CallLog(Base):
     words_locked = Column(Boolean, default=True)
     transcript = Column(JSON, default=list)
     summary = Column(Text, default="")  # AI summary of the finished call
+    direction = Column(String, nullable=True)  # "inbound" or "outbound"; empty on older calls (the log API works it out from the call's own words)
+    phone = Column(String, nullable=True)  # the other person's number
+    our_number = Column(String, nullable=True)  # the number of ours the call was on
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Meeting(Base):

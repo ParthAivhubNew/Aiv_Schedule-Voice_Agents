@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
+import { useRailTip } from "./RailTip";
 
 const touchOnly = () => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches;
 
@@ -30,8 +31,9 @@ export function NavItem({ item, current, children: extra }) {
     timer.current = setTimeout(() => setOpen(false), 140);
   };
 
+  const [tip, tipNode] = useRailTip();
   const button = (
-    <button type="button" className="ui-nav-item" title={item.title || item.label} onClick={item.onClick} aria-current={active ? "page" : undefined}
+    <button type="button" className="ui-nav-item" {...tip(item.count ? `${item.label} · ${item.count}` : item.label, item.title || item.label)} onClick={item.onClick} aria-current={active ? "page" : undefined}
       aria-haspopup={subs.length ? "menu" : undefined} aria-expanded={subs.length ? open : undefined} data-locked={item.locked ? "true" : undefined}
       onKeyDown={(e) => {
         if (!subs.length) return;
@@ -46,7 +48,7 @@ export function NavItem({ item, current, children: extra }) {
     </button>
   );
 
-  if (!subs.length) return button;
+  if (!subs.length) return <>{button}{tipNode}</>;
 
   if (touchOnly()) {
     return (

@@ -587,6 +587,7 @@ async def track_inbound(call_control_id: str, caller_phone: str, prospect_label:
             mission_id="m_inbound",
             prospect=label,
             mission="Telnyx AI Assistant — inbound",
+            direction="inbound", phone=caller_clean or caller_phone or "",
             state="pitching",
             carrier=CARRIER_TAG,
             channel="voice",

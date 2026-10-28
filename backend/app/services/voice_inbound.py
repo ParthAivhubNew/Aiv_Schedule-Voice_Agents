@@ -71,7 +71,7 @@ async def handle_incoming(body: Dict[str, Any]) -> Dict[str, Any]:
 
         inbound_lead = await lead_for_inbound(db, number.org_id, caller, "" if label.startswith("Caller") else label)
         db.add(LiveCall(id=call_id, carrier_sid=ccid, mission_id="m_inbound", prospect=label, mission="Inbound call",
-                        lead_id=inbound_lead,
+                        lead_id=inbound_lead, direction="inbound", phone=caller, our_number=number.e164,
                         state="calling", carrier=CARRIER_TAG, channel="voice", duration="00:00",
                         transcript=[f"System: Incoming call from {caller or 'unknown'} on {number.e164}."]))
         await db.commit()

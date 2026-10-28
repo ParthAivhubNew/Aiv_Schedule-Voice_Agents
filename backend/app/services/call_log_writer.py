@@ -202,6 +202,9 @@ async def upsert_call_log_from_live(
             existing.duration = dur_disp
             existing.ended_at = now_str
             existing.mission = call.mission or existing.mission
+            existing.direction = getattr(call, "direction", None) or existing.direction
+            existing.phone = getattr(call, "phone", None) or existing.phone
+            existing.our_number = getattr(call, "our_number", None) or existing.our_number
             if force_outcome or _should_replace_outcome(existing.outcome, final_outcome):
                 existing.outcome = final_outcome
             apply_names_to_log(existing, names)
@@ -215,6 +218,9 @@ async def upsert_call_log_from_live(
                 person_listed_as=names["person"] or "",
                 channel=call.channel or "voice",
                 mission=call.mission or "",
+                direction=getattr(call, "direction", None),
+                phone=getattr(call, "phone", None),
+                our_number=getattr(call, "our_number", None),
                 started_at=started,
                 ended_at=now_str,
                 duration=dur_disp,

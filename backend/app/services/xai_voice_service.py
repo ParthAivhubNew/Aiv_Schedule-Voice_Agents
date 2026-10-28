@@ -1683,6 +1683,7 @@ async def join_xai_call_session(
                 prospect_id=prospect_id,
                 prospect=prospect_name or f"Caller ({caller_number[-4:] if len(caller_number) >= 4 else caller_number})",
                 mission=mission_name or "Direct Inbound",
+                direction="inbound", phone=caller_number or "",
                 state="pitching",
                 channel="voice",
                 duration="00:01",

@@ -365,6 +365,8 @@ button, input, select, textarea {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: calc(100% - 8px); /* a button does not stretch by itself: items with a sub-menu sit inside a wrapper */
+  box-sizing: border-box;
   height: 34px;
   margin: 1px 4px;
   padding: 0 10px;
@@ -1214,7 +1216,7 @@ button, input, select, textarea {
   /* Home takes the same box as a menu item, so every icon in the rail lines up. */
   body.sidebar-collapsed .app-sidebar .ui-switcher { margin: 1px 4px 6px; padding: 0; border: 0; }
   body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home { height: 34px; padding: 0; width: 100%; justify-content: center; }
-  body.sidebar-collapsed .app-sidebar .sb-brand { flex: 0 0 auto; justify-content: center; padding-left: 0; }
+  body.sidebar-collapsed .app-sidebar .sb-brand { flex: 0 0 auto; justify-content: center; padding: 0 !important; }
   body.sidebar-collapsed .app-sidebar .ui-credits { justify-content: center; height: 34px; margin: 1px 4px 8px; padding: 0; }
   body.sidebar-collapsed .app-sidebar .ui-credits-mini { display: flex; }
 }
@@ -1294,3 +1296,10 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 .gt-pop { position: fixed; z-index: 1200; width: 280px; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--ui-surface, #fff); border: 1px solid var(--ui-line); border-radius: 10px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16); font-family: 'Inter', sans-serif; }
 .gt-pop label { font-size: 12px; font-weight: 600; color: var(--ui-ink-2); }
 .gt-pop-foot { display: flex; justify-content: space-between; }
+
+/* The name of an item in the icon rail, shown beside it (hub/RailTip.jsx). */
+.ui-nav-tip {
+  position: fixed; z-index: 500; transform: translateY(-50%); padding: 6px 10px; pointer-events: none; white-space: nowrap;
+  background: var(--ui-side-bg); color: var(--ui-side-strong); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); font: 500 12.5px 'Inter', sans-serif;
+}

@@ -308,6 +308,7 @@ async def place_outbound_call(
         prospect_id=prospect_id,
         prospect=prospect_label,
         mission=mission_label,
+        direction="outbound", phone=to_clean, our_number=from_clean,
         state="calling",
         carrier=carrier_choice,
         channel="voice",

@@ -679,6 +679,7 @@ async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get
         listed_as=call.prospect,
         channel=call.channel,
         mission=call.mission,
+        direction=getattr(call, "direction", None), phone=getattr(call, "phone", None), our_number=getattr(call, "our_number", None),
         started_at=datetime.utcnow().strftime("%d %b %Y, %H:%M"),
         ended_at=datetime.utcnow().strftime("%d %b %Y, %H:%M"),
         duration=call.duration,
@@ -720,6 +721,47 @@ async def confirm_booking_from_call(call_id: str, db: AsyncSession = Depends(get
         "hostEmail": setting.host_email,
     }
 
+def _call_direction(l) -> str:
+    """inbound / outbound as recorded; for calls logged before that was kept, from what the call itself says; else empty."""
+    d = (getattr(l, "direction", None) or "").lower()
+    if d in ("inbound", "outbound"):
+        return d
+    mission = (l.mission or "").lower()
+    who = (l.listed_as or l.canonical_name or "").strip().lower()
+    if "inbound" in mission or who.startswith("caller") or who in ("unknown caller", "inbound caller"):
+        return "inbound"
+    if l.lead_id or l.registry_id or "outbound" in mission or "outreach" in mission:
+        return "outbound"
+    return ""
+
+
+async def _names_for_numbers(db, phones) -> dict:
+    """Who a phone number belongs to, from the contacts the account already holds: call targets, then saved Leads companies.
+    Matched on the last nine digits, so +44 7..., 07... and 7... all find the same person."""
+    import re as _re
+    from sqlalchemy import func as _f
+    from app.models.models import LeadAccount, Prospect
+    from app.services.call_names import clean_person_label
+
+    plain = lambda col: _f.replace(_f.replace(_f.replace(col, " ", ""), "-", ""), "(", "")  # noqa: E731
+    found: dict = {}
+    for raw in list(dict.fromkeys(p for p in phones if p))[:60]:
+        tail = _re.sub(r"\D", "", raw)[-9:]
+        if len(tail) < 7:
+            continue
+        name = ""
+        row = (await db.execute(select(Prospect.contact_person, Prospect.name).where(plain(Prospect.phone).like(f"%{tail}")).limit(1))).first()
+        if row:
+            name = clean_person_label(row[0]) or clean_person_label(row[1])
+        if not name:
+            row = (await db.execute(select(LeadAccount.contact_name, LeadAccount.name).where(plain(LeadAccount.phone).like(f"%{tail}")).limit(1))).first()
+            if row:
+                name = clean_person_label(row[0]) or clean_person_label(row[1])
+        if name:
+            found[raw] = name
+    return found
+
+
 @router.get("/logs", response_model=list[dict])
 async def get_call_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(CallLog).order_by(CallLog.created_at.desc()))
@@ -732,6 +774,11 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
     used = dict((await db.execute(
         select(CreditEntry.ref, _func.sum(CreditEntry.amount)).where(CreditEntry.kind == "usage", CreditEntry.ref.like("call:%"))
         .group_by(CreditEntry.ref))).all())
+    # A call whose log has no real name yet (an unknown caller) is named from its number, when the account knows it.
+    from app.services.call_names import is_generic_label
+    unnamed = [l.phone or l.listed_as or l.canonical_name or "" for l in logs
+               if (l.phone or "") and is_generic_label(l.person_listed_as or l.person_canonical or l.canonical_name)]
+    by_number = await _names_for_numbers(db, unnamed) if unnamed else {}
     for l in logs:
         names = resolve_call_people(
             live_label=l.listed_as,
@@ -741,7 +788,12 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
         )
         if apply_names_to_log(l, names):
             dirty = True
+        known = by_number.get(l.phone or "", "")
         payload.append({
+            "direction": _call_direction(l),
+            "phone": l.phone or "",
+            "ourNumber": l.our_number or "",
+            "callerName": known,
             "id": l.id,
             "registryId": l.registry_id,
             "leadId": l.lead_id or "",
@@ -749,7 +801,7 @@ async def get_call_logs(db: AsyncSession = Depends(get_db)):
             "listedAs": names["listed"],
             "personCanonical": names["person"],
             "personListedAs": names["person"],
-            "displayName": names["display"],
+            "displayName": names["display"] if not is_generic_label(names["display"]) else (known or names["display"]),
             "channel": l.channel,
             "mission": l.mission,
             "startedAt": l.started_at,
@@ -995,6 +1047,7 @@ async def dial_outbound_call(
             prospect_id=None,
             prospect=prospect_label,
             mission=mission_label,
+            direction="outbound", phone=to_clean, our_number=from_clean,
             state="calling",
             carrier=carrier_choice,
             channel="voice",
@@ -1517,6 +1570,7 @@ async def twilio_dial_action(request: Request, db: AsyncSession = Depends(get_db
                     person_listed_as=names["person"],
                     channel="voice",
                     mission=matched.mission or "Outbound Voice",
+                    direction=getattr(matched, "direction", None), phone=getattr(matched, "phone", None), our_number=getattr(matched, "our_number", None),
                     started_at=now_str,
                     ended_at=now_str,
                     duration=f"{matched.duration} min",
@@ -1607,6 +1661,7 @@ async def twilio_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         prospect_id=matched_prospect_id,
         prospect=prospect_label,
         mission=matched_mission_title,
+        direction="inbound", phone=caller_clean or from_number, our_number=normalize_phone_number(to_number) if to_number else "",
         state="pitching",
         carrier="twilio",
         channel="voice",
@@ -1798,6 +1853,7 @@ async def telnyx_inbound_voice(request: Request, db: AsyncSession = Depends(get_
         prospect_id=matched_prospect_id,
         prospect=prospect_label,
         mission=matched_mission_title,
+        direction="inbound", phone=caller_clean or from_number, our_number=normalize_phone_number(to_number) if to_number else "",
         state="pitching",
         carrier="telnyx",
         channel="voice",

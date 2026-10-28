@@ -172,6 +172,7 @@ async def create_mission(req: MissionCreateRequest, db: AsyncSession = Depends(g
                 prospect_id=p_id,
                 prospect=p_name,
                 mission=req.title,
+                direction="outbound", phone=getattr(prospect, "phone", "") or "",
                 state="dialing",
                 channel=prospect.channel,
                 duration="00:00",
