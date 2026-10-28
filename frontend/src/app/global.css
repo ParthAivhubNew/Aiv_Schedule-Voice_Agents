@@ -1268,16 +1268,29 @@ button, input, select, textarea {
 .gt-peek-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--ui-line); }
 .gt-peek-head > span { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--ui-muted); text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gt-peek-text { padding: 12px; max-height: 260px; overflow-y: auto; font-size: 13.5px; line-height: 1.55; color: var(--ui-ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-/* The buttons and the edge handle that appear on a column header. */
-.gt-tools { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); display: none; gap: 2px; padding-left: 6px; background: inherit; z-index: 7; }
-.gt-tools button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ui-muted); cursor: pointer; }
+/* The sort, filter, rename, pin and hide buttons and the resize edge on a column header. They show when the header is hovered
+   or focused; a header with something switched on keeps just that button showing. */
+.gt-tools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; gap: 1px; padding-left: 8px; background: var(--gt-th-bg, var(--ui-surface, #fff)); z-index: 7; }
+th:hover > .gt-tools, th:focus-within > .gt-tools { display: inline-flex; }
+th:not(:hover):not(:focus-within) > .gt-tools:has(button[aria-pressed="true"]) { display: inline-flex; }
+th:not(:hover):not(:focus-within) > .gt-tools button:not([aria-pressed="true"]) { display: none; }
+.gt-tools button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ui-muted); cursor: pointer; font-size: 0; }
 .gt-tools button:hover { background: var(--ui-line); color: var(--ui-ink); }
 .gt-tools button[aria-pressed="true"] { color: var(--ui-accent); }
-th:hover > .gt-tools, th:focus-within > .gt-tools, th[data-gt-pinned="1"] > .gt-tools { display: inline-flex; }
-th[data-gt-pinned="1"]:not(:hover) > .gt-tools button[data-gt-act="hide"] { display: none; }
-th[data-gt-pinned="1"] { padding-right: 34px !important; }
+th[data-gt-dir="desc"] > .gt-tools button[data-gt-act="sort"] svg { transform: rotate(180deg); }
+/* A column's own name, set from the column list: the header text is hidden and this shows instead. */
+th[data-gt-name] { font-size: 0 !important; }
+th[data-gt-name]::before { content: attr(data-gt-name); font-size: var(--gt-fs, 12px); }
 .gt-handle { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; user-select: none; z-index: 8; }
 .gt-handle::after { content: ""; position: absolute; right: 3px; top: 25%; height: 50%; width: 2px; border-radius: 1px; background: transparent; }
 th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 .gt-handle:hover::after, .gt-handle.on::after { background: var(--ui-accent); }
-@media (hover: none) { .gt-tools, .gt-handle { display: none !important; } }
+@media (hover: none) and (pointer: coarse) { .gt-tools, .gt-handle { display: none !important; } }
+.gt-hint { margin-right: auto; font-size: 12px; color: var(--ui-muted); }
+.gt-bar { gap: 8px; flex-wrap: wrap; }
+.gt-seg { display: inline-flex; padding: 2px; border: 1px solid var(--ui-line); border-radius: var(--ui-r-sm); background: var(--ui-sunken); }
+.gt-seg button { height: 22px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--ui-muted); font: 500 12px 'Inter', sans-serif; cursor: pointer; }
+.gt-seg button[aria-pressed="true"] { background: var(--ui-surface, #fff); color: var(--ui-ink); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12); }
+.gt-pop { position: fixed; z-index: 1200; width: 280px; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--ui-surface, #fff); border: 1px solid var(--ui-line); border-radius: 10px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16); font-family: 'Inter', sans-serif; }
+.gt-pop label { font-size: 12px; font-weight: 600; color: var(--ui-ink-2); }
+.gt-pop-foot { display: flex; justify-content: space-between; }
