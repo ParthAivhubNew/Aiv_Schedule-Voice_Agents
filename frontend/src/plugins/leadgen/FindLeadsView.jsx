@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, FileSpreadsheet, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -16,7 +16,6 @@ import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CompanyAvatar, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
 
 const FAVOURITES = "Favourites";
-const CHAT_INTRO = { id: "m_init", role: "assistant", text: "Tell me who you're after, like \"small accountants in Leeds that have been trading 5+ years\". I use the same filters as the Filters panel, so what I find and what you see always match. Say \"remove X\" to drop a company." };
 const CHECK_TIPS = {
   hasWebsite: "Only companies we already hold a website for",
   hasPhone: "Only companies we already hold a phone number for",
@@ -35,19 +34,14 @@ const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name",
 
 const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-// The chat styles: the thread opens downward from the box and each message slides up into place.
+// Find Leads layout and control styles.
 const CHAT_CSS = `
-.fl-thread{max-height:0;padding:0 14px;overflow:hidden;border-top:0 solid transparent;transition:max-height .45s cubic-bezier(.2,.8,.2,1),padding .3s ease}
-.fl-thread[data-open="true"]{max-height:min(430px,56vh);padding:12px 14px;overflow-y:auto;border-top:1px solid var(--ui-border,#E3E6EF)}
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
 .fl-bar::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:var(--ui-accent,#3457D5);animation:flBar 1s ease-in-out infinite}
 @keyframes flBar{0%{left:-35%}100%{left:100%}}
-.fl-suggest{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;padding:4px 4px 6px;max-height:380px;overflow-y:auto;box-shadow:0 12px 32px rgba(20,24,40,.16)}
-.fl-suggest-item{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;font:13px Inter,sans-serif;color:var(--ui-ink,#111827)}
-.fl-suggest-item:hover,.fl-suggest-item:focus-visible{background:var(--ui-accent-soft,#EEF2FE)}
 .fl-pin{position:sticky;top:0;z-index:6;background:#fff;padding:10px 0 12px;border-bottom:1px solid var(--ui-line-soft);display:flex;flex-direction:column;gap:8px}
 .fl-collapse{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--ui-muted)}
 .fl-collapse:hover,.fl-collapse:focus-visible{background:var(--ui-hover);color:var(--ui-ink)}
@@ -55,26 +49,7 @@ const CHAT_CSS = `
 .fl-seg-btn{border:none;cursor:pointer;border-radius:7px;padding:0 12px;font:600 13px Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--ui-muted)}
 .fl-seg-btn[data-on="true"]{background:#fff;color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .fl-seg-btn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
-.fl-msg{animation:flIn .28s ease both}
-@keyframes flIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-.fl-hist{position:absolute;right:10px;top:46px;z-index:20;width:min(360px,calc(100% - 20px));background:#fff;border:1px solid var(--ui-border,#E3E6EF);border-radius:12px;box-shadow:0 12px 32px rgba(20,24,40,.16);animation:flIn .18s ease both}
-@media (prefers-reduced-motion:reduce){.fl-thread{transition:none}.fl-msg,.fl-hist{animation:none}}
 `;
-
-// A reply can use **bold** and "- " bullets; show them as formatting, not as asterisks.
-function ChatText({ body }) {
-  const inline = (line) => line.split(/(\*\*[^*]+\*\*)/g).map((part, i) => (/^\*\*[^*]+\*\*$/.test(part) ? <strong key={i}>{part.slice(2, -2)}</strong> : part));
-  return (
-    <div style={{ ...text, fontSize: 13, lineHeight: 1.55, color: C.textInk, overflowWrap: "anywhere", display: "flex", flexDirection: "column", gap: 3 }}>
-      {String(body || "").split("\n").map((line, i) => {
-        if (/^\s*[-•]\s+/.test(line)) {
-          return <div key={i} style={{ display: "flex", gap: 8, paddingLeft: 4 }}><span aria-hidden="true">•</span><span>{inline(line.replace(/^\s*[-•]\s+/, ""))}</span></div>;
-        }
-        return line.trim() ? <div key={i}>{inline(line)}</div> : <div key={i} style={{ height: 6 }} />;
-      })}
-    </div>
-  );
-}
 
 const splitList = (v) => String(v || "").split(",").map((s) => s.trim()).filter(Boolean);
 const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined : Number(v));
@@ -307,7 +282,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
+function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -317,10 +292,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   const [excluded, setExcluded] = useState([]);
   const [searched, setSearched] = useState(false);
   const [tab, setTab] = useState("companies"); // companies | people
-  const [askFocus, setAskFocus] = useState(false); // the AI box is selected: its suggestions show under it
-  const askRef = useRef(null);
-  const [profile, setProfile] = useState(null);
-  useEffect(() => { api.getProfile().then(setProfile).catch(() => {}); }, []);
   const [sort, setSort] = useState("best");
   const [page, setPage] = useState(1);
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
@@ -338,7 +309,7 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   const fillTried = useRef("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // Phones: which pane shows. Search holds the AI chat and the Filters drop-down; Results holds the companies.
+  // Phones: which pane shows. Search holds the Filters drop-down; Results holds the companies.
   const [pane, setPane] = useState("chat");
 
   const [view, setView] = useState("list");
@@ -374,38 +345,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   useEffect(() => {
     if (view === "map" && mapRef.current) mapRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [view, busy, area, areaStep?.phase]);
-  const [chat, setChat] = useState(() => [CHAT_INTRO]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatBusy, setChatBusy] = useState(false);
-  const chatRun = useRef(0);
-  const chatCardRef = useRef(null);
-  const threadRef = useRef(null);
-  const [chatId, setChatId] = useState(() => `c_${Date.now()}`);
-  const [history, setHistory] = useState([]);
-  // Earlier chats live on the account, so they follow the person to any browser and nobody else can open them.
-  useEffect(() => {
-    let live = true;
-    api.leadsChats().then((r) => { if (live) setHistory(r?.chats || []); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const chatStarted = chat.some((m) => m.role === "user") || chatBusy;
-  // Newest message at the bottom, older ones roll up out of view, like any messenger.
-  const rollToEnd = () => {
-    const el = threadRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  };
-  useEffect(() => { rollToEnd(); }, [chat.length, chatBusy]);
-  // Every finished exchange is kept, so an earlier chat can be opened again from History.
-  useEffect(() => {
-    const first = chat.find((m) => m.role === "user");
-    if (chatBusy || !first) return;
-    const entry = { id: chatId, title: first.text.slice(0, 70), at: Date.now(), chat, filters: applied };
-    setHistory((prev) => [entry, ...prev.filter((h) => h.id !== chatId)].slice(0, 30));
-    api.saveLeadsChat(entry).catch(() => {}); // the chat on screen is unaffected if saving fails; it is tried again after the next reply
-  }, [chat, chatBusy]); // eslint-disable-line react-hooks/exhaustive-deps
-  const focusChat = () => setTimeout(() => chatCardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 90);
-
   const savedKeys = useMemo(() => new Set(store.accounts.flatMap((a) => [a.business_record_id, a.domain, a.name.toLowerCase()]).filter(Boolean)), [store.accounts]);
   const isSaved = (c) => {
     const d = domainOf(c.website);
@@ -448,7 +387,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
 
   const searchHold = useHold();
   const countHold = useHold();
-  const chatHold = useHold();
   const webHold = useHold();
   // Phones: a search shows its progress, then its companies or its error, on the Results pane.
   useEffect(() => {
@@ -504,7 +442,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
       setCapped(r.total_all == null && r.total_capped);
       // The slower figures (real total, group counts, saved) arrive a moment after the page is already on screen.
       if (!(r.understood || []).length) loadSummary(formToFilters(f));
-      if (!offset) rememberSearch(f);
       setApplied(r.filters);
       setChips(r.chips || []);
       setUnderstood(r.understood || []);
@@ -530,16 +467,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
     } catch { /* the page is already there; the extra figures just stay as they were */ }
   };
 
-  // What the person searched last, kept in this browser, offered again when they click the AI box.
-  const [recents, setRecents] = useState(() => { try { return JSON.parse(localStorage.getItem("aivhub_find_recent") || "[]"); } catch { return []; } });
-  const saveRecents = (list) => { setRecents(list); try { localStorage.setItem("aivhub_find_recent", JSON.stringify(list)); } catch { /* not kept */ } };
-  const rememberSearch = (f) => {
-    if (!Object.keys(formToFilters(f)).length) return;
-    const label = [f.sector, f.town, f.postcode && `postcode ${f.postcode}`, f.category].map((x) => String(x || "").trim()).filter(Boolean).join(" · ");
-    if (label) saveRecents([{ label, form: f }, ...recents.filter((r) => r.label !== label)].slice(0, 8));
-  };
-  const rememberAsk = (message) => saveRecents([{ label: message }, ...recents.filter((r) => r.label !== message)].slice(0, 8));
-
   const cancelSearch = () => {
     runId.current += 1;
     searchHold.clear();
@@ -550,7 +477,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   const resetSearch = () => {
     runId.current += 1;
     searchHold.clear();
-    chatHold.clear();
     webHold.clear();
     stopArea.current = true;
     pausedRef.current = false;
@@ -848,84 +774,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
     },
   };
 
-  const newChat = () => {
-    chatRun.current += 1; chatHold.clear(); setChatBusy(false);
-    setChat([CHAT_INTRO]); setChatInput(""); setChatId(`c_${Date.now()}`); setHistoryOpen(false);
-  };
-  const openChat = (h) => {
-    chatRun.current += 1; chatHold.clear(); setChatBusy(false);
-    setChatId(h.id); setChat(h.chat); setChatInput(""); setHistoryOpen(false);
-    // Bring back the search that chat ended on, so the list under the chat matches what it says.
-    if (h.filters && Object.keys(h.filters).length) {
-      const f = filtersToForm(h.filters);
-      setExcluded([]); setForm(f); search(null, f);
-    }
-    focusChat();
-  };
-  const forgetChat = (id) => { setHistory((prev) => prev.filter((h) => h.id !== id)); api.deleteLeadsChat(id).catch(() => {}); };
-
-  const sendChat = async (e, override) => {
-    if (e) e.preventDefault();
-    const message = String(override ?? chatInput).trim();
-    if (!message || chatBusy) return;
-    rememberAsk(message);
-    setAskFocus(false);
-    setChatInput("");
-    setChat((prev) => [...prev, { id: "m_" + Date.now(), role: "user", text: message }]);
-    setChatBusy(true);
-    focusChat();
-    const mine = ++chatRun.current;
-    let res = null;
-    let failure = null;
-    try {
-      res = await api.copilotChat({
-        message, history: chat.map((m) => ({ role: m.role, content: m.text })), plugin: "leadgen",
-        filters: applied, exclude_ids: excluded,
-      });
-    } catch (err) { failure = err; }
-    if (mine !== chatRun.current) return; // cancelled while the AI was working
-    // If the chat was paused, the AI's answer waits until Resume.
-    chatHold.settle(() => {
-      if (mine !== chatRun.current) return;
-      if (failure) {
-        setChat((prev) => [...prev, {
-          id: "m_" + (Date.now() + 1), role: "assistant",
-          text: /credits/i.test(failure.message || "") ? failure.message : `Couldn't reach the AI: ${failure.message || "no answer from the AI service."} Try again in a moment.`,
-        }]);
-      } else {
-        if (res?.registry) {
-          stopArea.current = true;
-          setAreaStep(null);
-          setUnderstood([]);
-          setDropTerms([]);
-          setArea(null); // the chat runs its own search, so a drawn area no longer applies
-          setTab("companies");
-          setPage(1);
-          setPicked(new Set());
-          setTiers(res.registry.tiers || null);
-          setSavedTotal(res.registry.saved_total || 0);
-          loadSummary(res.registry.filters);
-          setCompanies(res.registry.companies);
-          setTotal(res.registry.total);
-          setCapped(res.registry.total_capped);
-          setApplied(res.registry.filters);
-          setChips(res.registry.chips || []);
-          setForm(filtersToForm(res.registry.filters));
-          setSearched(true);
-        }
-        if (res?.removed_names?.length) {
-          const gone = res.removed_names.map((n) => n.toLowerCase());
-          const hit = companies.filter((c) => gone.some((n) => c.name.toLowerCase().includes(n)));
-          setExcluded((ex) => [...ex, ...hit.map((c) => c.id)]);
-          setCompanies((prev) => prev.filter((c) => !hit.includes(c)));
-          setTotal((t) => Math.max(0, t - hit.length));
-        }
-        setChat((prev) => [...prev, { id: "m_" + (Date.now() + 1), role: "assistant", text: res?.reply || "I processed your request. How else can I help?", found: res?.registry ? res.registry.total : null }]);
-      }
-      setChatBusy(false);
-    });
-  };
-
   const webRun = useRef(0);
   const cancelWeb = () => { webRun.current += 1; webHold.clear(); setWeb((w) => ({ ...w, busy: false })); };
   const runWeb = async (e) => {
@@ -946,39 +794,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   };
 
   const filterCount = Object.keys(formToFilters(form)).length;
-  // What the AI box offers when it is clicked: the person's own recent searches, then ideas from the companies they have saved
-  // and from what their own business does, then a few general ones. Narrowed as they type.
-  const suggestions = useMemo(() => {
-    const topOf = (list) => {
-      const n = new Map();
-      list.filter(Boolean).forEach((v) => n.set(v, (n.get(v) || 0) + 1));
-      return [...n.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v)[0] || "";
-    };
-    const sector = topOf(store.accounts.map((a) => String(a.industry || "").split(" | ")[0].replace(/^\d{4,5}\s*-\s*/, "").trim()));
-    const town = topOf(store.accounts.map((a) => String(a.region || "").trim()));
-    const mine = [];
-    if (sector && town) mine.push(`More ${sector.toLowerCase()} in ${town}`);
-    if (sector) mine.push(`${sector} that have been trading 5+ years`);
-    if (town) mine.push(`Small companies in ${town} with a website`);
-    const sells = profile && profile.name && profile.name !== "Your company" && profile.industry ? String(profile.industry).split("/")[0].trim().toLowerCase() : "";
-    if (sells) mine.push(`Companies that could use ${sells}`);
-    const general = ["Small accountants in Leeds trading 5+ years", "Cafes and restaurants in London", "Established dental practices", "Construction firms in Manchester"];
-    const q = chatInput.trim().toLowerCase();
-    const fits = (label) => !q || label.toLowerCase().includes(q);
-    const seen = new Set();
-    const keep = (items) => items.filter((it) => fits(it.label) && !seen.has(it.label) && seen.add(it.label));
-    return [
-      { title: "Your recent searches", icon: <Clock size={13} color={C.slate} />, items: keep(recents.slice(0, 5).map((r) => ({ label: r.label, form: r.form }))) },
-      { title: "Suggested for you", icon: <Sparkles size={13} color="#8B5CF6" />, items: keep(mine.slice(0, 4).map((label) => ({ label }))) },
-      { title: "Ideas", icon: <Search size={13} color={C.slate} />, items: keep(general.map((label) => ({ label }))).slice(0, 3) },
-    ].filter((g) => g.items.length);
-  }, [recents, store.accounts, profile, chatInput]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pickSuggestion = (it) => {
-    setAskFocus(false);
-    if (it.form) { setChatInput(""); setForm(it.form); setExcluded([]); setArea(null); setTab("companies"); search(null, it.form, 0, null); return; }
-    setChatInput("");
-    sendChat(null, it.label);
-  };
   const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
   const firstLoad = busy && !companies.length && !people.length && view !== "map";
   const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
@@ -1000,7 +815,7 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
         <PaneSwitch value={pane} onChange={setPane}
           panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       ) : null}
-      <div data-pane="chat" ref={chatCardRef} className="ui-card fl-top" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
+      <div data-pane="chat" className="ui-card fl-top" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
         <style>{CHAT_CSS}</style>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", flexWrap: "wrap" }}>
           <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
@@ -1012,79 +827,8 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
               </button>
             ))}
           </div>
-          {source === "register" ? (
-            <form onSubmit={sendChat} onClick={() => { if (askRef.current) askRef.current.focus(); setAskFocus(true); }} style={{ display: "flex", gap: 8, alignItems: "center", flex: "1 1 360px", minWidth: 0 }}>
-              <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-                <Sparkles size={15} color="#8B5CF6" style={{ position: "absolute", left: 12, top: 10 }} />
-                {askFocus && suggestions.length ? (
-                  <div role="listbox" aria-label="Suggested searches" className="ui-card fl-suggest" onMouseDown={(e) => e.preventDefault()}>
-                    {suggestions.map((g) => (
-                      <div key={g.title}>
-                        <div style={{ ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", padding: "8px 10px 4px" }}>{g.title}</div>
-                        {g.items.map((it) => (
-                          <button key={it.label} type="button" role="option" className="fl-suggest-item" onClick={() => pickSuggestion(it)}>
-                            {g.icon} <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <input ref={askRef} value={chatInput} onChange={(e) => { setChatInput(e.target.value); setAskFocus(true); }} aria-label="Ask the AI who to find" className="ui-input"
-                  onFocus={() => setAskFocus(true)} onClick={() => setAskFocus(true)} onBlur={() => setTimeout(() => setAskFocus(false), 120)} onKeyDown={(e) => { if (e.key === "Escape") { setAskFocus(false); e.currentTarget.blur(); } }}
-                  placeholder={chatStarted ? "Reply, or change the search" : 'Ask the AI: "small accountants in Leeds trading 5+ years"'} style={{ width: "100%", height: 36, paddingLeft: 34 }}
-                  title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
-              </div>
-              <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 36 }} title="Send to the AI">
-                {chatBusy ? <Spinner size={15} /> : <ArrowUp size={15} />} Ask
-              </button>
-            </form>
-          ) : <span style={{ ...muted, fontSize: 12.5, flex: "1 1 280px" }}>Public web pages and directories: unverified, and you only pay for companies found.</span>}
-          {source === "register" ? (
-            <div style={{ display: "flex", gap: 6 }}>
-              {history.length ? (
-                <button type="button" className={`ui-btn ui-btn--sm ${historyOpen ? "ui-btn--secondary" : "ui-btn--ghost"}`} aria-expanded={historyOpen}
-                  title="Open an earlier chat" onClick={() => setHistoryOpen((o) => !o)}><Clock size={13} /> History</button>
-              ) : null}
-              {chatStarted ? (
-                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Start a new chat. This one is kept in History and your results stay as they are" onClick={newChat}><RotateCcw size={13} /> New chat</button>
-              ) : null}
-            </div>
-          ) : null}
+          {source === "register" ? <span style={{ flex: "1 1 0" }} /> : <span style={{ ...muted, fontSize: 12.5, flex: "1 1 280px" }}>Public web pages and directories: unverified, and you only pay for companies found.</span>}
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Bring in your own spreadsheet of companies" onClick={onImport}><FileSpreadsheet size={14} /> Import</button>
-        </div>
-        {historyOpen ? (
-          <div className="fl-hist" role="dialog" aria-label="Earlier chats">
-            <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}` }}>
-              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Earlier chats</span>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title="Close" aria-label="Close history" onClick={() => setHistoryOpen(false)}><X size={13} /></button>
-            </div>
-            <div className="ui-scroll" style={{ maxHeight: 300, overflowY: "auto" }}>
-              {history.map((h) => (
-                <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 4px", background: h.id === chatId ? "var(--ui-accent-soft)" : "transparent" }}>
-                  <button type="button" onClick={() => openChat(h)} title="Open this chat and bring back its search"
-                    style={{ all: "unset", flex: 1, minWidth: 0, cursor: "pointer", padding: "7px 8px", borderRadius: 8 }}>
-                    <div style={{ ...text, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.title}</div>
-                    <div style={{ ...muted, fontSize: 12 }}>{when(h.at)} · {h.chat.filter((m) => m.role === "user").length} message{h.chat.filter((m) => m.role === "user").length === 1 ? "" : "s"}</div>
-                  </button>
-                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Delete the chat ${h.title}`} title="Delete this chat" onClick={() => forgetChat(h.id)}><Trash2 size={13} /></button>
-                </div>
-              ))}
-            </div>
-            <div style={{ ...muted, fontSize: 12, padding: "8px 12px", borderTop: `1px solid ${C.borderLight}` }}>Saved to your account. Only you can see them. Opening a chat searches again so the list matches it.</div>
-          </div>
-        ) : null}
-        <div ref={threadRef} className="fl-thread ui-scroll" data-open={chatStarted ? "true" : "false"} onTransitionEnd={rollToEnd}>
-          <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 12 }}>
-            {chat.filter((m) => m.id !== CHAT_INTRO.id).map((m) => (
-              <div key={m.id} className="fl-msg" style={m.role === "user"
-                ? { alignSelf: "flex-end", maxWidth: "80%", background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)", padding: "8px 12px", borderRadius: 8, ...text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
-                : { maxWidth: "92%" }}>
-                {m.role === "user" ? m.text : <ChatText body={m.text} />}
-              </div>
-            ))}
-            {chatBusy ? <SearchStatus title="The AI is working on it" detail="Reading your request, setting the filters and searching the registry. Nothing is charged for a search." paused={chatHold.paused} holding onPause={chatHold.pause} onResume={chatHold.resume} onCancel={() => { chatRun.current += 1; chatHold.clear(); setChatBusy(false); }} /> : null}
-          </div>
         </div>
       </div>
       {source === "register" ? (<>
@@ -1219,9 +963,9 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
       {!busy && !error && !searched && view !== "map" ? (
         <div className="ui-card phone-only" style={{ padding: 20, flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>No search yet</div>
-          <div style={{ ...muted, fontSize: 14 }}>Ask the AI who you're after, or set the filters. The companies you find show here.</div>
+          <div style={{ ...muted, fontSize: 14 }}>Ask the AI Assistant who you're after, or set the filters. The companies you find show here.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={() => setPane("chat")}><Sparkles size={15} /> Ask AI</button>
+            <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={() => onAskAssistant?.()}><Sparkles size={15} /> Ask AI</button>
             <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { setPane("chat"); setFiltersShown(true); }}>Set filters</button>
           </div>
         </div>
@@ -1464,7 +1208,7 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   );
 }
 
-export function FindLeadsView({ store, listsStore, onGo, incoming }) {
+export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant }) {
   const [sub, setSub] = useState("search");
   return (
     <div className="fl-view" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1473,7 +1217,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming }) {
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

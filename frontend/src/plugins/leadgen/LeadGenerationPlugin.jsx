@@ -24,7 +24,6 @@ import {
   Lock,
   Mail,
   Plug,
-  Bot,
 } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
@@ -156,7 +155,6 @@ export default function LeadGenerationPlugin({
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = onlyEmbedViews([
-    { id: "assistant", label: "AI Assistant", icon: Bot, group: "Outreach" },
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "My lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
@@ -171,7 +169,7 @@ export default function LeadGenerationPlugin({
       short: item.short,
       icon: item.icon,
       count: item.count,
-      active: item.id === "assistant" ? assistantOpen : view === item.id || (item.id === "mail" && view === "mailboxes"),
+      active: view === item.id || (item.id === "mail" && view === "mailboxes"),
       locked: isLocked && item.id !== "subscription",
       title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
       // Mail's two pages are sub-items under it, the way the other apps list theirs.
@@ -187,10 +185,6 @@ export default function LeadGenerationPlugin({
           showToast("Choose a plan or buy a top-up to unlock Leads.");
           return;
         }
-        if (item.id === "assistant") {
-          setAssistantOpen((v) => !v);
-          return;
-        }
         if (item.id === "mail") {
           setInboxStart(null);
           // Opens on Mail, or on Email accounts when that is the only half this screen may show
@@ -203,7 +197,7 @@ export default function LeadGenerationPlugin({
   }));
 
   const viewTitles = {
-    find_leads: { title: "Find Leads", desc: "Every company on the register, best profiles first. Filter them, or ask the AI." },
+    find_leads: { title: "Find Leads", desc: "Every company on the register, best profiles first. Filter them, or ask the AI Assistant." },
     lists: { title: "My lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
     mail: { title: "Inbox and sent", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
@@ -261,7 +255,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} onAskAssistant={() => setAssistantOpen(true)} /></div>
           )}
 
 
