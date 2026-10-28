@@ -177,6 +177,19 @@ Any other language works too. Each call is a `POST` to `https://outreach.aivhub.
   team). Do not use an email address, which people change.
 - **Only your server calls Outreach.** A call from a browser is refused with `403`, on purpose.
 - **Screen names:** `leads`, `campaigns`, `mail`, `voice` and `social`. Any other word gives a `422` error.
+- **The endpoint is code that runs, not a file that is shown.** Put it in the server program (the one you start with `node server.js`,
+  `flask run` and so on), never in a file inside the folder your web server hands out to browsers. A file served as a page is never
+  run: the address then returns your own site's page instead of JSON.
+- **Register the route before any catch-all.** Many single-page set-ups end with a rule such as `app.get("*", ...)` or
+  `try_files ... /index.html` that returns `index.html` for every unknown address. The `/outreach-start` route must come before it.
+  If your page is served by a separate front-end server (a static host, a container, an nginx), set that server to pass
+  `/outreach-start` on to your back end.
+- **Test the route by itself.** Open `https://your-site/outreach-start?component=leads` in a browser tab (signed in to your product).
+  You must see JSON such as `{"connect_token": "..."}`, or a sign-in error in JSON. If you see your own website, the route is
+  not reaching the server code.
+- **The secret key lives in the settings, not in the code.** Read it from `OUTREACH_SECRET` (see 4a). A key written into a code
+  file ends up in GitHub or in a page anyone can read. If a key was ever put in a file that is served or uploaded, revoke it in
+  Partner programme and make a new one.
 
 ### 4c. Test it before touching the page
 
@@ -325,6 +338,9 @@ you can do. When they finish it closes and the screen appears. After that the sc
 | The screen stops after 15 minutes | The page kept an old pass | Use `getToken` as in Step 5. It fetches a fresh one |
 | "…is not on this account yet" | The account has no plan for that screen | The person buys the plan on Outreach |
 | The person cannot connect | Only the account's admin can connect it | Ask the admin of that Outreach account |
+| Console says `Unexpected token '<', "<!doctype "... is not valid JSON` | The page asked your own server for `/outreach-start` and got an HTML page back: the route does not exist, is served as a static file, or sits behind a catch-all that returns `index.html` | Add the Step 4 endpoint to your running server, before any catch-all, and check the address shows JSON (see "Things to get right"). Nothing is wrong at Outreach: the request never reached it |
+| The `outreach-start` request in the Network tab shows `200` or `304` with an HTML response | Same cause. `304` only means the browser re-used a saved copy of that page | Same fix. Click the request and read its **Response** tab: it must be JSON |
+| Your `curl` to `/api/embed/connect-sessions` works but the page still fails | Step 4c proves the key, not the route on your own site | Test `/outreach-start` itself, as in "Things to get right" |
 
 ## What next
 
