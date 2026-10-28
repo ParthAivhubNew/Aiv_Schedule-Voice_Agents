@@ -199,6 +199,25 @@ export function CheckDetails({ account }) {
   );
 }
 
+// ---------------------------------------------------------------- companies in the running check
+// They can be edited while it runs, but not deleted or taken out of a list (the server refuses too), so one shared set tells every screen.
+let lockedNow = new Set();
+const lockWatchers = new Set();
+function setLocked(ids) {
+  lockedNow = new Set(ids || []);
+  lockWatchers.forEach((f) => f());
+}
+export function useLocked() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const f = () => tick((n) => n + 1);
+    lockWatchers.add(f);
+    return () => { lockWatchers.delete(f); };
+  }, []);
+  return lockedNow;
+}
+export const LOCK_TIP = "A check is running on this company. You can edit it, but not delete it until the check has finished.";
+
 // ---------------------------------------------------------------- following a run
 export function useCompanyCheck({ onToast, reload }) {
   const [job, setJob] = useState(null);
@@ -210,7 +229,7 @@ export function useCompanyCheck({ onToast, reload }) {
 
   useEffect(() => {
     let alive = true;
-    api.latestCompanyCheck().then((r) => { if (alive && r?.job?.status === "running") setJob(r.job); }).catch(() => {});
+    api.latestCompanyCheck().then((r) => { if (alive && r?.job?.status === "running") { setJob(r.job); setLocked(r.locked_ids); } }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -223,6 +242,7 @@ export function useCompanyCheck({ onToast, reload }) {
         beat.current += 1;
         const { onToast: toast, reload: refresh } = latest.current;
         if (r.job.status !== "running") {
+          setLocked([]);
           refresh();
           announceCreditsChanged();
           toast(r.job.status === "done" ? "Check finished." : r.job.status === "cancelled" ? "Check cancelled. Finished companies keep their results."
@@ -240,13 +260,14 @@ export function useCompanyCheck({ onToast, reload }) {
     start: async (body) => {
       const r = await api.startCompanyCheck(body);
       setJob(r.job);
-      latest.current.onToast("Started. You can keep using the app.");
+      api.latestCompanyCheck().then((l) => setLocked(l.locked_ids)).catch(() => {});
+      latest.current.onToast("Started. You can keep using the app. Companies in the check can be edited but not deleted until it ends.");
       announceCreditsChanged(); // the credits it holds show straight away
       return r.job;
     },
     cancel: async () => {
       if (!jobId) return;
-      try { setJob((await api.cancelCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't cancel."); }
+      try { const c = (await api.cancelCompanyCheck(jobId)).job; setJob(c); if (c.status !== "running") setLocked([]); } catch (e) { latest.current.onToast(e.message || "Couldn't cancel."); }
     },
     pause: async () => {
       if (!jobId) return;

@@ -102,7 +102,8 @@ async def accept_fixes(body: AcceptIn, db: AsyncSession = Depends(get_db)) -> Di
 
 @router.get("/latest")
 async def latest() -> Dict[str, Any]:
-    return {"job": await job.latest_job() or None}
+    found = await job.latest_job() or None
+    return {"job": found, "locked_ids": sorted(await job.locked_ids()) if found and found.get("status") == "running" else []}
 
 
 @router.get("/{job_id}")

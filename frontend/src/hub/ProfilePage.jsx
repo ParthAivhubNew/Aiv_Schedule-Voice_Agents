@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Loader } from "../app/Loader";
 import { Camera, CheckCircle2, AlertTriangle, Monitor, Trash2, X } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, TIMEZONES } from "../tokens";
 import { api } from "../api/apiClient";
@@ -332,7 +333,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
             {tab === "notifications" && (
               <>
                 <div style={note}>Choose which emails we send you.</div>
-                {!notif && <div style={note}>Loading…</div>}
+                {!notif && <Loader compact label="Loading" />}
                 {notif?.failed && <div style={note}>Could not load your email settings.</div>}
                 {notif && !notif.failed && (
                   <>
@@ -396,7 +397,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                     <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.textInk, flex: 1 }}>Where you are signed in</div>
                     {sessions && sessions.length > 1 ? <button type="button" style={btn} onClick={endOthers}>Sign out everywhere else</button> : null}
                   </div>
-                  {!sessions ? <div style={note}>Loading…</div> : sessions.map((s, i) => (
+                  {!sessions ? <Loader compact label="Loading" /> : sessions.map((s, i) => (
                     <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderTop: i ? `1px solid ${C.borderLight}` : "none", flexWrap: "wrap" }}>
                       <Monitor size={18} color={C.slate} />
                       <div style={{ flex: 1, minWidth: 160 }}>

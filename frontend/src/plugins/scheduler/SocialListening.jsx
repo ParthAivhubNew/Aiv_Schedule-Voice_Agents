@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { AlertTriangle, Check, EyeOff, Plus, RefreshCw, Search, Trash2, UserPlus } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
@@ -199,7 +200,7 @@ export function ListeningPage({ showToast }) {
               <button type="button" style={btn} onClick={() => mark(mentions.map((m) => m.id), "seen")}><Check size={13} /> Mark all as seen</button>
             ) : null}
           </div>
-          {state === "loading" ? <div style={muted}>Loading…</div> : state === "error" ? (
+          {state === "loading" ? <Loader compact label="Loading" /> : state === "error" ? (
             <div style={card}>Could not load mentions. <button type="button" style={btn} onClick={loadMentions}>Try again</button></div>
           ) : !mentions.length ? (
             <div style={{ ...card, textAlign: "center", padding: 32, borderStyle: "dashed" }}>

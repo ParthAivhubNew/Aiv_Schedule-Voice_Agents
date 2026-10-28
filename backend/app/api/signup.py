@@ -279,7 +279,8 @@ async def register(db: AsyncSession, request: Request, *, company: str, name: st
         raise HTTPException(status_code=404, detail="Not found")
     _limit("signup", request)
     if (website or "").strip():
-        raise HTTPException(status_code=400, detail="Could not create the account.")
+        # Browser autofill can fill the hidden trap field; the person did nothing wrong, so say what to try.
+        raise HTTPException(status_code=400, detail={"message": "We couldn't check this form. Reload the page and fill it in by hand, without the browser's saved-details suggestions. If it still fails, contact support.", "code": "spam_check"})
     company, name, email = company.strip()[:120], name.strip()[:120], email.strip()
     if not company or not name:
         raise HTTPException(status_code=400, detail="Company and your name are required.")

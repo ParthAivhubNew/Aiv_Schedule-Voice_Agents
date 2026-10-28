@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Note, Pill, btn as baseBtn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
@@ -780,7 +781,7 @@ export function SentList({ outreach, initialMailbox = "" }) {
           </button>
           {open === m.id && (
             <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "grid", gap: 8 }}>
-              {!detail ? <div style={small}>Loading…</div> : (
+              {!detail ? <Loader compact label="Loading" /> : (
                 <>
                   <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{detail.body || "(no text saved)"}</div>
                   <div style={small}>Shown as it was written. Your signature and the unsubscribe link are added when it is sent.</div>

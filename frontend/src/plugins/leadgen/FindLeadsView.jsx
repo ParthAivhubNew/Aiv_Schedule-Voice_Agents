@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { Spinner } from "../../app/Loader";
+import { ArrowLeft, ArrowUp, BadgeCheck, Building2, Check, ChevronDown, Clock, FileSpreadsheet, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Trash2, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
+import { TableSkeleton, TopBar } from "../../app/Loader";
 import { creditWord, useLeadCredits } from "./CreditsChip";
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
@@ -25,8 +27,9 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
-const GROUP_KEYS = { industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
+const FIRST_KEY = "aivhub_find_first";
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name", "Name A to Z"]];
 
@@ -45,6 +48,13 @@ const CHAT_CSS = `
 .fl-suggest{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;padding:4px 4px 6px;max-height:380px;overflow-y:auto;box-shadow:0 12px 32px rgba(20,24,40,.16)}
 .fl-suggest-item{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;font:13px Inter,sans-serif;color:var(--ui-ink,#111827)}
 .fl-suggest-item:hover,.fl-suggest-item:focus-visible{background:var(--ui-accent-soft,#EEF2FE)}
+.fl-pin{position:sticky;top:0;z-index:6;background:#fff;padding:10px 0 12px;border-bottom:1px solid var(--ui-line-soft);display:flex;flex-direction:column;gap:8px}
+.fl-collapse{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--ui-muted)}
+.fl-collapse:hover,.fl-collapse:focus-visible{background:var(--ui-hover);color:var(--ui-ink)}
+.fl-seg{display:inline-flex;height:36px;box-sizing:border-box;background:var(--ui-sunken);border:1px solid var(--ui-line);border-radius:10px;padding:3px;gap:3px}
+.fl-seg-btn{border:none;cursor:pointer;border-radius:7px;padding:0 12px;font:600 13px Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--ui-muted)}
+.fl-seg-btn[data-on="true"]{background:#fff;color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.fl-seg-btn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
 .fl-msg{animation:flIn .28s ease both}
 @keyframes flIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .fl-hist{position:absolute;right:10px;top:46px;z-index:20;width:min(360px,calc(100% - 20px));background:#fff;border:1px solid var(--ui-border,#E3E6EF);border-radius:12px;box-shadow:0 12px 32px rgba(20,24,40,.16);animation:flIn .18s ease both}
@@ -74,6 +84,7 @@ const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined
 function formToFilters(f) {
   const out = {};
   // One box for industry words and company names: each word is matched against both.
+  if (String(f.name || "").trim()) out.name_contains = f.name.trim();
   if (splitList(f.sector).length) out.keyword = splitList(f.sector);
   if (splitList(f.town).length) out.towns = splitList(f.town);
   if (splitList(f.postcode).length) out.postcode_prefixes = splitList(f.postcode);
@@ -99,7 +110,7 @@ function appliedWords(f) {
 
 function filtersToForm(fl) {
   return {
-    sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
+    name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
@@ -196,7 +207,7 @@ function ContactsPanel({ company }) {
                     : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>We couldn't find this company's website, so there's nowhere to look for an email. Nothing charged.</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
                     : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
-                        {e.busy ? <RefreshCw size={13} className="ui-spin" /> : null} Find email · 1 credit if found
+                        {e.busy ? <Spinner size={13} /> : null} Find email · 1 credit if found
                       </button>}
                 </div>
               );
@@ -220,7 +231,7 @@ function ContactsPanel({ company }) {
               )
             ) : (
               <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 8 }}>
-                {busy ? <RefreshCw size={13} className="ui-spin" /> : <Globe size={13} />} Look for website &amp; phone on the web · 1 credit if found
+                {busy ? <Spinner size={13} /> : <Globe size={13} />} Look for website &amp; phone on the web · 1 credit if found
               </button>
             )}
           </div>
@@ -424,6 +435,14 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   useEffect(() => {
     if (browsed.current) return;
     browsed.current = true;
+    // The opening list this browser saw last time shows at once, then the fresh one replaces it quietly.
+    try {
+      const kept = JSON.parse(localStorage.getItem(FIRST_KEY) || "null");
+      if (kept && Array.isArray(kept.companies) && kept.companies.length) {
+        setCompanies(kept.companies); setTotal(kept.total || 0); setCapped(Boolean(kept.capped)); setTiers(kept.tiers || null);
+        setRanked(kept.ranked !== false); setSearched(true);
+      }
+    } catch { /* nothing kept: the placeholder rows show instead */ }
     search(null, EMPTY_FORM, 0, null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -482,6 +501,11 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       setUnderstood(r.understood || []);
       setSearched(true);
       setBusy(false);
+      if (!offset && !Object.keys(formToFilters(f)).length && !(sortOverride || sort !== "best")) {
+        try {
+          localStorage.setItem(FIRST_KEY, JSON.stringify({ companies: r.companies.slice(0, 50).map((c) => ({ ...c, saved: false })), total: r.total_all ?? r.total, capped: r.total_all == null && r.total_capped, tiers: r.tiers || null, ranked: r.ranked !== false }));
+        } catch { /* too big or blocked: the next visit just shows placeholder rows */ }
+      }
     });
   };
 
@@ -947,6 +971,8 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
     sendChat(null, it.label);
   };
   const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
+  const firstLoad = busy && !companies.length && !people.length && view !== "map" && tab === "companies";
+  const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
   const pickedRows = companies.filter((c) => picked.has(c.id));
@@ -1001,7 +1027,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                   title="Say who you are after, or what to change. It sets the same filters as the Filters panel. Searching is free" />
               </div>
               <button type="submit" className="ui-btn ui-btn--primary" disabled={!chatInput.trim() || chatBusy} style={{ height: 36 }} title="Send to the AI">
-                {chatBusy ? <RefreshCw size={15} className="ui-spin" /> : <ArrowUp size={15} />} Ask
+                {chatBusy ? <Spinner size={15} /> : <ArrowUp size={15} />} Ask
               </button>
             </form>
           ) : <span style={{ ...muted, fontSize: 12.5, flex: "1 1 280px" }}>Public web pages and directories: unverified, and you only pay for companies found.</span>}
@@ -1057,6 +1083,20 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       {filtersShown ? (
       <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
         <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }}>
+          <div className="fl-pin">
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
+              <button type="button" className="fl-collapse" aria-label="Hide the filters" title="Hide the filters to give the results more room" onClick={toggleFilters}><ChevronsLeft size={16} /></button>
+            </div>
+            <label style={{ ...field, flex: "none" }} title="Find a company by its name. Searches every registered company">
+              <span style={label}>Company name</span>
+              <span style={{ position: "relative", display: "block" }}>
+                <Search size={14} color={C.slate} style={{ position: "absolute", left: 10, top: 10 }} />
+                <input className="ui-input" value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="Tesco, Greggs, Smith & Sons" style={{ paddingLeft: 30, paddingRight: form.name ? 30 : undefined }} />
+                {form.name ? <button type="button" aria-label="Clear the company name" onClick={() => setField("name", "")} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 9, top: 9, color: C.slate, display: "inline-flex" }}><X size={14} /></button> : null}
+              </span>
+            </label>
+          </div>
           {tab === "people" ? (
             <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")}>
               <label style={field} title="A word from their role, like director or secretary"><span style={label}>Role includes</span>
@@ -1117,7 +1157,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
               <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
             </button>
             <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ marginLeft: "auto", height: 36 }} title="Search the company register. It costs no credits">
-              {busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
+              {busy ? <Spinner size={15} /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
             </button>
           </div>
         </form>
@@ -1125,32 +1165,41 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className={`ui-btn ui-btn--sm hide-mobile ${filtersShown ? "ui-btn--secondary" : "ui-btn--primary"}`} aria-pressed={filtersShown} style={{ height: 36 }}
-            title={filtersShown ? "Hide the filters to give the results more room" : "Show the filters"}
-            onClick={() => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; })}>
-            {filtersShown ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />} {filtersShown ? "Hide filters" : `Filters${filterCount ? ` · ${filterCount}` : ""}`}
-          </button>
-          <div role="tablist" aria-label="What to look for" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
+          {!filtersShown ? (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm hide-mobile" style={{ height: 36 }} title="Show the filters" onClick={toggleFilters}>
+              <ChevronsRight size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""}
+            </button>
+          ) : null}
+          <div role="tablist" aria-label="What to look for" className="fl-seg">
             {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
-              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => changeTab(id)}
-                style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 14px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, background: tab === id ? "#fff" : "transparent", color: tab === id ? C.ink : C.slate, boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
+              <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
                 <Icon size={15} /> {name}
               </button>
             ))}
           </div>
           {tab === "companies" ? (
-            <div role="group" aria-label="Results view" style={{ display: "inline-flex", gap: 4 }}>
+            <div role="tablist" aria-label="Results view" className="fl-seg">
               {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                <button key={id} type="button" title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"} aria-pressed={view === id} onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}
-                  className={`ui-btn ui-btn--sm ${view === id ? "ui-btn--primary" : "ui-btn--secondary"}`}><Icon size={14} /> {name}</button>
+                <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
+                  title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
+                  onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}>
+                  <Icon size={15} /> {name}
+                </button>
               ))}
             </div>
           ) : null}
           {searched && tab === "companies" && !area ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
         </div>
-      {busy && !companies.length && !people.length ? (
-        <div><SearchStatus title={`Searching the company register${form.sector.trim() ? ` for ${form.sector.trim()}` : ""}${form.town.trim() ? ` in ${form.town.trim()}` : ""}`}
-          detail="Reading your words, matching them against every registered company, then ranking the best matches. This costs no credits." paused={searchHold.paused} holding onPause={searchHold.pause} onResume={searchHold.resume} onCancel={cancelSearch} /></div>
+      {firstLoad ? (
+        <div className="ui-card fl-card" style={{ overflow: "hidden", position: "relative" }}>
+          <TopBar />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>
+            <Spinner size={16} />
+            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{searched ? "Searching" : "Opening the register"}{appliedWords(form) ? <span style={{ fontWeight: 400, color: C.slate }}> · {appliedWords(form)}</span> : null}</div>
+            {searched ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Stop this search" onClick={cancelSearch}><X size={13} /> Cancel</button> : null}
+          </div>
+          <TableSkeleton rows={12} cols={7} label="Searching the company register" />
+        </div>
       ) : null}
       {error ? (
         <div role="alert" style={{ ...muted, color: C.red, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -1169,9 +1218,9 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
         </div>
       ) : null}
 
-      {searched || view === "map" ? (
+      {(searched || view === "map") && !firstLoad ? (
         <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
-          {busy ? <div className="fl-bar" aria-hidden="true" /> : null}
+          <TopBar show={busy} />
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
@@ -1284,7 +1333,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
             <>
               {filling ? (
                 <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...text, fontSize: 13, color: C.textInk }}>
-                  <RefreshCw size={14} className="ui-spin" /> Reading the registry for the people at {filling.done} of {filling.of} companies. Free.
+                  <Spinner size={14} /> Reading the registry for the people at {filling.done} of {filling.of} companies. Free.
                   <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { fillRun.current += 1; setFilling(null); searchPeople(null, form, 0); }}>Stop and show what is found</button>
                 </div>
               ) : fillIds.length ? (
@@ -1316,7 +1365,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                   onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
                   onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
                   onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} lookups={lookups} />
-              ) : searched && !inArea ? (
+              ) : searched && !inArea && !busy ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
               ) : null}
               {companies.length && !area ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
@@ -1356,7 +1405,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
           <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input title="Describe the kind of business and the place" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
             <button type="submit" className="ui-btn ui-btn--primary" disabled={web.busy || !web.query.trim()} title="Search public web pages and directories for businesses that are not in the register">
-              {web.busy ? <RefreshCw size={15} className="ui-spin" /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
+              {web.busy ? <Spinner size={15} /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
             </button>
             <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
               <RotateCcw size={15} /> Reset

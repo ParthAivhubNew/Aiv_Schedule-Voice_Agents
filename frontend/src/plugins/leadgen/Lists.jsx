@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { CardsSkeleton } from "../../app/Loader";
 import { Check, ListChecks, Megaphone, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
@@ -7,6 +8,7 @@ import { useConnection } from "../../hooks/useConnections";
 import { buildCallList, LISTS_CHANGED, setOpenList, stageCallList } from "../../utils/leadToVoice";
 import { navigateHash } from "../../utils/route";
 import { CallButton, useCallDialog } from "./CallFlow";
+import { LOCK_TIP, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
 
 // Lists: a named group of saved companies. Build one in Saved Accounts, enrich it here, then run a
@@ -14,6 +16,17 @@ import { askConfirm, askText } from "./Dialogs";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
+
+// "Today", "Yesterday" or the date: enough to tell which list was worked on lately.
+function whenShort(iso) {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "–";
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: days > 300 ? "numeric" : undefined });
+}
 
 export function useLeadLists(onToast) {
   const [lists, setLists] = useState([]);
@@ -122,7 +135,8 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     return () => setOpenList("leadgen", null);
   }, [openId, open, canCall, store.accounts]);
 
-  if (loading || store.loading) return <div style={muted}>Loading your lists…</div>;
+  const locked = useLocked();
+  if (loading || store.loading) return <CardsSkeleton count={4} label="Loading your lists" />;
   if (openId === "all" || open) {
     const scope = open ? new Set(open.ids) : null;
     const { members, withEmail } = open ? listReach(open, store.accounts) : listReach({ ids: store.accounts.map((a) => a.id) }, store.accounts);
@@ -161,12 +175,12 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
               </button>
               <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Change the name of this list"
                 onClick={() => setRenaming(open.id)}><Pencil size={14} /> Rename</button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Delete the list only. The companies stay in your account"
+              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy || open.ids.some((i) => locked.has(i))} title={open.ids.some((i) => locked.has(i)) ? LOCK_TIP : "Delete the list only. The companies stay in your account"}
                 onClick={async () => { if (await askConfirm({ title: `Delete the list ${open.name}?`, body: "The companies stay in your account and in your other lists.", confirm: "Delete list", danger: true })) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); }}><Trash2 size={14} /> Delete</button>
             </>
           ) : null}
         </div>
-        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} scopeIds={scope} listId={open ? open.id : ""} />
+        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} />
         {call.dialog}
       </div>
     );
@@ -198,15 +212,44 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           <button title="Search for companies or import a file" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}>Go to Find Leads</button>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
-          {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((l) => (
-            <div key={l.id} role="button" tabIndex={0} title={`Open ${l.name}`} className="ui-card" onClick={() => { if (renaming !== l.id) setOpenId(l.id); }}
-              onKeyDown={(e) => { if (e.key === "Enter" && renaming !== l.id) setOpenId(l.id); }}
-              style={{ textAlign: "left", padding: 16, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
-              <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} />
-              <div style={muted}>{l.members.length.toLocaleString()} companies · {l.withEmail.length.toLocaleString()} with an email{progress(l.members.map((m) => m.id))}</div>
-            </div>
-          ))}
+        <div className="ui-card" style={{ overflow: "hidden" }}>
+          <div className="ui-scroll" style={{ overflowX: "auto" }}>
+            <table className="ui-table" style={{ minWidth: 640 }}>
+              <thead>
+                <tr>
+                  <th>List name</th>
+                  <th style={{ textAlign: "right" }} title="Companies in the list">Companies</th>
+                  <th style={{ textAlign: "right" }} title="How many have an email we can send to">With an email</th>
+                  <th>Created</th>
+                  <th title="When companies were last added or taken out">Last changed</th>
+                  <th style={{ textAlign: "right" }} aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((l) => (
+                  <tr key={l.id} title={`Open ${l.name}`} style={{ cursor: "pointer" }} onClick={() => { if (renaming !== l.id) setOpenId(l.id); }}>
+                    <td>
+                      <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} size={14} />
+                      {progress(l.members.map((m) => m.id)) ? <div style={{ ...muted, fontSize: 12 }}>{progress(l.members.map((m) => m.id)).replace(/^ · /, "")}</div> : null}
+                    </td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.members.length.toLocaleString()}</td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.withEmail.length.toLocaleString()}</td>
+                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.created_at)}</td>
+                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.updated_at || l.created_at)}</td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
+                      {l.id !== "all" ? (
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!l.withEmail.length} onClick={() => onCampaign(l.id)}
+                          title={l.withEmail.length ? "Start an email campaign on this list" : "None of these companies has an email yet. Check & improve them first."}>
+                          <Megaphone size={13} /> Campaign
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

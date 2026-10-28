@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Loader, Spinner } from "../app/Loader";
 import {
   KeyRound,
   Plus,
@@ -20,7 +21,6 @@ import {
   EyeOff,
   Activity,
   FileText,
-  RefreshCw,
   Play,
   Sparkles,
   BookOpen,
@@ -783,9 +783,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
               {/* Keys List */}
               {loading ? (
-                <div style={{ textAlign: "center", padding: "40px 0", color: C.slate, fontSize: 13 }}>
-                  Loading API keys...
-                </div>
+                <Loader compact label="Loading API keys" />
               ) : keys.length === 0 ? (
                 <div
                   style={{
@@ -1034,9 +1032,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
               {/* Webhooks List */}
               {loadingWebhooks ? (
-                <div style={{ textAlign: "center", padding: "40px 0", color: C.slate, fontSize: 13 }}>
-                  Loading webhook endpoints...
-                </div>
+                <Loader compact label="Loading webhook endpoints" />
               ) : webhooks.length === 0 ? (
                 <div
                   style={{
@@ -1157,7 +1153,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
                             >
                               {testingEndpointId === ep.id ? (
                                 <>
-                                  <RefreshCw size={12} className="animate-spin" /> Pinging...
+                                  <Spinner size={12} /> Pinging...
                                 </>
                               ) : (
                                 <>
@@ -2309,9 +2305,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
             <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
               {loadingLogs ? (
-                <div style={{ textAlign: "center", padding: "30px 0", color: C.slate, fontSize: 13 }}>
-                  Loading delivery logs...
-                </div>
+                <Loader compact label="Loading delivery logs" />
               ) : endpointLogs.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "30px 0", color: C.slate, fontSize: 13 }}>
                   No webhook events have been delivered to this endpoint yet.

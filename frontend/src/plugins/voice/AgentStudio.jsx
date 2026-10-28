@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { Pause, PhoneCall, Play, Save, ShieldCheck, UserRound } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { api } from "../../api/apiClient";
@@ -79,7 +80,7 @@ export function AgentStudio({ onOpenPage, staff = false, active = true }) {
   };
 
   if (error && !data) return <div role="alert" style={{ color: C.red, fontSize: 13 }}>{error}</div>;
-  if (!data || !company) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
+  if (!data || !company) return <Loader compact label="Loading" />;
   const { catalogue, templates } = data;
   const outbound = templates.filter((t) => t.direction === "outbound");
   const inbound = templates.filter((t) => t.direction === "inbound");

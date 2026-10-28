@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { CardsSkeleton } from "../../../app/Loader";
 import { Copy, FileSpreadsheet, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { C } from "../../../tokens";
 
@@ -75,7 +76,7 @@ export function CallListsView({ lists, loading, onOpen, onImport, onNew, onRenam
         ) : null}
       </div>
 
-      {loading && !lists.length ? <div style={{ fontSize: 12.5, color: C.slate }}>Loading your lists…</div> : null}
+      {loading && !lists.length ? <CardsSkeleton count={4} label="Loading your lists" /> : null}
 
       {pages > 1 ? (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 12.5, color: C.slate }}>

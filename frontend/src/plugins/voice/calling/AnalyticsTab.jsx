@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader, Spinner } from "../../../app/Loader";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
@@ -261,7 +262,7 @@ export function AnalyticsTab({ operator }) {
           <button key={d} type="button" onClick={() => setDays(d)} style={pill(days === d)}>Last {d} days</button>
         ))}
         <button type="button" onClick={load} style={{ ...pill(false), display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
+          {loading ? <Spinner size={13} /> : <RefreshCw size={13} />} Refresh
         </button>
         <div style={{ flex: 1 }} />
         {data && <span style={{ fontSize: 12, color: MUTED }}>Times in {data.timezone}</span>}
@@ -384,7 +385,7 @@ export function AnalyticsTab({ operator }) {
           </div>
         </>
       )}
-      {!cur && !error && <div style={{ fontSize: 13, color: MUTED }}>Loading analytics…</div>}
+      {!cur && !error && <Loader compact label="Loading analytics" />}
       {sharing && <SharePanel onClose={() => setSharing(false)} />}
     </div>
   );

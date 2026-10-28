@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { AlertTriangle, CheckCircle2, Search, Trash2 } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_MONO } from "../../tokens";
@@ -147,7 +148,7 @@ export function VoicePicker({ variant = "full" }) {
   }, [lib]);
 
   if (!lib) {
-    return <div style={{ fontSize: 12.5, color: error ? C.red : C.slate }}>{error || "Loading voices…"}</div>;
+    return error ? <div style={{ fontSize: 12.5, color: C.red }}>{error}</div> : <Loader compact label="Loading voices" />;
   }
   const active = lib.active || { status: "missing" };
   const remote = lib.mode === "remote";
@@ -302,7 +303,7 @@ export function VoicePicker({ variant = "full" }) {
               </div>
               {browse.provider ? (
                 <div style={{ marginTop: 10 }}>
-                  {browse.items === null ? <div style={{ fontSize: 12, color: C.slate }}>Loading voices…</div> : null}
+                  {browse.items === null ? <Loader compact label="Loading voices" /> : null}
                   {browse.error ? <div style={{ fontSize: 12, color: C.red }}>{browse.error}</div> : null}
                   {browse.items && browse.items.length ? (
                     <>

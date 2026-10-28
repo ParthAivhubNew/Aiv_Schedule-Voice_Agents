@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { Film, Sparkles } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, HUB_PAPER } from "../../tokens";
@@ -69,7 +70,7 @@ export function VideoPanel({ post, canEdit, Chat, showToast, onRefresh }) {
     start(`${prompt} Change requested: ${change}. Keep the same people and place.`, change);
   };
 
-  if (!info) return <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div>;
+  if (!info) return <Loader compact label="Loading" />;
   if (!info.available) {
     return <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>Video making is not set up for your account yet. Ask Outreach support to switch it on.</div>;
   }

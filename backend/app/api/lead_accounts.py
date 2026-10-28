@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
@@ -49,6 +49,7 @@ class AccountsIn(BaseModel):
     accounts: List[AccountIn]
     list_id: str = ""  # put every saved or already-saved company in this list...
     list_name: str = ""  # ...or in the list with this name (made if it doesn't exist yet)
+    on_existing: str = "fill"  # a company already saved, when it comes from an import: "fill" its blanks, "skip" it untouched, or "update" it from the file
 
 
 class AccountPatch(BaseModel):
@@ -536,11 +537,31 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     and a company that was only found by a search is now marked as imported, because it is in the user's file."""
     if len(body.accounts) > MAX_PER_REQUEST:
         raise HTTPException(status_code=400, detail=f"Save at most {MAX_PER_REQUEST} accounts at a time.")
-    existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region))).all()
-    by_domain = {d: i for i, d, _, _ in existing if d}
-    # Without a website the same name only counts as the same company in the same town or postcode
-    # (two "Smith & Sons" in different towns are two companies).
-    by_name = {((n or "").strip().lower(), _place(r)): i for i, _, n, r in existing}
+    existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region, LeadAccount.business_record_id, LeadAccount.contact_name))).all()
+    # Each identity maps to every saved record that has it: one company can hold several people (a call list of contacts at the
+    # same firm), and a name that is already saved for someone else is a different record, not a copy.
+    contact_of: Dict[str, str] = {i: (c or "").strip().lower() for i, _, _, _, _, c in existing}
+    by_domain: Dict[Any, List[str]] = {}
+    by_biz: Dict[Any, List[str]] = {}  # the registry record is the most exact identity a company has
+    by_name: Dict[Any, List[str]] = {}
+    no_site: Dict[Any, List[str]] = {}  # saved without a website
+    for i, d, n, r, b, _ in existing:
+        k = ((n or "").strip().lower(), _place(r))
+        if d:
+            by_domain.setdefault(d, []).append(i)
+        else:
+            no_site.setdefault(k, []).append(i)
+        if b:
+            by_biz.setdefault(b, []).append(i)
+        by_name.setdefault(k, []).append(i)
+
+    def find(ids: Optional[List[str]], person: str) -> Optional[str]:
+        """The saved record for this company and this person: one with no named contact yet, or the same contact."""
+        for i in ids or []:
+            if not person or not contact_of.get(i) or contact_of[i] == person:
+                return i
+        return None
+
     added: List[LeadAccount] = []
     matched: List[str] = []  # companies that were already saved: not copied, but still go in the list
     from_file: List[tuple] = []  # (saved company id, the imported row) to fill from the file
@@ -559,14 +580,17 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             unnamed += 1
             continue
         key = (name.lower(), _place(item.region))
-        hit = by_domain.get(domain) if domain else by_name.get(key)
+        person = _clean(item.contact_name, 120).lower()
+        hit = (find(by_biz.get(item.business_record_id), person) if item.business_record_id else None) or find(by_domain.get(domain) if domain else by_name.get(key), person)
+        if not hit and domain:
+            hit = find(no_site.get(key), person)  # the same firm saved earlier without a website, now arriving with one
         if hit:
             skipped += 1
-            if hit in fresh:
+            if hit in fresh or hit in matched:
                 repeats += 1
             else:
                 matched.append(hit)
-                if item.source == "import":
+                if item.source == "import" and body.on_existing != "skip":
                     from_file.append((hit, item))
             continue
         row = LeadAccount(
@@ -581,23 +605,29 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         db.add(row)
         added.append(row)
         fresh.add(row.id)
+        contact_of[row.id] = person
         if domain:
-            by_domain[domain] = row.id
-        by_name[key] = row.id
+            by_domain.setdefault(domain, []).append(row.id)
+        else:
+            no_site.setdefault(key, []).append(row.id)
+        if row.business_record_id:
+            by_biz.setdefault(row.business_record_id, []).append(row.id)
+        by_name.setdefault(key, []).append(row.id)
     updated: List[LeadAccount] = []
     for hit_id, item in from_file:
         row = await db.get(LeadAccount, hit_id)
         if not row:
             continue
+        overwrite = body.on_existing == "update"  # the file wins over what is saved; otherwise only blanks are filled
         for field, limit in (("phone", 60), ("email", 200), ("contact_name", 120), ("contact_title", 120), ("industry", 120), ("region", 120)):
             value = _clean(getattr(item, field), limit)
-            if value and not (getattr(row, field) or "").strip():
+            if value and (overwrite or not (getattr(row, field) or "").strip()):
                 setattr(row, field, value.lower() if field == "email" else value)
         site = _clean(item.website)
-        if site and not (row.website or "").strip():
+        if site and (overwrite or not (row.website or "").strip()):
             row.domain = _domain(site)
             row.website = site if "://" in site else f"https://{site}"
-        row.custom = {**(clean_custom(item.custom) or {}), **(row.custom or {})} or None
+        row.custom = ({**(row.custom or {}), **(clean_custom(item.custom) or {})} if overwrite else {**(clean_custom(item.custom) or {}), **(row.custom or {})}) or None
         if row.source == "scout":
             row.source = "import"
         row.updated_at = datetime.utcnow()
@@ -618,6 +648,17 @@ async def update_account(account_id: str, body: AccountPatch, db: AsyncSession =
     changes = body.model_dump(exclude_none=True)
     if "name" in changes and not _clean(changes["name"]):
         raise HTTPException(status_code=400, detail="A saved account needs a company name.")
+    # An edit may not turn this company into a copy of another one that is already saved.
+    new_domain = _domain(_clean(changes["website"])) if "website" in changes else None
+    if new_domain and new_domain != row.domain:
+        other = (await db.execute(select(LeadAccount.name).where(LeadAccount.domain == new_domain, LeadAccount.id != row.id))).scalars().first()
+        if other:
+            raise HTTPException(status_code=409, detail=f"That website is already saved for {other}.")
+    if "name" in changes and not new_domain and not row.domain:
+        rows = (await db.execute(select(LeadAccount.id, LeadAccount.name, LeadAccount.region).where(LeadAccount.id != row.id, or_(LeadAccount.domain == "", LeadAccount.domain.is_(None))))).all()
+        mine = (_clean(changes["name"]).lower(), _place(changes.get("region", row.region)))
+        if any((n or "").strip().lower() == mine[0] and _place(r) == mine[1] for _, n, r in rows):
+            raise HTTPException(status_code=409, detail=f"{_clean(changes['name'])} in this place is already saved.")
     for field in _FIELDS:
         if field in changes:
             setattr(row, field, _clean(changes[field], 2000 if field == "notes" else 300))
@@ -631,7 +672,11 @@ async def update_account(account_id: str, body: AccountPatch, db: AsyncSession =
 
 @router.delete("/accounts/{account_id}")
 async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
+    from app.services import company_check_job
+
     row = await _account(db, account_id)
+    if account_id in await company_check_job.locked_ids():
+        raise HTTPException(status_code=409, detail="This company is being checked right now. You can edit it, but delete it when the check has finished.")
     await db.delete(row)
     await db.commit()
     return {"ok": True}

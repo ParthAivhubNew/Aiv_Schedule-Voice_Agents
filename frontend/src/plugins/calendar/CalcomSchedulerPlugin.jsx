@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Spinner } from "../../app/Loader";
 import {
   CalendarCheck,
   Calendar,
@@ -718,7 +719,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
 
               {slotsLoading ? (
                 <div style={{ padding: "30px", textAlign: "center", color: C.slate, fontSize: 13 }}>
-                  <RefreshCw size={18} className="spin" style={{ margin: "0 auto 8px" }} />
+                  <Spinner size={18} />
                   Calculating slot availability...
                 </div>
               ) : slots.length === 0 ? (
@@ -899,7 +900,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               >
                 {bookingInProgress ? (
                   <>
-                    <RefreshCw size={16} className="spin" /> Booking Meeting & Generating Google Meet...
+                    <Spinner size={16} /> Booking Meeting & Generating Google Meet...
                   </>
                 ) : (
                   <>

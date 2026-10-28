@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { Ban, Database, Lock, Plus, Repeat, Trash2, Workflow, X } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
@@ -169,7 +170,7 @@ function RulesTab({ toast }) {
   const [editing, setEditing] = useState(null); // index, or "new"
   const load = useCallback(() => api.getWorkflows().then(setData).catch((e) => toast(e.message || "Couldn't load your rules.")), [toast]);
   useEffect(() => { load(); }, [load]);
-  if (!data) return <div style={muted}>Loading…</div>;
+  if (!data) return <Loader compact label="Loading" />;
   const save = async (list) => {
     try { const r = await api.saveWorkflows(list); setData({ ...data, workflows: r.workflows }); setEditing(null); toast("Saved."); } catch (e) { toast(e.message || "Couldn't save."); }
   };
@@ -217,7 +218,7 @@ function BlockTab({ toast }) {
         <input className="ui-input" style={{ flex: "1 1 200px" }} placeholder="Email, or @company.com" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!(f.phone.trim() || f.email.trim())} onClick={add}>Add</button>
       </div>
-      {!rows ? <div style={muted}>Loading…</div> : !rows.length ? <div style={muted}>Nobody is on the list.</div> : (
+      {!rows ? <Loader compact label="Loading" /> : !rows.length ? <div style={muted}>Nobody is on the list.</div> : (
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
           <table className="ui-table">
             <thead><tr><th>Who</th><th>Phone or email</th><th>Stops</th><th>Why</th><th /></tr></thead>
@@ -391,7 +392,7 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={onClose}><X size={16} /></button>
           </div>
           <div className="cx-body ui-scroll">
-            {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <div style={muted}>Loading…</div>) : null}
+            {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <Loader compact label="Loading" />) : null}
             {tab === "rules" ? <RulesTab toast={toast} /> : null}
             {tab === "block" ? <BlockTab toast={toast} /> : null}
             {tab === "data" ? <DataTab toast={toast} plugins={plugins} /> : null}

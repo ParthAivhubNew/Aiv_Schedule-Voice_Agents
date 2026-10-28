@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, ExternalLink, Pencil, Plug, RefreshCw, Send, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../api/apiClient";
@@ -32,7 +33,7 @@ function when(ms, org) {
 }
 
 function Loading({ what }) {
-  return <div style={{ ...muted, padding: 24 }}>Loading {what}…</div>;
+  return <Loader label={`Loading ${what}`} />;
 }
 
 function Failed({ what, onRetry }) {

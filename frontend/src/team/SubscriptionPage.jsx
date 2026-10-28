@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { AlertTriangle, Check, CheckCircle2, CreditCard, ExternalLink } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
@@ -62,7 +63,7 @@ export function SubscriptionPage({ wallet, back }) {
   useEffect(() => (returned === "success" ? loadSoon() : void load()), [returned, load, loadSoon]);
 
   if (error && !data) return <div role="alert" style={{ color: C.red, fontSize: 12.5 }}>{error}</div>;
-  if (!data) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
+  if (!data) return <Loader compact label="Loading" />;
 
   const w = data.wallets.find((x) => x.key === wallet);
   const plans = data.plans.filter((p) => p.wallet === wallet && p.kind === "plan");

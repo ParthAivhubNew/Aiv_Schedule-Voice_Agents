@@ -207,6 +207,42 @@ button, input, select, textarea {
 .ui-scroll { scrollbar-width: thin; scrollbar-color: var(--ui-line-strong) transparent; }
 .ui-spin { animation: ui-spin 1s linear infinite; }
 @keyframes ui-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Loading: one look everywhere (see app/Loader.jsx) ---------- */
+.ld-ring { flex: none; color: var(--ui-accent); animation: ld-turn 1.1s linear infinite; transform-origin: 50% 50%; }
+.ld-ring-track { stroke: currentColor; opacity: 0.16; }
+.ld-ring-arc { stroke: currentColor; stroke-dasharray: 14 60; animation: ld-arc 1.4s ease-in-out infinite; }
+.ui-btn--primary .ld-ring, .ui-btn--danger .ld-ring { color: #fff; }
+@keyframes ld-turn { to { transform: rotate(360deg); } }
+@keyframes ld-arc { 0% { stroke-dasharray: 4 70; } 50% { stroke-dasharray: 40 40; } 100% { stroke-dasharray: 4 70; } }
+
+.ld-block { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 16px; text-align: center; }
+.ld-block--compact { flex-direction: row; gap: 10px; padding: 14px 4px; justify-content: flex-start; text-align: left; }
+.ld-orb { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: var(--ui-accent-soft); box-shadow: 0 0 0 0 var(--ui-ring); animation: ld-pulse 2s ease-out infinite; }
+.ld-block--compact .ld-orb { width: 34px; height: 34px; animation: none; }
+.ld-label { font: 600 14px Inter, sans-serif; color: var(--ui-ink); }
+.ld-detail { font: 400 12.5px Inter, sans-serif; color: var(--ui-muted); max-width: 420px; line-height: 1.5; }
+@keyframes ld-pulse { 0% { box-shadow: 0 0 0 0 var(--ui-ring); } 70%, 100% { box-shadow: 0 0 0 16px rgba(52, 87, 213, 0); } }
+
+.ld-topbar { position: absolute; top: 0; left: 0; right: 0; height: 3px; overflow: hidden; z-index: 5; background: var(--ui-accent-soft); }
+.ld-topbar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 38%; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--ui-accent), transparent); animation: ld-sweep 1.15s ease-in-out infinite; }
+@keyframes ld-sweep { 0% { left: -38%; } 100% { left: 100%; } }
+
+.ld-skel { display: inline-block; background: linear-gradient(90deg, var(--ui-hover) 0%, var(--ui-line-soft) 40%, var(--ui-hover) 80%); background-size: 220% 100%; animation: ld-shimmer 1.4s ease-in-out infinite; }
+@keyframes ld-shimmer { 0% { background-position: 120% 0; } 100% { background-position: -120% 0; } }
+.ld-table { display: flex; flex-direction: column; }
+.ld-table-head { display: flex; gap: 24px; padding: 12px 14px; background: var(--ui-sunken); border-bottom: 1px solid var(--ui-line); }
+.ld-table-head > * { flex: 1 1 0; }
+.ld-table-head > :first-child { flex: 1.6 1 0; }
+.ld-table-row { display: flex; gap: 24px; padding: 11px 14px; border-bottom: 1px solid var(--ui-line-soft); animation: ld-in .35s ease both; }
+.ld-cell { flex: 1 1 0; display: flex; align-items: center; gap: 10px; min-width: 0; }
+@keyframes ld-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ld-ring, .ld-ring-arc, .ld-orb, .ld-skel, .ld-topbar::after, .ld-table-row, .ui-spin { animation: none; }
+  .ld-ring-arc { stroke-dasharray: 30 40; }
+  .ld-topbar::after { left: 0; width: 100%; opacity: 0.5; }
+}
 .ui-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .ui-scroll::-webkit-scrollbar-thumb { background: var(--ui-line-strong); border-radius: 99px; }
 .ui-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -1187,3 +1223,8 @@ button, input, select, textarea {
   .fl-fit .fl-card > * { flex-shrink: 0; }
   .fl-fit .fl-card > .fl-table { flex: 1 1 auto; flex-shrink: 1; min-height: 0; max-height: none; }
 }
+
+/* My Lists: the tick box and the company name stay put while the other columns scroll sideways */
+.acc-stick th:nth-child(1), .acc-stick td:nth-child(1) { position: sticky; left: 0; z-index: 2; background: inherit; }
+.acc-stick th:nth-child(2), .acc-stick td:nth-child(2) { position: sticky; left: 38px; z-index: 2; background: inherit; box-shadow: 1px 0 0 var(--ui-line); min-width: 190px; }
+.acc-stick thead th:nth-child(-n+2) { z-index: 3; background: var(--ui-sunken); }

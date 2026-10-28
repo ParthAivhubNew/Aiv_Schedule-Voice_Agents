@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { ChevronRight } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
@@ -35,7 +36,7 @@ export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your 
         <strong style={{ fontFamily: FONT_DISPLAY, fontSize: compact ? 14 : 15, color: C.ink, marginRight: "auto" }}>{heading}</strong>
         {total ? <span style={{ fontSize: 12, color: C.slate }}>{total} thing{total === 1 ? "" : "s"}</span> : null}
       </div>
-      {state === "loading" && !data ? <div style={{ fontSize: 13, color: C.slate }}>Loading the day…</div> : null}
+      {state === "loading" && !data ? <Loader compact label="Loading the day" /> : null}
       {state === "error" ? <div style={{ fontSize: 13, color: C.slate }}>The day could not be loaded just now. Try again in a moment.</div> : null}
       {data && !total && state !== "error" ? <div style={{ fontSize: 13, color: C.slate }}>Nothing else is planned for this day.</div> : null}
       <div style={{ display: "grid", gap: 14, opacity: state === "refreshing" ? 0.6 : 1 }}>

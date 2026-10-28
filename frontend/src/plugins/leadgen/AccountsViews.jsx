@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, Lightbulb, Columns3, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
-import { applyMapping } from "./importMapping";
-import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck } from "./CheckCompanies";
+import { applyMapping, withPeople } from "./importMapping";
+import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LOCK_TIP, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { LeadActivity, StageBadge } from "./LeadActivity";
@@ -154,9 +155,9 @@ export function useLeadAccounts(onToast, onListsChanged) {
     // Saves new accounts; ones already saved are skipped by the server.
     // Every save lands in a list (Unsorted unless a name is given); a company already saved is not copied,
     // it is just added to that list too.
-    save: async (list, listName = "Unsorted", { quiet = false } = {}) => {
+    save: async (list, listName = "Unsorted", { quiet = false, onExisting } = {}) => {
       try {
-        const r = await api.saveLeadAccounts(list, listName);
+        const r = await api.saveLeadAccounts(list, listName, onExisting);
         if (r.accounts?.length) setAccounts((prev) => [...r.accounts, ...prev]);
         (r.updated || []).forEach(replace); // companies already saved that the file filled in
         if (onListsChanged) onListsChanged();
@@ -316,7 +317,7 @@ function ImproveCard({ store, account }) {
           return (
             <div key={st.key} className={`imp-step imp-step--${st.state}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 6px", ...text, fontSize: 13, color: st.state === "skip" ? C.slateLight : C.textInk }}>
               <span aria-hidden className={st.state === "done" || st.state === "fail" ? "imp-pop" : ""} style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${color}`, background: st.state === "done" || st.state === "fail" ? color : "transparent", color: "#fff", fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>
-                {st.state === "run" ? <RefreshCw size={11} className="ui-spin" color={C.ink} /> : mark}
+                {st.state === "run" ? <Spinner size={11} /> : mark}
               </span>
               <span style={{ flex: 1 }}>{st.label}</span>
               <span key={st.note} className="imp-note" style={{ fontSize: 12, color: st.state === "fail" ? C.red : st.state === "done" && st.note.startsWith("Added") ? "#15803D" : C.slate }}>{st.note}</span>
@@ -327,7 +328,7 @@ function ImproveCard({ store, account }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <button type="button" className="ui-btn ui-btn--primary" disabled={busy || ended} onClick={() => store.improve(account.id, { again: Boolean(state?.done) })}
           title="Tries our records first (free), then the web, then a deep web search if a phone or website is still missing. You are charged only for what is found.">
-          {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {busy ? "Working…" : state?.done || account.researched_at ? "Improve again" : "Improve this company"}
+          {busy ? <Spinner size={14} /> : <Sparkles size={14} />} {busy ? "Working…" : state?.done || account.researched_at ? "Improve again" : "Improve this company"}
         </button>
         <span style={{ ...muted, fontSize: 12 }}>
           {most ? `Most it can cost: ${creditWord(most)}. ` : ""}Charged only when something new is found.{credits ? ` You have ${credits.balance.toLocaleString()}.` : ""}
@@ -352,7 +353,12 @@ function EmptyState({ icon: Icon, title, body, children }) {
 
 function Loading({ store }) {
   if (store.error) return <div role="alert" style={{ ...muted, color: C.red }}>{store.error}</div>;
-  return <div style={muted}>Loading your saved accounts…</div>;
+  return (
+    <div className="ui-card" style={{ overflow: "hidden", position: "relative" }}>
+      <TopBar />
+      <TableSkeleton rows={8} cols={6} label="Loading your saved accounts" />
+    </div>
+  );
 }
 
 function SiteLink({ account }) {
@@ -367,7 +373,7 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["stage", "Stage"], ["quality", "Complete"], ["check", "Check"], ["source", "Found by"]];
+const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["stage", "Stage"], ["quality", "Complete"], ["check", "Check"], ["website", "Website"], ["source", "Found by"]];
 const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
 
 // What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
@@ -499,6 +505,73 @@ export function customColumns(accounts) {
   return seen;
 }
 
+// Where a menu opens: just under its button, in the window, so the table's rounded edge never clips it.
+function menuSpot(box, side) {
+  const r = box.current ? box.current.getBoundingClientRect() : { bottom: 0, left: 0, right: 0 };
+  return side === "right" ? { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) } : { top: r.bottom + 4, left: Math.max(8, r.left) };
+}
+
+// The picker's headings, in the order a person thinks about a company: how to reach it, where it stands, what it is, then their own.
+const COLUMN_GROUPS = [
+  ["Reach them", (id) => ["phone", "email", "contact"].includes(id)],
+  ["Where it stands", (id) => ["stage", "quality", "check"].includes(id)],
+  ["The company", (id) => ["website", "source"].includes(id)],
+  ["Your own columns", (id) => id.startsWith("c:")],
+];
+
+// Saved views: a name for a set of columns and a filter, kept in this browser. "Default view" is always there.
+const VIEWS_KEY = "aivhub_accounts_views";
+const readViews = () => {
+  try { const v = JSON.parse(localStorage.getItem(VIEWS_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => x && typeof x.name === "string") : []; } catch { return []; }
+};
+function ViewsMenu({ current, onApply, onToast }) {
+  const [open, setOpen] = useState(false);
+  const [views, setViews] = useState(readViews);
+  const [active, setActive] = useState("");
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  const keep = (next) => { setViews(next); try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* the views just are not remembered */ } };
+  const saveCurrent = async () => {
+    const name = await askText({ title: "Save this view", label: "A name for these columns and this filter, for example Ready to call", confirm: "Save view", maxLength: 40 });
+    if (!name) return;
+    const n = name.trim();
+    keep([{ name: n, hidden: current.hidden, scope: current.scope }, ...views.filter((v) => v.name.toLowerCase() !== n.toLowerCase())].slice(0, 20));
+    setActive(n);
+    setOpen(false);
+    onToast(`Saved the view ${n}.`);
+  };
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" title="Switch to a saved set of columns and filter, or save this one" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Eye size={14} /> {active || "Default view"} <ChevronDown size={13} />
+      </button>
+      {open ? (
+        <div role="menu" className="ui-card" style={{ position: "fixed", ...menuSpot(box, "left"), zIndex: 60, minWidth: 230, maxHeight: "min(420px, 60vh)", overflowY: "auto", padding: 6, boxShadow: "0 12px 32px rgba(20,24,40,.16)" }}>
+          {[{ name: "Default view", hidden: [], scope: "all" }, ...views].map((v) => (
+            <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <button type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: 1, justifyContent: "flex-start", fontWeight: (active || "Default view") === v.name ? 700 : 400 }}
+                onClick={() => { onApply(v); setActive(v.name === "Default view" ? "" : v.name); setOpen(false); }}>{v.name}</button>
+              {v.name !== "Default view" ? (
+                <button type="button" className="ui-icon-btn" aria-label={`Delete the view ${v.name}`} title="Delete this view" onClick={() => { keep(views.filter((x) => x.name !== v.name)); if (active === v.name) setActive(""); }}><X size={13} /></button>
+              ) : null}
+            </div>
+          ))}
+          <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4, paddingTop: 4 }}>
+            <button type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ width: "100%", justifyContent: "flex-start" }} onClick={saveCurrent}><Plus size={13} /> Save as new view</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -513,16 +586,25 @@ function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
   return (
     <div ref={box} style={{ position: "relative" }}>
       <button type="button" title="Choose which columns to show" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Columns3 size={14} /> Columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
+        <Columns3 size={14} /> Add or hide columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
       </button>
       {open ? (
-        <div role="menu" className="ui-card" style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20, minWidth: 220, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
+        <div role="menu" className="ui-card" style={{ position: "fixed", ...menuSpot(box, "right"), zIndex: 60, minWidth: 220, maxHeight: "min(420px, 60vh)", overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
           <div style={{ ...muted, fontSize: 12, padding: "2px 6px 6px" }}>Tick the columns you want to see. This only changes your view.</div>
-          {columns.map(([id, label]) => (
-            <label key={id} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
-              <input type="checkbox" checked={!hidden.includes(id)} onChange={() => onToggle(id)} /> {label}
-            </label>
-          ))}
+          {COLUMN_GROUPS.map(([heading, test]) => {
+            const items = columns.filter(([id]) => test(id));
+            if (!items.length) return null;
+            return (
+              <div key={heading}>
+                <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", padding: "8px 6px 2px" }}>{heading}</div>
+                {items.map(([id, label]) => (
+                  <label key={id} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
+                    <input type="checkbox" checked={!hidden.includes(id)} onChange={() => onToggle(id)} /> {label}
+                  </label>
+                ))}
+              </div>
+            );
+          })}
           {hidden.length ? (
             <button title="Bring back every hidden column" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
           ) : null}
@@ -561,11 +643,11 @@ const VERDICT_TIPS = {
 
 const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
 
-export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds = null, listId = "" }) {
+export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "" }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState("all");
   const [pageSize, setPageSize] = useState(() => {
-    try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 25; } catch (_) { return 25; }
+    try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
   const [pageNo, setPageNo] = useState(0);
   useEffect(() => { setPageNo(0); }, [filter, scope, listId]);
@@ -574,6 +656,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const [listing, setListing] = useState(false); // the Add to list box is open
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
+  const locked = useLocked();
   const call = useCallDialog(store.toast);
   const [extra, setExtra] = useState({}); // score, warm and call history per company, from the connections view
   useEffect(() => {
@@ -600,7 +683,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
   const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
-  const columnCount = 2 + ["phone", "email", "contact", "stage", "quality", "check", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   // Verdict filters appear once some companies have been checked.
   const verdictChips = VERDICT_ORDER
@@ -615,7 +698,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
     ["h_warm", "Warm", (a) => Boolean(extra[a.id]?.warm), "Opened your emails or engaged with your posts"],
   ].filter(([id, , pred]) => id === "h_never" || base.some(pred))
     .map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]);
-  const chips = [...ACCOUNT_CHIPS, ...historyChips, ...verdictChips];
+  const chips = [...ACCOUNT_CHIPS.map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]), ...historyChips, ...verdictChips];
   const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = base
     .filter(scopePred)
@@ -647,6 +730,20 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
       store.toast(`Removed ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from the list.`);
     } catch (e) {
       store.toast(e.message || "Couldn't remove them.");
+    }
+  };
+  // The ticked companies become a list of their own, and the campaign is started on it.
+  const startCampaign = async () => {
+    const withEmail = pickedIds.filter((id) => emailFor(base.find((a) => a.id === id) || {})?.text);
+    if (!withEmail.length) { store.toast("None of the ticked companies has an email yet. Use Check & improve first."); return; }
+    const name = await askText({ title: `Start a campaign on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Campaign ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, confirm: "Continue", maxLength: 80 });
+    if (!name) return;
+    try {
+      const r = await api.createLeadList(name.trim(), withEmail);
+      await listsStore.reload();
+      onCampaign(r.list.id);
+    } catch (e) {
+      store.toast(e.message || "Couldn't start it.");
     }
   };
   const acceptFixes = async (ids, fields) => {
@@ -689,16 +786,22 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
               Accept all fixes ({fixIds.length.toLocaleString()})
             </button>
           ) : null}
+          <ViewsMenu current={{ hidden, scope }} onToast={store.toast} onApply={(v) => { saveHidden(v.hidden || []); setScope(chips.some(([id]) => id === v.scope) ? v.scope : "all"); }} />
           <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => saveHidden([])} />
           {listId ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length} onClick={() => removeFromList(pickedIds)}
-              title="Take the ticked companies out of this list">
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || pickedIds.some((i) => locked.has(i))} onClick={() => removeFromList(pickedIds)}
+              title={pickedIds.some((i) => locked.has(i)) ? LOCK_TIP : "Take the ticked companies out of this list"}>
               Remove from list
             </button>
           ) : null}
           <CallButton label={`Call ${pickedIds.length || ""}`.trim()} lockedLabel="Call · add Voice" disabled={!pickedIds.length}
             onClick={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` })}
             onLocked={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` }, true)} />
+          {onCampaign ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || !listsStore} title="Put the ticked companies in a list and start an email campaign on it" onClick={startCampaign}>
+              <Megaphone size={14} /> Email campaign
+            </button>
+          ) : null}
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || !listsStore} onClick={() => setListing(true)}
             title="Group these companies in a named list, ready for a campaign">
             Add to list
@@ -718,7 +821,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
           </div>
         ) : null}
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
-          <table className="ui-table" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
+          <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
               <tr>
                 <th style={{ width: 1 }}>
@@ -731,6 +834,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                 {showing("stage") ? <th title="Where this company is in your journey with them, and how likely it is to answer">Stage</th> : null}
                 {showing("quality") ? <th title="How much of the website, phone, email and contact is filled in">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
+                {showing("website") ? <th title="The company's own website">Website</th> : null}
                 {showing("source") ? <th title="Where this company came from">Found by</th> : null}
                 {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
                 <th style={{ width: 1 }} aria-label="Actions" />
@@ -738,11 +842,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
             </thead>
             <tbody>
               {paged.map((a) => (
-                <tr key={a.id} style={a.verification?.verdict === "problem" ? { background: C.redSoft } : undefined}>
+                <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : "#fff" }}>
                   <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
-                    <div style={{ fontSize: 12, marginTop: 1 }}><SiteLink account={a} /></div>
                   </td>
                   {showing("phone") ? (
                     <td style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
@@ -792,6 +895,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                       ))}
                     </td>
                   ) : null}
+                  {showing("website") ? <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}><SiteLink account={a} /></td> : null}
                   {showing("source") ? <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td> : null}
                   {shownOwn.map((n) => (
                     <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -804,14 +908,17 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, scopeIds 
                         title={a.connection?.can_call ? "Have your AI caller phone them" : ({ no_phone: "No phone number yet", failed_check: "The number failed the check", do_not_contact: "On your do-not-contact list" }[a.connection?.blocked_reason] || "Can't be called")}
                         onClick={() => call.open({ kind: "one", id: a.id, name: a.name })} onLocked={() => call.open({ kind: "one", id: a.id, name: a.name }, true)} />
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>
-                        {store.researching[a.id] ? <><RefreshCw size={13} className="ui-spin" /> Working…</> : "Open"}
+                        {store.researching[a.id] ? <><Spinner size={13} /> Working…</> : "Open"}
                       </button>
-                      {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => removeFromList([a.id])} title="Remove from this list">Remove</button> : null}
+                      {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={locked.has(a.id)} onClick={() => removeFromList([a.id])} title={locked.has(a.id) ? LOCK_TIP : "Remove from this list"}>Remove</button> : null}
                     </span>
                   </td>
                 </tr>
               ))}
               {!shown.length ? <tr><td colSpan={columnCount} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
+              <tr><td colSpan={columnCount} style={{ padding: "6px 8px" }}>
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Type in one more company yourself" onClick={onAdd}><Plus size={14} /> Add a row</button>
+              </td></tr>
             </tbody>
           </table>
         </div>
@@ -1056,6 +1163,8 @@ function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirs
 
 export function AccountPanel({ account, store, onClose }) {
   const live = store.accounts.find((a) => a.id === account.id) || account;
+  const lockedIds = useLocked();
+  const inCheck = lockedIds.has(live.id);
   const [form, setForm] = useState(() => Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]));
   const [confirmRemove, setConfirmRemove] = useState(false);
   const changed = [...ACCOUNT_FIELDS.map(([k]) => k), "notes"].some((k) => (form[k] || "") !== (live[k] || ""));
@@ -1137,7 +1246,7 @@ export function AccountPanel({ account, store, onClose }) {
                   <button title="Don't remove it" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(false)}>Keep</button>
                 </>
               ) : (
-                <button title="Remove this company from your account. You will be asked to confirm" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
+                <button title={inCheck ? LOCK_TIP : "Remove this company from your account. You will be asked to confirm"} type="button" className="ui-btn ui-btn--ghost" disabled={inCheck} onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
               )}
             </div>
           </section>
@@ -1233,6 +1342,8 @@ function ImportReport({ done, onGo, onClose, onToast }) {
       <div style={{ ...text, fontSize: 13, color: C.textInk, lineHeight: 1.6 }}>
         {row(done.added, "new companies saved", "Companies that were not in your account before")}
         {row(done.matched, "already saved, so just added to this list (not copied, nothing to pay again)", "Matched by website, or by name and town")}
+        {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", color: C.slate }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
+        {row(done.filled, "matched to our company records, with what we know filled in (free)", "The registry record was found, so its website, size and sector were added where yours were blank")}
         {row(done.repeats, "repeated in your file, kept once", "The same company on more than one row")}
         {row(done.unnamed, "left out: no company name or website", "Rows with nothing to identify the company")}
         {!done.added && !done.matched ? <div style={{ color: C.slate }}>Nothing was added.</div> : null}
@@ -1268,6 +1379,8 @@ export function ImportView({ store, onGo, onAskAi }) {
   const [done, setDone] = useState(null);
   const [listName, setListName] = useState(""); // the list this file is saved into
   const [progress, setProgress] = useState(null); // { done, total } while a big file is going in
+  const [onExisting, setOnExisting] = useState("fill"); // a company already saved: fill its blanks, leave it, or overwrite it from the file
+  const [fillFree, setFillFree] = useState(true); // after saving, fill what our own records already know (free)
 
   const resetFile = () => {
     setFile(null);
@@ -1300,13 +1413,35 @@ export function ImportView({ store, onGo, onAskAi }) {
     const data = (sheets[sheet] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
     const headers = data.length ? Object.keys(data[0]) : [];
     setActiveSheet(sheet);
-    setFields(applyMapping(headers, data, map));
+    setFields(withPeople(applyMapping(headers, data, map)));
     setShowMapper(false);
   };
 
   const usable = fields.filter((r) => r.name || r.website);
   // The blanks in what is about to be imported, so the report can say what "Check & improve" will have to fill.
   const blanks = (rows) => ({ phone: rows.filter((r) => !r.phone).length, email: rows.filter((r) => !r.email).length, website: rows.filter((r) => !r.website).length });
+  // Free: it only reads our own company records. It runs after the import is already shown, a few at a time, so nobody waits on it;
+  // the report line counts up, and the list is refreshed once it ends. A huge file is capped.
+  const fillFromRecords = async (ids) => {
+    let next = 0;
+    let finished = 0;
+    let filled = 0;
+    setDone((d) => (d ? { ...d, matching: { done: 0, total: ids.length } } : d));
+    const worker = async () => {
+      while (next < ids.length) {
+        const id = ids[next++];
+        try {
+          const r = await api.quickCheckLeadAccount(id);
+          if (r && r.registry) filled += 1;
+        } catch { /* one that can't be read is simply left as it was */ }
+        finished += 1;
+        setDone((d) => (d ? { ...d, filled, matching: { done: finished, total: ids.length } } : d));
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    setDone((d) => (d ? { ...d, filled, matching: null } : d));
+    store.reload();
+  };
   const importNow = async () => {
     setBusy(true);
     const name = listName.trim() || "Unsorted";
@@ -1316,11 +1451,13 @@ export function ImportView({ store, onGo, onAskAi }) {
       // In batches, so a big file shows how far it has got and never hits the size limit of one request.
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
         setProgress({ done: i, total: rows.length });
-        const r = await store.save(rows.slice(i, i + IMPORT_BATCH), name, { quiet: true });
+        const r = await store.save(rows.slice(i, i + IMPORT_BATCH), name, { quiet: true, onExisting });
+        if (r && r.accounts) total.newIds = [...(total.newIds || []), ...r.accounts.map((a) => a.id)];
         if (!r) throw new Error(`Stopped after ${i.toLocaleString()} of ${rows.length.toLocaleString()} rows. What was imported so far is in the list ${name}.`);
         total.added += r.added; total.matched += r.matched || 0; total.repeats += r.repeats || 0; total.unnamed += r.unnamed || 0; total.list = r.list || total.list;
       }
       setDone(total);
+      if (fillFree && total.newIds?.length) fillFromRecords(total.newIds.slice(0, 300));
       store.toast(`Imported ${total.added.toLocaleString()} new ${total.added === 1 ? "company" : "companies"} into ${total.list?.name || name}.`);
       resetFile();
     } catch (e) {
@@ -1369,7 +1506,7 @@ export function ImportView({ store, onGo, onAskAi }) {
       ) : (
         <div className="ui-card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {fields.length} {fields.length === 1 ? "row" : "rows"}</div>
+            <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{file?.name} · {fields.length} {fields.length === 1 ? "row" : "rows"}{fields.some((r) => r.name && r.name === r.contact_name && !r.website) ? " · saved as people" : ""}</div>
             <button title="Change which of your columns goes into which field" type="button" className="ui-btn ui-btn--ghost" onClick={() => setShowMapper(true)}>Edit column matches</button>
             <button title="Pick a different file" type="button" className="ui-btn ui-btn--ghost" onClick={resetFile}>Choose another file</button>
           </div>
@@ -1393,6 +1530,18 @@ export function ImportView({ store, onGo, onAskAi }) {
             <button type="button" className="ui-link" onClick={() => setListName((file?.name || "").replace(/\.[^.]+$/, "").slice(0, 80))} title="Use the file name again">Reset</button>
             <span style={{ fontSize: 12 }}>A list with this name is reused if you already have one.</span>
           </label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>If a company is already saved
+              <select className="ui-input" style={{ width: "auto", maxWidth: 360 }} value={onExisting} onChange={(e) => setOnExisting(e.target.value)} aria-label="If a company is already saved">
+                <option value="fill">Fill its blanks from my file, keep what is saved</option>
+                <option value="skip">Leave it exactly as it is</option>
+                <option value="update">Update it with my file's values</option>
+              </select>
+            </label>
+            <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center" }} title="Reads our own company records only. Nothing is charged.">
+              <input type="checkbox" checked={fillFree} onChange={(e) => setFillFree(e.target.checked)} /> After saving, fill in what our company records already know: website, size, sector. Free.
+            </label>
+          </div>
           {customColumns(fields).length ? (
             <div style={{ ...muted, fontSize: 12.5 }}>Kept as your own columns: {customColumns(fields).join(", ")}</div>
           ) : null}

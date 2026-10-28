@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Copy, RefreshCw } from "lucide-react";
+import { Loader, Spinner } from "../../../app/Loader";
+import { AlertTriangle, Check, Copy } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 
@@ -139,7 +140,7 @@ export function WorkingHoursTab({ operator }) {
   };
 
   if (!rules || !meet) {
-    return <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate }}>{error || "Loading working hours…"}</div>;
+    return error ? <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate }}>{error}</div> : <Loader compact label="Loading working hours" />;
   }
   const custom = rules.policy === "custom";
   const weekendCalls = custom && (rules.schedule.days.Saturday.open || rules.schedule.days.Sunday.open);
@@ -185,7 +186,7 @@ export function WorkingHoursTab({ operator }) {
         {canEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
             <button type="button" onClick={saveCalls} disabled={saving === "calls"} className="ui-btn ui-btn--primary">
-              {saving === "calls" && <RefreshCw size={13} className="animate-spin" />} Save calling hours
+              {saving === "calls" && <Spinner size={13} />} Save calling hours
             </button>
           </div>
         )}
@@ -214,7 +215,7 @@ export function WorkingHoursTab({ operator }) {
         {canEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
             <button type="button" onClick={saveMeetings} disabled={saving === "meet"} className="ui-btn ui-btn--primary">
-              {saving === "meet" && <RefreshCw size={13} className="animate-spin" />} Save meeting hours
+              {saving === "meet" && <Spinner size={13} />} Save meeting hours
             </button>
           </div>
         )}

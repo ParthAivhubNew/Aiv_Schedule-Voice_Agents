@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Info, Loader2, MapPin, Phone, Search, ShieldAlert, ShoppingCart, User, XCircle } from "lucide-react";
+import { Loader, Spinner } from "../../../app/Loader";
+import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Info, MapPin, Phone, Search, ShieldAlert, ShoppingCart, User, XCircle } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 
@@ -232,7 +233,7 @@ function VerificationWizard({ onDone, onCancel }) {
 
       {step === 2 && (
         <>
-          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Loader2 size={14} className="nx-spin" /> Loading the form…</div>}
+          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Spinner size={14} /> Loading the form…</div>}
           <div style={{ display: "grid", gap: 14 }}>
             {(fields || []).map((f) => (
               <div key={f.id}>
@@ -262,7 +263,7 @@ function VerificationWizard({ onDone, onCancel }) {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 18 }}>
             <button type="button" style={btn(false)} onClick={() => setStep(1)}>Back</button>
             <button type="button" style={btn(true, busy || !fields)} disabled={busy || !fields} onClick={submit}>
-              {busy ? <><Loader2 size={14} className="nx-spin" /> Sending…</> : "Submit for review"}
+              {busy ? <><Spinner size={14} /> Sending…</> : "Submit for review"}
             </button>
           </div>
         </>
@@ -317,7 +318,7 @@ function BuyNumber({ verified, hasVerification, onOrdered }) {
         </div>
         <input aria-label="Area code" placeholder="Area code, e.g. 20" value={q.area} onChange={(e) => setQ({ ...q, area: e.target.value.replace(/\D/g, "") })} style={{ ...input, flex: "1 1 100px" }} />
         <button type="submit" style={btn(true, busy === "search")} disabled={busy === "search"}>
-          {busy === "search" ? <Loader2 size={14} className="nx-spin" /> : <Search size={14} />} Search
+          {busy === "search" ? <Spinner size={14} /> : <Search size={14} />} Search
         </button>
       </form>
       {error && <div role="alert" style={{ marginTop: 10, fontSize: 13, color: C.red }}>{error}</div>}
@@ -335,7 +336,7 @@ function BuyNumber({ verified, hasVerification, onOrdered }) {
               </div>
               {verified ? (
                 <button type="button" style={btn(true, Boolean(busy))} disabled={Boolean(busy)} onClick={() => buy(n)} title="Buy this number">
-                  {busy === n.phoneNumber ? <Loader2 size={14} className="nx-spin" /> : <ShoppingCart size={14} />} Buy
+                  {busy === n.phoneNumber ? <Spinner size={14} /> : <ShoppingCart size={14} />} Buy
                 </button>
               ) : (
                 <button type="button" style={btn(true, hasVerification)} disabled={hasVerification}
@@ -449,7 +450,7 @@ export function NumbersPage() {
   }, [load]);
 
   if (error && !data) return <div style={{ color: C.red, fontSize: 13 }}>{error}</div>;
-  if (!data) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
+  if (!data) return <Loader compact label="Loading" />;
 
   const v = data.verification;
   const verified = v?.status === "approved";
@@ -512,7 +513,7 @@ export function NumbersPage() {
           <div style={h2}>Orders</div>
           {pendingOrders.map((o) => (
             <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "6px 0" }}>
-              <Loader2 size={14} className="nx-spin" color={C.cobalt} /> <span style={{ fontFamily: FONT_MONO }}>{o.phoneNumber}</span> — being set up
+              <Spinner size={14} /> <span style={{ fontFamily: FONT_MONO }}>{o.phoneNumber}</span> — being set up
             </div>
           ))}
           {failedOrders.map((o) => (

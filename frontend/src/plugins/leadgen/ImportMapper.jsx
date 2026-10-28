@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, FileSpreadsheet, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { CUSTOM, guessMapping, isCustom, mappingWarnings, rememberMapping, savedMappingFor, SKIP, STANDARD_FIELDS } from "./importMapping";
 
@@ -16,6 +16,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
   const headers = useMemo(() => (records.length ? Object.keys(records[0]) : []), [records]);
   const [mappings, setMappings] = useState({});
   const [remember, setRemember] = useState(true);
+  const [hideMatched, setHideMatched] = useState(false);
 
   const mapping = useMemo(() => {
     if (mappings[sheet]) return mappings[sheet];
@@ -26,6 +27,11 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
   const setField = (col, value) => setMappings((m) => ({ ...m, [sheet]: { ...mapping, [col]: value } }));
   const warnings = mappingWarnings(mapping, records);
   const preview = records.slice(0, 3);
+  // "4 columns, 3 matched, 1 kept as your own": what the person needs to look at is the rest.
+  const standard = headers.filter((h) => mapping[h] && mapping[h] !== SKIP && !isCustom(mapping[h]));
+  const own = headers.filter((h) => isCustom(mapping[h]));
+  const left = headers.filter((h) => !mapping[h] || mapping[h] === SKIP);
+  const shown = hideMatched ? headers.filter((h) => !standard.includes(h)) : headers;
 
   const confirm = () => {
     if (remember) rememberMapping(headers, mapping);
@@ -56,6 +62,16 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
           </div>
         )}
 
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "0 22px 8px", fontSize: 13, color: C.ink }}>
+          <strong>{headers.length} {headers.length === 1 ? "column" : "columns"} found</strong>
+          <span style={{ background: "#E7F6EC", color: "#136F3A", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{standard.length} matched</span>
+          {own.length ? <span style={{ background: "#EEF2FE", color: "#26409E", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{own.length} kept as your own</span> : null}
+          {left.length ? <span style={{ background: "#FEF3E2", color: "#9A5B00", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{left.length} left out</span> : null}
+          <label style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
+            <input type="checkbox" checked={hideMatched} onChange={(e) => setHideMatched(e.target.checked)} /> Hide matched columns
+          </label>
+        </div>
+
         <div style={{ overflowY: "auto", padding: "4px 22px 12px" }}>
           <table className="map-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
@@ -66,9 +82,13 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
               </tr>
             </thead>
             <tbody>
-              {headers.map((h) => (
+              {shown.map((h) => (
                 <tr key={h} style={{ borderTop: `1px solid ${C.borderLight || C.border}` }}>
-                  <td style={{ padding: "7px 6px", fontWeight: 600, color: C.ink }}>{h}</td>
+                  <td style={{ padding: "7px 6px", fontWeight: 600, color: C.ink }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      {standard.includes(h) ? <CheckCircle2 size={15} color="#16A34A" aria-label="Matched" /> : null}{h}
+                    </span>
+                  </td>
                   <td style={{ padding: "7px 6px" }}>
                     <select value={isCustom(mapping[h]) ? OWN : (mapping[h] || SKIP)} aria-label={`Import ${h} as`} style={sel}
                       onChange={(e) => setField(h, e.target.value === OWN ? CUSTOM + String(h).trim().slice(0, 40) : e.target.value)}>
@@ -83,8 +103,8 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
                         onChange={(e) => setField(h, CUSTOM + e.target.value)} style={{ ...sel, marginTop: 6 }} />
                     ) : null}
                   </td>
-                  <td style={{ padding: "7px 6px", color: C.slate, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {preview.map((r) => String(r[h] ?? "")).filter(Boolean).join(" · ") || "—"}
+                  <td style={{ padding: "7px 6px", color: C.slate, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.5 }}>
+                    {preview.map((r, i) => <div key={i} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{String(r[h] ?? "") || "—"}</div>)}
                   </td>
                 </tr>
               ))}

@@ -5,6 +5,7 @@ import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
 import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
 import { AppChrome } from "./app/ui";
+import { Loader } from "./app/Loader";
 import { SessionGuard } from "./hub/SessionGuard";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
@@ -51,9 +52,8 @@ const CalcomSchedulerPlugin = lazyApp(() => import("./plugins/calendar/CalcomSch
 
 function AppLoading() {
   return (
-    <div role="status" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#4B5260", fontSize: 15 }}>
-      <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: "50%", border: "2px solid #D5D9E0", borderTopColor: "#3457D5", animation: "ui-spin 0.8s linear infinite" }} />
-      Opening…
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Loader label="Opening" />
     </div>
   );
 }

@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Loader, Spinner } from "../../app/Loader";
 import { api } from "../../api/apiClient";
 import {
   C,
@@ -170,7 +171,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
       >
         {saving ? (
           <>
-            <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
+            <Spinner size={14} />
             <span>Saving…</span>
           </>
         ) : saved ? (
@@ -583,7 +584,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                         <div>
                           {isCrawling ? (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fef3c7", color: "#b45309", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
-                              <RefreshCw size={11} style={{ animation: "spin 1.5s linear infinite" }} /> Crawling & Indexing...
+                              <Spinner size={11} /> Crawling & Indexing...
                             </span>
                           ) : s.status === "failed" ? (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fee2e2", color: "#dc2626", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }} title={s.lastError || "Extraction failed"}>
@@ -793,7 +794,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
 
                     <div style={{ padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
                       {activeChunkModal.loading ? (
-                        <div style={{ textAlign: "center", padding: 30, color: C.slate }}>Loading chunks...</div>
+                        <Loader compact label="Loading chunks" />
                       ) : activeChunkModal.chunks.length === 0 ? (
                         <div style={{ textAlign: "center", padding: 30, color: C.slateLight }}>
                           No chunks extracted yet. Click "Re-crawl" to process this source.

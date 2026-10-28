@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { createPortal } from "react-dom";
 import { Copy, Eye, FileText, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
@@ -176,7 +177,7 @@ export function ReportsPage({ showToast, embedded = false }) {
         <ReportForm initial={editing} showToast={showToast} onCancel={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); showToast("Report saved."); }} />
       ) : null}
-      {state === "loading" ? <div style={muted}>Loading reports…</div> : state === "error" ? (
+      {state === "loading" ? <Loader compact label="Loading reports" /> : state === "error" ? (
         <div style={card}>Could not load reports. <button type="button" style={btn} onClick={load}>Try again</button></div>
       ) : !data.reports.length && !editing ? (
         <div style={{ ...card, textAlign: "center", padding: 28, borderStyle: "dashed" }}>

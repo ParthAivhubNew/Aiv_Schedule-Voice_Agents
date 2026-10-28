@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { Spinner } from "../app/Loader";
 import {
   Phone,
   Users,
@@ -13,7 +14,6 @@ import {
   ExternalLink,
   AlertCircle,
   CheckCircle2,
-  RefreshCw,
   Sparkles,
   Layers,
   ArrowRight,
@@ -1368,7 +1368,7 @@ func main() {
                 >
                   {sending ? (
                     <>
-                      <RefreshCw size={14} className="animate-spin" /> Dispatching to /v1/run...
+                      <Spinner size={14} /> Dispatching to /v1/run...
                     </>
                   ) : (
                     <>

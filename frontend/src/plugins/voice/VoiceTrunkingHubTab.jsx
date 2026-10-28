@@ -11,13 +11,13 @@ import {
   Phone,
   PhoneCall,
   Radio,
-  RefreshCw,
   Save,
   ShieldCheck,
   Target,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Spinner } from "../../app/Loader";
 import { Line } from "recharts";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, liveStackLabels } from "../../app/constants";
@@ -704,7 +704,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 gap: 6
               }}
             >
-              {pinging ? <RefreshCw size={13} className="animate-spin" /> : <PhoneCall size={13} />}
+              {pinging ? <Spinner size={13} /> : <PhoneCall size={13} />}
               Test Inbound Ping
             </button>
 
@@ -751,7 +751,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               }}
               title="Run 5-point universal diagnostic health check across Telephony, STT, LLM, TTS, and Calendar"
             >
-              <Activity size={14} className={diagRunning ? "animate-spin" : ""} />
+              {diagRunning ? <Spinner size={14} /> : <Activity size={14} />}
               {diagRunning ? "Testing Stack..." : "5-Point Diagnostics"}
             </button>
           </div>
@@ -1292,7 +1292,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
           >
             {provisioning ? (
               <>
-                <RefreshCw size={16} className="animate-spin" style={{ animation: "spin 1s linear infinite" }} /> 
+                <Spinner size={16} /> 
                 <span>Provisioning...</span>
               </>
             ) : (

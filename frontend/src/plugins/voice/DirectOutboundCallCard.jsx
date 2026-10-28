@@ -6,11 +6,11 @@ import {
   Headphones,
   KeyRound,
   PhoneCall,
-  RefreshCw,
   Save,
   Server,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Spinner } from "../../app/Loader";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../app/constants";
 import { LiveKitBrowserCallModal } from "../../components/LiveKitBrowserCallModal";
@@ -711,7 +711,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
             >
               {dialing ? (
                 <>
-                  <RefreshCw size={14} className="animate-spin" /> Calling {toNumber || "Prospect"}...
+                  <Spinner size={14} /> Calling {toNumber || "Prospect"}...
                 </>
               ) : (
                 <>

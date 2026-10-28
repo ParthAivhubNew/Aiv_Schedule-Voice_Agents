@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { CalendarDays, ChevronDown, Lightbulb, Lock, Mail, MessageCircle, Phone, RefreshCw, Sparkles, UserPlus, Users } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
@@ -197,7 +198,7 @@ function PostRow({ post, toast, lists, meetings }) {
             </button>
             <span style={{ ...muted, fontSize: 12 }}>Only people who commented or replied in public are listed. Tick them, then add them to your leads.</span>
           </div>
-          {!data ? <div style={muted}>Loading…</div> : !data.engagers.length ? (
+          {!data ? <Loader compact label="Loading" /> : !data.engagers.length ? (
             <div style={{ ...muted, background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 10, padding: 12 }}>
               Nobody yet. Press <b>Check the networks for comments</b>. Some networks do not share who commented, so you can also add someone by hand below.
             </div>
@@ -327,7 +328,7 @@ function Ideas({ toast, onDrafted, onOpenApprovals }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))", gap: 14, alignItems: "start" }}>
       <IdeaCard icon={Lightbulb} title="From the companies you target" about="Fresh each day, from how your posts did, what people said under them, and the industries and towns of your saved companies. Topics you posted lately are left out."
         lockLink="social_audience" lockWhat="Ideas from your leads">
-        {topics.available ? (!ideas ? <div style={muted}>Loading…</div> : !ideas.length ? (
+        {topics.available ? (!ideas ? <Loader compact label="Loading" /> : !ideas.length ? (
           <div style={muted}>Save companies in Lead Gen with an industry and a town, and ideas appear here.</div>
         ) : (
           <div>
@@ -341,7 +342,7 @@ function Ideas({ toast, onDrafted, onOpenApprovals }) {
 
       <IdeaCard icon={MessageCircle} title="From what people say on your calls" about="Questions and doubts that come up again and again on your calls, turned into posts that answer them."
         lockLink="objections_to_posts" lockWhat="Ideas from your calls">
-        {voice.available ? (!objections ? <div style={muted}>Loading…</div> : !objections.objections.length ? (
+        {voice.available ? (!objections ? <Loader compact label="Loading" /> : !objections.objections.length ? (
           <div style={{ ...muted, background: HUB_PAPER, borderRadius: 10, padding: 12 }}>
             {objections.calls ? `Looked at ${objections.calls} call${objections.calls === 1 ? "" : "s"} from the last ${objections.days} days. ` : "No calls yet. "}
             {objections.calls && !objections.talked
@@ -463,7 +464,7 @@ export function SocialConnect({ showToast, onDrafted, onOpenApprovals }) {
           <section role="tabpanel" aria-label="Who engaged" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Locked link="social_audience" what="Turning people into leads" />
             <Locked link="post_booking_link" what="Booking links on posts" />
-            {!posts ? <div style={muted}>Loading…</div> : !posts.length ? (
+            {!posts ? <Loader compact label="Loading" /> : !posts.length ? (
               <div style={{ ...card, padding: 28, textAlign: "center", borderStyle: "dashed" }}>
                 <Users size={22} color={C.slate} aria-hidden="true" />
                 <div style={{ fontWeight: 700, marginTop: 8, ...text }}>No published posts yet</div>

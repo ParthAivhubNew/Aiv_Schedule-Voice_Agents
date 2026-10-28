@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Loader } from "../../app/Loader";
 import {
   FileText,
   PhoneCall,
@@ -412,7 +413,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
           {/* Template List */}
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
             {loading ? (
-              <div style={{ padding: 20, textAlign: "center", color: C.slate, fontSize: 13 }}>Loading templates...</div>
+              <Loader compact label="Loading templates" />
             ) : filteredTemplates.length === 0 ? (
               <div style={{ padding: 20, textAlign: "center", color: C.slate, fontSize: 13 }}>No templates found.</div>
             ) : (

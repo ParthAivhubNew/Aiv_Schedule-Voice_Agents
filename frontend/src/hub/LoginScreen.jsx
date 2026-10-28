@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, AlertTriangle, RefreshCw, CheckCircle2, Mail, ArrowRight, ArrowLeft, Smartphone } from "lucide-react";
+import { Spinner } from "../app/Loader";
+import { Eye, EyeOff, AlertTriangle, CheckCircle2, Mail, ArrowRight, ArrowLeft, Smartphone } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
 import { BrandLockup } from "./BrandMark";
@@ -339,7 +340,7 @@ export function LoginScreen({ onLogin }) {
               )}
 
               <button type="submit" className="auth-primary" disabled={loading}>
-                {loading ? (<><RefreshCw size={15} className="auth-spin" /> {busyLabel}</>) : submitLabel}
+                {loading ? (<><Spinner size={15} /> {busyLabel}</>) : submitLabel}
               </button>
 
               {(mode === "forgot" || mode === "reset") && (

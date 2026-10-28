@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { createPortal } from "react-dom";
 import { Check, Film, Image as ImageIcon, Link2, Search, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
@@ -252,7 +253,7 @@ export function MediaLibraryPage({ showToast }) {
         </div>
         <DropZone onFiles={uploader.upload}>
           <div style={{ display: "grid", gridTemplateColumns: open ? "minmax(0, 1fr) minmax(260px, 340px)" : "1fr", gap: 16, alignItems: "start" }} className="media-layout">
-            {lib.state === "loading" ? <div style={muted}>Loading the library…</div> : lib.state === "error" ? (
+            {lib.state === "loading" ? <Loader compact label="Loading the library" /> : lib.state === "error" ? (
               <div style={card}>Could not load the library. <button type="button" style={btn} onClick={lib.reload}>Try again</button></div>
             ) : !lib.items.length ? (
               <div style={{ ...card, textAlign: "center", padding: 36, borderStyle: "dashed" }}>
@@ -310,7 +311,7 @@ export function MediaPicker({ open, onClose, onPick, max = 20, current = [], sho
         </div>
         <DropZone onFiles={uploader.upload}>
           <div style={{ padding: 16, overflowY: "auto", maxHeight: "50vh" }}>
-            {lib.state === "loading" ? <div style={muted}>Loading…</div> : !lib.items.length ? (
+            {lib.state === "loading" ? <Loader compact label="Loading" /> : !lib.items.length ? (
               <div style={{ ...muted, textAlign: "center", padding: 24 }}>Nothing in the library yet. Upload pictures or videos above, or drop them here.</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10 }}>
@@ -394,7 +395,7 @@ export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, 
           <button type="button" onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: C.slate, padding: 4 }}><X size={16} /></button>
         </div>
         <div style={{ padding: 16 }}>
-          {!info ? <div style={muted}>Loading…</div> : !info.available ? (
+          {!info ? <Loader compact label="Loading" /> : !info.available ? (
             <div style={{ ...muted, color: C.ink }}>Video making is not set up for your account yet. Ask Outreach support to switch it on.</div>
           ) : job && job.state === "done" ? (
             <div>

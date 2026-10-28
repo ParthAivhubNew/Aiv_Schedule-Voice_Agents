@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Spinner } from "../../app/Loader";
 import {
   CalendarCheck,
   Calendar,
@@ -685,7 +686,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 color: "#475569"
               }}
             >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+              {loading ? <Spinner size={15} /> : <RefreshCw size={15} />}
             </button>
 
             <button
@@ -1739,7 +1740,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     }}
                   >
                     {bookingInProgress ? (
-                      <RefreshCw size={16} className="animate-spin" />
+                      <Spinner size={16} />
                     ) : (
                       <CheckCircle2 size={16} />
                     )}

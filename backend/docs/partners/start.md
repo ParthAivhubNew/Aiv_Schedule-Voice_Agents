@@ -54,44 +54,177 @@ While you are testing you get test keys (`psk_test_…`). Nothing real is sent o
 
 ## Step 4. Add one endpoint to your server (your developer)
 
-This endpoint answers one question for your page: is this user connected, and if so, here is a pass. Put your secret key in an
-environment variable called `OUTREACH_SECRET`, never in the code.
+This endpoint answers one question for your page: is this user connected, and if so, here is a pass. It runs **on your server**
+(the code that already handles your logins and your database), never in the web page.
+
+### 4a. Keep the secret key in a settings file, not in the code
+
+1. Open the file where your server keeps its settings. Most projects have a file called `.env` in the main project folder. If you
+   have none, create one there.
+2. Add one line, with your own key after the `=` and no quotes or spaces:
+
+```
+OUTREACH_SECRET=psk_test_paste_your_key_here
+```
+
+Then:
+
+- Make sure `.env` is listed in your `.gitignore` file, so the key is never uploaded to GitHub.
+- On your live website the key goes in your hosting dashboard instead, under "Environment variables" (Vercel, Render, Heroku,
+  Railway, AWS and others all have this). The `.env` file stays on your own computer.
+- Restart your server after changing it. Settings are read only when the server starts. A Node server also needs to load the
+   file: run it with `node --env-file=.env server.js`, or add the `dotenv` package. Next.js and most hosting set-ups do this for you.
+
+### 4b. Add the endpoint to your server code
+
+Put it in the file where your other routes live, for example `server.js`, `app.js` or `routes/outreach.js`. **Pick the version that
+matches your server.**
+
+**Node 18 or newer, Express**
 
 ```js
-// Node (Express). Add this route to your server.
 const OUTREACH = "https://outreach.aivhub.com/api/embed";
-const headers = { "Authorization": `Bearer ${process.env.OUTREACH_SECRET}`, "Content-Type": "application/json" };
 
-app.get("/outreach-start", async (req, res) => {
-  const external_id = String(req.user.id);          // your own id for the person who is signed in
-  const component = req.query.component || "leads"; // leads, campaigns, mail, voice or social
+async function outreach(path, body) {
+  const res = await fetch(`${OUTREACH}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OUTREACH_SECRET}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `Outreach answered ${res.status}`);
+  return data;
+}
 
-  const check = await fetch(`${OUTREACH}/connect-sessions`, { method: "POST", headers, body: JSON.stringify({ external_id, component }) });
-  const info = await check.json();
-  if (!info.linked) return res.json({ connect_token: info.connect_token });   // not connected yet
-
-  const pass = await fetch(`${OUTREACH}/sessions`, { method: "POST", headers, body: JSON.stringify({ external_id, component }) });
-  res.json({ token: (await pass.json()).token });
+// requireLogin is whatever you already use to make sure someone is signed in.
+app.get("/outreach-start", requireLogin, async (req, res) => {
+  try {
+    const external_id = String(req.user.id);          // your own id for the person who is signed in
+    const component = req.query.component || "leads"; // leads, campaigns, mail, voice or social
+    const info = await outreach("/connect-sessions", { external_id, component });
+    if (!info.linked) return res.json({ connect_token: info.connect_token });   // not connected yet
+    const pass = await outreach("/sessions", { external_id, component });
+    res.json({ token: pass.token });
+  } catch (err) {
+    console.error("Outreach:", err.message);
+    res.status(502).json({ error: "Outreach could not be reached." });
+  }
 });
 ```
 
-Any language works. Each call is a `POST` with the header `Authorization: Bearer <your secret key>` and a JSON body.
+**Next.js** (create the file `app/api/outreach-start/route.js`)
+
+```js
+const OUTREACH = "https://outreach.aivhub.com/api/embed";
+
+async function outreach(path, body) {
+  const res = await fetch(`${OUTREACH}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OUTREACH_SECRET}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `Outreach answered ${res.status}`);
+  return data;
+}
+
+export async function GET(request) {
+  const user = await getCurrentUser();                // your own way of finding who is signed in
+  if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
+  const component = new URL(request.url).searchParams.get("component") || "leads";
+  const info = await outreach("/connect-sessions", { external_id: String(user.id), component });
+  if (!info.linked) return Response.json({ connect_token: info.connect_token });
+  const pass = await outreach("/sessions", { external_id: String(user.id), component });
+  return Response.json({ token: pass.token });
+}
+```
+
+**Python (Flask)**
+
+```python
+import os, requests
+from flask import jsonify, request
+
+OUTREACH = "https://outreach.aivhub.com/api/embed"
+
+def outreach(path, body):
+    r = requests.post(OUTREACH + path, json=body, timeout=15,
+                      headers={"Authorization": "Bearer " + os.environ["OUTREACH_SECRET"]})
+    r.raise_for_status()
+    return r.json()
+
+@app.get("/outreach-start")
+@login_required                                      # your own sign-in check
+def outreach_start():
+    external_id = str(current_user.id)               # your own id for the person who is signed in
+    component = request.args.get("component", "leads")
+    info = outreach("/connect-sessions", {"external_id": external_id, "component": component})
+    if not info["linked"]:
+        return jsonify(connect_token=info["connect_token"])
+    return jsonify(token=outreach("/sessions", {"external_id": external_id, "component": component})["token"])
+```
+
+Any other language works too. Each call is a `POST` to `https://outreach.aivhub.com/api/embed/...` with the header
+`Authorization: Bearer <your secret key>` and a JSON body.
+
+### Things to get right
+
+- **The address must match Step 5.** The page asks for `/outreach-start`. If you name the route something else, change it in the
+  page snippet too.
+- **Sign-in check:** only signed-in people may reach this route, and `external_id` must always come from your own login, never
+  from the request. Otherwise anyone could ask for a pass for someone else's account.
+- **`external_id` never changes for a person.** Use your own user id (or your account id, if one Outreach account serves a whole
+  team). Do not use an email address, which people change.
+- **Only your server calls Outreach.** A call from a browser is refused with `403`, on purpose.
+- **Screen names:** `leads`, `campaigns`, `mail`, `voice` and `social`. Any other word gives a `422` error.
+
+### 4c. Test it before touching the page
+
+Start your server, then run this in a terminal, with your own key and a user id that exists in your product:
+
+```
+curl -X POST https://outreach.aivhub.com/api/embed/connect-sessions \
+  -H "Authorization: Bearer psk_test_paste_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"external_id":"user-123","component":"leads"}'
+```
+
+You should get back `"linked": false` and a `connect_token`. That means your key works. A `401` means the key is wrong or has a
+space in it. A `403` with "terms" in the message means you have not accepted the partner terms yet (Step 1). A `403` saying the integration is
+paused means the Outreach team has paused it: write to them.
 
 ## Step 5. Paste this into your page (your developer)
 
-Replace `pk_…` with your publishable key and `#box` with the element that should hold the screen.
+This part runs **in the browser**, on the page of your product where the Outreach screen should appear. Your **publishable key**
+(`pk_…`) goes here. It is safe to put in a page. Your **secret key** (`psk_…`) must never appear in it.
+
+Before you paste, check three things:
+
+- The page's address is in your list from Step 2, exactly as it shows in the browser bar. While testing on your own computer add
+  `http://localhost:3000` (use your own port number).
+- The route name matches Step 4. The snippets call `/outreach-start`.
+- If your site sets a Content-Security-Policy, allow `https://outreach.aivhub.com` for scripts and frames.
+
+**Pick the version that matches your product.**
+
+**A plain page** (an `.html` file, or a template such as `templates/outreach.html`, `views/outreach.ejs` or `outreach.php`):
+paste this where the screen should show, near the end of the page just before `</body>`.
 
 ```html
-<div id="box"></div>
+<div id="box" style="height: 700px"></div>
 <script src="https://outreach.aivhub.com/embed.js"></script>
 <script>
-  const outreach = Outreach("pk_…");
+  const outreach = Outreach("pk_…", { host: "https://outreach.aivhub.com" });
   const ask = (component) => fetch("/outreach-start?component=" + component).then((r) => r.json());
 
   async function show(component) {
     const answer = await ask(component);
     if (answer.connect_token) {                      // first time: the person connects their account
-      outreach.connect({ connectToken: answer.connect_token, onConnected: () => show(component) }).open({ mode: "modal" });
+      const win = outreach.connect({
+        connectToken: answer.connect_token,
+        onConnected: () => { win.close(); show(component); },   // close the window, then show the screen
+      });
+      win.open({ mode: "modal" });
       return;
     }
     outreach.create(component, {
@@ -103,20 +236,84 @@ Replace `pk_…` with your publishable key and `#box` with the element that shou
 </script>
 ```
 
-The first time, a window opens where the person signs in to Outreach (or creates an account) and agrees to what you can do. After
-that, the screen opens straight away.
+Replace `pk_…` with your publishable key and `"leads"` with the screen you want.
+
+**A React app** (also fine in Next.js, as a client component): create a new file `src/OutreachScreen.jsx`, paste this in, then use
+`<OutreachScreen component="leads" />` on the page where the screen should appear. Do not add a script tag by hand: the file loads
+it.
+
+```jsx
+import { useEffect, useRef } from "react";
+
+const HOST = "https://outreach.aivhub.com";
+const PUBLISHABLE_KEY = "pk_…"; // safe to keep in code
+
+function loadOutreach() {
+  if (window.Outreach) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = `${HOST}/embed.js`;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+const ask = (component) => fetch(`/outreach-start?component=${component}`).then((r) => r.json());
+
+export default function OutreachScreen({ component = "leads" }) {
+  const box = useRef(null);
+
+  useEffect(() => {
+    let screen, win, gone = false;
+    async function show() {
+      await loadOutreach();
+      if (gone) return;
+      const outreach = window.Outreach(PUBLISHABLE_KEY, { host: HOST });
+      const answer = await ask(component);
+      if (gone) return;
+      if (answer.connect_token) {
+        win = outreach.connect({ connectToken: answer.connect_token, onConnected: () => { win.close(); show(); } });
+        win.open({ mode: "modal" });
+        return;
+      }
+      screen = outreach.create(component, { getToken: () => ask(component).then((a) => a.token), appearance: "auto" });
+      screen.mount(box.current);
+    }
+    show();
+    return () => { gone = true; if (screen) screen.destroy(); if (win) win.destroy(); };
+  }, [component]);
+
+  return <div ref={box} style={{ height: 700 }} />;
+}
+```
+
+If your front end and server run on different addresses (for example the page on port 5173 and the server on port 3000), the
+`fetch` in either version needs the server's full address, or a proxy set in your dev server's settings. Otherwise the page asks
+itself and gets "not found".
+
+**What the person sees:** the first time, a window opens where they sign in to Outreach (or create an account) and agree to what
+you can do. When they finish it closes and the screen appears. After that the screen opens straight away.
 
 ## Step 6. Test it
 
-1. Open your page signed in as a test user. You should see the connect window, then the Leads screen.
-2. Reload. The screen should open without the connect window.
-3. Test keys only use fake credit. Nothing is sent to real people.
+1. Start your server (with `OUTREACH_SECRET` set, see Step 4a) and open your page in the browser. Sign in to your own product as a
+   test user.
+2. You should see the connect window. Sign in to an Outreach account, or create a new one, and tick the agreement. The window
+   closes and the Leads screen appears.
+3. Reload the page. The screen should open without the connect window.
+4. If something fails, press F12 in the browser and open the **Console** tab, and the **Network** tab for the `outreach-start`
+   request. The messages there match the table below.
+5. Test keys only use fake credit. Nothing is sent to real people.
 
 ## Step 7. Go live
 
 1. In **Partner programme → 3. Go live**, press the request button. It works once the terms are accepted and you have at least one web address and one return address. The Outreach team checks your integration and switches it on.
-2. Make a new **live** secret key in Partner programme. The test key stops working for live use.
-3. Put the live key in `OUTREACH_SECRET` and deploy.
+2. Make a new **live** secret key in Partner programme (it starts with `psk_live_`). The test key stops working for live use.
+3. On your live website, open your hosting dashboard's "Environment variables" and replace the value of `OUTREACH_SECRET` with
+   the live key. Your own `.env` file keeps the test key. Then redeploy or restart the live server.
+4. Check that the page is served from a live address that is in your list from Step 2 (for example `https://app.yourproduct.com`),
+   not only `localhost`.
 
 ## If something goes wrong
 

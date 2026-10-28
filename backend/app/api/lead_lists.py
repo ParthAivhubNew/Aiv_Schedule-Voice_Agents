@@ -68,6 +68,12 @@ async def _clean(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[Dict[str
     return [{**l, "ids": [i for i in l["ids"] if i in alive]} for l in lists]
 
 
+async def _checking() -> set:
+    from app.services import company_check_job
+
+    return await company_check_job.locked_ids()
+
+
 def _name(raw: str) -> str:
     name = " ".join((raw or "").split())[:MAX_NAME]
     if not name:
@@ -91,6 +97,7 @@ async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[
     if not hit:
         raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
     hit["ids"] = await _existing(db, hit["ids"] + ids)
+    hit["updated_at"] = datetime.utcnow().isoformat() + "Z"
     await _save(db, lists)
     return {"id": hit["id"], "name": hit["name"], "count": len(hit["ids"])}
 
@@ -149,7 +156,10 @@ async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_d
             raise HTTPException(status_code=409, detail=f"You already have a list called {name}.")
         hit["name"] = name
     gone = set(body.remove)
+    if gone & await _checking():
+        raise HTTPException(status_code=409, detail="Some of these companies are being checked right now. Take them out of the list when the check has finished.")
     hit["ids"] = await _existing(db, [i for i in hit["ids"] if i not in gone] + body.add)
+    hit["updated_at"] = datetime.utcnow().isoformat() + "Z"
     await _save(db, lists)
     return {"list": hit}
 
@@ -160,5 +170,8 @@ async def delete(list_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, 
     keep = [l for l in lists if l["id"] != list_id]
     if len(keep) == len(lists):
         raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
+    mine = next((l for l in lists if l["id"] == list_id), {})
+    if set(mine.get("ids") or []) & await _checking():
+        raise HTTPException(status_code=409, detail="Companies in this list are being checked right now. Delete the list when the check has finished.")
     await _save(db, keep)
     return {"ok": True}

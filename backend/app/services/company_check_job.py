@@ -39,6 +39,10 @@ def _latest_key(org_id: str) -> str:
     return f"checkjob_latest:{org_id}"
 
 
+def _ids_key(org_id: str, job_id: str) -> str:
+    return f"checkids:{org_id}:{job_id}"
+
+
 async def _read(key: str) -> Dict[str, Any]:
     from app.database import AsyncSessionLocal
 
@@ -72,6 +76,19 @@ async def get_job(job_id: str) -> Dict[str, Any]:
 async def latest_job() -> Dict[str, Any]:
     pointer = await _read(_latest_key(current_org()))
     return await get_job(pointer["job_id"]) if pointer.get("job_id") else {}
+
+
+async def locked_ids() -> set:
+    """Ids of the companies in the check that is running now: they can be edited, but not deleted or taken out of a list
+    until it ends, so the numbers it reports stay true."""
+    org = current_org()
+    pointer = await _read(_latest_key(org))
+    if not pointer.get("job_id"):
+        return set()
+    doc = await get_job(pointer["job_id"])
+    if doc.get("status") != "running":
+        return set()
+    return set((await _read(_ids_key(org, pointer["job_id"]))).get("ids") or [])
 
 
 async def request_cancel(job_id: str) -> Dict[str, Any]:
@@ -148,6 +165,7 @@ async def start(db, accounts: List[Any], include_email: bool, include_web: bool 
            "counts": {v: 0 for v in cc.VERDICTS}, "used": {s: 0 for s, _, _ in _STEPS}, "charged": None,
            "ready": est["ready"], "started_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
     await _write(_key(org, job_id), doc)
+    await _write(_ids_key(org, job_id), {"ids": [a.id for a in accounts]})
     await _write(_latest_key(org), {"job_id": job_id})
     rows = [cc._account_row(a) for a in accounts]
     _TASKS[job_id] = asyncio.create_task(_run(org, job_id, rows, ready, doc, [h["ref"] for h in held]))
@@ -164,6 +182,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                 phone_sem=asyncio.Semaphore(6), phone_client=_phone_client() if doc["options"].get("phone") else None,
                 web_sem=asyncio.Semaphore(10), dns_sem=asyncio.Semaphore(20), deep_sem=asyncio.Semaphore(4), email_sem=asyncio.Semaphore(3))
             queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
+            snapshot = {r["id"]: r for r in rows}  # the companies as they were when the check began
             for r in rows:
                 queue.put_nowait(r)
             pending: List[tuple] = []
@@ -176,7 +195,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                         return
                     batch, pending[:] = list(pending), []
                     if batch:
-                        await _save_results(batch)
+                        await _save_results(batch, snapshot)
                     cur = await _read(key)
                     if cur.get("cancel"):
                         state["cancelled"] = True
@@ -268,7 +287,10 @@ async def _web_research(account_id: str, result: Dict[str, Any]) -> int:
         return 0
 
 
-async def _save_results(batch: List[tuple]) -> None:
+_WATCHED = ("name", "website", "phone", "email", "contact_name")
+
+
+async def _save_results(batch: List[tuple], snapshot: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
     from app.database import AsyncSessionLocal
     from app.models.models import LeadAccount
 
@@ -280,7 +302,16 @@ async def _save_results(batch: List[tuple]) -> None:
             if not acc:
                 continue
             result = {k: v for k, v in result.items() if k != "spent"}
+            # The person may have edited the company while it was being checked. What they typed is never overwritten: the check
+            # keeps its result about the value it read, noted as such, and anything it would have filled in is offered, not applied.
+            was = (snapshot or {}).get(acc_id) or {}
+            edited = [f for f in _WATCHED if f in was and (getattr(acc, f, "") or "") != was[f]]
+            if edited:
+                result["edited_during_check"] = edited
             for fix in result.get("fixes") or []:
+                if fix["field"] in edited:
+                    fix["applied"] = False
+                    continue
                 # A blank field is filled right away; a value the user gave is only ever offered (see check_fixes).
                 if fix["kind"] == "fill" and not getattr(acc, fix["field"], ""):
                     check_fixes.set_field(acc, fix["field"], fix["to"])

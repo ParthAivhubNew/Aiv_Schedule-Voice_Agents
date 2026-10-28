@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { RefreshCw, Save, ShieldAlert, Wallet, Receipt } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { adminApi } from "./adminApi";
@@ -22,7 +23,7 @@ export function Balances({ canEdit }) {
     return (
       <>
         <PageTitle title="Platform Balances" />
-        <Note error>{err || "Loading platform balances…"}</Note>
+        err ? <Note error>{err}</Note> : <Loader label="Loading platform balances" />
       </>
     );
   }

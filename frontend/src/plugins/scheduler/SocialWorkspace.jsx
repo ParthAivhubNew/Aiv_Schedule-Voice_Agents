@@ -1,4 +1,5 @@
 import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { createPortal } from "react-dom";
 import {
   CalendarClock,
@@ -269,7 +270,7 @@ function BrandVoicePanel({ onClose, onSaved }) {
       </div>
       <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>How your posts should sound. Plan AI and every new post use this.</div>
       {err && <div style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{err}</div>}
-      {!v ? <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>{err ? "" : "Loading…"}</div> : (
+      {!v ? err ? null : <Loader compact label="Loading" /> : (
         <>
           <label style={label}>Tone<input style={field} value={v.tone} maxLength={600} placeholder="e.g. Warm, plain-spoken, a little witty" onChange={(e) => set("tone", e.target.value)} /></label>
           <label style={label}>Who you write for<input style={field} value={v.audience} maxLength={600} placeholder="e.g. Owners of small UK accounting firms" onChange={(e) => set("audience", e.target.value)} /></label>
@@ -568,7 +569,7 @@ function VersionHistory({ post, reloadKey, onRestore, onClose }) {
         </button>
       </div>
       {error ? <div style={{ fontSize: 12, color: C.red }}>{error}</div> : null}
-      {rows === null ? <div style={{ fontSize: 12, color: C.slate }}>Loading…</div> : null}
+      {rows === null ? <Loader compact label="Loading" /> : null}
       {rows && rows.length > 1 ? (
         <button type="button" disabled={!!busy} onClick={() => restore(rows[1])} style={{ ...secBtn, height: 30, fontSize: 11.5, marginBottom: 6 }}>
           {busy === rows[1].id ? "Undoing…" : "Undo last change"}
@@ -948,7 +949,7 @@ function PostResults({ post }) {
           </a>
         ))}
       </div>
-      {state === "loading" ? <div style={{ fontSize: 12, color: C.slate }}>Loading results…</div> : null}
+      {state === "loading" ? <Loader compact label="Loading results" /> : null}
       {state === "error" ? <div style={{ fontSize: 12, color: C.slate }}>Results could not be loaded. Try again later.</div> : null}
       {state === "ok" && data.test ? (
         <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45 }}>

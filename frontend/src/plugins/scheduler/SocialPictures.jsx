@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { Check, Image as ImageIcon } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
@@ -48,7 +49,7 @@ export function PictureSettings({ showToast }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.getImageSettings().then((d) => { setS(d); setSaved(d); }).catch(() => setS(false)); }, []);
   if (s === false) return null;
-  if (!s) return <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 22 }}>Loading picture settings…</div>;
+  if (!s) return <Loader compact label="Loading picture settings" />;
   const set = (k, v) => setS((o) => ({ ...o, [k]: v }));
   const changed = saved && ["style", "styleCustom", "aspectRatio", "quality"].some((k) => (s[k] || "") !== (saved[k] || ""));
   const save = async () => {

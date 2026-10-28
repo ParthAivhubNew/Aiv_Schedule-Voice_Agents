@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { AlertTriangle, CalendarDays, Coins, CreditCard, Download, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
@@ -70,7 +71,7 @@ export function CreditsTab() {
   }, [load]);
 
   if (error && !data) return <div style={{ color: C.red, fontSize: 12.5 }}>{error}</div>;
-  if (!data) return <div style={{ color: C.slate, fontSize: 13 }}>Loading…</div>;
+  if (!data) return <Loader compact label="Loading" />;
 
   // Plugins already on a plan change it on their Subscription page; the others can still be bought.
   const subscribed = ["active", "past_due", "trialing"].includes(data.subscription.status) ? data.subscription.plans : {};

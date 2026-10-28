@@ -46,6 +46,11 @@ const mostlyHonorifics = (header, records) => {
   return vals.length > 0 && vals.filter((v) => HONORIFIC.test(v)).length / vals.length >= 0.8;
 };
 
+// A row with no company but a person's name is saved as that person, under their own name, so call lists of contacts import too.
+export function withPeople(rows) {
+  return (rows || []).map((r) => (!r.name && !r.website && r.contact_name ? { ...r, name: r.contact_name } : r));
+}
+
 export function signature(headers) {
   return (headers || []).map((h) => String(h).trim().toLowerCase()).sort().join("|");
 }
@@ -131,8 +136,12 @@ export function mappingWarnings(mapping, records) {
   if (vals.includes("contact_name") && (vals.includes("contact_first") || vals.includes("contact_last"))) {
     warn.push("Contact (full name) is filled first; first and last name are only used for rows where it is empty.");
   }
-  if (!vals.includes("name") && !vals.includes("website")) {
-    warn.push("No column is matched to Company name or Website, so these rows have nothing to save them by.");
+  const hasPerson = vals.includes("contact_name") || vals.includes("contact_first") || vals.includes("contact_last");
+  if (!vals.includes("name") && !vals.includes("website") && !hasPerson) {
+    warn.push("No column is matched to Company name, Website or a contact's name, so these rows have nothing to save them by.");
+  }
+  if (!vals.includes("name") && !vals.includes("website") && hasPerson) {
+    warn.push("There is no company column, so each row is saved as a person, under their own name.");
   }
   const counts = {};
   vals.forEach((v) => { if (v !== SKIP) counts[isCustom(v) ? CUSTOM + customName(v) : v] = (counts[isCustom(v) ? CUSTOM + customName(v) : v] || 0) + 1; });

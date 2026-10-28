@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "../app/Loader";
 import { api } from "../api/apiClient";
 import {
   C,
@@ -1126,7 +1127,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                         cursor: usageLoading ? "not-allowed" : "pointer"
                       }}
                     >
-                      <RefreshCw size={13} className={usageLoading ? "animate-spin" : ""} />
+                      {usageLoading ? <Spinner size={13} /> : <RefreshCw size={13} />}
                       <span>{usageLoading ? "Refreshing..." : "Refresh"}</span>
                     </button>
                     <div style={{ textAlign: "right" }}>

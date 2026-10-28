@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Loader } from "../app/Loader";
 import { Mail, RefreshCw, Upload, Save, RotateCcw } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
@@ -337,7 +338,7 @@ export function MeetingInvitePreview({
 
           <div style={{ padding: compact ? 8 : 16, background: "#E8EDF2", minHeight: compact ? 320 : 420 }}>
             {loading ? (
-              <div style={{ textAlign: "center", color: C.slate, fontSize: 13, padding: 40 }}>Loading preview…</div>
+              <Loader compact label="Loading preview" />
             ) : err ? (
               <div style={{ textAlign: "center", color: "#B91C1C", fontSize: 13, padding: 40 }}>{err}</div>
             ) : data?.html ? (

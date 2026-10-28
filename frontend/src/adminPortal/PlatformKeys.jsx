@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useLoad } from "./ui";
@@ -800,7 +801,7 @@ function BusinessRecordsBrowser() {
           )}
         </div>
       )}
-      {loading ? <div style={{ fontSize: 12.5, color: C.slate }}>Loading…</div> : (
+      {loading ? <Loader compact label="Loading" /> : (
         <div style={{ overflowX: "auto", overflowY: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>

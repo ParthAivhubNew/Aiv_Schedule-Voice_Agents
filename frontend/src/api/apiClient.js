@@ -355,7 +355,7 @@ export const api = {
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload, timeoutMs: 90000 }),
   // Leads saved accounts (stored per company on the server)
   listLeadAccounts: () => apiRequest('/leads/accounts'),
-  saveLeadAccounts: (accounts, listName) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '' } }),
+  saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } }),
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),

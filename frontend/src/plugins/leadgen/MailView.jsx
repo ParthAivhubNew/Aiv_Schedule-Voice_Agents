@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader, Spinner } from "../../app/Loader";
 import {
   Archive, ArrowLeft, Ban, Bold, MessageSquare, Forward, FileText, Inbox, Italic, Link2, List, Mail, MailOpen, Paperclip, PenSquare,
   RefreshCw, Reply, ReplyAll, Search, Send, ShieldAlert, Star, Trash2, Underline, X,
@@ -369,7 +370,7 @@ export function MailView({ operator, outreach, start }) {
                 <input aria-label="Search mail" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search mail" style={{ ...inputStyle, paddingLeft: 30 }} />
               </div>
               <button type="button" className="ml-ibtn" aria-label="Check for new mail" title={current?.synced_at ? `Last checked ${fullWhen(current.synced_at)}` : "Check for new mail"} onClick={() => sync(true)} disabled={syncing}>
-                <RefreshCw size={15} style={syncing ? { animation: "ml-spin 1s linear infinite" } : undefined} />
+                {syncing ? <Spinner size={15} /> : <RefreshCw size={15} />}
               </button>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -403,7 +404,7 @@ export function MailView({ operator, outreach, start }) {
             )}
           </div>
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
-            {loading || !boxes ? <div style={{ ...small, padding: 16 }}>Loading…</div> : !data.threads.length ? (
+            {loading || !boxes ? <Loader compact label="Loading" /> : !data.threads.length ? (
               <div style={{ ...small, padding: 20, fontSize: 13.5 }}>{query || filter.unread || filter.starred || filter.attachments ? "Nothing matches." : inTrash ? "Trash is empty." : folder === "inbox" ? "Your inbox is empty." : "Nothing here yet."}</div>
             ) : data.threads.map((t) => (
               <div key={t.id} style={{ display: "flex", alignItems: "stretch" }}>

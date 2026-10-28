@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { CalendarClock, Check, Copy, Lock, PhoneCall, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
@@ -213,7 +214,7 @@ export function LeadActivity({ account, store }) {
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!note.trim() || busy === "note"} onClick={() => run("note", async () => { await api.addLeadNote(account.id, note.trim()); setNote(""); })}>Add</button>
       </div>
       {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
-      {!data && !error ? <div style={muted}>Loading…</div> : null}
+      {!data && !error ? <Loader compact label="Loading" /> : null}
       {data && !data.events.length ? <div style={muted}>Nothing has happened with this company yet. Calls, emails, meetings and posts will appear here.</div> : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         {(data?.events || []).map((e) => (

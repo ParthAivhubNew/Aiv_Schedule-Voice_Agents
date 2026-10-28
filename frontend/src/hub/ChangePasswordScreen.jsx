@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Lock, AlertTriangle, RefreshCw } from "lucide-react";
+import { Spinner } from "../app/Loader";
+import { Lock, AlertTriangle } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
 
@@ -59,7 +60,7 @@ export function ChangePasswordScreen({ operator, onDone, onLogout }) {
             </div>
           )}
           <button type="submit" disabled={saving} style={{ width: "100%", height: 46, marginTop: 6, borderRadius: 12, border: "none", background: C.ink, color: "#fff", fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 15, cursor: saving ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            {saving ? <><RefreshCw size={15} className="animate-spin" /> Saving…</> : "Save and continue"}
+            {saving ? <><Spinner size={15} /> Saving…</> : "Save and continue"}
           </button>
           <button type="button" onClick={onLogout} style={{ width: "100%", marginTop: 10, background: "none", border: "none", color: C.slate, fontSize: 13, cursor: "pointer" }}>
             Sign out

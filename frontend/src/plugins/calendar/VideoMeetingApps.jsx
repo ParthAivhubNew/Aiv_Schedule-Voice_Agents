@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../../app/Loader";
 import { api } from "../../api/apiClient";
 
 const NOTE = { fontSize: 12, color: "#64748B" };
@@ -56,7 +57,7 @@ export function VideoMeetingApps() {
         </div>
       </div>
       {msg && <div style={{ ...NOTE, color: "#0F172A" }}>{msg}</div>}
-      {providers === null && <div style={NOTE}>Loading…</div>}
+      {providers === null && <Loader compact label="Loading" />}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
         {(providers || []).map((p) => (
           <div key={p.provider} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: 16, display: "grid", gap: 10 }}>

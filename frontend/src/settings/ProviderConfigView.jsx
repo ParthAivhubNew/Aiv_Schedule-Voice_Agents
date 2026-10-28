@@ -5,13 +5,13 @@ import {
   Eye,
   EyeOff,
   Plus,
-  RefreshCw,
   Save,
   ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Spinner } from "../app/Loader";
 import { Line } from "recharts";
 import { api } from "../api/apiClient";
 import { C, CONNECTIONS, FONT_BODY, FONT_DISPLAY, FONT_MONO, liveStackLabels, voiceLayersFromHub } from "../app/constants";
@@ -823,7 +823,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                   >
                                     {phase === "testing" ? (
                                       <>
-                                        <RefreshCw size={13} className="animate-spin" /> Testing live connection...
+                                        <Spinner size={13} /> Testing live connection...
                                       </>
                                     ) : (
                                       <>
@@ -840,7 +840,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                     >
                                       {phase === "saving" ? (
                                         <>
-                                          <RefreshCw size={13} className="animate-spin" /> Updating…
+                                          <Spinner size={13} /> Updating…
                                         </>
                                       ) : (
                                         <>
@@ -858,7 +858,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                 >
                                   {phase === "saving" ? (
                                     <>
-                                      <RefreshCw size={13} className="animate-spin" /> Saving key...
+                                      <Spinner size={13} /> Saving key...
                                     </>
                                   ) : (
                                     <>
@@ -1011,7 +1011,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
               >
                 {deleteKeyConfirm.deleting ? (
                   <>
-                    <RefreshCw size={14} className="animate-spin" /> Deleting…
+                    <Spinner size={14} /> Deleting…
                   </>
                 ) : (
                   <>

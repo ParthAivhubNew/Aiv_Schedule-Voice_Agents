@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { Spinner } from "../../app/Loader";
+import { Sparkles } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged } from "./CreditsChip";
 import { C, FONT_BODY } from "../../tokens";
@@ -158,7 +159,7 @@ export function SequenceWriter({ accountIds, personalise, setPersonalise, ready,
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="ui-btn ui-btn--primary" disabled={busy || !ready} onClick={write}
           title={ready ? "Write the whole sequence from your business details and what this list has in common" : "Fill in About your business first"}>
-          {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} Write the emails with AI
+          {busy ? <Spinner size={14} /> : <Sparkles size={14} />} Write the emails with AI
         </button>
         <label style={{ ...muted, display: "inline-flex", gap: 6, alignItems: "center" }} title="Adds an opening line about each company, built from facts we hold about it. You review every line before sending">
           <input type="checkbox" checked={personalise} onChange={(e) => setPersonalise(e.target.checked)} /> Open each email with a line about that company
@@ -264,7 +265,7 @@ export function PersonalLines({ leads, lines, setLines, ready }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="ui-btn ui-btn--secondary" disabled={busy || !ready || !ids.length} onClick={write}
           title={ready ? "Write an opening line for each company from the facts we hold" : "Fill in About your business first"}>
-          {busy ? <RefreshCw size={14} className="ui-spin" /> : <Sparkles size={14} />} {written ? "Write the missing lines" : `Write lines for ${ids.length.toLocaleString()} companies`}
+          {busy ? <Spinner size={14} /> : <Sparkles size={14} />} {written ? "Write the missing lines" : `Write lines for ${ids.length.toLocaleString()} companies`}
         </button>
         {written ? <span style={muted}>{written.toLocaleString()} of {ids.length.toLocaleString()} have a line.</span> : null}
         {written ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Remove every written line" onClick={() => { setLines({}); setResult({}); }}>Clear all</button> : null}

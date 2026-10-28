@@ -94,3 +94,16 @@ describe("a real client file", () => {
     expect(guessMapping(["Name", "Job Title"])["Job Title"]).toBe("contact_title");
   });
 });
+
+describe("people without a company", () => {
+  it("are saved under their own name and the mapping says so", async () => {
+    const { withPeople, mappingWarnings } = await import("./importMapping");
+    const rows = withPeople([{ contact_name: "Mayur Doshi", phone: "0758" }, { name: "Acme", contact_name: "A B" }, { website: "x.co.uk" }]);
+    expect(rows[0].name).toBe("Mayur Doshi");
+    expect(rows[1].name).toBe("Acme");
+    expect(rows[2].name).toBeUndefined();
+    const warn = mappingWarnings({ "Contact Name": "contact_name", Mobile: "phone" }, rows);
+    expect(warn.some((w) => /saved as a person/.test(w))).toBe(true);
+    expect(warn.some((w) => /nothing to save/.test(w))).toBe(false);
+  });
+});

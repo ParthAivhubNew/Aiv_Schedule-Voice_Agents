@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Loader } from "../app/Loader";
 import { FONT_BODY } from "../tokens";
 
 // What each screen lets the partner do, in words a person can check before they agree.
@@ -51,12 +52,13 @@ export function ConnectScreen({ connectToken, onConnected }) {
       else onConnected(out);
     } catch (err) {
       setError(err.message);
+      setF((x) => (x.website ? { ...x, website: "" } : x)); // an autofilled trap field would fail every retry
     } finally {
       setBusy(false);
     }
   };
 
-  if (!info && !error) return <div role="status" style={{ padding: 32, color: "var(--ui-muted)", fontFamily: FONT_BODY }}>Loading…</div>;
+  if (!info && !error) return <Loader compact label="Loading" />;
   const partner = info ? info.partner.name : "this app";
   const label = { display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "var(--ui-ink-2)" };
   const input = { width: "100%", height: 38, boxSizing: "border-box", fontSize: 14, fontWeight: 400 };
@@ -85,7 +87,7 @@ export function ConnectScreen({ connectToken, onConnected }) {
               <>
                 <label style={label}>Company<input className="ui-input" style={input} value={f.company} onChange={set("company")} autoComplete="organization" required /></label>
                 <label style={label}>Your name<input className="ui-input" style={input} value={f.name} onChange={set("name")} autoComplete="name" required /></label>
-                <input tabIndex={-1} aria-hidden="true" autoComplete="off" value={f.website} onChange={set("website")} style={{ position: "absolute", left: -9999, opacity: 0 }} />
+                <input tabIndex={-1} aria-hidden="true" autoComplete="off" name="hp_field" readOnly onFocus={(e) => e.target.removeAttribute("readonly")} value={f.website} onChange={set("website")} style={{ position: "absolute", left: -9999, opacity: 0 }} />
               </>
             )}
             <label style={label}>{mode === "login" ? "Email or username" : "Email"}<input className="ui-input" style={input} value={f.email} onChange={set("email")} autoComplete="username" required /></label>

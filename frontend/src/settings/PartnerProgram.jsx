@@ -83,7 +83,7 @@ function PartnerDocs({ alwaysOpen = false }) {
             {GUIDES.map(([id, name]) => <button key={id} type="button" style={button(guide === id)} onClick={() => setGuide(id)}>{name}</button>)}
             <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, marginLeft: "auto" }}>Open on its own page</a>
           </div>
-          <iframe key={guide} title={`Partner documentation: ${guide}`} src={url} style={{ width: "100%", height: "70vh", minHeight: 420, border: `1px solid ${C.border}`, borderRadius: 10, background: "#fff" }} />
+          <iframe key={guide} aria-label={`Partner documentation: ${guide}`} src={url} style={{ width: "100%", height: "70vh", minHeight: 420, border: `1px solid ${C.border}`, borderRadius: 10, background: "#fff" }} />
         </>
       )}
     </div>

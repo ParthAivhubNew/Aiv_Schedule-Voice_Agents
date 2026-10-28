@@ -84,14 +84,14 @@ export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
     ["only", "Saved", saved || 0, "", "Already in one of your lists"],
   ];
   return (
-    <div role="group" aria-label="Show" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+    <div role="group" aria-label="Show" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
       {tiles.map(([id, label, n, extra, tip]) => {
         const on = (filter || "") === id;
         return (
           <button key={label} type="button" title={tip} aria-pressed={on} disabled={busy} onClick={() => onPick(id)}
-            style={{ cursor: "pointer", textAlign: "left", minWidth: 104, padding: "7px 12px", borderRadius: 8, border: `1px solid ${on ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff", ...text }}>
-            <div style={{ fontSize: 12, color: on ? C.cobaltDeep : C.slate, fontWeight: 600 }}>{label}</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{Number(n).toLocaleString()}{extra}</div>
+            style={{ cursor: "pointer", height: 36, boxSizing: "border-box", padding: "0 12px", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", border: `1px solid ${on ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff", ...text, fontSize: 13 }}>
+            <span style={{ color: on ? C.cobaltDeep : C.slate, fontWeight: 600 }}>{label}</span>
+            <span style={{ fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{Number(n).toLocaleString()}{extra}</span>
           </button>
         );
       })}
@@ -149,7 +149,7 @@ function Reach({ value, kind, onFind, web, state }) {
   if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const tip = kind === "email" ? "Open the profile to look for an email" : "Look on the web for this company's website and phone. 1 credit if found (the deeper search is used only if the first finds no website, and only charged if it does). Nothing is charged for a miss";
-  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}</button>;
+  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
 }
 
 function SaveCell({ saved, onSave }) {
