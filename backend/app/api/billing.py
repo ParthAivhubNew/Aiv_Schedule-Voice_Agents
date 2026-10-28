@@ -52,6 +52,10 @@ async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]],
     as covered, on every wallet, regardless of whether a subscription row exists for it."""
     if _is_aivhub_org(org_id):
         return {w["key"]: True for w in wallets_dict}
+    if not (await K.org_settings(db))["enforce"]:
+        # Credit limits are switched off for this account (a partner's new accounts while the programme is free): every app is open,
+        # exactly as the credit checks already treat it. Without this the apps stayed locked behind "add a plan" with nowhere to buy one.
+        return {w["key"]: True for w in wallets_dict}
     sub = await B.subscription_row(db)
     sub_plans = (sub.plans or {}) if (sub and sub.status in LIVE_SUB_STATUSES) else {}
     return {w["key"]: bool(sub_plans.get(w["key"])) or (w.get("balance") or 0) + (w.get("held") or 0) > 0
