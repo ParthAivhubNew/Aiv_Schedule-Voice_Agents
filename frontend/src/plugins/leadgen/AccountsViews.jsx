@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GridTools } from "../../components/GridTools";
 import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -820,6 +821,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             </button>
           </div>
         ) : null}
+        <GridTools id="my-list" />
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
           <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
@@ -846,6 +848,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
+                    {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
                   </td>
                   {showing("phone") ? (
                     <td style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
@@ -1328,34 +1331,40 @@ const IMPORT_BATCH = 500;
 // What an import did, in plain terms, and what to do next.
 function ImportReport({ done, onGo, onClose, onToast }) {
   const call = useCallDialog(onToast);
-  const row = (n, label, tip) => (n ? <div title={tip} style={{ display: "flex", gap: 8 }}><strong style={{ minWidth: 44, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</strong><span>{label}</span></div> : null);
+  const stat = (n, label, tip) => (n ? (
+    <div title={tip} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff" }}>
+      <div style={{ ...text, fontSize: 22, lineHeight: 1.15, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</div>
+      <div style={{ ...muted, fontSize: 12.5, marginTop: 2 }}>{label}</div>
+    </div>
+  ) : null);
   const gaps = [["phone number", done.blanks.phone], ["email", done.blanks.email], ["website", done.blanks.website]].filter(([, n]) => n);
   return (
-    <div className="ui-card" role="status" style={{ padding: 16, textAlign: "left", display: "flex", flexDirection: "column", gap: 8, maxWidth: 560, width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Check size={16} color={C.green} />
-        <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-          Imported {done.file ? `${done.file} ` : ""}into the list {done.list?.name || "Unsorted"}
+    <div className="ui-card" role="status" style={{ padding: 18, textAlign: "left", display: "flex", flexDirection: "column", gap: 14, maxWidth: 760, width: "100%", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <span style={{ width: 24, height: 24, borderRadius: 12, background: C.greenSoft || "#E6F4EC", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={14} color={C.green} /></span>
+        <div style={{ marginRight: "auto", minWidth: 0 }}>
+          <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import finished</div>
+          <div style={{ ...muted, fontSize: 12.5, overflowWrap: "anywhere" }}>{done.file ? `${done.file} · ` : ""}saved in the list {done.list?.name || "Unsorted"}</div>
         </div>
         <button type="button" className="ui-icon-btn" aria-label="Dismiss" onClick={onClose}><X size={16} /></button>
       </div>
-      <div style={{ ...text, fontSize: 13, color: C.textInk, lineHeight: 1.6 }}>
-        {row(done.added, "new companies saved", "Companies that were not in your account before")}
-        {row(done.matched, "already saved, so just added to this list (not copied, nothing to pay again)", "Matched by website, or by name and town")}
-        {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", color: C.slate }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
-        {row(done.filled, "matched to our company records, with what we know filled in (free)", "The registry record was found, so its website, size and sector were added where yours were blank")}
-        {row(done.repeats, "repeated in your file, kept once", "The same company on more than one row")}
-        {row(done.unnamed, "left out: no company name or website", "Rows with nothing to identify the company")}
-        {!done.added && !done.matched ? <div style={{ color: C.slate }}>Nothing was added.</div> : null}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {stat(done.added, "new companies", "Companies that were not in your account before")}
+        {stat(done.matched, "already saved, added to the list", "Matched by website, or by name and town. Not copied, nothing to pay again")}
+        {stat(done.filled, "filled from our records (free)", "The registry record was found, so its website, size and sector were added where yours were blank")}
+        {stat(done.repeats, "repeats, kept once", "The same company on more than one row")}
+        {stat(done.unnamed, "left out: no name or website", "Rows with nothing to identify the company")}
       </div>
-      {gaps.length ? (
-        <div style={{ ...muted, fontSize: 12.5 }}>
-          Still missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. "Check & improve" can fill these and fix what looks wrong.
+      {!done.added && !done.matched ? <div style={{ ...muted, fontSize: 13 }}>Nothing was added.</div> : null}
+      {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", ...muted, fontSize: 12.5 }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
+      {gaps.length || done.custom?.length ? (
+        <div style={{ ...muted, fontSize: 12.5, display: "flex", flexDirection: "column", gap: 4 }}>
+          {gaps.length ? <div>Missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. Open the list and use "Check & improve" to fill these and fix what looks wrong.</div> : null}
+          {done.custom?.length ? <div>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
         </div>
       ) : null}
-      {done.custom?.length ? <div style={{ ...muted, fontSize: 12.5 }}>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button title="Go to this list" type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onGo("lists")}>Open the list</button>
+        <button title="Go to this list" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("lists")}>Open the list</button>
         {done.list?.id && (done.blanks?.phone ?? 0) < (done.list.count ?? Infinity) ? (
           <CallButton label="Call this list" lockedLabel="Call this list · add Voice" title="Skips anyone without a number, on your do-not-contact list or contacted lately, and shows you who before it dials"
             onClick={() => call.open({ kind: "list", id: done.list.id, name: done.list.name })} onLocked={() => call.open({ kind: "list", id: done.list.id, name: done.list.name }, true)} />
@@ -1482,12 +1491,18 @@ export function ImportView({ store, onGo, onAskAi }) {
           onImport={onMapped}
         />
       ) : null}
+      {done && !fields.length ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
       {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
-          style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
+          style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: done ? "24px 20px" : "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
           <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
-          <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import companies from a file</div>
-          <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here. Every sheet in a workbook is read, not just the first, and you can check which column is which before anything is saved. Every file becomes a list. A company you already saved is not copied: it is just added to the list.</div>
+          <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>{done ? "Import another file" : "Import companies from a file"}</div>
+          <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here, or choose one. You check which column is which before anything is saved.</div>
+          <ul style={{ ...muted, fontSize: 12.5, margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>
+            <li>Every sheet in a workbook is read, not just the first.</li>
+            <li>Every file becomes a list.</li>
+            <li>A company you already saved is not copied, only added to the list.</li>
+          </ul>
           <button title="Pick a CSV or Excel file of companies to import" type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
@@ -1495,7 +1510,6 @@ export function ImportView({ store, onGo, onAskAi }) {
             ))}
           </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-          {done ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
           {onAskAi ? (
             <div style={{ fontSize: 12.5, color: C.slate, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
               Or

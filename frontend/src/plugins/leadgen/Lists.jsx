@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { GridTools } from "../../components/GridTools";
 import { CardsSkeleton } from "../../app/Loader";
 import { Check, ListChecks, Megaphone, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
@@ -213,6 +214,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
         </div>
       ) : (
         <div className="ui-card" style={{ overflow: "hidden" }}>
+          <GridTools id="my-lists" />
           <div className="ui-scroll" style={{ overflowX: "auto" }}>
             <table className="ui-table" style={{ minWidth: 640 }}>
               <thead>

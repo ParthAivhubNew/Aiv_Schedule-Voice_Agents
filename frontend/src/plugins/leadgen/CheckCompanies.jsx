@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Spinner, TopBar } from "../../app/Loader";
 import { AlertTriangle, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
@@ -17,8 +18,9 @@ export const VERDICTS = {
   not_found: { label: "Not found", color: C.amber, bg: C.amberSoft },
   problem: { label: "Problem", color: C.red, bg: C.redSoft },
   unclear: { label: "Unclear", color: C.slate, bg: C.paperSoft },
+  person: { label: "Person", color: C.slate, bg: C.paperSoft },
 };
-export const VERDICT_ORDER = ["verified", "looks_ok", "problem", "not_found", "unclear"];
+export const VERDICT_ORDER = ["verified", "looks_ok", "problem", "not_found", "unclear", "person"];
 
 const STAGE_LABEL = { web: "Web research", our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder" };
 const STATE_WORDS = {
@@ -61,6 +63,7 @@ export function explainCheck(v) {
     verified: { headline: `${cap(status) || "Active"} on the company register`, means: "This is a real company that is still trading.", todo: "Nothing to do here. Check the phone and email below before you contact them." },
     looks_ok: { headline: "Exists, but not confirmed as trading", means: "We found signs that it exists, but no register told us it is active, so we can't promise it is.", todo: "Fine to contact. For a firm answer, add its registered name or company number and check again." },
     not_found: { headline: "Not found on any register or search", means: "We couldn't confirm that this company exists. The name may be spelt differently, or it may be a sole trader or a trading name.", todo: "Check the spelling, or add the registered name or number under Details, then run Check & improve again." },
+    person: { headline: "A person, not a company", means: "There is no company on this row, so only the phone number and email were checked.", todo: "Add the company name or website if you want it checked against the registers too." },
     unclear: { headline: "Couldn't confirm just now", means: "The sources we ask didn't answer, so this says nothing about the company itself.", todo: "Run Check & improve again in a few minutes. Nothing is charged for a source that didn't answer." },
   };
   const base = byVerdict[v?.verdict] || { headline: "", means: "", todo: "" };
@@ -285,14 +288,60 @@ export function useCompanyCheck({ onToast, reload }) {
 const USED_WORDS = [["registry", "asked the company register"], ["deep", "searched the web for"], ["phone", "checked the phone network for"],
   ["web", "researched"], ["email", "found emails for"]];
 function liveLine(job) {
-  const bits = USED_WORDS.filter(([k]) => job.used?.[k]).map(([k, w]) => `${w} ${job.used[k].toLocaleString()}`);
+  const bits = USED_WORDS.filter(([k]) => job.used?.[k]).map(([k, w]) => `${w} ${job.used[k].toLocaleString()} ${job.used[k] === 1 ? "company" : "companies"}`);
   const started = job.started_at ? new Date(job.started_at + (job.started_at.endsWith("Z") ? "" : "Z")).getTime() : 0;
   let eta = "";
   if (job.status === "running" && !job.pause && started && job.done >= 3) {
     const left = Math.max(0, Math.round(((Date.now() - started) / job.done) * (job.total - job.done) / 1000));
     eta = left < 60 ? "less than a minute left" : `about ${Math.round(left / 60)} min left`;
   }
-  return [bits.length ? `So far we've ${bits.join(", ")}.` : "Starting up: matching each company against our records.", eta].filter(Boolean).join(" ");
+  return [bits.length ? `So far we've ${bits.join(", ")}.` : "Starting up: matching each company against our records.", eta ? `${eta[0].toUpperCase()}${eta.slice(1)}.` : ""].filter(Boolean).join(" ");
+}
+
+// What the check is doing right now: each company being worked on and the step it is at, then the last few finished. So a slow step
+// never looks like the screen is stuck.
+function LiveFeed({ job }) {
+  const now = job.now || [];
+  const recent = job.recent || [];
+  const row = { display: "flex", alignItems: "center", gap: 10, padding: "6px 0", minWidth: 0 };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, borderTop: `1px solid ${C.borderLight}`, paddingTop: 10 }}>
+      <div>
+        <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em" }}>Working on now</div>
+        {job.pause ? <div style={{ ...muted, padding: "6px 0" }}>Paused. Nothing is being checked.</div> : null}
+        {!job.pause && !now.length ? <div style={{ ...row, ...muted }}><Spinner size={14} /> Getting the next company ready…</div> : null}
+        {!job.pause ? now.map((n) => (
+          <div key={n.id} style={row}>
+            <Spinner size={14} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {n.contact && n.contact !== n.name ? `${n.contact} · ${n.name}` : n.name}
+              </div>
+              <div style={{ ...muted, fontSize: 12.5 }}>{n.step}…</div>
+            </div>
+          </div>
+        )) : null}
+      </div>
+      <div>
+        <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em" }}>Just finished</div>
+        {!recent.length ? <div style={{ ...muted, padding: "6px 0" }}>Results appear here as each company is done.</div> : null}
+        {recent.map((r, i) => {
+          const v = VERDICTS[r.verdict] || VERDICTS.unclear;
+          return (
+            <div key={`${r.name}-${i}`} style={row} title={r.note}>
+              <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 4, background: v.color, flex: "none" }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ ...text, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <strong>{r.contact && r.contact !== r.name ? `${r.contact} · ${r.name}` : r.name}</strong> <span style={{ color: v.color, fontWeight: 600 }}>{v.label}</span>
+                </div>
+                {r.note ? <div style={{ ...muted, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</div> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
@@ -302,9 +351,10 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
   const running = job.status === "running";
   const counts = VERDICT_ORDER.filter((k) => job.counts?.[k]);
   return (
-    <div className="ui-card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <ShieldCheck size={16} color={C.cobalt} />
+    <div className="ui-card" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, position: "relative", overflow: "hidden" }}>
+      {running && !job.pause ? <TopBar /> : null}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {running && !job.pause ? <span className="ld-orb" aria-hidden="true" style={{ width: 34, height: 34 }}><Spinner size={22} /></span> : <ShieldCheck size={18} color={C.cobalt} />}
         <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
           {running ? `${job.pause ? "Paused at" : "Checking"} ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : job.status === "done" ? `Checked ${job.done.toLocaleString()} companies`
             : job.status === "cancelled" ? `Cancelled after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}` : `Stopped after ${job.done.toLocaleString()} of ${job.total.toLocaleString()}`}
@@ -318,10 +368,11 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
       </div>
       {running ? <div style={{ ...muted, fontSize: 12.5 }}>{job.pause ? "Paused. Nothing more is spent until you resume." : liveLine(job)}</div> : null}
       {running ? (
-        <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: C.paperSoft, overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: "var(--ui-accent)", transition: "width .4s" }} />
+        <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: "var(--ui-accent-soft, #EEF2FE)", overflow: "hidden" }}>
+          <div style={{ width: `${Math.max(pct, 3)}%`, height: "100%", borderRadius: 3, background: "linear-gradient(90deg, var(--ui-accent, #3457D5), #8FA6FF)", transition: "width .4s" }} />
         </div>
       ) : null}
+      {running ? <LiveFeed job={job} /> : null}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         {counts.map((k) => (
           <button key={k} type="button" onClick={() => onFilter(k)} title={`Show ${VERDICTS[k].label.toLowerCase()} companies`}

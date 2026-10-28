@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { GridTools } from "../../components/GridTools";
 import { Loader } from "../../app/Loader";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, ExternalLink, Pencil, Plug, RefreshCw, Send, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -723,6 +724,7 @@ function ByChannel({ rows, days, onPick }) {
       <div style={{ ...muted, marginBottom: 8 }}>
         How each network did over the last {days} days. The bar is its share of all {useEng ? "engagements" : "reach"}. Pick a network to see only its numbers below.
       </div>
+      <GridTools id="social-channels" />
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 620 }}>
           <thead>

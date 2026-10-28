@@ -25,7 +25,7 @@ logger = logging.getLogger("company_check_job")
 
 _TASKS: Dict[str, "asyncio.Task"] = {}
 FLUSH_EVERY = 10
-POLL_SECONDS = 3.0
+POLL_SECONDS = 2.0
 _STEPS = (("registry", "check_registry", "Registry check"), ("deep", "google_deep_search", "Deep web search"),
           ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"),
           ("phone", "lead_phone_check", "Phone check"))
@@ -176,13 +176,20 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
     key = _key(org, job_id)
     try:
         with org_scope(org):
+            now: Dict[str, Dict[str, Any]] = {}  # what each worker is on right now, shown on the screen so a long step never looks stuck
+
+            def report(row: Dict[str, Any], step: str) -> None:
+                now[row["id"]] = {"id": row["id"], "name": row["name"], "contact": row.get("contact_name", ""), "step": step}
+                doc["now"] = list(now.values())
+
             ctx = cc.Context(
-                org_id=org, job_id=job_id, registry_sources=ready["sources"], paces={s.id: cc.Pace() for s in ready["sources"]},
+                org_id=org, job_id=job_id, report=report, registry_sources=ready["sources"], paces={s.id: cc.Pace() for s in ready["sources"]},
                 deep_ready=ready["deep"], find_emails=doc["options"]["email"], check_phones=doc["options"].get("phone", False),
                 phone_sem=asyncio.Semaphore(6), phone_client=_phone_client() if doc["options"].get("phone") else None,
                 web_sem=asyncio.Semaphore(10), dns_sem=asyncio.Semaphore(20), deep_sem=asyncio.Semaphore(4), email_sem=asyncio.Semaphore(3))
             queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
             snapshot = {r["id"]: r for r in rows}  # the companies as they were when the check began
+
             for r in rows:
                 queue.put_nowait(r)
             pending: List[tuple] = []
@@ -221,6 +228,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                         row = queue.get_nowait()
                     except asyncio.QueueEmpty:
                         return
+                    report(row, "Starting")
                     try:
                         result = await cc.check_row(row, ctx)
                     except Exception as err:
@@ -231,6 +239,10 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                                   "checked_at": datetime.utcnow().isoformat() + "Z", "job_id": job_id, "pending_registry": False}
                     if doc["options"].get("web") and not row.get("researched"):
                         result.setdefault("spent", {})["web"] = await _web_research(row["id"], result)
+                    now.pop(row["id"], None)
+                    doc["now"] = list(now.values())
+                    doc["recent"] = ([{"name": row["name"], "contact": row.get("contact_name", ""), "verdict": result["verdict"],
+                                       "note": (result.get("reasons") or [""])[0]}] + (doc.get("recent") or []))[:6]
                     doc["done"] += 1
                     doc["counts"][result["verdict"]] = doc["counts"].get(result["verdict"], 0) + 1
                     for step, n in result.get("spent", {}).items():

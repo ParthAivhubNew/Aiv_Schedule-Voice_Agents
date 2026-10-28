@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { GridTools } from "../../components/GridTools";
 import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Mail, Phone, Plus, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
@@ -176,6 +177,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   const cols = 9;
   const seen = new Set();
   return (
+    <>
+    <GridTools id="find-companies" />
     <div className="ui-scroll fl-table" style={busy ? { opacity: 0.55, pointerEvents: "none", transition: "opacity .15s" } : { transition: "opacity .15s" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
         <thead>
@@ -229,11 +232,14 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
 export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
   return (
+    <>
+    <GridTools id="find-people" />
     <div className="ui-scroll fl-table">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 960 }}>
         <thead>
@@ -273,6 +279,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

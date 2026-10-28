@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
-from app.services import business_lookup, business_records
+from app.services import business_lookup, business_records, site_check
+from app.services.person_record import is_person_account, is_role_inbox
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -150,6 +151,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "verification": a.verification or None, "custom": a.custom or {},
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
+        "kind": "person" if is_person_account(a) else "company",
     }
 
 
@@ -692,6 +694,8 @@ async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[B
     the business, not that organisation's private data, so it's copied here too: this account
     looks fully researched without this organisation ever paying for its own research run.
     Never overwrites research this organisation already paid for or entered itself."""
+    if is_person_account(row):
+        return None  # a person has no company record to take details from
     shared = await business_records.lookup(db, name=row.name, domain=row.domain)
     if shared:
         row.business_record_id = shared.id
@@ -728,8 +732,8 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     name). Checks our own shared store first, same as /research; whatever it finds is saved
     back to that store so the next lookup for this company is free."""
     row = await _account(db, account_id)
-    if (row.verification or {}).get("verdict") == "problem":
-        return _out(row, await _registry_for(db, account_id))  # the company has ended: nothing found would be about it
+    if (row.verification or {}).get("verdict") == "problem" or is_person_account(row):
+        return _out(row, await _registry_for(db, account_id))  # the company has ended, or this is a person: nothing found would be about a company
     await _apply_shared_record(db, row)
     await _can_deep_search(db)
     place = await search_google_places(f"{row.name} {row.region}".strip())
@@ -737,7 +741,8 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
     row.phone = _phone(row.phone) or _phone(place.get("phone"))
-    row.website = row.website or _clean(place.get("website"), 300)
+    site = _clean(place.get("website"), 300)
+    row.website = row.website or (site if site and site_check.plausible_site(row.name, site, strict=False) else "")
     row.region = row.region or _clean(place.get("address"), 120)
     if not row.domain and row.website:
         row.domain = _domain(row.website)
@@ -808,6 +813,8 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     before = {f: (getattr(row, f, "") or "").strip() for f in QUALITY_FIELDS}
     if (row.verification or {}).get("verdict") == "problem":
         return False  # the company has ended: whatever the web shows would be about a different business
+    if is_person_account(row):
+        return False  # a web search for a person's name finds other people and unrelated businesses
     try:
         data = await enrich_prospect_intelligence(name=row.contact_name or row.name, company=row.name,
                                                   domain=row.domain or row.website or None, person=row.contact_name or None,
@@ -848,11 +855,14 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
         "socials": data.get("socials") or {},
         "sources": [c for c in (data.get("citations") or [])][:8],
     }
-    if not row.domain and data.get("domain"):
+    if not row.domain and data.get("domain") and site_check.plausible_site(row.name, data["domain"], strict=True):  # never a register or directory page
         row.domain = _domain(data["domain"])
         row.website = row.website or (data["domain"] if "://" in data["domain"] else f"https://{row.domain}")
     row.phone = _phone(row.phone) or _phone(data.get("primaryPhone"))
-    row.email = row.email or _clean(data.get("primaryEmail"), 200).lower()
+    found_email = _clean(data.get("primaryEmail"), 200).lower()
+    # A company's general inbox (support@, info@) is not the email of the named person on this record.
+    if not (row.contact_name and is_role_inbox(found_email)):
+        row.email = row.email or found_email
     if people and not row.contact_name:
         row.contact_name, row.contact_title = people[0]["name"], row.contact_title or people[0]["role"]
     elif not row.contact_name:

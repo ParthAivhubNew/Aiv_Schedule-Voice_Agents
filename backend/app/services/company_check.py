@@ -38,7 +38,7 @@ THROTTLE_PAUSE_S = 60
 WORKERS = 8
 STALL_AFTER = timedelta(minutes=5)
 
-VERDICTS = ("verified", "looks_ok", "not_found", "problem", "unclear")
+VERDICTS = ("verified", "looks_ok", "not_found", "problem", "unclear", "person")
 
 _NAME_NOISE = {"ltd", "limited", "plc", "llp", "lp", "co", "company", "the", "inc", "uk", "group", "holdings"}
 _ACTIVE_WORDS = ("active", "registered", "open", "operational", "trading")
@@ -437,10 +437,15 @@ async def save_register_answer(db, reg: Dict[str, Any], store: Optional[Dict[str
 async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     """Runs every stage for one company and returns the verification to save."""
     from app.database import AsyncSessionLocal
+    from app.services.person_record import is_person
 
     stages: List[str] = []
     spent = {"registry": 0, "deep": 0, "email": 0, "phone": 0}
     ev: Dict[str, Any] = {}
+    say = getattr(ctx, "report", None) or (lambda *_: None)  # tells the screen what this company is waiting on right now
+    if is_person(row.get("name"), row.get("contact_name"), row.get("domain"), row.get("website"), row.get("business_record_id")):
+        return await _check_person(row, ctx, say)
+    say(row, "Looking in our own records")
     free_task = asyncio.create_task(_free_checks(row, ctx))
 
     # A. our own records
@@ -457,6 +462,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     settled_by_store = bool(store and store["strong"] and store["fresh"] and status_class(store["status"]))
     link_id = None
     if ctx.registry_sources and not settled_by_store:
+        say(row, "Asking the company register")
         reg = await live_registry(ctx.registry_sources, ctx.paces, row["name"])
         ev["registry"] = reg
         if reg.get("found") or reg.get("asked"):
@@ -475,6 +481,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     known = bool(store) or bool(reg_ev and reg_ev.get("found"))
     pending = bool(reg_ev and reg_ev.get("state") == "pending")
     if not known and not pending and ctx.deep_ready:
+        say(row, "Searching the web for this company")
         async with ctx.deep_sem:
             from app.services.enrichment_service import search_google_places
 
@@ -486,6 +493,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     elif not known and not pending and not ctx.deep_ready:
         ev["deep"] = {"state": "off"}
 
+    say(row, "Checking the website, email and phone number")
     free = await free_task
     if getattr(ctx, "check_phones", False) and free["phone"].get("state") == "ok":
         free["phone"], asked = await verify_phone(row, free["phone"], ctx)
@@ -510,6 +518,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
             email = {**email, "note": "On file, matches the contact and the mail server looks right"}
             found = ""
         else:
+            say(row, "Looking for this contact's own email")
             found = await _find_email(row, ctx)
         found_email = found
         if found:
@@ -531,6 +540,26 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     if fixes:
         out["fixes"] = fixes
     return out
+
+
+async def _check_person(row: Dict[str, Any], ctx: "Context", say) -> Dict[str, Any]:
+    """A person with no company: nothing to look up in a register or on the web, so only their phone and email are checked."""
+    say(row, "Checking this person's phone and email")
+    free = await _free_checks(row, ctx)
+    spent = {"registry": 0, "deep": 0, "email": 0, "phone": 0}
+    stages: List[str] = []
+    if getattr(ctx, "check_phones", False) and free["phone"].get("state") == "ok":
+        say(row, "Confirming the phone number with the network")
+        free["phone"], asked = await verify_phone(row, free["phone"], ctx)
+        spent["phone"] = asked
+        if free["phone"].get("verified") is not None:
+            stages.append("phone_lookup")
+    free["website"].pop("phones", None)
+    stages.extend(s for s in ("email", "phone") if free.get(s) and free[s].get("state") not in (None, "none", "unchecked"))
+    bad = free["email"].get("state") == "invalid" or free["phone"].get("state") == "invalid"
+    return {"verdict": "person", "stages": stages, "spent": spent, "email": free["email"], "phone": free["phone"], "website": {"state": "none"},
+            "reasons": ["A person, not a company, so only the phone number and email were checked." + (" One of them doesn't look usable." if bad else "")],
+            "pending_registry": False, "checked_at": datetime.utcnow().isoformat() + "Z", "job_id": ctx.job_id}
 
 
 def phone_candidates(raw: str) -> List[str]:
@@ -614,8 +643,12 @@ def build_fixes(row: Dict[str, Any], deep: Optional[Dict[str, Any]], free: Dict[
     def add(field: str, old: str, new: str, why: str) -> None:
         out.append({"field": field, "from": old, "to": new, "kind": "fill" if not old else "fix", "applied": False, "why": why})
 
+    from app.services.site_check import is_listing_host
+
     deep = deep if deep and deep.get("found") else {}
     phone, site = (deep.get("phone") or "").strip(), (deep.get("website") or "").strip()
+    if site and is_listing_host(site, row.get("name") or ""):
+        site = ""  # a directory page, not the company's own site
     cur_phone, cur_site = (row.get("phone") or "").strip(), (row.get("website") or row.get("domain") or "").strip()
     if phone and not cur_phone:
         add("phone", "", phone, "Found by the deep web search")
@@ -671,7 +704,8 @@ async def _find_email(row: Dict[str, Any], ctx: "Context") -> str:
         except Exception as err:
             logger.warning(f"[company_check] email finder failed for {row['name']}: {err}")
             return ""
-    return res.get("email", "") if res.get("found") else ""
+    # Only an address the provider actually verified. A "catch-all" answer is a pattern guess at a domain that accepts any address.
+    return res.get("email", "") if res.get("found") and res.get("verification_status") == "verified" else ""
 
 
 class Context(SimpleNamespace):

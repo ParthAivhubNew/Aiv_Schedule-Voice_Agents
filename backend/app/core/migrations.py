@@ -645,6 +645,17 @@ async def _business_record_rank_score(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS rank_score INTEGER"))
 
 
+async def _clear_directory_websites(conn: AsyncConnection) -> None:
+    """A saved company whose "website" is really a register, directory or rating page (open.endole.co.uk) got it from an earlier
+    lookup that did not check. A company's own site is never one of those, so the address is cleared; a new check can find the real one."""
+    from app.services.site_check import is_listing_host
+
+    rows = (await conn.execute(text("SELECT id, name, website FROM lead_accounts WHERE website IS NOT NULL AND website <> ''"))).all()
+    for acc_id, name, website in rows:
+        if is_listing_host(website, name or ""):
+            await conn.execute(text("UPDATE lead_accounts SET website = '', domain = '' WHERE id = :i"), {"i": acc_id})
+
+
 async def _companies_house_search_fields(conn: AsyncConnection) -> None:
     """Teaches the Companies House bulk import to fill the search columns on every future run
     (all four SIC descriptions, the postcode, and the filed-accounts category the size band comes
@@ -873,6 +884,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_14_partner_embed_theme", _partner_embed_theme),
     ("2026_11_15_open_data_notes_and_pay_gap", _open_data_notes_and_pay_gap),
     ("2026_11_16_business_record_rank_score", _business_record_rank_score),
+    ("2026_11_17_clear_directory_websites", _clear_directory_websites),
 ]
 
 

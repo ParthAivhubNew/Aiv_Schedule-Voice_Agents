@@ -18,6 +18,10 @@ def _domain(url: str) -> str:
 
 def set_field(acc: Any, field: str, value: str) -> None:
     if field == "website":
+        from app.services.site_check import is_listing_host
+
+        if is_listing_host(value, getattr(acc, "name", "")):
+            return  # a register or directory page is never a company's own website
         acc.website = value if "://" in value else f"https://{value}"
         acc.domain = _domain(value)
     elif field == "email":

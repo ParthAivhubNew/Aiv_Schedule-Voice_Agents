@@ -1,4 +1,5 @@
 import React, { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GridTools } from "../../../components/GridTools";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
@@ -3458,6 +3459,7 @@ export function CallingWorkspace({
                       );
                     })}
                   </div>
+                  <GridTools id="voice-call-list" className="phone-gone" />
                   <div className="calling-scroll phone-gone" style={{ flex: 1, minHeight: 180 }}>
                     <table className="ui-table">
                       <thead>

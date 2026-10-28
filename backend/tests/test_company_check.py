@@ -220,6 +220,7 @@ async def test_a_selected_list_is_checked_charged_once_and_nothing_saved_is_over
         assert done["status"] == "done" and done["done"] == 4
         assert done["counts"]["verified"] == 1 and done["counts"]["problem"] == 1 and done["counts"]["looks_ok"] == 1 and done["counts"]["not_found"] == 1
         # 4 register questions at 1; two web searches but only Cafe Nero found anything (2); one email found, 2.5 -> 3
+        assert done["recent"] and done["now"] == []  # the screen is told who was checked, and nothing is left "in progress"
         assert done["charged"]["registry"] == 4 and done["charged"]["deep"] == 2 and done["charged"]["email"] == 3
         assert fake_world["email"] == 1
 
