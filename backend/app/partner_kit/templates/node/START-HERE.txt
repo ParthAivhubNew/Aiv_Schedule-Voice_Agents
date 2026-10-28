@@ -1,0 +1,37 @@
+OUTREACH STARTER KIT FOR {{COMPANY}}  (your own Node / Express server)
+
+This kit is made for you: your publishable key and Outreach's address are already filled in.
+The folders inside it match your project. Copy everything into your project folder, keeping the folders.
+
+  File                         Where it goes
+  outreach-routes.mjs          the folder that holds your server file
+  check.mjs                    the same folder
+  .env.example                 the same folder, then copy it to a file named .env
+  public/outreach-test.html    the folder your server serves files from (often "public")
+
+Do these in order. You need Node 18 or newer.
+
+1. Add your secret key.
+   In Outreach open Admin APIs & Webhooks, then Partner programme, and make a secret key. It is shown once.
+   Copy .env.example to a new file named .env. Replace the text after the = with your secret key.
+   No quotes, no spaces. While you test it starts with psk_test_
+
+2. In your server file add two lines. Put them BEFORE any catch-all route such as app.get("*", ...):
+
+       import { mountOutreach } from "./outreach-routes.mjs";
+       mountOutreach(app);
+
+   (If your server uses require(...) rather than import, rename your server file to end in .mjs or use dynamic import.)
+   Restart your server.
+
+3. Check everything. In the same folder, replace the address below with the one your server runs on:
+       node check.mjs {{ORIGIN}}
+   Every line must say [ok]. If a line says [X], it says what to fix. Fix it, run the check again.
+
+4. Open  {{ORIGIN}}/outreach-test.html
+   The Outreach screen appears. The first time, a window asks you to sign in to Outreach.
+
+Before real users
+  - Change  mountOutreach(app)  to  mountOutreach(app, (req) => String(req.user.id), requireLogin)
+    so the pass is made for whoever is signed in, and only for people who are signed in.
+  - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.

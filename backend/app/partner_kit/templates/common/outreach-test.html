@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outreach test page</title>
+</head>
+<body style="font-family: system-ui, sans-serif; margin: 24px">
+  <h1 style="font-size: 20px">Outreach test page for {{COMPANY}}</h1>
+  <p id="note" style="color: #555">Loading the Outreach screen. The first time, a window asks you to sign in to Outreach.</p>
+  <div id="box" style="height: 700px"></div>
+  <script src="{{HOST}}/embed.js"></script>
+  <script>
+    const outreach = Outreach("{{CLIENT_ID}}", { host: "{{HOST}}" });
+    const note = document.getElementById("note");
+    const ask = (component) => fetch("/outreach-start?component=" + component, { cache: "no-store" }).then(async (r) => {
+      const text = await r.text();
+      try { return JSON.parse(text); } catch { throw new Error("/outreach-start answered " + r.status + " and not JSON: " + text.slice(0, 150)); }
+    });
+
+    async function show(component) {
+      const answer = await ask(component);
+      if (answer.error) throw new Error(answer.error);
+      if (answer.connect_token) {
+        const win = outreach.connect({
+          connectToken: answer.connect_token,
+          onConnected: () => { win.close(); show(component); },
+        });
+        win.open({ mode: "modal" });
+        return;
+      }
+      note.textContent = "";
+      outreach.create(component, {
+        getToken: () => ask(component).then((a) => a.token),
+        appearance: "auto",
+        onError: (e) => { note.textContent = e.message; },
+      }).mount("#box");
+    }
+    show("leads").catch((e) => { note.textContent = e.message + " Run: node check.mjs"; note.style.color = "#B42318"; });
+  </script>
+</body>
+</html>

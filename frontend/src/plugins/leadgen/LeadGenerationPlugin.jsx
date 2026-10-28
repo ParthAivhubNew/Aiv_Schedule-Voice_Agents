@@ -23,6 +23,8 @@ import {
   ListChecks,
   Lock,
   Mail,
+  Plug,
+  Bot,
 } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
@@ -35,6 +37,7 @@ import { CampaignsView, MailboxesView, useOutreachData } from "./OutreachViews";
 import { MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
+import { AssistantButton, AssistantPanel } from "./AssistantPanel";
 import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
 import { NewCampaign } from "./CampaignSimple";
@@ -116,6 +119,8 @@ export default function LeadGenerationPlugin({
   const [openAccount, setOpenAccount] = useState(null); // the saved account shown in the side panel
   const [toastMessage, setToastMessage] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
+  const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters }
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -151,10 +156,11 @@ export default function LeadGenerationPlugin({
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = onlyEmbedViews([
+    { id: "assistant", label: "AI Assistant", icon: Bot, group: "Outreach" },
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "My lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach" },
     { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
-    { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail and Email accounts are one page with a switch
+    { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
   ], embedViews);
   const navGroups = ["Outreach", "Setup"].map((label) => ({
@@ -165,12 +171,24 @@ export default function LeadGenerationPlugin({
       short: item.short,
       icon: item.icon,
       count: item.count,
-      active: view === item.id || (item.id === "mail" && view === "mailboxes"),
+      active: item.id === "assistant" ? assistantOpen : view === item.id || (item.id === "mail" && view === "mailboxes"),
       locked: isLocked && item.id !== "subscription",
       title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
+      // Mail's two pages are sub-items under it, the way the other apps list theirs.
+      children: item.id === "mail" ? (() => {
+        const subs = onlyEmbedViews([
+          { id: "mail", label: "Inbox and sent", icon: Mail, title: "Replies, sent emails and the do-not-email list" },
+          { id: "mailboxes", label: "Email accounts", icon: Plug, title: "Connect the email accounts you send from, warm them up and check their health" },
+        ], embedViews).map((t) => ({ ...t, active: view === t.id, onClick: () => { if (t.id === "mail") setInboxStart(null); setView(t.id); } }));
+        return subs.length > 1 && !isLocked ? subs : undefined;
+      })() : undefined,
       onClick: () => {
         if (isLocked && item.id !== "subscription") {
           showToast("Choose a plan or buy a top-up to unlock Leads.");
+          return;
+        }
+        if (item.id === "assistant") {
+          setAssistantOpen((v) => !v);
           return;
         }
         if (item.id === "mail") {
@@ -188,8 +206,8 @@ export default function LeadGenerationPlugin({
     find_leads: { title: "Find Leads", desc: "Every company on the register, best profiles first. Filter them, or ask the AI." },
     lists: { title: "My lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
-    mail: { title: "Mail", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list. Switch to Email accounts to connect or check a mailbox." },
-    mailboxes: { title: "Mail", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy. Switch to Inbox and sent to read your mail." },
+    mail: { title: "Inbox and sent", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
+    mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
@@ -207,14 +225,7 @@ export default function LeadGenerationPlugin({
         
         <PluginHeader nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
-          {(view === "mail" || view === "mailboxes") && (
-            <div role="tablist" aria-label="Mail" style={{ display: "inline-flex", gap: 4, padding: 3, borderRadius: 9, background: C.paperSoft }}>
-              {onlyEmbedViews([{ id: "mail", label: "Inbox and sent" }, { id: "mailboxes", label: "Email accounts" }], embedViews).map((t) => (
-                <button key={t.id} type="button" role="tab" aria-selected={view === t.id} className={view === t.id ? "ui-btn ui-btn--primary ui-btn--sm" : "ui-btn ui-btn--ghost ui-btn--sm"}
-                  onClick={() => { if (t.id === "mail") setInboxStart(null); setView(t.id); }}>{t.label}</button>
-              ))}
-            </div>
-          )}
+          {!isLocked && !embedViews ? <AssistantButton open={assistantOpen} onClick={() => setAssistantOpen((v) => !v)} /> : null}
           {view === "lists" && (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
               <Plus size={14} /> Add one company
@@ -250,7 +261,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} /></div>
           )}
 
 
@@ -273,6 +284,13 @@ export default function LeadGenerationPlugin({
         </div>
 
       </div>
+
+      {!isLocked && !embedViews ? (
+        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store}
+          lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
+          onOpenList={() => goTo("lists")} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }}
+          onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
+      ) : null}
 
       {openAccount && <AccountPanel key={openAccount.id} account={openAccount} store={store} onClose={() => setOpenAccount(null)} />}
 

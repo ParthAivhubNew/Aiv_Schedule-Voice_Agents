@@ -18,6 +18,14 @@ Three words you will see:
 Your page  →  asks your server  →  your server asks Outreach (with the secret key)  →  token  →  the screen opens
 ```
 
+## The fastest way: the starter kit
+
+In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with (a Vite or React app, your
+own Node server, or Next.js) and download a zip made for you, with your publishable key and addresses already filled in. Unzip it
+into your project folder, keeping the folders, and follow the `START-HERE.txt` inside. It ends with one command, `node check.mjs`,
+that tests every part and tells you what is still missing, in plain words. Steps 4 to 6 below explain what the kit does, and are
+the place to look if you build it by hand or use another language.
+
 ## Before you start
 
 - You can sign in to Outreach as an account admin.
@@ -207,7 +215,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: { "/outreach-start": "http://localhost:3000" } },
+  server: { proxy: { "/outreach-start": "http://127.0.0.1:3000" } },
 });
 ```
 
@@ -260,7 +268,10 @@ paste this where the screen should show, near the end of the page just before `<
 <script src="https://outreach.aivhub.com/embed.js"></script>
 <script>
   const outreach = Outreach("pk_…", { host: "https://outreach.aivhub.com" });
-  const ask = (component) => fetch("/outreach-start?component=" + component).then((r) => r.json());
+  const ask = (component) => fetch("/outreach-start?component=" + component, { cache: "no-store" }).then(async (r) => {
+    const text = await r.text();
+    try { return JSON.parse(text); } catch { throw new Error("/outreach-start answered " + r.status + " and not JSON: " + text.slice(0, 150)); }
+  });
 
   async function show(component) {
     const answer = await ask(component);
@@ -304,7 +315,10 @@ function loadOutreach() {
   });
 }
 
-const ask = (component) => fetch(`/outreach-start?component=${component}`).then((r) => r.json());
+const ask = (component) => fetch(`/outreach-start?component=${component}`, { cache: "no-store" }).then(async (r) => {
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { throw new Error(`/outreach-start answered ${r.status} and not JSON: ${text.slice(0, 150)}`); }
+});
 
 export default function OutreachScreen({ component = "leads" }) {
   const box = useRef(null);
@@ -353,7 +367,7 @@ you can do. When they finish it closes and the screen appears. After that the sc
 
 ## Step 7. Go live
 
-1. In **Partner programme → 3. Go live**, press the request button. It works once the terms are accepted and you have at least one web address and one return address. The Outreach team checks your integration and switches it on.
+1. In **Partner programme → 5. Go live**, press the request button. It works once the terms are accepted and you have at least one web address and one return address. The Outreach team checks your integration and switches it on.
 2. Make a new **live** secret key in Partner programme (it starts with `psk_live_`). The test key stops working for live use.
 3. On your live website, open your hosting dashboard's "Environment variables" and replace the value of `OUTREACH_SECRET` with
    the live key. Your own `.env` file keeps the test key. Then redeploy or restart the live server.
@@ -371,6 +385,8 @@ you can do. When they finish it closes and the screen appears. After that the sc
 | The screen stops after 15 minutes | The page kept an old pass | Use `getToken` as in Step 5. It fetches a fresh one |
 | "…is not on this account yet" | The account has no plan for that screen | The person buys the plan on Outreach |
 | The person cannot connect | Only the account's admin can connect it | Ask the admin of that Outreach account |
+| `curl http://127.0.0.1:3000/…` says "failed to connect" | Your token server is not running, or curl ran on a different machine or container than the server | Read the terminal where you started it. Common errors: `bad option: --env-file` (Node older than 20.6: set `OUTREACH_SECRET` in the command instead), `Cannot use import statement` (name the file `.mjs`), `EADDRINUSE` (port 3000 is taken: pick another and change it in `vite.config.ts` too). Run the server and the curl on the same machine |
+| Console says `Unexpected end of JSON input` | `/outreach-start` answered with an empty body. With a Vite proxy this means Vite could not reach your token server: it is not running, it crashed, or `localhost` resolved to a different address than the one the server listens on | Check the token server's terminal is still running and prints no error. Point the proxy at `http://127.0.0.1:3000` instead of `localhost`. Test `curl http://127.0.0.1:3000/outreach-start?component=leads`. The updated page snippet now shows the status and text instead |
 | Console says `Unexpected token '<', "<!doctype "... is not valid JSON` | The page asked your own server for `/outreach-start` and got an HTML page back: the route does not exist, is served as a static file, or sits behind a catch-all that returns `index.html` | Add the Step 4 endpoint to your running server, before any catch-all, and check the address shows JSON (see "Things to get right"). Nothing is wrong at Outreach: the request never reached it |
 | The `outreach-start` request in the Network tab shows `200` or `304` with an HTML response | Same cause. `304` only means the browser re-used a saved copy of that page | Same fix. Click the request and read its **Response** tab: it must be JSON |
 | Your `curl` to `/api/embed/connect-sessions` works but the page still fails | Step 4c proves the key, not the route on your own site | Test `/outreach-start` itself, as in "Things to get right" |

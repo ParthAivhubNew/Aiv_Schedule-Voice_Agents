@@ -102,6 +102,8 @@ export function PartnerProgram() {
   const [showSecret, setShowSecret] = useState(false);
   const [tab, setTab] = useState("setup");
   const [openStep, setOpenStep] = useState(null); // null: the first unfinished step is open; "none": all closed
+  const [kitStack, setKitStack] = useState("vite");
+  const [kitDone, setKitDone] = useState(() => { try { return localStorage.getItem("aivhub_partner_kit") === "1"; } catch { return false; } });
 
   const load = useCallback(async () => {
     try {
@@ -143,6 +145,7 @@ export function PartnerProgram() {
     { id: "terms", title: "Accept the partner terms", done: !!info.termsAccepted },
     { id: "addresses", title: "Add your web addresses", done: hasAddresses },
     { id: "key", title: "Make your secret key", done: !!partner.secretKeyPrefix },
+    { id: "kit", title: "Download your starter kit", done: kitDone },
     { id: "live", title: "Go live", done: partner.status === "live" },
   ] : [];
   const nextStep = steps.find((s) => !s.done);
@@ -150,6 +153,27 @@ export function PartnerProgram() {
   const activeLinks = links.filter((l) => l.status === "active").length;
   const isOpen = (id) => (openStep === null ? nextStep?.id === id : openStep === id);
   const toggle = (id) => setOpenStep(isOpen(id) ? "none" : id);
+  // The kit is a zip made for this partner: its key and addresses are filled in. The secret key is never in it.
+  const downloadKit = async () => {
+    setBusy(true);
+    setMsg({ text: "", error: false });
+    try {
+      const blob = await api.downloadPartnerKit(kitStack);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `outreach-starter-kit-${kitStack}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setKitDone(true);
+      try { localStorage.setItem("aivhub_partner_kit", "1"); } catch { /* the tick just is not remembered */ }
+    } catch (err) {
+      setMsg({ text: err.message, error: true });
+    }
+    setBusy(false);
+  };
   const saveSettings = () => act(() => api.savePartnerSettings({
     name: settings.name, allowed_origins: lines(settings.origins), return_urls: lines(settings.returns),
     logo_url: settings.logo, accent_color: settings.color, webhook_url: settings.webhook,
@@ -240,7 +264,20 @@ export function PartnerProgram() {
                 <SecretKeyBox partner={partner} busy={busy} act={act} bare />
               </Step>
 
-              <Step n={4} title="Go live" done={partner.status === "live"} open={isOpen("live")} onToggle={() => toggle("live")}
+              <Step n={4} title="Download your starter kit" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
+                summary="Downloaded. Unzip it into your project and run the check.">
+                <div style={hint}>The files your developer needs, with your keys and addresses already filled in. Unzip them into your project folder, keeping the folders, then follow START-HERE.txt. It ends with one command that checks everything and says what is still missing.</div>
+                <label htmlFor="pp-kit" style={label}>What is your product built with?</label>
+                <select id="pp-kit" value={kitStack} onChange={(e) => setKitStack(e.target.value)} style={field}>
+                  <option value="vite">A Vite or React app (no server of its own)</option>
+                  <option value="node">Your own Node / Express server</option>
+                  <option value="next">Next.js</option>
+                </select>
+                <div style={{ marginTop: 12 }}><button type="button" disabled={busy} style={button(true, busy)} onClick={downloadKit}>Download starter kit</button></div>
+                <div style={hint}>Your secret key is not in the kit. You paste it into a file called .env, as START-HERE.txt shows. Using something else? The Docs tab has the code for any language.</div>
+              </Step>
+
+              <Step n={5} title="Go live" done={partner.status === "live"} open={isOpen("live")} onToggle={() => toggle("live")}
                 summary="You are live. New accounts get live keys.">
                 {partner.status === "live" ? (
                   <div style={hint}>You are live. New accounts get live keys.</div>

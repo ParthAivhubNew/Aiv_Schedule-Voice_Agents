@@ -317,7 +317,7 @@ async def fill_gaps(req: FillGapsRequest):
 
 # ── Chat history: one private list per signed-in person, per plugin ─────────
 _CHATS_KEPT = 30
-_CHAT_PLUGINS = ("leadgen", "voice")
+_CHAT_PLUGINS = ("leadgen", "voice", "leadgen_assistant")
 
 
 def _chats_key(request: Request, plugin: str) -> str:

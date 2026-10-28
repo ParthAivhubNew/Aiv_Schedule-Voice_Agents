@@ -43,6 +43,7 @@ from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_
 from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
 from app.api.lead_checks import router as lead_checks_router
+from app.api.lead_assistant import router as lead_assistant_router
 from app.api.lead_lists import router as lead_lists_router
 from app.api.connected import router as connected_router
 from app.api.connected_home import router as connected_home_router
@@ -869,6 +870,7 @@ app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant 
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
+app.include_router(lead_assistant_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)

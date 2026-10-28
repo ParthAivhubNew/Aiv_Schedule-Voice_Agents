@@ -1,0 +1,38 @@
+OUTREACH STARTER KIT FOR {{COMPANY}}  (Vite or React app)
+
+This kit is made for you: your publishable key and Outreach's address are already filled in.
+The folders inside it match your project. Copy everything into your project folder, keeping the folders.
+
+  File                         Where it goes
+  outreach-server.mjs          project folder, next to package.json
+  check.mjs                    project folder, next to package.json
+  .env.example                 project folder, then copy it to a file named .env
+  public/outreach-test.html    the "public" folder
+  src/OutreachScreen.jsx       the "src" folder (use it in your real pages later)
+  vite.config.snippet.txt      read it, then add one line to your vite.config.ts
+
+Do these in order. You need Node 18 or newer on the computer that runs your app.
+
+1. Add your secret key.
+   In Outreach open Admin APIs & Webhooks, then Partner programme, and make a secret key. It is shown once.
+   Copy .env.example to a new file named .env. Replace the text after the = with your secret key.
+   No quotes, no spaces. While you test it starts with psk_test_
+
+2. Start the helper and leave it running (it is the part that asks Outreach for a pass):
+       node outreach-server.mjs
+   You must see:  The Outreach helper is running on http://127.0.0.1:3000
+
+3. Add the one line from vite.config.snippet.txt to vite.config.ts, then stop and start your app (npm run dev).
+
+4. Check everything. In a second terminal, in the project folder:
+       node check.mjs {{ORIGIN}}
+   Every line must say [ok]. If a line says [X], it says what to fix. Fix it, run the check again.
+
+5. Open  {{ORIGIN}}/outreach-test.html
+   The Outreach screen appears. The first time, a window asks you to sign in to Outreach.
+
+Later, in your real app
+  - Show a screen with:  <OutreachScreen component="leads" />   (leads, campaigns, mail, voice or social)
+  - "test-user-1" in outreach-server.mjs is a fixed test person. In your real app it must be the id of whoever is signed in.
+  - Never put the secret key in a file or variable whose name starts with VITE_. Those are copied into the web page.
+  - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.

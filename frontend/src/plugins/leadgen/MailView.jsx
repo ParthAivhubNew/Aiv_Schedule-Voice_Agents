@@ -319,7 +319,7 @@ export function MailView({ operator, outreach, start }) {
       <div className="ui-card" style={{ padding: 28, textAlign: "center", maxWidth: 520, margin: "40px auto" }}>
         <Mail size={28} color={C.slate} />
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, margin: "10px 0 4px", color: C.ink }}>No mailbox connected yet</div>
-        <div style={{ ...small, fontSize: 13.5 }}>Connect your email account under Email accounts (the switch above) and your mail will show up here. {operator?.is_admin ? "" : "You see the mailboxes you connected."}</div>
+        <div style={{ ...small, fontSize: 13.5 }}>Connect your email account under Mail, then Email accounts, in the menu and your mail will show up here. {operator?.is_admin ? "" : "You see the mailboxes you connected."}</div>
       </div>
     );
   }

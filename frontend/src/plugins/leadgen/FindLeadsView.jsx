@@ -130,7 +130,7 @@ function TierBadge({ tier }) {
   );
 }
 
-function asAccount(c) {
+export function asAccount(c) {
   const notes = [c.registration_number && `Reg no. ${c.registration_number}`, c.status, c.sic_text, c.postcode].filter(Boolean).join(" · ");
   return { name: c.name, website: c.website || "", phone: c.phone || "", email: c.email || "", industry: c.industry || "", region: c.region || "", notes, source: "scout", business_record_id: c.id };
 }
@@ -307,7 +307,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, onImport }) {
+function FindLeadsSearch({ store, listsStore, onImport, incoming }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -454,6 +454,15 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   useEffect(() => {
     if (busy) setPane("results");
   }, [busy]);
+
+  // A search the AI assistant sent over: its filters fill the panel and the search runs, as if they had been typed here.
+  const seenIncoming = useRef(null);
+  useEffect(() => {
+    if (!incoming || incoming.id === seenIncoming.current) return;
+    seenIncoming.current = incoming.id;
+    const f = filtersToForm(incoming.filters || {});
+    setExcluded([]); setForm(f); setTab("companies"); search(null, f, 0, null, undefined, undefined, true);
+  }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride, force = false) => {
     if (e) e.preventDefault();
@@ -1455,7 +1464,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
   );
 }
 
-export function FindLeadsView({ store, listsStore, onGo }) {
+export function FindLeadsView({ store, listsStore, onGo, incoming }) {
   const [sub, setSub] = useState("search");
   return (
     <div className="fl-view" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1464,7 +1473,7 @@ export function FindLeadsView({ store, listsStore, onGo }) {
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

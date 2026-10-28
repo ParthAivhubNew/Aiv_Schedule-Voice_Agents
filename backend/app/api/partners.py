@@ -83,6 +83,33 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     return out
 
 
+@router.get("/starter-kit")
+async def starter_kit(request: Request, stack: str = "vite", db: AsyncSession = Depends(get_db)):
+    """A zip made for this partner: the files to drop into their project, their publishable key and addresses filled in, and a
+    check they run to see what is still missing. The secret key is never in it."""
+    from fastapi.responses import Response
+
+    from app.config import settings
+    from app.partner_kit import STACKS, build
+
+    ctx = admin_ctx(request)
+    partner = await _partner_or_404(db, ctx["org_id"])
+    if stack not in STACKS:
+        raise HTTPException(status_code=422, detail=f"stack must be one of: {', '.join(STACKS)}")
+    data = build(stack, client_id=partner.client_id, host=(settings.PUBLIC_BASE_URL or "").strip(),
+                 origin=(partner.allowed_origins or [""])[0], company=partner.name or "")
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="outreach-starter-kit-{stack}.zip"', "Cache-Control": "no-store"})
+
+
+@router.get("/starter-kit/stacks")
+async def starter_kit_stacks(request: Request):
+    from app.partner_kit import STACKS
+
+    admin_ctx(request)
+    return [{"id": k, "label": v} for k, v in STACKS.items()]
+
+
 @router.post("/apply")
 async def apply(body: ApplyBody, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = admin_ctx(request)
