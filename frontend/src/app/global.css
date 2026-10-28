@@ -337,9 +337,14 @@ button, input, select, textarea {
 }
 .ui-credits:hover { background: var(--ui-side-hover); }
 .ui-credits:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
-.ui-credits-label { display: block; font-size: 11px; color: var(--ui-side-muted); }
-.ui-credits-num { display: block; font-size: 15px; font-weight: 600; color: var(--ui-side-strong); font-variant-numeric: tabular-nums; }
-.ui-credits-action { font-size: 12.5px; font-weight: 500; color: var(--ui-side-active-icon); }
+.ui-credits-label { display: block; font-size: 11.5px; color: var(--ui-side-muted); }
+.ui-credits-num { display: block; font-size: 22px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; color: var(--ui-side-strong); font-variant-numeric: tabular-nums; }
+.ui-credits-action { flex-shrink: 0; padding: 5px 11px; border-radius: var(--ui-r-sm); background: var(--ui-side-active); font-size: 12.5px; font-weight: 600; color: var(--ui-side-active-icon); }
+.ui-credits:hover .ui-credits-action { background: var(--ui-side-hover); }
+.ui-credits-mini { display: none; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--ui-side-strong); font-variant-numeric: tabular-nums; }
+.ui-credits-mini svg { color: var(--ui-side-active-icon); }
+.ui-credits[data-state="low"] .ui-credits-mini svg { color: #FBBF24; }
+.ui-credits[data-state="empty"] .ui-credits-mini svg { color: #F87171; }
 .ui-credits[data-state="low"] { border-color: rgba(251, 191, 36, 0.45); }
 .ui-credits[data-state="low"] .ui-credits-label { color: #FBBF24; }
 .ui-credits[data-state="empty"] { border-color: rgba(248, 113, 113, 0.5); }
@@ -1172,14 +1177,14 @@ button, input, select, textarea {
 }
 
 /* The side menu as a rail of icons (wide screens only; phones keep the slide-out menu). Toggled from the button at its top. */
+.sb-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 16px 4px; }
 .sidebar-toggle {
-  align-self: flex-end;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin: -6px 0 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1194,19 +1199,22 @@ button, input, select, textarea {
 @media (min-width: 821px) {
   .app-sidebar { transition: width 0.18s ease, min-width 0.18s ease; }
   body.sidebar-collapsed .app-sidebar { width: 64px !important; min-width: 64px !important; padding-left: 8px !important; padding-right: 8px !important; }
-  body.sidebar-collapsed .app-sidebar .sidebar-toggle { align-self: center; }
+  body.sidebar-collapsed .app-sidebar .sb-head { flex-direction: column; gap: 8px; padding: 2px 0 14px; }
   body.sidebar-collapsed .app-sidebar .sb-brand-name,
-  body.sidebar-collapsed .app-sidebar .sb-credits,
+  body.sidebar-collapsed .app-sidebar .ui-credits-full,
   body.sidebar-collapsed .app-sidebar .ui-nav-chevron,
   body.sidebar-collapsed .app-sidebar .ui-nav-count,
   body.sidebar-collapsed .app-sidebar .ui-nav-item > span,
   body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home > span,
   body.sidebar-collapsed .app-sidebar .ui-switcher-btn:not(.ui-switcher-btn--home) { display: none; }
-  body.sidebar-collapsed .app-sidebar .ui-nav-label { height: 1px; margin: 8px 6px; padding: 0; overflow: hidden; font-size: 0; background: var(--ui-side-hover); }
+  body.sidebar-collapsed .app-sidebar .ui-nav-label { height: 1px; margin: 8px 4px; padding: 0; overflow: hidden; font-size: 0; background: var(--ui-side-hover); }
   body.sidebar-collapsed .app-sidebar .ui-nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
-  body.sidebar-collapsed .app-sidebar .ui-switcher { justify-content: center; }
-  body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home { padding: 0; width: 100%; justify-content: center; }
-  body.sidebar-collapsed .app-sidebar .sb-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+  /* Home takes the same box as a menu item, so every icon in the rail lines up. */
+  body.sidebar-collapsed .app-sidebar .ui-switcher { margin: 1px 4px 6px; padding: 0; border: 0; }
+  body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home { height: 34px; padding: 0; width: 100%; justify-content: center; }
+  body.sidebar-collapsed .app-sidebar .sb-brand { flex: 0 0 auto; justify-content: center; padding-left: 0; }
+  body.sidebar-collapsed .app-sidebar .ui-credits { justify-content: center; margin: 0 4px 8px; padding: 8px 0; }
+  body.sidebar-collapsed .app-sidebar .ui-credits-mini { display: flex; }
 }
 
 /* Find Leads: on a wide screen the page itself never scrolls; the filters and the table scroll inside their own boxes. */

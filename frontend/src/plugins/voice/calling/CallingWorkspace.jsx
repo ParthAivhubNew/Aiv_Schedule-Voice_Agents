@@ -54,10 +54,10 @@ import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
-import { SidebarBrand, useEmbedded } from "../../../embed/EmbedContext";
+import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
-import { PhoneTabBar, SidebarToggle, useSidebarCollapse } from "../../../hub/PluginShell";
+import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
 import { SubscriptionPage } from "../../../team/SubscriptionPage";
@@ -2735,8 +2735,7 @@ export function CallingWorkspace({
       <AppChrome />
       <MobileNavBackdrop nav={nav} />
       <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-        <SidebarToggle collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-        <SidebarBrand icon={PhoneCall} accent={C.cobalt} name="Voice" />
+        <SidebarHead icon={PhoneCall} accent={C.cobalt} name="Voice" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         {!embedded && <AppSwitcher current="voice" onHome={() => {
           if (page === "company" && companyDirty) {
             setUnsavedLeaveTarget({ type: "hub" });

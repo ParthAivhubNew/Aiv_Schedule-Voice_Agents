@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Plus, X } from "lucide-react";
+import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Mail, Phone, Plus, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -149,7 +149,8 @@ function Reach({ value, kind, onFind, web, state }) {
   if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const tip = kind === "email" ? "Open the profile to look for an email" : "Look on the web for this company's website and phone. 1 credit if found (the deeper search is used only if the first finds no website, and only charged if it does). Nothing is charged for a miss";
-  return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}>{kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
+  const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
+  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
 }
 
 function SaveCell({ saved, onSave }) {

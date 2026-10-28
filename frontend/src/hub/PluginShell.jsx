@@ -33,6 +33,17 @@ export function SidebarToggle({ collapsed, onToggle }) {
   );
 }
 
+// The top of an app's sidebar: its icon and name, with the collapse button at the right end of that row. In the icon rail
+// there is no room beside the icon, so the button sits under it (global.css).
+export function SidebarHead({ icon, accent, name, collapsed, onToggle }) {
+  return (
+    <div className="sb-head">
+      <SidebarBrand icon={icon} accent={accent} name={name} flush />
+      <SidebarToggle collapsed={collapsed} onToggle={onToggle} />
+    </div>
+  );
+}
+
 // The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
 // the pages in labelled groups, then (at the bottom) the app's credits and Log out.
 // groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
@@ -43,8 +54,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-      <SidebarToggle collapsed={collapsed} onToggle={toggleCollapsed} />
-      <SidebarBrand icon={Icon} accent={accent} name={name} />
+      <SidebarHead icon={Icon} accent={accent} name={name} collapsed={collapsed} onToggle={toggleCollapsed} />
       {!embedded && <AppSwitcher current={appId} onHome={onHome} />}
       <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
         {groups.map((group) => {

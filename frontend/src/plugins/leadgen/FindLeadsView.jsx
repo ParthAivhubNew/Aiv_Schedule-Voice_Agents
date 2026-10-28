@@ -971,7 +971,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
     sendChat(null, it.label);
   };
   const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
-  const firstLoad = busy && !companies.length && !people.length && view !== "map" && tab === "companies";
+  const firstLoad = busy && !companies.length && !people.length && view !== "map";
   const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
@@ -1195,10 +1195,10 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
           <TopBar />
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>
             <Spinner size={16} />
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{searched ? "Searching" : "Opening the register"}{appliedWords(form) ? <span style={{ fontWeight: 400, color: C.slate }}> · {appliedWords(form)}</span> : null}</div>
+            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{tab === "people" ? "Finding the people at matching companies" : searched ? "Searching" : "Opening the register"}{appliedWords(form) ? <span style={{ fontWeight: 400, color: C.slate }}> · {appliedWords(form)}</span> : null}</div>
             {searched ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Stop this search" onClick={cancelSearch}><X size={13} /> Cancel</button> : null}
           </div>
-          <TableSkeleton rows={12} cols={7} label="Searching the company register" />
+          <TableSkeleton rows={12} cols={tab === "people" ? 6 : 7} label={tab === "people" ? "Finding the people at matching companies" : "Searching the company register"} />
         </div>
       ) : null}
       {error ? (
@@ -1224,10 +1224,10 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
-                <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"} with people on file</span></>
+                <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
               ) : null}
             </div>
-            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="The best-first ranking of the register has not been prepared on the server yet, so the newest companies are shown first">Showing newest first</span> : null}
+            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="The best-first ranking of the register has not been prepared on the server yet, so the newest companies are shown first">Newest first (best-match ranking not ready)</span> : null}
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Sort
@@ -1338,7 +1338,7 @@ function FindLeadsSearch({ store, listsStore, onImport }) {
                 </div>
               ) : fillIds.length ? (
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...muted, fontSize: 12.5 }}>
-                  People are read from the registry company by company, so only some of these companies have them on file yet.
+                  Some of these companies have no people on file yet. Reading them from the registry is free.
                   <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} title="Read the registry for the best-ranked companies that have no people on file yet. Free" onClick={() => fillPeople(fillIds)}>
                     <Users size={14} /> Find people at the next {fillIds.length} companies
                   </button>

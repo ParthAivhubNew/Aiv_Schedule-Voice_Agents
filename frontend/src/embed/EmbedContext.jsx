@@ -12,11 +12,11 @@ export function useEmbedded() {
 }
 
 // The top of an app's sidebar: its icon and name, or, inside a partner's page, the partner's logo and name when it set them.
-export function SidebarBrand({ icon: Icon, accent, name, size = 17 }) {
+export function SidebarBrand({ icon: Icon, accent, name, size = 17, flush = false }) {
   const ctx = useContext(EmbedContext);
   const brand = (ctx && ctx.brand) || {};
   return (
-    <div className="sb-brand" style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 16px" }}>
+    <div className="sb-brand" style={{ display: "flex", alignItems: "center", gap: 10, flex: flush ? "1 1 auto" : undefined, minWidth: 0, padding: flush ? "0 0 0 4px" : "2px 8px 16px" }}>
       {brand.logoUrl ? (
         <img src={brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ height: 32, maxWidth: 120, objectFit: "contain", flexShrink: 0 }} />
       ) : (
