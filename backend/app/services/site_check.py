@@ -73,5 +73,24 @@ def plausible_site(name: str, url: str, *, strict: bool = True) -> bool:
     return len(initials) >= 3 and site.startswith(initials)
 
 
+def same_business(ours: str, theirs: str) -> bool:
+    """Is the business a search returned the company we asked about? Every real word of the shorter name must be in the other
+    name, with at most one extra word ("Teddy Bears Pre-School" and "Teddybears Pre-School" match, even though one is split and
+    the other run together). A different business that shares one word ("Be Sweet" and "Sweet Dreams Bakery") does not, so the
+    top search hit is never taken just because it is first."""
+    a, b = _squash(ours), _squash(theirs)
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    wa, wb = _tokens(ours), _tokens(theirs)
+    if not wa or not wb:
+        return False
+    small, big, sq_small, sq_big = (wa, wb, a, b) if len(wa) <= len(wb) else (wb, wa, b, a)
+    if not all(w in sq_big for w in small):
+        return False
+    return len([w for w in big if w not in sq_small]) <= 1
+
+
 def clean(name: str, url: str, *, strict: bool = True) -> Optional[str]:
     return url if plausible_site(name, url, strict=strict) else None

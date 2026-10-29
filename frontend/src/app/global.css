@@ -1313,7 +1313,8 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 @keyframes mo-slide-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(28px); } }
 @keyframes mo-dot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.35; } 40% { transform: translateY(-4px); opacity: 1; } }
 /* Every screen's content rises into place when it opens, and a screen kept alive behind another one replays it when it comes back. */
-.app-page > * { animation: mo-rise 0.3s var(--mo-ease) both; }
+/* backwards, not both: a finished animation must not leave a transform behind, or every modal (position: fixed) inside the page is boxed into it. */
+.app-page > * { animation: mo-rise 0.3s var(--mo-ease) backwards; }
 .ui-table tbody tr:nth-child(-n + 24) { animation: mo-fade 0.28s var(--mo-ease) both; }
 .app-toast { animation: mo-rise 0.24s var(--mo-ease) both; }
 .ui-btn { transition: background-color 0.12s, border-color 0.12s, color 0.12s, transform 0.1s var(--mo-ease), box-shadow 0.15s; }

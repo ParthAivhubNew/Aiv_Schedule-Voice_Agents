@@ -63,7 +63,7 @@ function Step({ n, title, done, open, onToggle, summary, children }) {
 }
 
 // The two partner guides, read in place. Each page is also public, so a developer without an account can be sent the link.
-const GUIDES = [["start", "Get started"], ["embed", "Embedding reference"], ["api", "API reference"]];
+const GUIDES = [["start", "Get started"], ["snippets", "Copy-paste code"], ["embed", "Embedding reference"], ["api", "API reference"]];
 
 function PartnerDocs({ alwaysOpen = false }) {
   const [shown, setShown] = useState(false);
@@ -76,7 +76,7 @@ function PartnerDocs({ alwaysOpen = false }) {
         <h3 style={h3}>Documentation</h3>
         {!alwaysOpen && <button type="button" style={button(false)} aria-expanded={open} onClick={() => setShown(!shown)}>{open ? "Hide" : "Read the docs"}</button>}
       </div>
-      <div style={hint}>New here? Start with "Get started": seven steps with code to copy. The two references hold every option.</div>
+      <div style={hint}>New here? Start with "Get started". "Copy-paste code" has the page snippets (panel, popup, side panel, full page) and the server file for your language. The two references hold every option.</div>
       {open && (
         <>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "10px 0" }}>
@@ -266,15 +266,17 @@ export function PartnerProgram() {
 
               <Step n={4} title="Download your starter kit" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
                 summary="Downloaded. Unzip it into your project and run the check.">
-                <div style={hint}>The files your developer needs, with your keys and addresses already filled in. Unzip them into your project folder, keeping the folders, then follow START-HERE.txt. It ends with one command that checks everything and says what is still missing.</div>
+                <div style={hint}>Your .env file, the one small server file for your language, and ready-to-paste snippets (panel, popup, side panel, full page), with your keys and addresses already filled in. Unzip them into your project folder, then follow START-HERE.txt: three or four short steps. It ends with one command that checks everything and says what is still missing.</div>
                 <label htmlFor="pp-kit" style={label}>What is your product built with?</label>
                 <select id="pp-kit" value={kitStack} onChange={(e) => setKitStack(e.target.value)} style={field}>
                   <option value="vite">A Vite or React app (no server of its own)</option>
                   <option value="node">Your own Node / Express server</option>
                   <option value="next">Next.js</option>
+                  <option value="python">Python (Flask)</option>
+                  <option value="php">PHP</option>
                 </select>
                 <div style={{ marginTop: 12 }}><button type="button" disabled={busy} style={button(true, busy)} onClick={downloadKit}>Download starter kit</button></div>
-                <div style={hint}>Your secret key is not in the kit. You paste it into a file called .env, as START-HERE.txt shows. Using something else? The Docs tab has the code for any language.</div>
+                <div style={hint}>Your secret key is not in the kit. You paste it into a file called .env, as START-HERE.txt shows. Using something else? The Docs tab, "Copy-paste code", has the same files and the steps for any language.</div>
               </Step>
 
               <Step n={5} title="Go live" done={partner.status === "live"} open={isOpen("live")} onToggle={() => toggle("live")}

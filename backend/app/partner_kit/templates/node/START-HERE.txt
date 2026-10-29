@@ -1,37 +1,45 @@
-OUTREACH STARTER KIT FOR {{COMPANY}}  (your own Node / Express server)
+OUTREACH STARTER KIT FOR {{COMPANY}}   (your own Node / Express server)
+======================================================================
 
-This kit is made for you: your publishable key and Outreach's address are already filled in.
-The folders inside it match your project. Copy everything into your project folder, keeping the folders.
+Four steps. About ten minutes.
 
-  File                         Where it goes
-  outreach-routes.mjs          the folder that holds your server file
-  check.mjs                    the same folder
-  .env.example                 the same folder, then copy it to a file named .env
-  public/outreach-test.html    the folder your server serves files from (often "public")
+STEP 1 - Unzip into your project
+  Unzip this kit into the folder that holds your server file. If asked, choose "merge" or "replace".
+  (public/outreach-test.html should end up in the folder your server serves files from, often "public".)
 
-Do these in order. You need Node 18 or newer.
+STEP 2 - Paste your secret key
+  a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
+  b) Make a copy of the file  .env.example  named  .env
+         Windows:   copy .env.example .env
+         Mac/Linux: cp .env.example .env
+  c) Open .env and replace the text after the = with your key. No quotes, no spaces.
 
-1. Add your secret key.
-   In Outreach open Admin APIs & Webhooks, then Partner programme, and make a secret key. It is shown once.
-   Copy .env.example to a new file named .env. Replace the text after the = with your secret key.
-   No quotes, no spaces. While you test it starts with psk_test_
+STEP 3 - Add two lines to your server file
+  Put them BEFORE any catch-all route such as  app.get("*", ...):
+         import { mountOutreach } from "./outreach-routes.mjs";
+         mountOutreach(app);
+  (If your server uses require(...), rename the server file to end in .mjs.)
 
-2. In your server file add two lines. Put them BEFORE any catch-all route such as app.get("*", ...):
+STEP 4 - Restart your server and check it
+  Stop your server and start it again.
+  In a second terminal, in the same folder:       node check.mjs {{ORIGIN}}
+  Every line must say [ok]. A line that says [X] tells you what to fix. Fix it and run the check again.
 
-       import { mountOutreach } from "./outreach-routes.mjs";
-       mountOutreach(app);
+DONE - open  {{ORIGIN}}/outreach-test.html  to see the Outreach screen. The first time, a window asks you to sign in to Outreach.
 
-   (If your server uses require(...) rather than import, rename your server file to end in .mjs or use dynamic import.)
-   Restart your server.
-
-3. Check everything. In the same folder, replace the address below with the one your server runs on:
-       node check.mjs {{ORIGIN}}
-   Every line must say [ok]. If a line says [X], it says what to fix. Fix it, run the check again.
-
-4. Open  {{ORIGIN}}/outreach-test.html
-   The Outreach screen appears. The first time, a window asks you to sign in to Outreach.
+SHOW IT YOUR WAY  (after the test page works)
+  Open the folder "snippets". Each file is a few lines to paste into your own page:
+    panel.html        the screen sits inside your page
+    popup.html        a button opens it in a popup
+    drawer.html       a button opens it in a side panel
+    full-page.html    a link opens it as a full page
+    OutreachScreen.jsx   for React and Next.js
+  Every file already has your key. The same code is in the Docs tab of Partner programme.
 
 Before real users
   - Change  mountOutreach(app)  to  mountOutreach(app, (req) => String(req.user.id), requireLogin)
     so the pass is made for whoever is signed in, and only for people who are signed in.
+  - Put your page's address in Partner programme > step 2 exactly as the browser bar shows it.
   - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.
+
+If anything fails, send us everything that  node check.mjs  printed. That is all we need.

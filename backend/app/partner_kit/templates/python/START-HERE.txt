@@ -1,0 +1,42 @@
+OUTREACH STARTER KIT FOR {{COMPANY}}   (Python / Flask)
+======================================================
+
+Four steps. About ten minutes.
+
+STEP 1 - Unzip into your project
+  Unzip this kit into the folder that holds your Flask app file. If asked, choose "merge" or "replace".
+
+STEP 2 - Paste your secret key
+  a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
+  b) Make a copy of the file  .env.example  named  .env
+         Windows:   copy .env.example .env
+         Mac/Linux: cp .env.example .env
+  c) Open .env and replace the text after the = with your key. No quotes, no spaces.
+
+STEP 3 - Add two lines to your Flask app file
+         from outreach_pass import outreach
+         app.register_blueprint(outreach)
+  (This adds /outreach-start and /outreach-test.html. Not Flask? Open outreach_pass.py: it is about 40 lines, and the Docs tab shows the steps in plain terms.)
+
+STEP 4 - Restart your app and check it
+  Stop your app and start it again.
+  In a second terminal, in the same folder:       node check.mjs {{ORIGIN}}
+  Every line must say [ok]. A line that says [X] tells you what to fix. Fix it and run the check again.
+
+DONE - open  {{ORIGIN}}/outreach-test.html  to see the Outreach screen. The first time, a window asks you to sign in to Outreach.
+
+SHOW IT YOUR WAY  (after the test page works)
+  Open the folder "snippets". Each file is a few lines to paste into your own page:
+    panel.html        the screen sits inside your page
+    popup.html        a button opens it in a popup
+    drawer.html       a button opens it in a side panel
+    full-page.html    a link opens it as a full page
+    OutreachScreen.jsx   for React and Next.js
+  Every file already has your key. The same code is in the Docs tab of Partner programme.
+
+Before real users
+  - In outreach_pass.py replace get_user_id() with the id of whoever is signed in, and return a 401 when nobody is.
+  - Put your page's address in Partner programme > step 2 exactly as the browser bar shows it.
+  - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.
+
+If anything fails, send us everything that  node check.mjs  printed. That is all we need.

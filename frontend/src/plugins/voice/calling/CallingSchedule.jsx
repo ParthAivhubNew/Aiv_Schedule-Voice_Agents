@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
+  CalendarClock,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -23,6 +24,7 @@ import { PaneSwitch } from "../../../components/PaneSwitch";
 import { DayAgenda, OtherAppsMarks, useMonthAgenda } from "../../../components/DayAgenda";
 import { buildMonthCells, weekdayHeaders } from "../../../utils/calendarGrid";
 import { formatOrgTime, tzLabel, useOrg } from "../../../org/orgSettings";
+import { CallScheduleWindow } from "./CallScheduleWindow";
 
 const FALLBACK_KINDS = [
   { id: "phone", label: "Phone call", hint: "We dial them", Icon: Phone, color: C.cobalt },
@@ -430,6 +432,8 @@ export function CallingSchedule({
   const org = useOrg() || {};
   const [cal, setCal] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(todayISO());
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [callSlots, setCallSlots] = useState([]); // calls the server will start on its own: [{ date, time, id, name, status, done }]
   const [dayExpanded, setDayExpanded] = useState(false);
   const [invitePreviewOpen, setInvitePreviewOpen] = useState(false);
   const [bookingPolicy, setBookingPolicy] = useState(null);
@@ -563,6 +567,19 @@ export function CallingSchedule({
 
   const cells = useMemo(() => buildMonthCells(cal.year, cal.month, org.weekStart), [cal.year, cal.month, org.weekStart]);
   const monthAgenda = useMonthAgenda(cal.year, cal.month);
+  const loadCallSlots = useCallback(() => {
+    const days = cells.filter(Boolean);
+    if (!days.length) return;
+    const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    api.callScheduleSlots(iso(days[0]), iso(days[days.length - 1])).then((r) => setCallSlots(Array.isArray(r) ? r : [])).catch(() => setCallSlots([]));
+  }, [cells]);
+  useEffect(() => { loadCallSlots(); }, [loadCallSlots]);
+  const slotsByDay = useMemo(() => {
+    const map = {};
+    callSlots.forEach((c) => { (map[c.date] = map[c.date] || []).push(c); });
+    Object.values(map).forEach((list) => list.sort((a, b) => a.time.localeCompare(b.time)));
+    return map;
+  }, [callSlots]);
   const selectedEvents = byDay[selectedDay] || [];
   const bookedTimes = new Set(selectedEvents.map((e) => eventTime(e)).filter(Boolean));
 
@@ -979,6 +996,14 @@ export function CallingSchedule({
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
                 type="button"
+                onClick={() => setScheduleOpen(true)}
+                title="Call a list right now, once, or on a repeating schedule, at one or more times a day"
+                style={{ ...calNavBtn, width: "auto", padding: "0 12px", gap: 6, fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center" }}
+              >
+                <CalendarClock size={14} /> Schedule
+              </button>
+              <button
+                type="button"
                 onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))}
                 style={calNavBtn}
               >
@@ -1083,6 +1108,20 @@ export function CallingSchedule({
                   ))}
                   {dayEvents.length > 3 ? (
                     <div className="vcal-chip" style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{dayEvents.length - 3} more · double-click to open</div>
+                  ) : null}
+                  {(slotsByDay[key] || []).slice(0, 2).map((c, n) => (
+                    <div
+                      key={c.id + c.time + n}
+                      className="vcal-chip"
+                      onClick={(e) => { e.stopPropagation(); setScheduleOpen(true); }}
+                      title={`${c.name}: the list is dialled at ${c.time}${c.status === "paused" ? " (paused)" : c.done ? " (done)" : ""}. Click to open schedules.`}
+                      style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: c.status === "paused" ? C.slate : C.cobalt, background: "#fff", border: `1px dashed ${c.status === "paused" ? C.border : C.cobalt}`, borderRadius: 6, padding: "2px 5px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", textDecoration: c.done ? "line-through" : "none", cursor: "pointer" }}
+                    >
+                      <PhoneCall size={10} style={{ flexShrink: 0 }} />{formatOrgTime(c.time, org.timeFormat)} · {c.name}
+                    </div>
+                  ))}
+                  {(slotsByDay[key] || []).length > 2 ? (
+                    <div className="vcal-chip" style={{ fontSize: 10, color: C.slate, fontWeight: 600 }}>+{(slotsByDay[key] || []).length - 2} scheduled calls</div>
                   ) : null}
                   <OtherAppsMarks counts={monthAgenda[key]} own="voice" />
                 </button>
@@ -1528,6 +1567,7 @@ export function CallingSchedule({
         </div>
         );
       })()}
+      <CallScheduleWindow open={scheduleOpen} onClose={() => setScheduleOpen(false)} onChanged={() => { loadCallSlots(); if (onToast) onToast("Call schedules updated."); }} />
     </div>
   );
 }

@@ -20,11 +20,18 @@ Your page  →  asks your server  →  your server asks Outreach (with the secre
 
 ## The fastest way: the starter kit
 
-In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with (a Vite or React app, your
-own Node server, or Next.js) and download a zip made for you, with your publishable key and addresses already filled in. Unzip it
-into your project folder, keeping the folders, and follow the `START-HERE.txt` inside. It ends with one command, `node check.mjs`,
-that tests every part and tells you what is still missing, in plain words. Steps 4 to 6 below explain what the kit does, and are
-the place to look if you build it by hand or use another language.
+In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with (Vite or React, your own
+Node server, Next.js, Python or PHP) and download a zip made for you, with your publishable key and addresses already filled in. It
+holds:
+
+- the `.env` file for your secret key,
+- one small server file for your language (it hands your page a short-lived pass),
+- ready-to-paste page snippets: a panel inside your page, a popup, a side panel, a full page, and a React component,
+- `node check.mjs`, which tests every part and says what is still missing, in plain words.
+
+Unzip it into your project folder and follow `START-HERE.txt`: three or four short steps. The same code is on the
+[Copy-paste code](snippets.md) page, so you can also build it by hand or in another language. Steps 4 to 6 below explain what the
+kit does.
 
 ## Before you start
 
@@ -203,7 +210,11 @@ Any other language works too. Each call is a `POST` to `https://outreach.aivhub.
 
 These tools build only the web page. Nothing in them can keep a secret key, and the development server answers every unknown
 address with `index.html`. That is why the page asks for `/outreach-start` and gets a web page back (`Content-Type: text/html`)
-instead of JSON, and the Outreach box stays blank. The endpoint has to run somewhere that is not the browser. Pick one:
+instead of JSON, and the Outreach box stays blank. The endpoint has to run somewhere that is not the browser.
+
+**The easy way for a Vite app: the starter kit.** Its `outreach-plugin.mjs` adds `/outreach-start` to your own Vite server. You
+add two lines to `vite.config.ts` (`import outreach from "./outreach-plugin.mjs"` and `outreach()` inside `plugins`), restart, and
+there is no second program and no proxy. Use that if you can. The options below are for when you cannot. Pick one:
 
 **A. A small Node server next to your app.** Save the Step 4b Express code as `server.js` with `app.listen(3000)` at the end, and
 put `OUTREACH_SECRET` in a `.env` file next to it. Start it with `node --env-file=.env server.js`. Then tell Vite to pass that

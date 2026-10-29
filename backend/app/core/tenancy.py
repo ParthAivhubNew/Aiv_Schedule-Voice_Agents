@@ -41,7 +41,7 @@ TENANT_TABLES: List[str] = [
     "process_logs", "conversation_templates", "conversation_variables", "org_phone_numbers",
     "credit_ledger", "org_telnyx", "verification_submissions", "number_orders",
     "whatsapp_threads", "whatsapp_messages", "whatsapp_signups", "credit_grants", "billing_subscriptions",
-    "voice_assistants", "call_briefs", "call_lists",
+    "voice_assistants", "call_briefs", "call_lists", "call_schedules",
     "email_mailboxes", "email_send_logs", "email_messages", "email_campaigns", "email_sequence_steps",
     "email_enrollments", "mail_messages", "billing_events", "enrichment_attempts", "lead_accounts", "number_checks",
     "public_api_idempotency", "public_api_audit", "public_objects", "meeting_providers",

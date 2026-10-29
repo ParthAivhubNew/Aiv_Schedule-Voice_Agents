@@ -1,5 +1,15 @@
 /*! Outreach embed loader. Put Outreach screens inside your own software.
  *
+ * The easy way (no JavaScript to write): one script tag, then a tag wherever a screen should show.
+ *
+ *   <script src="https://YOUR-OUTREACH-HOST/embed.js" data-key="pk_..." data-pass="/outreach-start"></script>
+ *   <div data-outreach="leads"></div>                                         // a panel inside your page
+ *   <button data-outreach="leads" data-mode="popup">Open Leads</button>       // a popup (also: drawer, page)
+ *
+ * data-pass is the address on YOUR server that hands out a pass (see the guide). Screens: leads, campaigns, mail, voice, social.
+ *
+ * The longer way, with full control:
+ *
  *   <script src="https://YOUR-OUTREACH-HOST/embed.js"></script>
  *   const outreach = Outreach("pk_...");
  *   outreach.create("leads", { token, appearance }).mount("#box");                       // inline
@@ -11,7 +21,7 @@
  * `token` (or `getToken`, a function returning a token or a promise of one) comes from your server: see the guide.
  * The secret key never goes in a web page.
  */
-/* global window, document, URL, console, getComputedStyle, MutationObserver, setTimeout, clearTimeout */
+/* global window, document, URL, console, getComputedStyle, MutationObserver, setTimeout, clearTimeout, fetch, Promise */
 (function (global) {
   "use strict";
   var script = document.currentScript;
@@ -352,4 +362,115 @@
   };
 
   global.Outreach = function (clientId, config) { return new Client(clientId, config); };
+
+  // ── One-tag mode ─────────────────────────────────────────────────────────────────────────────────────────
+  // <script src=".../embed.js" data-key="pk_..." data-pass="/outreach-start"> turns every [data-outreach] tag into a screen.
+  var tag = { client: null, pass: "/outreach-start", appearance: undefined };
+  if (script && script.getAttribute && script.getAttribute("data-key")) {
+    try {
+      tag.client = new Client(script.getAttribute("data-key"), { host: script.getAttribute("data-host") || undefined });
+      tag.pass = script.getAttribute("data-pass") || tag.pass;
+      tag.appearance = script.getAttribute("data-appearance") || undefined;
+    } catch (err) { if (global.console) console.error("[Outreach] " + err.message); }
+  }
+
+  // Ask the partner's own server for a pass. Says in plain words what is wrong when the answer is not one.
+  function getPass(passUrl, component) {
+    var url = passUrl + (passUrl.indexOf("?") < 0 ? "?" : "&") + "component=" + encodeURIComponent(component);
+    return fetch(url, { cache: "no-store", credentials: "same-origin" }).then(function (r) {
+      return r.text().then(function (text) {
+        var d = null;
+        try { d = JSON.parse(text); } catch (e) { /* not JSON: explained below */ }
+        if (d && (d.token || d.connect_token)) return d;
+        var why = d && d.error ? d.error
+          : /<html|<!doctype/i.test(text) ? "your app answered with its own web page, so the pass route is not added yet (see STEP 3 in START-HERE.txt)"
+          : "it answered " + r.status + (text ? " with text that is not a pass" : " with nothing");
+        throw new Error(passUrl + ": " + why);
+      });
+    });
+  }
+
+  function say(node, message) {
+    if (global.console) console.error("[Outreach] " + message);
+    if (!node) return;
+    var note = node.querySelector ? node.querySelector("[data-outreach-note]") : null;
+    if (!note) {
+      note = el("div", "margin:8px 0;padding:10px 12px;border:1px solid #E5B4B4;border-radius:8px;background:#FDF2F2;color:#8A1F1F;font:13px/1.4 system-ui,-apple-system,'Segoe UI',sans-serif;", { role: "alert", "data-outreach-note": "1" });
+      if (/^(div|section|main|aside)$/i.test(node.tagName)) node.appendChild(note); else node.parentNode.insertBefore(note, node.nextSibling);
+    }
+    note.textContent = "Outreach could not open this screen. " + message;
+  }
+
+  // Show one screen. node: where it goes (inline) or what was clicked. opts: { mode, height, side, newTab, appearance }.
+  // mode: "inline" (default), "popup", "drawer" or "page". Returns a promise of the screen.
+  function show(node, component, opts) {
+    opts = opts || {};
+    var client = opts.client || tag.client, passUrl = opts.pass || tag.pass, mode = opts.mode || "inline";
+    if (!client) { say(node, 'Add data-key="pk_..." to the embed.js script tag.'); return Promise.resolve(null); }
+    if (!COMPONENTS[component] || component === "connect") { say(node, "Unknown screen '" + component + "'. Use leads, campaigns, mail, voice or social."); return Promise.resolve(null); }
+    if (node && node.querySelector) { var old = node.querySelector("[data-outreach-note]"); if (old) old.remove(); }
+    return getPass(passUrl, component).then(function (d) {
+      if (d.connect_token) {
+        // This person has no linked Outreach account yet: link one, then show the screen they asked for.
+        return new Promise(function (resolve) {
+          var link = client.connect({
+            connectToken: d.connect_token,
+            onConnected: function () { link.close(); resolve(show(node, component, opts)); },
+            onError: function (e) { say(node, e.message); resolve(null); },
+          });
+          link.open({ mode: "modal" });
+        });
+      }
+      var first = d.token;
+      var screenOptions = {
+        height: opts.height,
+        appearance: opts.appearance || tag.appearance,
+        // The first pass is the one just fetched; later ones (after it runs out) are fetched fresh.
+        getToken: function () {
+          if (first) { var t = first; first = null; return Promise.resolve(t); }
+          return getPass(passUrl, component).then(function (x) {
+            if (!x.token) throw new Error("Your server did not return a token.");
+            return x.token;
+          });
+        },
+        onError: function (e) { say(node, e.message); },
+      };
+      if (mode === "page") return client.redirect(component, { getToken: screenOptions.getToken, appearance: screenOptions.appearance, newTab: !!opts.newTab });
+      var screen = client.create(component, screenOptions);
+      if (mode === "popup" || mode === "modal") screen.open({ mode: "modal" });
+      else if (mode === "drawer") screen.open({ mode: "drawer", side: opts.side || "right" });
+      else screen.mount(node);
+      return screen;
+    }).catch(function (err) { say(node, err && err.message ? err.message : "Something went wrong."); return null; });
+  }
+
+  // Turn every [data-outreach] tag that has not been set up yet into a screen (inline) or a button that opens one.
+  function scan(root) {
+    if (!tag.client) return;
+    var nodes = (root || document).querySelectorAll("[data-outreach]");
+    for (var i = 0; i < nodes.length; i++) {
+      (function (node) {
+        if (node.__outreachReady) return;
+        node.__outreachReady = true;
+        var component = node.getAttribute("data-outreach"), mode = node.getAttribute("data-mode") || "inline";
+        var opts = { mode: mode, height: node.getAttribute("data-height") || undefined, side: node.getAttribute("data-side") || undefined, newTab: node.hasAttribute("data-new-tab") };
+        if (mode === "inline") show(node, component, opts);
+        else node.addEventListener("click", function (e) { e.preventDefault(); show(node, component, opts); });
+      })(nodes[i]);
+    }
+  }
+
+  global.Outreach.show = show;
+  global.Outreach.scan = scan;
+  if (tag.client && typeof document !== "undefined") {
+    var go = function () {
+      scan();
+      // Tags a framework adds later (React, Vue, ...) are picked up as they appear.
+      if (typeof MutationObserver !== "undefined") {
+        var timer = null;
+        new MutationObserver(function () { clearTimeout(timer); timer = setTimeout(function () { scan(); }, 50); }).observe(document.body, { childList: true, subtree: true });
+      }
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go); else go();
+  }
 })(window);

@@ -15,8 +15,8 @@ const CHANNELS = [
   { id: "instagram", label: "Instagram" },
   { id: "threads", label: "Threads" },
 ];
-const DAY_NAMES = { MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat", SU: "Sun" };
-const WEEK_ORDER = {
+export const DAY_NAMES = { MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat", SU: "Sun" };
+export const WEEK_ORDER = {
   monday: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
   sunday: ["SU", "MO", "TU", "WE", "TH", "FR", "SA"],
   saturday: ["SA", "SU", "MO", "TU", "WE", "TH", "FR"],
@@ -102,7 +102,7 @@ function payloadOf(form) {
   };
 }
 
-function dayText(iso) {
+export function dayText(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
   if (Number.isNaN(d.getTime())) return iso;
@@ -110,7 +110,7 @@ function dayText(iso) {
   return wd + " " + d.getDate() + " " + d.toLocaleDateString("en-GB", { month: "short" });
 }
 
-function longDay(iso) {
+export function longDay(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
   if (Number.isNaN(d.getTime())) return iso;
@@ -667,7 +667,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   );
 }
 
-function Field({ label, hint, children }) {
+export function Field({ label, hint, children }) {
   return (
     <div style={{ marginBottom: 14, flex: 1, minWidth: 140 }}>
       <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 6 }}>{label}</div>
@@ -677,11 +677,11 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Row({ children }) {
+export function Row({ children }) {
   return <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{children}</div>;
 }
 
-function Note({ children, tone }) {
+export function Note({ children, tone }) {
   return (
     <div style={{ fontSize: 12.5, lineHeight: 1.45, color: C.ink, background: tone === "warn" ? (C.amberSoft || "#FCEFDA") : HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", marginBottom: 14 }}>
       {children}
@@ -689,7 +689,7 @@ function Note({ children, tone }) {
   );
 }
 
-function Segmented({ value, onChange, options }) {
+export function Segmented({ value, onChange, options }) {
   return (
     <div style={{ display: "inline-flex", gap: 3, background: HUB_PAPER, borderRadius: 10, padding: 3, flexWrap: "wrap" }}>
       {options.map((o) => (
@@ -707,7 +707,7 @@ function Segmented({ value, onChange, options }) {
   );
 }
 
-function Chips({ options, value, onChange }) {
+export function Chips({ options, value, onChange }) {
   const on = new Set(value || []);
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -726,8 +726,8 @@ function Chips({ options, value, onChange }) {
   );
 }
 
-const overlay = { position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 16 };
-const dialog = {
+export const overlay = { position: "fixed", inset: 0, background: "rgba(18,20,28,0.4)", zIndex: 60, display: "flex", justifyContent: "center", alignItems: "center", padding: 16 };
+export const dialog = {
   width: "min(1040px, 100%)",
   height: "min(760px, calc(100vh - 32px))",
   background: "#fff",
@@ -739,6 +739,6 @@ const dialog = {
   fontFamily: FONT_BODY,
   color: C.ink,
 };
-const input = { width: "100%", height: 38, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", color: C.ink };
-const secBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 36, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY };
-const priBtn = { ...secBtn, border: "none", background: C.ink, color: "#fff" };
+export const input = { width: "100%", height: 38, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", color: C.ink };
+export const secBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 36, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY };
+export const priBtn = { ...secBtn, border: "none", background: C.ink, color: "#fff" };

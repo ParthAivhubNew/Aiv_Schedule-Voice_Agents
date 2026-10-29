@@ -2129,3 +2129,31 @@ class CallList(Base):
     created_by = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CallSchedule(Base):
+    """Calls placed on their own: a Call list, dialled right now, once, or on a repeating pattern, at one or
+    more times a day. The server starts each run at its time (see call_schedule_engine)."""
+    __tablename__ = "call_schedules"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    list_id = Column(String, nullable=False, index=True)
+    from_number = Column(String, default="")
+    concurrency = Column(Integer, default=1)
+    times = Column(JSON, default=lambda: ["10:00"])  # HH:MM in the organisation timezone, several a day allowed
+    frequency = Column(String, default="recurring")  # now | once | recurring
+    pattern = Column(String, default="weekly")  # daily | weekly | monthly | dates
+    weekday = Column(String, nullable=False, default="")  # weekly pattern, e.g. "MO,TH"
+    month_day = Column(Integer, nullable=True)
+    custom_dates = Column(JSON, default=list)
+    start_date = Column(String, nullable=True)  # YYYY-MM-DD, organisation timezone
+    end_date = Column(String, nullable=True)
+    status = Column(String, default="active")  # active | paused | ended
+    ended_reason = Column(String, nullable=True)
+    fired = Column(JSON, default=list)  # slots already handled, "YYYY-MM-DD HH:MM", newest last
+    runs = Column(JSON, default=list)  # the latest runs: [{slot, at, ok, message, missionId}]
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

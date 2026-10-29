@@ -80,7 +80,7 @@ LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "l
 # search and phone validation) — not part of the email-finder waterfall above, but priced the
 # same way (provider_prices) so the admin portal's vendor-spend estimate has one place to read
 # real per-call costs from.
-OTHER_VENDOR_LABELS = {"deepseek_search": "DeepSeek (web search)", "tavily": "Tavily (web search)", "telnyx_lookup": "Telnyx (number lookup)"}
+OTHER_VENDOR_LABELS = {"deepseek_search": "DeepSeek (web search)", "deepseek_fetch": "DeepSeek (page fetch)", "tavily": "Tavily (web search)", "telnyx_lookup": "Telnyx (number lookup)"}
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
 
 

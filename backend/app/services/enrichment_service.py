@@ -171,40 +171,6 @@ async def _resolve_redirect_once(url: str) -> str:
     return ""
 
 
-async def search_duckduckgo_lite(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Open text-only DuckDuckGo search that bypasses heavy JS and CAPTCHAs."""
-    results = []
-    try:
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
-            resp = await client.post("https://lite.duckduckgo.com/lite/", data={"q": query})
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                rows = soup.find_all("tr")
-                cur_item = None
-                for tr in rows:
-                    a = tr.find("a", class_="result-link")
-                    if a:
-                        href = a.get("href") or ""
-                        url = _unwrap_result_url(href)
-                        if url and not url.startswith("http"):
-                            url = "https://" + url.lstrip("/")
-                        if url and _is_junk_web_host(url):
-                            url = ""
-                        title = _visible_text(a)
-                        cur_item = {"title": title, "snippet": "", "url": url or ""}
-                        if title or url:
-                            results.append(cur_item)
-                    else:
-                        td = tr.find("td", class_="result-snippet")
-                        if td and cur_item:
-                            cur_item["snippet"] = _visible_text(td)
-                    if len(results) >= max_results:
-                        break
-    except Exception as err:
-        logger.debug(f"DuckDuckGo Lite search error for '{query}': {err}")
-    return results[:max_results]
-
-
 async def _bump_vendor_call(provider: str) -> None:
     """Count one real billed call to a pay-as-you-go data vendor (Tavily, Telnyx lookup), so the
     admin portal's vendor-spend estimate (Revenue -> Data provider spend) knows roughly how much
@@ -291,36 +257,95 @@ async def deepseek_key() -> str:
     return getattr(settings, "DEEPSEEK_API_KEY", None) or os.getenv("DEEPSEEK_API_KEY", "")
 
 
-async def search_deepseek(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """DeepSeek's own search endpoint, billed per successful request to the DeepSeek balance behind the
-    key already saved. Empty when the box is not ticked, no key is saved, or nothing came back (not billed)."""
+# DeepSeek allows 5 requests a second to Search and, separately, 5 to Fetch (429 above that). We stay under it and retry a 429 or a
+# server error after a short wait, so a bulk run slows down instead of failing.
+_DEEPSEEK_SPACING = 0.25
+_DEEPSEEK_BACKOFF = (0.6, 1.5)
+_DEEPSEEK_GATE: Dict[str, Any] = {}
+_DEEPSEEK_WHY = {
+    401: "DeepSeek rejected the saved key (401): check the DeepSeek key under Platform Keys",
+    402: "the DeepSeek balance is empty (402): top it up, then web search works again",
+    403: "DeepSeek's security policy blocked this address (403)",
+}
+
+
+async def _deepseek_post(kind: str, path: str, body: Dict[str, Any], key: str, timeout: float) -> Optional[Dict[str, Any]]:
+    """One DeepSeek call: spaced under the rate limit, retried on 429 / 5xx / a timeout, and any other failure said plainly in the
+    log. Returns the JSON of a 200, or None."""
+    loop = asyncio.get_running_loop()
+    held = _DEEPSEEK_GATE.get(kind)
+    if not held or held[0] is not loop:
+        held = (loop, asyncio.Lock(), [0.0])
+        _DEEPSEEK_GATE[kind] = held
+    for attempt in range(len(_DEEPSEEK_BACKOFF) + 1):
+        async with held[1]:
+            wait = held[2][0] + _DEEPSEEK_SPACING - loop.time()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            held[2][0] = loop.time()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post("https://api.deepseek.com" + path, json=body,
+                                         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        except Exception as err:
+            resp, failure = None, err
+        else:
+            failure = None
+        status = resp.status_code if resp is not None else 0
+        if status == 200:
+            return resp.json()
+        retry = status == 429 or status >= 500 or resp is None
+        if retry and attempt < len(_DEEPSEEK_BACKOFF):
+            await asyncio.sleep(_DEEPSEEK_BACKOFF[attempt])
+            continue
+        why = _DEEPSEEK_WHY.get(status) or (f"HTTP {status} {resp.text[:160]}" if resp is not None else str(failure))
+        (logger.info if (kind == "fetch" and status == 404) else logger.warning)("DeepSeek %s %s: %s", kind, path, why)
+        return None
+    return None
+
+
+async def search_deepseek(query: str, max_results: int = 5, *, need_content: bool = False) -> List[Dict[str, str]]:
+    """DeepSeek's own search endpoint, billed only for a 200 with results, on the DeepSeek balance behind the key already saved.
+    Empty when the box is not ticked, no key is saved, or nothing came back."""
     if not await deepseek_search_enabled():
         return []
     key = await deepseek_key()
     q = (query or "").strip()[:128]
+    if not key:
+        logger.warning("DeepSeek web search is ticked under Platform Keys but no DeepSeek key is saved: it is being skipped")
     if not key or not q:
         return []
+    body: Dict[str, Any] = {"query": q, "count": max(1, min(int(max_results), 50))}
+    if need_content:
+        body["need_content"] = True
+    data = await _deepseek_post("search", "/v1/tools/search", body, key, 20.0)
+    items = (data or {}).get("results") or []
+    if items:
+        await _bump_vendor_call("deepseek_search")
     results: List[Dict[str, str]] = []
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://api.deepseek.com/v1/tools/search",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"query": q, "count": max(1, min(int(max_results), 50)), "localization": ""},
-            )
-            if resp.status_code == 200:
-                items = resp.json().get("results") or []
-                if items:
-                    await _bump_vendor_call("deepseek_search")  # only a non-empty answer is billed
-                for item in items[:max_results]:
-                    url = item.get("url") or ""
-                    if url and not _is_junk_web_host(url):
-                        results.append({"title": item.get("title") or "", "snippet": item.get("snippet") or item.get("summary") or "", "url": url})
-            else:
-                logger.warning(f"DeepSeek search error for '{q}': HTTP {resp.status_code}")
-    except Exception as err:
-        logger.debug(f"DeepSeek search error for '{q}': {err}")
+    for item in items[:max_results]:
+        url = item.get("url") or ""
+        if url and not _is_junk_web_host(url):
+            results.append({"title": item.get("title") or "", "snippet": item.get("snippet") or item.get("summary") or "",
+                            "summary": item.get("summary") or "", "content": item.get("content") or "", "url": url})
     return results
+
+
+async def fetch_deepseek(url: str) -> Optional[Dict[str, str]]:
+    """DeepSeek's page fetch: the page at `url` as clean Markdown ({title, content}), or None. Billed only when it returns usable
+    content, on the same key and ticked box as the search. The address must be http(s), under 8,192 characters, with no login in it."""
+    if not url or len(url) > 8192 or not url.lower().startswith(("http://", "https://")) or "@" in urllib.parse.urlparse(url).netloc:
+        return None
+    if not await deepseek_search_enabled():
+        return None
+    key = await deepseek_key()
+    if not key:
+        return None
+    data = await _deepseek_post("fetch", "/v1/tools/fetch", {"url": url}, key, 30.0)
+    if not data or not str(data.get("content") or "").strip():
+        return None
+    await _bump_vendor_call("deepseek_fetch")
+    return {"title": str(data.get("title") or ""), "content": str(data.get("content") or "")}
 
 
 async def google_places_key() -> str:
@@ -425,102 +450,24 @@ async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]
 
 
 async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """
-    Open, unlimited multi-engine search rotator:
-    0. DeepSeek search (only when ticked under Platform Keys, same key as DeepSeek's writing models)
-    1. Tavily (AI-agent search API, if a platform key is configured)
-    2. DuckDuckGo Lite (resilient text-only endpoint)
-    3. DuckDuckGo Standard HTML
-    4. Bing Web Search (fallback)
-    """
+    """Web search through the platform's search APIs only, in this order:
+    1. DeepSeek search (when ticked under Platform Keys, same key as DeepSeek's writing models)
+    2. Tavily (when a key is saved under Platform Keys)
+    The free scraped engines (DuckDuckGo, Bing) are not used: they were blocked or off-topic, which made lookups fail quietly.
+    Each engine's off-topic results are dropped; an engine left with none hands over to the next."""
     if not query or not query.strip():
         return []
-
-    # Each engine's off-topic results are dropped; an engine left with none hands over to the next.
-    # 0. DeepSeek, when staff ticked it
     results = _on_topic(await search_deepseek(query, max_results=max_results), query)
     if results:
+        logger.info("web search %r answered by DeepSeek (%d results)", query[:80], len(results))
         return results
-
-    # 1. Tavily if configured
     results = _on_topic(await search_tavily(query, max_results=max_results), query)
     if results:
+        logger.info("web search %r answered by Tavily (%d results)", query[:80], len(results))
         return results
-
-    # 2. DuckDuckGo Lite
-    results = _on_topic(await search_duckduckgo_lite(query, max_results=max_results), query)
-    if results:
-        return results
-
-    # 3. DuckDuckGo HTML
-    try:
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
-            resp = await client.post("https://html.duckduckgo.com/html/", data={"q": query})
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                links = soup.select(".result__body")
-                for link in links[:max_results]:
-                    title_elem = link.select_one(".result__title")
-                    snippet_elem = link.select_one(".result__snippet")
-                    url_elem = link.select_one(".result__url")
-                    a_elem = link.select_one("a.result__a")
-
-                    title = _visible_text(title_elem)
-                    snippet = _visible_text(snippet_elem)
-                    raw_url = url_elem.get_text(strip=True) if url_elem else ""
-                    if not raw_url and a_elem and a_elem.get("href"):
-                        href = a_elem.get("href") or ""
-                        raw_url = _unwrap_result_url(href) if ("uddg=" in href or "http" in href) else href
-
-                    if title or snippet:
-                        url = _unwrap_result_url(raw_url) if raw_url else ""
-                        if url and not url.startswith("http"):
-                            url = "https://" + url.lstrip("/")
-                        if url and _is_junk_web_host(url):
-                            url = ""
-                        results.append({
-                            "title": title,
-                            "snippet": snippet,
-                            "url": url or "",
-                        })
-    except Exception as err:
-        logger.debug(f"DuckDuckGo HTML search error for '{query}': {err}")
-
-    results = _on_topic(results, query)
-    if results:
-        return results
-
-    # 4. Fallback: Bing HTML
-    try:
-        async with httpx.AsyncClient(headers=SEARCH_HEADERS, timeout=8.0, follow_redirects=True) as client:
-            resp = await client.get("https://www.bing.com/search", params={"q": query})
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for li in soup.select("li.b_algo")[:max_results]:
-                    a = li.select_one("h2 a")
-                    cite = li.select_one("cite")
-                    snippet_el = li.select_one(".b_caption p") or li.select_one("p")
-                    title = _visible_text(a)
-                    href = (a.get("href") or "").strip() if a else ""
-                    cite_text = cite.get_text(strip=True) if cite else ""
-                    url = _unwrap_result_url(href)
-                    if not url or _is_junk_web_host(url):
-                        if cite_text and not _is_junk_web_host(cite_text):
-                            url = cite_text if cite_text.startswith("http") else "https://" + cite_text.lstrip("/")
-                            url = url.split()[0].split("›")[0].strip()
-                            if not url.startswith("http"):
-                                url = "https://" + url.lstrip("/")
-                        else:
-                            url = await _resolve_redirect_once(href) if href else ""
-                    if url and _is_junk_web_host(url):
-                        url = ""
-                    snippet = _visible_text(snippet_el)
-                    if title or snippet or url:
-                        results.append({"title": title, "snippet": snippet, "url": url})
-    except Exception as err:
-        logger.warning(f"Bing search fallback error for '{query}': {err}")
-
-    return _on_topic(results, query)
+    logger.warning("web search %r found nothing. If this keeps happening, check Platform Keys > Leads: the DeepSeek search box and "
+                   "key, or a Tavily key. Without one of them there is no web search.", query[:80])
+    return []
 
 
 search_duckduckgo = search_open_web
@@ -1348,6 +1295,12 @@ async def enrich_prospect_intelligence(
             q += f" {place_bit}"
         search_terms.append(q + " email OR contact OR phone")
         search_terms.append(f'"{target_company}" official website')
+        # The register and the company's own site often spell the name differently ("Teddy Bears Pre-School", "Teddybears Pre-School"):
+        # one search with no quotes, and one with the name run together, so an exact-phrase miss is not the end of the search.
+        search_terms.append(f"{target_company} {place_bit}".strip())
+        run_together = re.sub(r"[\s\-]+", "", str(target_company))
+        if run_together.lower() != str(target_company).lower() and len(run_together) >= 6:
+            search_terms.append(f"{run_together} {place_bit}".strip())
         if deep:
             search_terms.append(f'"{target_company}" site:linkedin.com/company')
         if person_bit:

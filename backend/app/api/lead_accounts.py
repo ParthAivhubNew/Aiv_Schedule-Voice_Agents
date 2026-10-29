@@ -6,6 +6,7 @@ Each company sees only its own accounts (lead_accounts is a tenant table, see co
 """
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -22,6 +23,8 @@ from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_lookup, business_records, site_check
 from app.services.person_record import is_person_account, is_role_inbox
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
+
+logger = logging.getLogger("lead_accounts")
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -493,6 +496,12 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
+        if place and not site_check.same_business(biz.name, place.get("name") or ""):
+            logger.info("find-website: deeper search returned a different business for %r: %r", biz.name, place.get("name"))
+            place = None
+        elif not place:
+            logger.info("find-website: nothing for %r on the web (web found %s); deeper search %s", biz.name, bool(web and web.get("found")),
+                        "returned nothing or is not switched on")
         if place and place.get("website") and site_check.plausible_site(biz.name, place["website"], strict=False):
             try:
                 await business_records.upsert(
@@ -543,7 +552,13 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
-        if place and place.get("phone") and CC.is_uk_phone(place["phone"]) and site_check.plausible_site(biz.name, place.get("website") or "", strict=False):
+        if place and not site_check.same_business(biz.name, place.get("name") or ""):
+            logger.info("find-phone: deeper search returned a different business for %r: %r", biz.name, place.get("name"))
+            place = None
+        elif not place:
+            logger.info("find-phone: nothing for %r on the web (web found %s); deeper search returned nothing or is not switched on",
+                        biz.name, bool(web and web.get("found")))
+        if place and place.get("phone") and CC.is_uk_phone(place["phone"]):
             try:
                 await business_records.upsert(
                     db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",

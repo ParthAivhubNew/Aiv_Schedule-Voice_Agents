@@ -10,6 +10,7 @@ The text lives in backend/docs/partners/*.md; edit those and the pages follow. T
 from __future__ import annotations
 
 import html
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Tuple
@@ -18,12 +19,14 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from app.config import settings
+from app.partner_kit import server_file, snippet
 from app.services import mini_markdown as MD
 
 router = APIRouter(prefix="/docs/partners", tags=["Partner docs"])
 _DIR = Path(__file__).resolve().parents[2] / "docs" / "partners"
 _GUIDES = {
     "start": ("Get started", "New here? Seven steps from nothing to an Outreach screen inside your product, with code to copy."),
+    "snippets": ("Copy-paste code", "The code to show Outreach your way (panel, popup, side panel, full page) and the one small server file, in your language."),
     "embed": ("Embedding reference", "Every option for showing screens: popups, side panels, colours, connecting users, security."),
     "api": ("API reference", "Use an account from your server: calls, lists, webhooks. The older path, still supported."),
 }
@@ -103,9 +106,22 @@ def _page(title: str, body: str, current: str = "", toc: List[Tuple[str, str]] =
     return HTMLResponse(doc, headers={"Cache-Control": "public, max-age=300", "X-Frame-Options": "SAMEORIGIN"})
 
 
+_LANG = {".html": "html", ".jsx": "jsx", ".mjs": "js", ".js": "js", ".py": "python", ".php": "php"}
+
+
+def _expand(text: str) -> str:
+    """{{snippet:panel.html}} and {{server:node}} become the very files the starter kit ships, so the docs and the kit cannot differ."""
+    def code(name: str, body: str) -> str:
+        return "```" + _LANG.get("." + name.rsplit(".", 1)[-1], "") + "\n" + body.rstrip("\n") + "\n```"
+
+    text = re.sub(r"^\{\{snippet:([\w.-]+)\}\}$", lambda m: code(m.group(1), snippet(m.group(1))), text, flags=re.M)
+    text = re.sub(r"^\{\{server:(\w+)\}\}$", lambda m: code(*server_file(m.group(1))), text, flags=re.M)
+    return text.replace("{{HOST}}", "https://YOUR-OUTREACH-HOST")
+
+
 @lru_cache(maxsize=8)
 def _guide(name: str) -> Tuple[str, Tuple[Tuple[str, str], ...]]:
-    text = MD.drop_section((_DIR / f"{name}.md").read_text(encoding="utf-8"), "for the Outreach team")
+    text = _expand(MD.drop_section((_DIR / f"{name}.md").read_text(encoding="utf-8"), "for the Outreach team"))
     rendered = MD.render(text, _link).replace("<pre>", '<div class="pre"><pre>').replace("</pre>", "</pre></div>")
     return rendered, tuple(MD.headings(text))
 

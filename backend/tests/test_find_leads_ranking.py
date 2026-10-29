@@ -326,3 +326,14 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
         assert not miss["found"] and miss["charged"] == 0 and "Nothing was charged" in miss["note"]
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == before
+
+
+def test_a_search_hit_is_only_taken_when_it_is_the_same_business():
+    from app.services.site_check import same_business as same
+
+    assert same("Teddy Bears Pre-School", "Teddybears Pre-School")           # split in the register, run together on its own site
+    assert same("Teddy Bears Pre-School", "Teddybears Pre-School | Hitchin")
+    assert same("Creative Cheesecakes", "Creative Cheesecakes Ltd") and same("Corner Cafe Ltd", "The Corner Cafe")
+    assert same("Puff&Dessert / Mysuru Special Cuisine", "Mysuru Special Cuisine")
+    assert not same("Be Sweet", "Sweet Dreams Bakery")                        # one shared word is not enough
+    assert not same("Teddy Bears Pre-School", "Tesco Express") and not same("Joe's Kitchen", "Marks and Spencer")

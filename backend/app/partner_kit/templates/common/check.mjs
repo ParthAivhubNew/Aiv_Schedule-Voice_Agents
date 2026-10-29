@@ -64,14 +64,14 @@ try {
 
 // 5. Your own app hands out a pass
 try {
-  const res = await fetch(`${APP}/outreach-start?component=leads`, { cache: "no-store" });
+  const res = await fetch(`${APP}{{PASS}}?component=leads`, { cache: "no-store" });
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch { /* not JSON: explained below */ }
-  if (data && (data.token || data.connect_token)) pass(`${APP}/outreach-start returns a pass`);
-  else if (data && data.error) fail(`${APP}/outreach-start answered: ${data.error}`, "Fix what that message says, then run this again.");
-  else if (/<html|<!doctype/i.test(text)) fail(`${APP}/outreach-start returns a web page, not a pass`, "Your app is answering with its own home page. Add the proxy line from vite.config.snippet.txt (or register the route before your catch-all) and restart your app.");
-  else fail(`${APP}/outreach-start answered ${res.status} with ${text ? "text that is not a pass" : "nothing"}`, "Make sure the Outreach helper is running (node outreach-server.mjs) and that your app passes /outreach-start to it, then restart your app.");
+  if (data && (data.token || data.connect_token)) pass(`${APP}{{PASS}} returns a pass`);
+  else if (data && data.error) fail(`${APP}{{PASS}} answered: ${data.error}`, "Fix what that message says, then run this again.");
+  else if (/<html|<!doctype/i.test(text)) fail(`${APP}{{PASS}} returns a web page, not a pass`, "Your app is answering with its own home page, so the route is not added yet. Do STEP 3 in START-HERE.txt (Vite: add outreach() to vite.config; Node: add mountOutreach(app) before your catch-all route), then restart your app.");
+  else fail(`${APP}{{PASS}} answered ${res.status} with ${text ? "text that is not a pass" : "nothing"}`, "The route is not answering. Do STEP 3 in START-HERE.txt, then stop your app and start it again.");
 } catch (err) {
   fail(`Could not reach your app at ${APP} (${err.message})`, `Start your app, then run this again. If it runs on another address: node check.mjs http://that-address`);
 }

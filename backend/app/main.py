@@ -55,6 +55,7 @@ from app.api.retell_router import router as retell_router
 from app.api.custom_voice_router import router as custom_voice_router
 from app.api.conversation_templates import router as conversation_templates_router
 from app.api.call_lists import router as call_lists_router
+from app.api.call_schedules import router as call_schedules_router
 from app.api.legal import router as legal_router
 from app.api.partner_docs import router as partner_docs_router
 from app.api.diagnostics import router as diagnostics_router
@@ -95,6 +96,28 @@ async def _social_publish_due_loop():
             raise
         except Exception as loop_err:
             logger.warning(f"[Social Auto-Publish] Cycle failed: {loop_err}")
+
+
+async def _call_schedule_loop():
+    """Start scheduled call runs at their time, with no browser open."""
+    import time as _time
+    from app.database import AsyncSessionLocal
+    from app.services import call_schedule_engine
+    from app.core.tenancy import org_scope
+    from app.core.orgs import active_org_ids
+    while True:
+        try:
+            await asyncio.sleep(30)
+            for org_id in await active_org_ids():
+                with org_scope(org_id):
+                    async with AsyncSessionLocal() as db:
+                        started = await call_schedule_engine.tick(db, _time.time() * 1000)
+                    if started:
+                        logger.info(f"[Call schedules] {org_id}: started {started} run(s).")
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Call schedules] Cycle failed: {loop_err}")
 
 
 async def _credits_settle_loop():
@@ -741,9 +764,11 @@ async def lifespan(app: FastAPI):
     social_results_task = asyncio.create_task(_social_results_loop())
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
     find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
+    call_schedule_task = asyncio.create_task(_call_schedule_loop())
 
     yield
 
+    call_schedule_task.cancel()
     find_leads_warm_task.cancel()
     social_results_task.cancel()
     billing_upkeep_task.cancel()
@@ -885,6 +910,7 @@ app.include_router(retell_router)  # Direct /retell compatibility
 app.include_router(custom_voice_router, prefix=settings.API_PREFIX)
 app.include_router(custom_voice_router)  # Direct /custom-voice compatibility
 app.include_router(call_lists_router, prefix=settings.API_PREFIX)
+app.include_router(call_schedules_router, prefix=settings.API_PREFIX)
 app.include_router(legal_router, prefix=settings.API_PREFIX)  # public notice and opt-out for people in the business data
 app.include_router(partner_docs_router, prefix=settings.API_PREFIX)  # partner guides, public
 app.include_router(conversation_templates_router, prefix=settings.API_PREFIX)

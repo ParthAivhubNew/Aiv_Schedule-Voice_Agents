@@ -15,12 +15,13 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.auth_middleware import current
 from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import CompanyProfile, EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, LeadAccount
@@ -116,11 +117,21 @@ def _list_named(lists: List[Dict[str, Any]], name: str) -> Optional[Dict[str, An
     return (exact or near or [None])[0]
 
 
-async def _business_line(db: AsyncSession) -> str:
-    cp = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
-    if not cp or not (cp.name or "").strip() or cp.name == "Your company":
-        return "The business profile is not filled in yet, so you do not know what this business sells."
-    return f"This business: {cp.name}. What it does: {(cp.pitch or cp.industry or 'not said')[:300]}. Website: {cp.website or 'not said'}."
+async def _business_line(db: AsyncSession, request: Request) -> str:
+    """The About your business profile, all of it: the same facts the email writer reads (company, what it sells, who it is for,
+    the offer, tone, sign-off and proof points), so what the person typed there is the assistant's memory of their business."""
+    from app.api import email_outreach as EO
+    from app.services import email_writer as W
+
+    try:
+        p = await EO._profile(db, current(request), need=False)
+    except Exception as err:  # a profile that cannot be read must not stop the chat
+        logger.warning("assistant profile unreadable: %s", err)
+        p = {}
+    if not (p.get("company") or "").strip() or p["company"] == "Your company" or not (p.get("sells") or "").strip():
+        named = f" The business is called {p['company']}." if (p.get("company") or "").strip() and p["company"] != "Your company" else ""
+        return "The business profile is not filled in yet, so you do not know what this business sells." + named
+    return "About the business the person works for (their own words from About your business; use it to judge which companies fit and to write for them):\n" + W._profile_prompt(p)
 
 
 async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -232,14 +243,14 @@ async def _credits_line(db: AsyncSession) -> str:
 
 
 @router.post("/ask")
-async def ask(body: AskIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     if _spent_today() >= DAILY_MESSAGES:
         raise HTTPException(status_code=429, detail=f"You have used today's {DAILY_MESSAGES} assistant messages. They reset tomorrow.")
     started = time.time()
     history = [{"role": "assistant" if m.get("role") in ("assistant", "ai", "bot") else "user", "content": str(m.get("content") or "")[:1500]}
                for m in body.history[-8:] if str(m.get("content") or "").strip()]
     lists = [{"id": str(x.get("id", "")), "name": str(x.get("name", ""))[:80], "count": x.get("count")} for x in body.lists[:60]]
-    context = (await _business_line(db)
+    context = (await _business_line(db, request)
                + f"\nFilters in use now: {json.dumps(body.filters or {})}"
                + f"\nThe person's lists: {', '.join(x['name'] for x in lists) or 'none yet'}")
     remembered = [str(m).strip()[:300] for m in body.memory[:20] if str(m).strip()]

@@ -21,13 +21,16 @@ STACKS: Dict[str, str] = {
     "vite": "A Vite or React app (no server of its own)",
     "node": "Your own Node / Express server",
     "next": "Next.js",
+    "python": "Python (Flask)",
+    "php": "PHP",
 }
 
-# A template that sits flat in its stack folder but belongs in a sub-folder of the partner's project.
-_PLACE = {
-    "common/outreach-test.html": "public/outreach-test.html",
-    "vite/OutreachScreen.jsx": "src/OutreachScreen.jsx",
-}
+# The address on the partner's own server that hands out a pass. PHP answers on a file name; the rest on a path.
+PASS = {"php": "/outreach-start.php"}
+
+# Where the test page goes: the folder the partner's site serves files from.
+_TEST_PAGE = {"vite": "public/outreach-test.html", "node": "public/outreach-test.html", "next": "public/outreach-test.html",
+              "python": "outreach-test.html", "php": "outreach-test.html"}
 
 
 def _files(stack: str) -> Iterator[Tuple[str, str]]:
@@ -35,8 +38,24 @@ def _files(stack: str) -> Iterator[Tuple[str, str]]:
     for folder in ("common", stack):
         base = _DIR / folder
         for path in sorted(p for p in base.rglob("*") if p.is_file()):
-            key = f"{folder}/{path.relative_to(base).as_posix()}"
-            yield _PLACE.get(key, path.relative_to(base).as_posix()), path.read_text(encoding="utf-8")
+            name = path.relative_to(base).as_posix()
+            yield (_TEST_PAGE[stack] if name == "outreach-test.html" else name), path.read_text(encoding="utf-8")
+
+
+def snippet(name: str, *, client_id: str = "pk_YOUR_PUBLISHABLE_KEY", host: str = "https://YOUR-OUTREACH-HOST", pass_url: str = "/outreach-start") -> str:
+    """One page snippet from the kit with the given values filled in. The Docs page shows these same files, so the two never differ."""
+    text = (_DIR / "common" / "snippets" / name).read_text(encoding="utf-8")
+    for key, value in {"CLIENT_ID": client_id, "HOST": host.rstrip("/"), "PASS": pass_url}.items():
+        text = text.replace("{{" + key + "}}", value)
+    return text.strip("\n") + "\n"
+
+
+def server_file(stack: str, *, host: str = "https://YOUR-OUTREACH-HOST") -> Tuple[str, str]:
+    """(file name, text) of the server piece for one stack, as the kit ships it."""
+    for path in sorted((_DIR / stack).rglob("*")):
+        if path.is_file() and path.name != "START-HERE.txt" and not path.name.endswith(".d.mts"):
+            return path.relative_to(_DIR / stack).as_posix(), path.read_text(encoding="utf-8").replace("{{HOST}}", host.rstrip("/"))
+    raise ValueError(stack)
 
 
 def build(stack: str, *, client_id: str, host: str, origin: str, company: str) -> bytes:
@@ -44,7 +63,7 @@ def build(stack: str, *, client_id: str, host: str, origin: str, company: str) -
     if stack not in STACKS:
         raise ValueError(f"stack must be one of: {', '.join(STACKS)}")
     values = {"CLIENT_ID": client_id, "HOST": host.rstrip("/"), "ORIGIN": (origin or "https://app.yourproduct.com").rstrip("/"),
-              "COMPANY": (company or "your company").strip()}
+              "COMPANY": (company or "your company").strip(), "PASS": PASS.get(stack, "/outreach-start")}
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name, text in _files(stack):

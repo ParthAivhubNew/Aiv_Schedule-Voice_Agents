@@ -1,33 +1,38 @@
-OUTREACH STARTER KIT FOR {{COMPANY}}  (Next.js)
+OUTREACH STARTER KIT FOR {{COMPANY}}   (Next.js, app folder layout)
+==================================================================
 
-This kit is made for you: your publishable key and Outreach's address are already filled in.
-The folders inside it match your project. Copy everything into your project folder, keeping the folders.
+Three steps. About ten minutes.
 
-  File                             Where it goes
-  app/outreach-start/route.js      the "app" folder (create the outreach-start folder if it is missing)
-  components/OutreachScreen.jsx    the "components" folder
-  public/outreach-test.html        the "public" folder
-  check.mjs                        project folder, next to package.json
-  .env.example                     project folder, then copy it to a file named .env.local
+STEP 1 - Unzip into your project
+  Unzip this kit into your project folder (the one with package.json). If asked, choose "merge" or "replace".
+  Every file lands where it belongs by itself (app/outreach-start/route.js and public/outreach-test.html).
 
-Do these in order. You need Node 18 or newer. This kit is for the Next.js "app" folder layout.
+STEP 2 - Paste your secret key
+  a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
+  b) Make a copy of the file  .env.example  named  .env.local
+         Windows:   copy .env.example .env.local
+         Mac/Linux: cp .env.example .env.local
+  c) Open .env.local and replace the text after the = with your key. No quotes, no spaces.
 
-1. Add your secret key.
-   In Outreach open Admin APIs & Webhooks, then Partner programme, and make a secret key. It is shown once.
-   Copy .env.example to a new file named .env.local. Replace the text after the = with your secret key.
-   No quotes, no spaces. While you test it starts with psk_test_
+STEP 3 - Restart your app and check it
+  Stop your app (Ctrl+C) and start it again:      npm run dev
+  In a second terminal, in the same folder:       node check.mjs {{ORIGIN}}
+  Every line must say [ok]. A line that says [X] tells you what to fix. Fix it and run the check again.
 
-2. Start your app (npm run dev). Next.js reads .env.local when it starts, so restart it if it was already running.
+DONE - open  {{ORIGIN}}/outreach-test.html  to see the Outreach screen. The first time, a window asks you to sign in to Outreach.
 
-3. Check everything. In a second terminal, in the project folder:
-       node check.mjs {{ORIGIN}}
-   Every line must say [ok]. If a line says [X], it says what to fix. Fix it, run the check again.
-
-4. Open  {{ORIGIN}}/outreach-test.html
-   The Outreach screen appears. The first time, a window asks you to sign in to Outreach.
+SHOW IT YOUR WAY  (after the test page works)
+  Open the folder "snippets". Each file is a few lines to paste into your own page:
+    panel.html        the screen sits inside your page
+    popup.html        a button opens it in a popup
+    drawer.html       a button opens it in a side panel
+    full-page.html    a link opens it as a full page
+    OutreachScreen.jsx   for React and Next.js
+  Every file already has your key. The same code is in the Docs tab of Partner programme.
 
 Before real users
-  - In app/outreach-start/route.js, replace the fixed test person with the id of whoever is signed in, and return a 401 when
-    nobody is.
-  - Use the screen in your pages with:  <OutreachScreen component="leads" />
+  - In app/outreach-start/route.js replace the fixed test person with the id of whoever is signed in, and return a 401 when nobody is.
+  - Put your page's address in Partner programme > step 2 exactly as the browser bar shows it.
   - To go live: use a live secret key (psk_live_) in .env.local, then ask for go-live in Partner programme.
+
+If anything fails, send us everything that  node check.mjs  printed. That is all we need.

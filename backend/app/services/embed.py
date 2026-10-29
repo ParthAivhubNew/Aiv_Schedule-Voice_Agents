@@ -34,7 +34,7 @@ def _screen(write_sections, write_paths, read_sections=(), read_paths=""):
 
 
 _LEADS = "leads|enrichment|contacts|together"
-_VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voices|numbers|calcom|voice-studio|call-lists|meeting-links"
+_VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voices|numbers|calcom|voice-studio|call-lists|call-schedules|meeting-links"
 # screen -> what it may call, relative to /api. The Leads app loads its lists and its mail together, so each screen may also
 # read (never change) the other's data; everything else is refused.
 COMPONENTS: Dict[str, Tuple] = {

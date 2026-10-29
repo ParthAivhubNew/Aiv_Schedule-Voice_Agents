@@ -109,10 +109,23 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     cached = (biz.raw_data or {}).get("contacts_web")
     if cached and not refresh:
         return {**cached, "cached": True}
+    from app.services import web_harness
     from app.services.enrichment_service import enrich_prospect_intelligence
 
-    data = await enrich_prospect_intelligence(name=biz.name, company=biz.name, domain=biz.domain or None,
-                                              place=biz.region or None, db=db)
+    # The AI search harness first, given everything the register holds so the search is for this exact business. If it finds
+    # nothing, the older multi-query search runs (it too now searches through the search APIs only).
+    facts = {"address": biz.address, "postcode": biz.postcode, "industry": (biz.sic_text or biz.industry or "").split(" | ")[0],
+             "company_number": biz.registration_number, "website": biz.website or biz.domain, "phone": biz.phone}
+    data = None
+    try:
+        found = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts)
+        if found.get("found"):
+            data = {"domain": found["website"], "phones": found["phones"], "emails": found["emails"], "team": [], "citations": found["sources"]}
+    except Exception as err:
+        logger.warning("harness failed for %s: %s", biz.name, err)
+    if data is None:
+        data = await enrich_prospect_intelligence(name=biz.name, company=biz.name, domain=biz.domain or None,
+                                                  place=biz.region or None, db=db)
     from app.services.enrichment_service import _host_of, _is_directory_host, _is_junk_web_host
 
     site = data.get("domain") or ""

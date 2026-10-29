@@ -5,6 +5,10 @@ Outreach, or create an account, without leaving your pages, and you never see th
 
 > **New here?** Read [Get started](start.md) first. It is seven short steps. This page is for looking things up afterwards.
 
+> **Just want it working?** The one-tag way needs no JavaScript: one script line with `data-key` and `data-pass`, then
+> `<div data-outreach="leads"></div>` where the screen should show. See [Copy-paste code](snippets.md). This page covers the longer
+> `Outreach(...)` calls, for when you want events, your own colours or full control.
+
 This is the way to integrate from now on. The older direct API (see the [API reference](api.md)) keeps working for integrations
 already built on it.
 

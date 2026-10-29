@@ -6,9 +6,11 @@ import zipfile
 
 import pytest
 
-from app.partner_kit import STACKS, build
+from app.api import partner_docs as DOCS
+from app.partner_kit import PASS, STACKS, build, server_file, snippet
 
 ARGS = dict(client_id="pk_abc123", host="https://outreach.example.test/", origin="https://app.partner.test", company='Acme "Rockets" <Ltd>')
+SNIPPETS = ("panel.html", "popup.html", "drawer.html", "full-page.html", "OutreachScreen.jsx")
 
 
 def files(stack):
@@ -21,17 +23,38 @@ def test_kit_is_filled_in_and_has_no_secret(stack):
     kit = files(stack)
     joined = "\n".join(kit.values())
     assert not re.search(r"\{\{[A-Z_]+\}\}", joined)          # every placeholder is filled
-    assert "pk_abc123" in joined and "https://outreach.example.test/api/embed" in joined
+    assert "pk_abc123" in joined and "https://outreach.example.test" in joined
     assert "https://outreach.example.test//" not in joined      # the trailing slash of the host is dropped
     assert not re.search(r"psk_(live|test)_[A-Za-z0-9]{12,}", joined)  # a key can be named in the notes, but none is in the kit
     assert "psk_test_paste" in kit[".env.example"]                     # the .env file holds a placeholder only
-    assert "check.mjs" in kit and "START-HERE.txt" in kit and "public/outreach-test.html" in kit
+    assert "check.mjs" in kit and "START-HERE.txt" in kit
+    assert any(n.endswith("outreach-test.html") for n in kit)
+
+
+@pytest.mark.parametrize("stack", list(STACKS))
+def test_every_kit_ships_the_same_page_snippets_filled_in(stack):
+    kit = files(stack)
+    for name in SNIPPETS:
+        assert f"snippets/{name}" in kit
+    for name in SNIPPETS[:4]:
+        text = kit[f"snippets/{name}"]
+        assert 'data-key="pk_abc123"' in text and f'data-pass="{PASS.get(stack, "/outreach-start")}"' in text
+        assert 'src="https://outreach.example.test/embed.js"' in text
 
 
 def test_files_land_where_the_project_expects_them():
-    assert {"outreach-server.mjs", "vite.config.snippet.txt", "src/OutreachScreen.jsx"} <= set(files("vite"))
-    assert "outreach-routes.mjs" in files("node")
-    assert {"app/outreach-start/route.js", "components/OutreachScreen.jsx"} <= set(files("next"))
+    assert {"outreach-plugin.mjs", "outreach-plugin.d.mts", "public/outreach-test.html"} <= set(files("vite"))
+    assert {"outreach-routes.mjs", "public/outreach-test.html"} <= set(files("node"))
+    assert {"app/outreach-start/route.js", "public/outreach-test.html"} <= set(files("next"))
+    assert {"outreach_pass.py", "outreach-test.html"} <= set(files("python"))
+    assert {"outreach-start.php", "outreach-test.html"} <= set(files("php"))
+
+
+def test_the_test_page_is_the_panel_snippet_so_what_they_test_is_what_they_paste():
+    page = files("vite")["public/outreach-test.html"]
+    for line in snippet("panel.html", client_id="pk_abc123", host="https://outreach.example.test").splitlines():
+        if line.strip() and not line.lstrip().startswith(("<!--", "The screen can be")) and "-->" not in line:
+            assert line.strip() in page
 
 
 def test_company_name_is_escaped_in_the_page_but_kept_in_the_notes():
@@ -40,8 +63,32 @@ def test_company_name_is_escaped_in_the_page_but_kept_in_the_notes():
     assert 'Acme "Rockets" <Ltd>' in kit["START-HERE.txt"]
 
 
-def test_start_here_names_the_partners_own_address():
+def test_start_here_names_the_partners_own_address_and_the_right_pass_address():
     assert "node check.mjs https://app.partner.test" in files("vite")["START-HERE.txt"]
+    assert "/outreach-start.php" in files("php")["check.mjs"] and "/outreach-start.php" not in files("vite")["check.mjs"]
+
+
+def test_the_notes_are_short_and_numbered_with_one_edit_to_make():
+    for stack, steps in (("vite", 4), ("node", 4), ("next", 3), ("python", 4), ("php", 3)):
+        notes = files(stack)["START-HERE.txt"]
+        assert all(f"STEP {i} -" in notes for i in range(1, steps + 1))
+        assert f"STEP {steps + 1} -" not in notes
+        assert "node check.mjs https://app.partner.test" in notes and "outreach-server" not in notes and "proxy" not in notes
+        assert "snippets" in notes and "SHOW IT YOUR WAY" in notes
+
+
+def test_the_docs_show_the_very_files_the_kit_ships():
+    page = DOCS._guide_html("snippets")
+    unescaped = page.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#x27;", "'").replace("&amp;", "&")
+    for name in SNIPPETS:
+        for line in snippet(name).splitlines():
+            if line.strip():
+                assert line.strip() in unescaped, (name, line)
+    for stack in ("vite", "node", "next", "python", "php"):
+        _, text = server_file(stack)
+        for line in [l for l in text.splitlines() if l.strip()][:12]:
+            assert line.strip() in unescaped, (stack, line)
+    assert not re.search(r"\{\{(snippet|server|HOST)", page)
 
 
 def test_unknown_stack_is_refused():
@@ -51,7 +98,7 @@ def test_unknown_stack_is_refused():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 @pytest.mark.parametrize("stack", list(STACKS))
-def test_every_script_in_the_kit_parses(stack, tmp_path):
+def test_every_node_script_in_the_kit_parses(stack, tmp_path):
     for name, text in files(stack).items():
         if name.endswith((".mjs", ".js")):
             p = tmp_path / name.replace("/", "_")
@@ -61,3 +108,15 @@ def test_every_script_in_the_kit_parses(stack, tmp_path):
                 p.write_text(text, encoding="utf-8")
             done = subprocess.run(["node", "--check", str(p)], capture_output=True, text=True)
             assert done.returncode == 0, f"{name}: {done.stderr}"
+
+
+def test_the_python_file_compiles():
+    compile(files("python")["outreach_pass.py"], "outreach_pass.py", "exec")
+
+
+@pytest.mark.skipif(shutil.which("php") is None, reason="php is not installed")
+def test_the_php_file_parses(tmp_path):
+    p = tmp_path / "outreach-start.php"
+    p.write_text(files("php")["outreach-start.php"], encoding="utf-8")
+    done = subprocess.run(["php", "-l", str(p)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
