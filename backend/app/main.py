@@ -196,6 +196,25 @@ async def _platform_balance_check_loop():
             logger.warning(f"[Balances] Check cycle failed: {loop_err}")
 
 
+async def _telnyx_floor_loop():
+    """Every 15 minutes: one cheap Telnyx balance read, emailing staff at the $2 / $1.5 floors
+    (see app.services.platform_balances.check_telnyx_floor). Emails repeat at most once a day."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services.platform_balances import check_telnyx_floor
+    await asyncio.sleep(60)
+    while True:
+        try:
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    await check_telnyx_floor(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Balances] Telnyx floor check failed: {loop_err}")
+        await asyncio.sleep(900)
+
+
 async def _find_leads_warm_loop():
     """Keeps the opening Find Leads list ready: read once soon after start-up, then every 15 minutes."""
     await asyncio.sleep(5)
@@ -760,6 +779,7 @@ async def lifespan(app: FastAPI):
     connections_task = asyncio.create_task(connections_loop())
     number_health_task = asyncio.create_task(_telnyx_number_health_loop())
     balance_check_task = asyncio.create_task(_platform_balance_check_loop())
+    telnyx_floor_task = asyncio.create_task(_telnyx_floor_loop())
     social_token_task = asyncio.create_task(_social_token_refresh_loop())
     social_results_task = asyncio.create_task(_social_results_loop())
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
@@ -779,6 +799,7 @@ async def lifespan(app: FastAPI):
     credits_task.cancel()
     number_health_task.cancel()
     balance_check_task.cancel()
+    telnyx_floor_task.cancel()
     social_token_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 

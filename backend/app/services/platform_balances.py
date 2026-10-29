@@ -35,6 +35,26 @@ RUNWAY_LOW_DAYS = 10
 RUNWAY_CRITICAL_DAYS = 3
 RE_ALERT_AFTER = timedelta(hours=24)
 
+# Fixed USD floors on top of the runway logic: Telnyx stops carrying calls when the account runs dry,
+# and a small prepaid balance can go from fine to empty between two 6-hour polls.
+FLOORS_USD: Dict[str, Dict[str, float]] = {
+    "telnyx": {
+        "low": float(os.getenv("TELNYX_LOW_BALANCE_USD", "2.0")),
+        "critical": float(os.getenv("TELNYX_CRITICAL_BALANCE_USD", "1.5")),
+    },
+}
+
+
+def _apply_floor(provider: str, remaining: float, status: str) -> str:
+    floor = FLOORS_USD.get(provider)
+    if not floor:
+        return status
+    if remaining <= floor["critical"]:
+        return "critical"
+    if remaining <= floor["low"] and status == "ok":
+        return "low"
+    return status
+
 NON_POLLABLE_DEFAULTS = [
     {"id": "openai", "name": "OpenAI", "alert_configured": False, "threshold": "$50", "notes": "Set email threshold in platform dashboard"},
     {"id": "anthropic", "name": "Anthropic", "alert_configured": False, "threshold": "$50", "notes": "Set email threshold in console.anthropic.com"},
@@ -329,6 +349,7 @@ async def _assess(db: AsyncSession, provider: str, label: str, live: Dict[str, A
             status = "critical"
         elif (headroom is not None and recommended_topup and headroom < recommended_topup) or (runway is not None and runway < RUNWAY_LOW_DAYS):
             status = "low"
+        status = _apply_floor(provider, remaining, status)
 
         out.update({"burnPerDay": round(burn, 2) if burn else None, "runwayDays": round(runway, 1) if runway else None,
                     "headroomUsd": headroom, "recommendedTopupUsd": recommended_topup, "status": status,
@@ -368,6 +389,22 @@ async def check_and_alert(db: AsyncSession) -> List[Dict[str, Any]]:
     return out
 
 
+async def check_telnyx_floor(db: AsyncSession) -> Optional[Dict[str, Any]]:
+    """Light, frequent check: one Telnyx balance read, alert only if it is at or under the fixed
+    floors. No history write, so it does not skew the burn-rate window the 6-hourly job builds."""
+    live = await get_telnyx_live_balance()
+    if live.get("status") != "ok":
+        return None
+    remaining = float(live.get("remaining") or 0)
+    status = _apply_floor("telnyx", remaining, "ok")
+    if status == "ok":
+        return None
+    assessed = {"id": "telnyx", "name": POLLERS["telnyx"][0], **live, "status": status}
+    await _maybe_alert(db, assessed)
+    await db.commit()
+    return assessed
+
+
 async def _maybe_alert(db: AsyncSession, assessed: Dict[str, Any]) -> None:
     provider = assessed["id"]
     doc = await _get_doc(db, f"{ALERT_PREFIX}{provider}")
@@ -393,6 +430,10 @@ async def _maybe_alert(db: AsyncSession, assessed: Dict[str, Any]) -> None:
             lines.append(f"Headroom after covering what customers are still owed: <b>${assessed['headroomUsd']:,.2f}</b>.")
         if assessed.get("recommendedTopupUsd"):
             lines.append(f"Recommended top-up: about <b>${assessed['recommendedTopupUsd']:,.2f}</b> (2 weeks at the current pace).")
+        floor = FLOORS_USD.get(provider)
+        if floor and assessed.get("remaining", 0) <= floor["low"]:
+            lines.append(f"This is at or below the ${floor['low']:.2f} warning line (critical at ${floor['critical']:.2f}). "
+                         "Recharge now or calls and numbers on this account can stop working.")
         lines.append("The Balances page of the owner portal has the full picture.")
         msg = render_owner(subject, lines, page="balances", button_label="Open Balances")
         for to in recipients:
@@ -447,6 +488,7 @@ async def get_platform_balances_overview(db: AsyncSession) -> Dict[str, Any]:
             status = "critical"
         elif (headroom is not None and recommended_topup and headroom < recommended_topup) or (runway is not None and runway < RUNWAY_LOW_DAYS):
             status = "low"
+        status = _apply_floor(provider, remaining, status)
         pollable[provider] = {"name": label, **live, "burnPerDay": round(burn, 2) if burn else None,
                               "runwayDays": round(runway, 1) if runway else None, "headroomUsd": headroom,
                               "recommendedTopupUsd": recommended_topup, "status": status,
