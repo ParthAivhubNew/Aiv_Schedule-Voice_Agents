@@ -118,11 +118,14 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
     seen_urls: set = set()
     read_domains: Dict[str, bool] = {}  # domain -> was its site readable (alive)
 
-    async def run(query: str, *, include: Optional[List[str]] = None, depth: str = "basic") -> int:
+    async def run(query: str, *, include: Optional[List[str]] = None, depth: str = "basic", engine: str = "auto") -> int:
         if meter["searches"] >= R.MAX_SEARCHES:
             return 0
         rows = await ES.search_web(query, max_results=R.SETTINGS["max_results"], include_domains=include,
-                                   exclude_domains=None if include else R.EXCLUDE_DOMAINS, must_mention=must or None, depth=depth, meter=meter)
+                                   exclude_domains=None if include else R.EXCLUDE_DOMAINS, must_mention=must or None, depth=depth, meter=meter,
+                                   engine=engine)
+        if rows and not any(r.get("engine") == "deepseek" for r in rows):
+            meter["tavily_used"] = True
         added = 0
         for r in rows:
             key = G.registered_domain(r["url"]) + urlparse(r["url"]).path.rstrip("/")
@@ -204,6 +207,11 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
                 state = evaluate()
             if state["w"]:
                 break
+    if ask_site and not state["w"] and meter.get("tavily_used") and meter["searches"] < R.MAX_SEARCHES:
+        # Tavily answers first and DeepSeek is never tried when it returns anything, so a miss gets one DeepSeek search as a second opinion
+        if await run(steps[0]["query"], engine="deepseek"):
+            await read_own_sites(evaluate())
+            state = evaluate()
     no_candidate = not any(c["field"] == "website" and not c["rejected"] for c in state["cands"])  # advanced costs 2 credits: only when nothing was found at all
     if ask_site and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES:
         if await run(steps[0]["query"], depth="advanced"):

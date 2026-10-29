@@ -473,8 +473,9 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
 
 
 async def search_web(query: str, *, max_results: int = 5, include_domains: Optional[List[str]] = None, exclude_domains: Optional[List[str]] = None,
-                     must_mention: Optional[List[str]] = None, depth: str = "basic", meter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """The company-lookup search: DeepSeek first (when ticked), then Tavily, using the settings from search_recipe. `must_mention` are
+                     must_mention: Optional[List[str]] = None, depth: str = "basic", meter: Optional[Dict[str, Any]] = None,
+                     engine: str = "auto") -> List[Dict[str, Any]]:
+    """The company-lookup search: Tavily first, then DeepSeek (when ticked), using the settings from search_recipe. `must_mention` are
     the company's name words: a result that mentions none of them (in its title, text or address) is dropped. DeepSeek has no domain
     filter setting, so a domain limit becomes `site:` in its query and the exclusions are applied to what comes back."""
     if not query or not query.strip():
@@ -494,6 +495,16 @@ async def search_web(query: str, *, max_results: int = 5, include_domains: Optio
             out.append(r)
         return out
 
+    # Tavily first, then DeepSeek. engine="deepseek" is the second opinion when Tavily's results did not pass the checks.
+    # Tavily's own exclude_domains list steers its ranking away from the company (live test: "Official website of Gails" returned
+    # airport and hotel pages with the list, gails.com without it), so directories are dropped here, from a slightly longer result list.
+    if engine != "deepseek":
+        rows = keep(await search_tavily(query, max_results=max_results + (5 if skip else 0), include_domains=include_domains, depth=depth, meter=meter))[:max_results]
+        if rows:
+            logger.info("web search %r answered by Tavily (%d results)", query[:80], len(rows))
+            return rows
+    if engine == "tavily":
+        return []
     ds_query = query + (f" site:{include_domains[0]}" if include_domains else "")
     rows = keep(await search_deepseek(ds_query, max_results=max_results, need_content=False))
     if rows:
@@ -502,12 +513,6 @@ async def search_web(query: str, *, max_results: int = 5, include_domains: Optio
             meter["deepseek_searches"] = meter.get("deepseek_searches", 0) + 1
         logger.info("web search %r answered by DeepSeek (%d results)", query[:80], len(rows))
         return [{**r, "engine": "deepseek"} for r in rows]
-    # Tavily's own exclude_domains list steers its ranking away from the company (live test: "Official website of Gails" returned
-    # airport and hotel pages with the list, gails.com without it), so directories are dropped here, from a slightly longer result list.
-    rows = keep(await search_tavily(query, max_results=max_results + (5 if skip else 0), include_domains=include_domains, depth=depth, meter=meter))[:max_results]
-    if rows:
-        logger.info("web search %r answered by Tavily (%d results)", query[:80], len(rows))
-        return rows
     logger.warning("web search %r found nothing. If this keeps happening, check Platform Keys > Leads: the DeepSeek search box and key, "
                    "or a Tavily key. Without one of them there is no web search.", query[:80])
     return []

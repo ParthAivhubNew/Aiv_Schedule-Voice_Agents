@@ -108,8 +108,9 @@ def _web(monkeypatch, answers, pages=None, dead=(), blocked=()):
     """answers: {query text contains: [results]}. pages: {url: (title, text)} for the company's own site."""
     log = {"queries": [], "include": [], "depth": []}
 
-    async def search_web(query, *, max_results=5, include_domains=None, exclude_domains=None, must_mention=None, depth="basic", meter=None):
+    async def search_web(query, *, max_results=5, include_domains=None, exclude_domains=None, must_mention=None, depth="basic", meter=None, engine="auto"):
         log["queries"].append(query)
+        log.setdefault("engines", []).append(engine)
         log["include"].append(include_domains)
         log["depth"].append(depth)
         if meter is not None:
@@ -153,6 +154,21 @@ def test_scenario_b_the_run_together_spelling_is_tried_when_the_first_search_fin
     out = run(H.find_company(None, name=NAME, place=FACTS["region"], facts=FACTS))
     assert out["website"] == "https://www.teddybears-preschool.co.uk"
     assert any("TeddyBears Pre-School" in q for q in log["queries"])
+
+
+def test_a_miss_after_tavily_gets_one_deepseek_search_as_a_second_opinion(monkeypatch):
+    log = _web(monkeypatch, {})
+
+    async def tavily_then_deepseek(query, **kw):
+        log["engines"].append(kw.get("engine"))
+        if kw.get("engine") == "deepseek":
+            return [{**TEDDY_SITE, "engine": "deepseek"}]
+        return [{**YELL, "engine": "tavily"}]  # Tavily answers with a directory only
+
+    log["engines"] = []
+    monkeypatch.setattr(ES, "search_web", tavily_then_deepseek)
+    out = run(H.find_company(None, name=NAME, place=FACTS["region"], facts=FACTS, want="website"))
+    assert "deepseek" in log["engines"] and out["website"] == "https://www.teddybears-preschool.co.uk"
 
 
 def test_scenario_c_a_phone_only_a_directory_has_is_not_shown(monkeypatch):
