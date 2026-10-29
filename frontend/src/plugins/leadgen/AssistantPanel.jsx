@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Building2, Check, ChevronRight, Clock, ListPlus, Plus, Send, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, ListPlus, Mail, Maximize2, PenLine, Plus, Search, Send, ShieldCheck, Sparkles, Trash2, Users, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { Spinner } from "../../app/Loader";
 import { C, FONT_BODY } from "../../tokens";
@@ -13,6 +13,61 @@ const GOALS = [
   { id: "prospects", Icon: Sparkles, title: "Find ideal prospects", note: "Companies that fit your business, and why", prompt: "Find the best companies for my business and explain why they fit." },
   { id: "list", Icon: ListPlus, title: "Build a company list", note: "Say who you want, for example cafes in Leeds", prefill: "Find " },
   { id: "campaign", Icon: Send, title: "Write an email campaign", note: "Pick a list, write the emails, send", go: "outreach" },
+  { id: "leads", Icon: BarChart3, title: "How are my leads doing?", note: "Your saved companies by stage", prompt: "How are my leads doing?" },
+  { id: "perf", Icon: Users, title: "Analyze campaign performance", note: "Sent, replied and bounced, per campaign", prompt: "How are my campaigns doing?" },
+  { id: "due", Icon: CalendarClock, title: "Who should I follow up with?", note: "Callbacks due in the next 7 days", prompt: "Who should I follow up with this week?" },
+];
+// Typed after "/": the same shortcuts Apollo's assistant has. "run" sends the text; "fill" puts it in the box for the person to finish.
+const COMMANDS = [
+  { cmd: "/find-leads", note: "Find companies that match what you type", fill: "Find " },
+  { cmd: "/find-lookalikes", note: "Find companies like the ones in your best list", run: "Find companies like the ones in my lists, in the same sector and area." },
+  { cmd: "/what-can-i-do", note: "See what the assistant can help you with", run: "What can you help me with?" },
+  { cmd: "/remember", note: "Save a preference the assistant should always follow", fill: "/remember " },
+  { cmd: "/memory", note: "See and delete what I remember", memory: true },
+];
+const MEMORY_KEY = "leadgen_assistant_memory";
+
+// The conversation lives here, outside any one screen, so the full page and the docked panel show the same chat: go to another tab and the
+// chat moves to the corner with its answer still coming in; expand it and it fills the page again.
+const shared = { s: { messages: [], busy: false, acts: {}, suggest: [], filters: {}, chatId: `a_${Date.now()}`, run: 0 }, subs: new Set() };
+const setShared = (patch) => {
+  shared.s = { ...shared.s, ...(typeof patch === "function" ? patch(shared.s) : patch) };
+  shared.subs.forEach((f) => f());
+};
+const useShared = () => useSyncExternalStore((f) => { shared.subs.add(f); return () => shared.subs.delete(f); }, () => shared.s);
+const sharedRef = (key) => ({ get current() { return shared.s[key]; }, set current(v) { shared.s = { ...shared.s, [key]: v }; } });
+const filtersRef = sharedRef("filters");
+const chatIdRef = sharedRef("chatId");
+const runRef = sharedRef("run");
+const settable = (key) => (v) => setShared((st) => ({ [key]: typeof v === "function" ? v(st[key]) : v }));
+const setMessages = settable("messages");
+const setBusy = settable("busy");
+const setActs = settable("acts");
+const setSuggest = settable("suggest");
+export const assistantHasChat = () => shared.s.messages.length > 0;
+// The full page opens on these groups, the way Apollo's does. Every prompt maps to something the assistant can really read or do here.
+const PRESETS = [
+  { id: "prospecting", label: "Prospecting", Icon: Search, items: [
+    { title: "Build my target audience", prompt: "Using my business profile, work out who my ideal customers are and search the register for them." },
+    { title: "Size my market", prompt: "How big is my market? Count the companies that could buy what I sell, and how many have a website, email or phone." },
+    { title: "Find lookalikes of my best customers", prompt: "Find companies like my best saved companies, in the same sectors and towns." },
+    { title: "Score companies for fit", prompt: "Which of the companies you found fit my business best, and why?" }] },
+  { id: "research", label: "Research", Icon: Sparkles, items: [
+    { title: "Research a company", prefill: "Tell me what the register holds about " },
+    { title: "Compare two towns", prefill: "Compare how many companies there are in " },
+    { title: "Who should I contact first?", prompt: "From the companies you found, who should I contact first and why?" }] },
+  { id: "sequencing", label: "Sequencing", Icon: Send, items: [
+    { title: "Write a cold email sequence", prompt: "Write a three-email cold sequence for my business, with a subject line for each and merge fields for the name and company." },
+    { title: "Write a re-engagement email", prompt: "Write a short email to re-engage companies that never replied to me." },
+    { title: "Write a follow-up after a call", prompt: "Write a short follow-up email to send after a first phone call." }] },
+  { id: "analytics", label: "Analytics", Icon: BarChart3, items: [
+    { title: "How are my leads doing?", prompt: "How are my leads doing?" },
+    { title: "Analyze campaign performance", prompt: "How are my campaigns doing?" },
+    { title: "How are replies sorted?", prompt: "How were the replies to my campaigns sorted in the last 30 days?" },
+    { title: "Who should I follow up with?", prompt: "Who should I follow up with this week?" }] },
+  { id: "deliverability", label: "Deliverability", Icon: Mail, items: [
+    { title: "Check my mailbox health", prompt: "Check the health of my sending mailboxes." },
+    { title: "Why might my emails land in spam?", prompt: "Look at my mailboxes and tell me what could make my emails land in spam, and what to fix first." }] },
 ];
 const STAGES = ["Understanding your request", "Searching the company register", "Putting the answer together"];
 const HISTORY_KEY = "leadgen_assistant";
@@ -57,6 +112,35 @@ const css = `
 .as-field{display:flex;flex-direction:column;gap:3px;font:12px Inter,sans-serif;color:var(--ui-muted,#6B7280)}
 .as-field textarea,.as-field input{font:13px/1.4 Inter,sans-serif}
 .as-orb{animation:mo-pop .5s var(--mo-ease,ease) both}
+.as-wrap.as-page{flex:1 1 auto;width:auto;height:100%;animation:none;z-index:auto;min-width:0}
+.as-page .as-panel{width:100%;height:100%;flex-direction:row;border-left:0;background:transparent}
+.as-col{display:contents}
+.as-page .as-col{display:flex;flex-direction:column;flex:1;min-width:0;height:100%}
+.as-page .as-body{align-items:stretch;padding:24px max(20px,calc((100% - 720px)/2))}
+.as-page .as-foot{border-top:0;background:transparent;padding:10px max(20px,calc((100% - 720px)/2)) 16px}
+.as-page .as-box{padding:12px 12px 12px 16px;box-shadow:0 2px 10px rgba(20,24,40,.05)}
+.as-side{flex:0 0 232px;box-sizing:border-box;border-right:1px solid var(--ui-line,#E3E6EF);padding:14px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;background:#fff}
+.as-nav{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;font:13.5px Inter,sans-serif;color:var(--ui-ink,#111827)}
+.as-nav:hover,.as-nav:focus-visible{background:var(--ui-hover,#F1F3F8)}
+.as-nav[data-on="true"]{background:var(--ui-accent-soft,#F3EEFF);font-weight:600}
+.as-nav:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:-2px}
+.as-nav>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.as-cap{font:600 11px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted,#6B7280);padding:14px 10px 4px}
+.as-pills{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.as-pill{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;background:#fff;font:13px Inter,sans-serif;color:var(--ui-ink,#111827);transition:border-color .15s,background-color .15s}
+.as-pill:hover,.as-pill:focus-visible,.as-pill[data-on="true"]{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#F5F7FF)}
+.as-pill:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+.as-row{all:unset;box-sizing:border-box;width:100%;padding:10px 12px;border-radius:10px;cursor:pointer;font:13.5px Inter,sans-serif;color:var(--ui-ink,#111827)}
+.as-row:hover,.as-row:focus-visible{background:var(--ui-hover,#F1F3F8)}
+@media (max-width:820px){.as-side{display:none}.as-page .as-body,.as-page .as-foot{padding-left:14px;padding-right:14px}}
+.as-chips{display:flex;gap:6px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none}
+.as-chips::-webkit-scrollbar{display:none}
+.as-chip{all:unset;cursor:pointer;flex:none;box-sizing:border-box;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 11px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;font:12.5px Inter,sans-serif;color:var(--ui-ink,#111827);background:#fff;transition:border-color .15s,background-color .15s}
+.as-chip:hover,.as-chip:focus-visible{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#F5F7FF)}
+.as-chip:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:1px}
+.as-menu{border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;background:#fff;margin-bottom:8px;overflow:hidden}
+.as-opt{all:unset;box-sizing:border-box;width:100%;display:flex;gap:10px;align-items:baseline;padding:8px 12px;cursor:pointer;font:13px Inter,sans-serif}
+.as-opt[aria-selected="true"],.as-opt:hover{background:var(--ui-hover,#F1F3F8)}
 @media (max-width:820px){
   .as-wrap{position:fixed;inset:0;width:100%;flex-basis:auto;z-index:90;animation:mo-slide-in .26s var(--mo-ease,ease) both}
   .as-wrap[data-leaving="true"]{animation:mo-slide-out .2s var(--mo-ease,ease) both}
@@ -105,7 +189,7 @@ function Steps({ steps, tookMs }) {
 }
 
 // "Tell me about your business": read the website, let the person fix the fields, save them where every tool reads them.
-function ProfileSetup({ onSaved }) {
+function ProfileSetup({ onSaved, editable = false }) {
   const [url, setUrl] = useState("");
   const [fields, setFields] = useState(null);
   const [base, setBase] = useState(null);
@@ -137,7 +221,8 @@ function ProfileSetup({ onSaved }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink }}><Building2 size={16} aria-hidden="true" /> Tell me about your business</div>
       <p style={{ ...small, margin: "4px 0 8px" }}>Give me your website and I will read it, so my answers fit what you sell.</p>
       {!fields ? (
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {editable && base?.edit?.company ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setFields({ ...base.edit })}>Edit what I know: {base.edit.company}</button> : null}
           <input className="ui-input" aria-label="Your website" placeholder="yourcompany.com" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") read(); }} style={{ flex: 1, minWidth: 0 }} />
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy || !url.trim()} onClick={read}>{busy ? <Spinner size={13} /> : "Read it"}</button>
         </div>
@@ -160,20 +245,22 @@ function ProfileSetup({ onSaved }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, page = false }) {
   const [render, setRender] = useState(open);
   const [leaving, setLeaving] = useState(false);
-  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { messages, busy, acts, suggest } = useShared();
   const [stage, setStage] = useState(0);
   const [needsProfile, setNeedsProfile] = useState(false);
-  const [view, setView] = useState("chat"); // chat | history
+  const [view, setView] = useState("chat"); // chat | history | context | memory
   const [history, setHistory] = useState([]);
-  const [acts, setActs] = useState({}); // proposal id -> { state: "running" | "done" | "error", text }
-  const filters = useRef({});
-  const chatId = useRef(`a_${Date.now()}`);
-  const run = useRef(0);
+  const [memory, setMemory] = useState([]); // [{ id, text }]: what the person asked me to remember
+  const [slashIx, setSlashIx] = useState(0);
+  const [preset, setPreset] = useState(""); // which preset group is open on the start screen
+  const [newMemory, setNewMemory] = useState(""); // highlighted slash command
+  const filters = filtersRef;
+  const chatId = chatIdRef;
+  const run = runRef;
   const endRef = useRef(null);
   const boxRef = useRef(null);
 
@@ -181,6 +268,9 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     api.emailGetWritingProfile().then((r) => setNeedsProfile(!r?.edit?.company || !r?.edit?.sells)).catch(() => {});
   }, []);
   useEffect(() => { loadProfile(); }, [loadProfile]);
+  const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, []);
+  useEffect(() => { if (page) loadHistory(); }, [page, loadHistory]);
+  useEffect(() => { api.chatHistory(MEMORY_KEY).then((r) => setMemory((r?.chats || []).map((c) => ({ id: c.id, text: c.title })))).catch(() => {}); }, []);
   useEffect(() => {
     if (open) { setRender(true); setLeaving(false); return undefined; }
     if (!render) return undefined;
@@ -197,7 +287,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }, [messages, busy, acts]);
   useEffect(() => { if (open && view === "chat") setTimeout(() => boxRef.current?.focus(), 80); }, [open, view]);
 
-  if (!render) return null;
+  if (!render && !page) return null;
 
   const remember = (list) => {
     const first = list.find((m) => m.role === "user");
@@ -205,13 +295,15 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     api.saveChatHistory(HISTORY_KEY, {
       id: chatId.current, title: first.text.slice(0, 70), at: Date.now(), filters: filters.current,
       chat: list.map((m) => ({ id: m.id, role: m.role, text: m.text, ...(m.found ? { found: m.found.total } : {}) })),
-    }).catch(() => {});
+    }).then(() => { if (page) loadHistory(); }).catch(() => {});
   };
 
   const send = async (override) => {
     const text = String(override ?? input).trim();
     if (!text || busy) return;
     setInput("");
+    if (/^\/remember(\s|$)/i.test(text)) { await remember_(text.replace(/^\/remember\s*/i, "")); return; }
+    if (/^\/memory(\s|$)/i.test(text)) { showMemory(); return; }
     const prior = messages.map((m) => ({ role: m.role, content: m.text }));
     const asked = [...messages, { id: `u${Date.now()}`, role: "user", text }];
     setMessages(asked);
@@ -220,7 +312,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     let res = null;
     let failure = null;
     try {
-      res = await api.assistantAsk({ message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })) });
+      res = await api.assistantAsk({ message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text) });
     } catch (err) { failure = err; }
     if (mine !== run.current) return;
     setBusy(false);
@@ -229,14 +321,27 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
     } else {
       if (res.found?.filters) filters.current = res.found.filters;
+      setSuggest(res.suggestions || []);
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", text: res.reply, steps: res.steps, tookMs: res.took_ms, found: res.found, proposals: res.proposals }];
     }
     setMessages(next);
     if (!failure) remember(next);
   };
 
+  const say = (list) => setMessages((m) => [...m, ...list.map((t, i) => ({ id: `a${Date.now()}${i}`, role: "assistant", text: t }))]);
+  const remember_ = async (what, quiet = false) => {
+    const t = what.trim().slice(0, 300);
+    if (!t) { if (quiet) return; say(["Tell me what to remember, for example: /remember I only sell to companies with a website."]); return; }
+    const id = `m_${Date.now()}`;
+    try {
+      await api.saveChatHistory(MEMORY_KEY, { id, title: t, at: Date.now(), chat: [{ id: "1", role: "user", text: t }], filters: {} });
+      setMemory((m) => [{ id, text: t }, ...m]);
+      if (!quiet) say([`Saved. I will keep this in mind from now on: “${t}”. Type /memory to see or remove what I remember.`]);
+    } catch { if (!quiet) say(["I couldn't save that. Try again in a moment."]); }
+  };
+  const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
   const stop = () => { run.current += 1; setBusy(false); };
-  const fresh = () => { run.current += 1; setBusy(false); setMessages([]); setInput(""); setActs({}); filters.current = {}; chatId.current = `a_${Date.now()}`; setView("chat"); };
+  const fresh = () => { run.current += 1; setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");
     api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => setHistory([]));
@@ -273,26 +378,77 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
 
   const onKey = (e) => {
+    if (slash.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setSlashIx((i) => (i + (e.key === "ArrowDown" ? 1 : slash.length - 1)) % slash.length); return; }
+    if (slash.length && (e.key === "Tab" || e.key === "Enter")) { e.preventDefault(); runCommand(slash[slashIx % slash.length]); return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
     if (e.key === "Escape") onClose();
   };
+
+  const slash = input.startsWith("/") && !/\s/.test(input) ? COMMANDS.filter((c) => c.cmd.startsWith(input.toLowerCase())) : [];
+  const starters = messages.length ? [] : ["Find cafes in Leeds", "Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"];
+  const typed = input.trim().toLowerCase();
+  const pool = suggest.length ? suggest : starters;
+  const chips = (typed && !slash.length ? pool.filter((c) => c.toLowerCase().includes(typed.split(/\s+/)[0])) : pool).slice(0, 6);
+  const runCommand = (c) => {
+    if (c.run) { setInput(""); send(c.run); return; }
+    if (c.memory) { setInput(""); setView("history"); showHistory(); return; }
+    setInput(c.fill || ""); boxRef.current?.focus();
+  };
+  const forgetMemory = (id) => { setMemory((m) => m.filter((x) => x.id !== id)); api.deleteChatHistory(MEMORY_KEY, id).catch(() => {}); };
 
   const text = { fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink };
   const muted = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
 
   return (
-    <div className="as-wrap" data-leaving={leaving}>
+    <div className={page ? "as-wrap as-page" : "as-wrap"} data-leaving={leaving}>
       <aside className="as-panel" aria-label="AI assistant">
         <style>{css}</style>
-        <div className="as-head">
+        {page ? (
+          <nav className="as-side" aria-label="Assistant menu">
+            <button type="button" className="as-nav" onClick={fresh}><Plus size={16} aria-hidden="true" /><span>Start new chat</span></button>
+            <button type="button" className="as-nav" data-on={view === "context"} onClick={() => setView("context")}><BookOpen size={16} aria-hidden="true" /><span>Context center</span></button>
+            <button type="button" className="as-nav" data-on={view === "memory"} onClick={() => setView("memory")}><Brain size={16} aria-hidden="true" /><span>Memory</span></button>
+            <div className="as-cap">Chats</div>
+            {history.length ? history.map((h) => (
+              <button key={h.id} type="button" className="as-nav" title={h.title} data-on={view === "chat" && h.id === chatId.current} onClick={() => openChat(h)}><span>{h.title || "Chat"}</span></button>
+            )) : <div style={{ ...muted, padding: "4px 10px" }}>No chats yet.</div>}
+          </nav>
+        ) : null}
+        <div className="as-col">
+        {!page ? <div className="as-head">
           <Sparkles size={16} aria-hidden="true" />
           <strong style={{ ...text, fontSize: 14, flex: 1 }}>{view === "history" ? "Earlier chats" : "AI Assistant"}</strong>
           <button type="button" className="as-icon" title="Earlier chats" aria-label="Earlier chats" onClick={() => (view === "history" ? setView("chat") : showHistory())}><Clock size={16} /></button>
           <button type="button" className="as-icon" title="Start a new chat" aria-label="Start a new chat" onClick={fresh}><Plus size={16} /></button>
+          {onExpand ? <button type="button" className="as-icon" title="Open full screen" aria-label="Open the assistant full screen" onClick={onExpand}><Maximize2 size={15} /></button> : null}
           <button type="button" className="as-icon" title="Close" aria-label="Close the assistant" onClick={onClose}><X size={16} /></button>
-        </div>
+        </div> : null}
 
         <div className="as-body">
+          {view === "context" ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>Context center</h2>
+              <p style={{ ...muted, margin: 0 }}>What I know about your business. Every answer, email and search follows it. Give me your website and I will draft it; you check it before it is saved.</p>
+              <ProfileSetup editable onSaved={() => { setNeedsProfile(false); loadProfile(); }} />
+            </div>
+          ) : null}
+          {view === "memory" ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>Memory</h2>
+              <p style={{ ...muted, margin: 0 }}>Things I should always do for you. I use these in every chat. You can also type /remember in any chat.</p>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input className="ui-input" aria-label="Something to remember" placeholder="For example: only suggest companies with a website" value={newMemory} maxLength={300}
+                  onChange={(e) => setNewMemory(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newMemory.trim()) { remember_(newMemory, true); setNewMemory(""); } }} style={{ flex: 1, minWidth: 0 }} />
+                <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!newMemory.trim()} onClick={() => { remember_(newMemory, true); setNewMemory(""); }}>Add</button>
+              </div>
+              {memory.length ? memory.map((m) => (
+                <div key={m.id} className="as-hit" style={{ alignItems: "center" }}>
+                  <span style={{ ...text, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{m.text}</span>
+                  <button type="button" className="as-icon" title="Forget this" aria-label={`Forget: ${m.text}`} onClick={() => forgetMemory(m.id)}><Trash2 size={14} /></button>
+                </div>
+              )) : <div style={muted}>Nothing yet. Add something above.</div>}
+            </div>
+          ) : null}
           {view === "history" ? (
             history.length ? history.map((h) => (
               <div key={h.id} className="as-hit" style={{ alignItems: "center" }}>
@@ -301,9 +457,37 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 <button type="button" className="as-icon" title="Delete this chat" aria-label={`Delete ${h.title}`} onClick={() => forget(h.id)}><Trash2 size={14} /></button>
               </div>
             )) : <div style={muted}>No earlier chats yet.</div>
-          ) : (
+          ) : null}
+          {view === "history" ? (
+            <div>
+              <div style={{ ...text, fontWeight: 600, margin: "6px 0 2px" }}>Remembered</div>
+              <div style={{ ...muted, marginBottom: 4 }}>Add with /remember. I follow these in every chat.</div>
+              {memory.length ? memory.map((m) => (
+                <div key={m.id} className="as-hit" style={{ alignItems: "center" }}>
+                  <span style={{ ...text, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{m.text}</span>
+                  <button type="button" className="as-icon" title="Forget this" aria-label={`Forget: ${m.text}`} onClick={() => forgetMemory(m.id)}><Trash2 size={14} /></button>
+                </div>
+              )) : <div style={muted}>Nothing yet.</div>}
+            </div>
+          ) : view === "chat" ? (
             <>
-              {!messages.length ? (
+              {!messages.length && page ? (
+                <>
+                  <div style={{ textAlign: "center", padding: "28px 0 6px" }}>
+                    <span className="ld-orb as-orb" aria-hidden="true" style={{ width: 54, height: 54, margin: "0 auto 12px" }}><Sparkles size={24} color="var(--ui-accent, #3457D5)" /></span>
+                    <h2 style={{ ...text, fontSize: 22, fontWeight: 600, margin: 0 }}>What can I do for you today?</h2>
+                    <p style={{ ...muted, margin: "6px 0 0" }}>Ask in your own words, type / for commands, or start from a preset.</p>
+                  </div>
+                  <div className="as-pills" role="group" aria-label="Presets">
+                    {PRESETS.map((g) => <button key={g.id} type="button" className="as-pill" data-on={preset === g.id} aria-pressed={preset === g.id} onClick={() => setPreset(preset === g.id ? "" : g.id)}><g.Icon size={14} aria-hidden="true" /> {g.label}</button>)}
+                  </div>
+                  {(PRESETS.find((g) => g.id === preset)?.items || []).map((it) => (
+                    <button key={it.title} type="button" className="as-row" onClick={() => (it.prompt ? send(it.prompt) : (setInput(it.prefill || ""), boxRef.current?.focus()))}>{it.title}</button>
+                  ))}
+                  {needsProfile ? <ProfileSetup onSaved={() => { setNeedsProfile(false); loadProfile(); }} /> : null}
+                </>
+              ) : null}
+              {!messages.length && !page ? (
                 <>
                   <div style={{ textAlign: "center", padding: "18px 0 4px" }}>
                     <span className="ld-orb as-orb" aria-hidden="true" style={{ width: 54, height: 54, margin: "0 auto 12px" }}><Sparkles size={24} color="var(--ui-accent, #3457D5)" /></span>
@@ -365,19 +549,33 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
               ) : null}
               <div ref={endRef} />
             </>
-          )}
+          ) : null}
         </div>
 
         {view === "chat" ? (
           <div className="as-foot">
+            {slash.length ? (
+              <div className="as-menu" role="listbox" aria-label="Commands">
+                {slash.map((c, i) => (
+                  <button key={c.cmd} type="button" role="option" aria-selected={i === slashIx % slash.length} className="as-opt" onMouseEnter={() => setSlashIx(i)} onClick={() => runCommand(c)}>
+                    <strong style={{ color: C.ink, fontWeight: 600 }}>{c.cmd}</strong><span style={muted}>{c.note}</span>
+                  </button>
+                ))}
+              </div>
+            ) : chips.length ? (
+              <div className="as-chips" role="group" aria-label="Suggestions">
+                {chips.map((c) => <button key={c} type="button" className="as-chip" title={c} disabled={busy} onClick={() => send(c)}>{c}</button>)}
+              </div>
+            ) : null}
             <div className="as-box">
-              <textarea ref={boxRef} rows={1} value={input} placeholder="Ask anything, or describe who you want to find" aria-label="Message the assistant"
+              <textarea ref={boxRef} rows={1} value={input} placeholder="Find leads, ask about your pipeline, or type / for commands" aria-label="Message the assistant"
                 onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} />
               <button type="button" className="as-send" aria-label="Send" disabled={!input.trim() || busy} onClick={() => send()}><ArrowUp size={16} /></button>
             </div>
-            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>Searching the register is free. Saving, checking and sending only happen when you press the button on a card.</div>
+            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>Answers come from the company register and your own account. Saving, checking and sending only happen when you press the button on a card.</div>
           </div>
         ) : null}
+        </div>
       </aside>
     </div>
   );

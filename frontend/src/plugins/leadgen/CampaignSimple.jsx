@@ -201,7 +201,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
                 ) : null}
               </>
             ) : (
-              <Row ok={false} title="You need a list of companies first" detail="Find companies, tick the ones you want and add them to a list." action={<button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onOpenLists}>Go to My lists</button>} />
+              <Row ok={false} title="You need a list of companies first" detail="Find companies, tick the ones you want and add them to a list." action={<button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onOpenLists}>Go to Lists</button>} />
             )}
           </div>
 

@@ -126,3 +126,46 @@ async def test_an_unreadable_site_gives_a_plain_reason(db, monkeypatch):
     async with _client(token) as c:
         r = await c.post("/api/leads/assistant/profile-from-site", json={"url": "nowhere.example"})
     assert r.status_code == 400 and r.json()["detail"] == "That website could not be found."
+
+
+async def test_questions_about_my_own_leads_are_answered_from_my_data(db, fakes, monkeypatch):
+    seen = {}
+
+    async def answer(**kw):
+        seen["prompt"] = kw["system_prompt"]
+        return {"success": True, "reply": "Done."}
+
+    monkeypatch.setattr(llm_gateway, "call_open_chat_llm", answer)
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("my_pipeline")]}
+    _, token = await make_user(db, "as9", "Admin", org_id="org_as9")
+    db.add_all([LeadAccount(id="la1", org_id="org_as9", name="A", email="a@a.test", stage="new"),
+                LeadAccount(id="la2", org_id="org_as9", name="B", phone="0113", stage="interested"),
+                LeadAccount(id="la3", org_id="other", name="C", email="c@c.test", stage="won")])
+    await db.commit()
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "how are my leads doing?"})).json()
+    assert "Saved companies: 2" in seen["prompt"] and "new 1" in seen["prompt"] and "interested 1" in seen["prompt"] and "won" not in seen["prompt"]
+    assert r["steps"][0]["label"] == "Read your saved companies"
+
+
+async def test_every_reply_carries_suggestions_and_remembered_notes_reach_the_model(db, fakes, monkeypatch):
+    seen = {}
+
+    async def plan(**kw):
+        seen["prompt"] = kw["system_prompt"]
+        return {"success": True, "reply": "Hi", "tool_calls": []}
+
+    monkeypatch.setattr(llm_gateway, "call_open_chat_llm_with_tools", plan)
+    _, token = await make_user(db, "as10", "Admin", org_id="org_as10")
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "hi", "memory": ["Only suggest companies with a website"]})).json()
+    assert "Only suggest companies with a website" in seen["prompt"]
+    assert r["suggestions"] and len(r["suggestions"]) <= 6 and "hi" not in [s.lower() for s in r["suggestions"]]
+
+
+def test_suggestions_follow_the_state_of_the_chat():
+    after_search = LA.suggestions(found=True, proposals=False, lists=[], has_profile=True)
+    assert "Only the ones with an email" in after_search and "Save these to a new list" in after_search
+    with_lists = LA.suggestions(found=False, proposals=False, lists=[{"name": "Leeds cafes"}], has_profile=True)
+    assert with_lists[0] == "Check my list “Leeds cafes”"
+    assert "Help me describe my business" in LA.suggestions(found=False, proposals=False, lists=[], has_profile=False)

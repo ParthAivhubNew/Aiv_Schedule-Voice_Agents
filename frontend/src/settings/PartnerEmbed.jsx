@@ -83,7 +83,7 @@ function Preview({ appearance }) {
         {t.brand.logoUrl ? <img src={t.brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ height: 22, maxWidth: 96, objectFit: "contain", alignSelf: "flex-start" }} /> : null}
         <b style={{ color: "var(--ui-side-strong, #fff)" }}>{t.brand.name || "Leads"}</b>
         <span style={{ color: "var(--ui-side-active-icon, #8fa6ff)" }}>Find Leads</span>
-        <span>My lists</span>
+        <span>Lists</span>
       </div>
       <div style={{ flex: 1, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={card}>
