@@ -61,6 +61,7 @@ import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
+import { GlobalAssistant } from "../../../hub/GlobalAssistant";
 import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
@@ -2852,7 +2853,8 @@ export function CallingWorkspace({
               ? (rows.length ? `${fileName ? `${fileName} · ` : ""}${rows.length} contact${rows.length === 1 ? "" : "s"} · ${dialable} with a phone` : titles.list[1])
               : (titles[page]?.[1] || "")}
           </div>
-          <div style={{ marginLeft: "auto" }}>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            <GlobalAssistant />
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
                 notifications={notifications}

@@ -26,6 +26,7 @@ import {
   Plug,
   Bot,
   Users,
+  FileSpreadsheet,
 } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
@@ -94,6 +95,7 @@ export default function LeadGenerationPlugin({
 
   // Any navigation that might carry an old/legacy tab id (a child view's onGo/onOpen callback,
   // or a saved deep link) must go through this, not the raw setter -- see normalizeLeadgenView.
+  const goImport = () => { setFindOpened(true); setView("find_leads"); setImportAsk(Date.now()); if (window.innerWidth <= 820) setAssistantOpen(false); };
   const goTo = (raw) => setView(normalizeLeadgenView(raw));
 
   // Leaving the full-screen assistant for another tab docks it in the right corner, so the chat carries on beside the page.
@@ -132,6 +134,7 @@ export default function LeadGenerationPlugin({
   const [toastMessage, setToastMessage] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
+  const [importAsk, setImportAsk] = useState(0); // bumped to open the spreadsheet import inside Find Leads
   const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters }
 
   const showToast = (msg) => {
@@ -239,8 +242,11 @@ export default function LeadGenerationPlugin({
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
-        <PluginHeader nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
+        <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
+          {view === "find_leads" && !isLocked && !embedViews ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm phone-gone" title="Bring in your own spreadsheet of companies" onClick={goImport}><FileSpreadsheet size={14} /> Import</button>
+          ) : null}
           {!isLocked && !embedViews && view !== "assistant" ? <AssistantButton open={assistantOpen} onClick={() => setAssistantOpen((v) => !v)} /> : null}
           {(view === "lists" || view === "saved_companies" || view === "saved_people") && (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
@@ -277,12 +283,12 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} onAskAssistant={() => setAssistantOpen(true)} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} /></div>
           )}
 
 
           {view === "assistant" && !embedViews && (
-            <AssistantPanel page open onClose={() => goTo("find_leads")} onGo={goTo} store={store}
+            <AssistantPanel page open onClose={() => goTo("find_leads")} onGo={goTo} store={store} onImport={goImport}
               lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
               onOpenList={() => goTo("lists")} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }}
               onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); }} />
@@ -319,7 +325,7 @@ export default function LeadGenerationPlugin({
       </div>
 
       {!isLocked && !embedViews && view !== "assistant" ? (
-        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
+        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
           lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
           onOpenList={() => goTo("lists")} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }}
           onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />

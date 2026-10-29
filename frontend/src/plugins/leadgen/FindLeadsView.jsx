@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, FileSpreadsheet, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
@@ -8,7 +8,6 @@ import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
 import { TableSkeleton, TopBar } from "../../app/Loader";
-import { creditWord, useLeadCredits } from "./CreditsChip";
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
@@ -282,7 +281,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant }) {
+function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -336,9 +335,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
 
-  const [source, setSource] = useState("register"); // where this search looks: the company register, or the open web
-  const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
-  const [web, setWeb] = useState({ open: false, query: "", busy: false, error: "", results: [] });
 
   // Map view: bring the map into view when it is chosen and whenever a search starts or finishes, so nobody scrolls to it each time.
   const mapRef = useRef(null);
@@ -387,7 +383,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
 
   const searchHold = useHold();
   const countHold = useHold();
-  const webHold = useHold();
   // Phones: a search shows its progress, then its companies or its error, on the Results pane.
   useEffect(() => {
     if (busy) setPane("results");
@@ -477,7 +472,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
   const resetSearch = () => {
     runId.current += 1;
     searchHold.clear();
-    webHold.clear();
     stopArea.current = true;
     pausedRef.current = false;
     setPaused(false);
@@ -775,25 +769,6 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
     },
   };
 
-  const webRun = useRef(0);
-  const cancelWeb = () => { webRun.current += 1; webHold.clear(); setWeb((w) => ({ ...w, busy: false })); };
-  const runWeb = async (e) => {
-    if (e) e.preventDefault();
-    const q = web.query.trim();
-    if (!q || web.busy) return;
-    setWeb((w) => ({ ...w, busy: true, error: "" }));
-    const mine = ++webRun.current;
-    let r = null;
-    let failure = null;
-    try { r = await api.discoverAccounts({ query: q }); } catch (err) { failure = err; }
-    if (mine !== webRun.current) return;
-    webHold.settle(() => {
-      if (mine !== webRun.current) return;
-      if (failure) setWeb((w) => ({ ...w, busy: false, error: failure.message || "The web search didn't finish." }));
-      else setWeb((w) => ({ ...w, busy: false, results: r.leads || [], error: (r.leads || []).length ? "" : `Nothing found on the web for "${q}". Nothing was charged.` }));
-    });
-  };
-
   const filterCount = Object.keys(formToFilters(form)).length;
   const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
   const firstLoad = busy && !companies.length && !people.length && view !== "map";
@@ -810,29 +785,12 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
   );
 
   return (
-    <div className="pane-root fl-root" data-active={source === "register" ? pane : "chat"} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="pane-root fl-root" data-active={pane} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
-      {source === "register" ? (
-        <PaneSwitch value={pane} onChange={setPane}
-          panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
-      ) : null}
-      <div data-pane="chat" className="ui-card fl-top" style={{ padding: 0, display: "flex", flexDirection: "column", position: "relative", scrollMarginTop: 12 }}>
-        <style>{CHAT_CSS}</style>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", flexWrap: "wrap" }}>
-          <div role="tablist" aria-label="Where to search" style={{ display: "inline-flex", background: C.paperSoft, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 3 }}>
-            {[["register", "Company register"], ["web", "Open web"]].map(([id, name]) => (
-              <button key={id} type="button" role="tab" aria-selected={source === id} onClick={() => setSource(id)}
-                title={id === "register" ? "The official register: reliable names, addresses, status and sector. Searching is free" : `Public web pages and directories: slower and unverified, usually with a website and phone. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none`}`}
-                style={{ border: "none", cursor: "pointer", borderRadius: 7, padding: "6px 12px", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, background: source === id ? "#fff" : "transparent", color: source === id ? C.ink : C.slate, boxShadow: source === id ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>
-                {name}
-              </button>
-            ))}
-          </div>
-          {source === "register" ? <span style={{ flex: "1 1 0" }} /> : <span style={{ ...muted, fontSize: 12.5, flex: "1 1 280px" }}>Public web pages and directories: unverified, and you only pay for companies found.</span>}
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Bring in your own spreadsheet of companies" onClick={onImport}><FileSpreadsheet size={14} /> Import</button>
-        </div>
-      </div>
-      {source === "register" ? (<>
+      <PaneSwitch value={pane} onChange={setPane}
+        panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
+      <style>{CHAT_CSS}</style>
+      <>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
       <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
@@ -1153,64 +1111,14 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
       </Drawer>
 
 
-      </>) : (
-      <div data-pane="chat" className="ui-card" style={{ padding: 16 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <form onSubmit={runWeb} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input title="Describe the kind of business and the place" className="ui-input" value={web.query} onChange={(e) => setWeb((w) => ({ ...w, query: e.target.value }))} placeholder="A type of business and a place, like dental practices in Leeds" style={{ flex: "1 1 280px" }} aria-label="Web search" />
-            <button type="submit" className="ui-btn ui-btn--primary" disabled={web.busy || !web.query.trim()} title="Search public web pages and directories for businesses that are not in the register">
-              {web.busy ? <Spinner size={15} /> : <Search size={15} />} {web.busy ? "Searching the web…" : "Search the web"}
-            </button>
-            <button type="button" className="ui-btn ui-btn--ghost" onClick={() => { cancelWeb(); setWeb((w) => ({ ...w, query: "", results: [], error: "" })); }} title="Clear the search and its results">
-              <RotateCcw size={15} /> Reset
-            </button>
-          </form>
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", background: "var(--ui-accent-soft)", borderRadius: 10, padding: "9px 13px", ...text, fontSize: 12.5, color: C.textInk }}>
-            <span>You get: <strong>name, usually a website and phone, sometimes more</strong></span>
-            <span>Cost: <strong>{webRate == null ? "1 credit" : creditWord(webRate)} per company found</strong>, nothing if none</span>
-          </div>
-          {web.busy ? <SearchStatus title="Searching the open web" detail="Looking at business pages and directories. Nothing is charged unless something is found." paused={webHold.paused} holding onPause={webHold.pause} onResume={webHold.resume} onCancel={cancelWeb} /> : null}
-          <div style={{ ...muted, fontSize: 12.5 }}>Web results are unverified. Registry results are the reliable ones.</div>
-          {web.error ? <div role="alert" style={{ ...muted, color: C.red }}>{web.error}</div> : null}
-          {web.results.length ? (() => {
-            const n = web.results.length;
-            const withSite = web.results.filter((r) => r.site || r.website || r.domain).length;
-            const withPhone = web.results.filter((r) => r.phone).length;
-            return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-                {[["Companies found", n], ["With a website", withSite], ["With a phone", withPhone], ["Credits (at most)", webRate == null ? n : webRate * n]].map(([l, v]) => (
-                  <div key={l} style={{ background: "#F4F5F9", borderRadius: 10, padding: "9px 12px" }}>
-                    <div style={{ ...text, fontSize: 19, fontWeight: 700, color: C.ink }}>{v}</div>
-                    <div style={{ ...muted, fontSize: 12 }}>{l}</div>
-                  </div>
-                ))}
-              </div>
-            );
-          })() : null}
-            {web.results.map((r, i) => {
-              const d = domainOf(r.site || r.website || r.domain || "");
-              const acct = { name: r.name, website: r.site || r.website || "", phone: r.phone || "", notes: r.snippet || "", source: "scout", source_url: r.sourceUrl || r.source_url || "" };
-              const done = savedKeys.has(d) || savedKeys.has(String(r.name || "").toLowerCase());
-              return (
-                <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "8px 0", borderTop: `1px solid ${C.borderLight}` }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ ...text, fontSize: 14, fontWeight: 600, color: C.ink }}>{r.name} <TierBadge tier="llm_fallback" /></div>
-                    <div style={{ ...muted, fontSize: 12.5 }}>{d || "No website found"}{r.phone ? ` · ${r.phone}` : ""}</div>
-                  </div>
-                  {done ? <span style={{ ...text, fontSize: 12.5, color: C.green }}><Check size={14} /> Saved</span>
-                    : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save this company to your Unsorted list" onClick={() => store.save([acct])}><Plus size={14} /> Save</button>}
-                </div>
-              );
-            })}
-        </div>
-      </div>
-      )}
+      </>
     </div>
   );
 }
 
-export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant }) {
+export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant, importAsk }) {
   const [sub, setSub] = useState("search");
+  useEffect(() => { if (importAsk) setSub("import"); }, [importAsk]);
   return (
     <div className="fl-view" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {sub === "import" ? (
@@ -1218,7 +1126,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistan
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, ListPlus, Mail, Maximize2, PenLine, Plus, Search, Send, ShieldCheck, Sparkles, Trash2, Users, X } from "lucide-react";
+import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, FileSpreadsheet, Globe, ListPlus, Mail, Maximize2, PenLine, Plus, RotateCcw, Search, Send, ShieldCheck, Sparkles, Square, Trash2, Users, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { Spinner } from "../../app/Loader";
 import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
+import { domainOf } from "./AccountsViews";
+import { creditWord, useLeadCredits } from "./CreditsChip";
 
 // The AI assistant: a panel that sits to the right of any Leads page and pushes the page aside, opened from the dark button in the
 // header or the menu. The server picks tools and words the answer (see api/lead_assistant.py). Companies always come from the stored
@@ -24,12 +26,15 @@ const COMMANDS = [
   { cmd: "/what-can-i-do", note: "See what the assistant can help you with", run: "What can you help me with?" },
   { cmd: "/remember", note: "Save a preference the assistant should always follow", fill: "/remember " },
   { cmd: "/memory", note: "See and delete what I remember", memory: true },
+  { cmd: "/import", note: "Bring in your own spreadsheet of companies", importer: true },
 ];
 const MEMORY_KEY = "leadgen_assistant_memory";
+const WEB_KEY = "leadgen_assistant_web";
+const readWeb = () => { try { return localStorage.getItem(WEB_KEY) === "on"; } catch { return false; } };
 
 // The conversation lives here, outside any one screen, so the full page and the docked panel show the same chat: go to another tab and the
 // chat moves to the corner with its answer still coming in; expand it and it fills the page again.
-const shared = { s: { messages: [], busy: false, acts: {}, suggest: [], filters: {}, chatId: `a_${Date.now()}`, run: 0 }, subs: new Set() };
+const shared = { s: { messages: [], busy: false, acts: {}, suggest: [], filters: {}, chatId: `a_${Date.now()}`, run: 0, turnState: {} }, subs: new Set() };
 const setShared = (patch) => {
   shared.s = { ...shared.s, ...(typeof patch === "function" ? patch(shared.s) : patch) };
   shared.subs.forEach((f) => f());
@@ -39,6 +44,7 @@ const sharedRef = (key) => ({ get current() { return shared.s[key]; }, set curre
 const filtersRef = sharedRef("filters");
 const chatIdRef = sharedRef("chatId");
 const runRef = sharedRef("run");
+const turnRef = sharedRef("turnState");
 const settable = (key) => (v) => setShared((st) => ({ [key]: typeof v === "function" ? v(st[key]) : v }));
 const setMessages = settable("messages");
 const setBusy = settable("busy");
@@ -111,6 +117,12 @@ const css = `
 .as-icon:hover,.as-icon:focus-visible{background:var(--ui-hover,#F1F3F8);color:var(--ui-ink,#111827)}
 .as-field{display:flex;flex-direction:column;gap:3px;font:12px Inter,sans-serif;color:var(--ui-muted,#6B7280)}
 .as-field textarea,.as-field input{font:13px/1.4 Inter,sans-serif}
+.as-web{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;font:12.5px Inter,sans-serif;color:var(--ui-muted,#6B7280);background:#fff;transition:border-color .15s,background-color .15s,color .15s}
+.as-web:hover,.as-web:focus-visible{border-color:var(--ui-accent,#3457D5);color:var(--ui-ink,#111827)}
+.as-web:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+.as-web[data-on="true"]{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#F5F7FF);color:var(--ui-ink,#111827)}
+.as-web-state{font-weight:600}
+.as-tag{display:inline-block;font:600 10.5px Inter,sans-serif;padding:1px 6px;border-radius:999px;background:#FFF6EA;color:#9A5B0C;vertical-align:1px;margin-left:4px}
 .as-orb{animation:mo-pop .5s var(--mo-ease,ease) both}
 .as-wrap.as-page{flex:1 1 auto;width:auto;height:100%;animation:none;z-index:auto;min-width:0}
 .as-page .as-panel{width:100%;height:100%;flex-direction:row;border-left:0;background:transparent}
@@ -248,7 +260,7 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, page = false }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, onImport, page = false }) {
   const [render, setRender] = useState(open);
   const [leaving, setLeaving] = useState(false);
   const [input, setInput] = useState("");
@@ -261,9 +273,13 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const [slashIx, setSlashIx] = useState(0);
   const [preset, setPreset] = useState(""); // which preset group is open on the start screen
   const [newMemory, setNewMemory] = useState(""); // highlighted slash command
+  const [web, setWebOn] = useState(readWeb); // the Web search switch: only when it is on does the assistant get its web search
+  const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
+  const setWeb = (v) => { setWebOn(v); try { localStorage.setItem(WEB_KEY, v ? "on" : "off"); } catch { /* the choice just is not remembered */ } };
   const filters = filtersRef;
   const chatId = chatIdRef;
   const run = runRef;
+  const turn = turnRef;
   const endRef = useRef(null);
   const boxRef = useRef(null);
 
@@ -315,15 +331,16 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     let res = null;
     let failure = null;
     try {
-      res = await api.assistantAsk({ message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text) });
+      res = await api.assistantAsk({ message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current });
     } catch (err) { failure = err; }
     if (mine !== run.current) return;
     setBusy(false);
     let next;
     if (failure) {
-      next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
+      next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, retry: text, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
     } else {
       if (res.found?.filters) filters.current = res.found.filters;
+      if (res.state) turn.current = res.state;
       setSuggest(res.suggestions || []);
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", text: res.reply, steps: res.steps, tookMs: res.took_ms, found: res.found, proposals: res.proposals }];
     }
@@ -344,14 +361,14 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
   const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
   const stop = () => { run.current += 1; setBusy(false); };
-  const fresh = () => { run.current += 1; setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
+  const fresh = () => { run.current += 1; setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");
     api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => setHistory([]));
   };
   const openChat = (h) => {
     run.current += 1; setBusy(false); setActs({});
-    chatId.current = h.id; filters.current = h.filters || {};
+    chatId.current = h.id; filters.current = h.filters || {}; turn.current = {};
     setMessages((h.chat || []).map((m) => ({ id: m.id, role: m.role === "user" ? "user" : "assistant", text: m.text })));
     setView("chat");
   };
@@ -368,6 +385,17 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const confirm = async (p) => {
     if (p.kind === "check_list") { onOpenList?.(p.params.list_id); return; }
     if (p.kind === "campaign") { onCampaign?.(p.params.list_id); return; }
+    if (p.kind === "web_search") {
+      setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
+      try {
+        const r = await api.discoverAccounts({ query: p.params.query });
+        const results = r.leads || [];
+        setActs((a) => ({ ...a, [p.id]: { state: "done", results, text: results.length ? `Found ${results.length} on the web. They are unverified: check them before you rely on them.` : `Nothing found on the web for “${p.params.query}”. Nothing was charged.` } }));
+      } catch (err) {
+        setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "The web search didn't finish. Nothing was charged." } }));
+      }
+      return;
+    }
     setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
     try {
       const r = await api.searchCompanies({ filters: p.params.filters, limit: p.params.how_many, offset: 0, exclude_ids: [], sort: "best" });
@@ -392,7 +420,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const typed = input.trim().toLowerCase();
   const pool = suggest.length ? suggest : starters;
   const chips = (typed && !slash.length ? pool.filter((c) => c.toLowerCase().includes(typed.split(/\s+/)[0])) : pool).slice(0, 6);
+  const saveWeb = async (p, r, i) => {
+    const acct = { name: r.name, website: r.site || r.website || "", phone: r.phone || "", notes: r.snippet || "", source: "scout", source_url: r.sourceUrl || r.source_url || "" };
+    try { await store.save([acct]); setActs((a) => ({ ...a, [p.id]: { ...a[p.id], saved: { ...(a[p.id]?.saved || {}), [i]: true } } })); } catch { /* the store shows its own error */ }
+  };
   const runCommand = (c) => {
+    if (c.importer) { setInput(""); onImport?.(); return; }
     if (c.run) { setInput(""); send(c.run); return; }
     if (c.memory) { setInput(""); setView("history"); showHistory(); return; }
     setInput(c.fill || ""); boxRef.current?.focus();
@@ -513,6 +546,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 <div key={m.id} className="as-bot" style={{ ...text, color: m.error ? C.red : C.ink }}>
                   <Steps steps={m.steps} tookMs={m.tookMs} />
                   {m.text}
+                  {m.error && m.retry ? <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setMessages((l) => l.filter((x) => x.id !== m.id)); send(m.retry); }}><RotateCcw size={13} aria-hidden="true" /> Try again</button></div> : null}
                   {m.found ? (
                     <div className="as-card">
                       <div style={{ ...text, fontWeight: 600 }}>{m.found.total.toLocaleString()}{m.found.capped ? "+" : ""} {m.found.total === 1 ? "company" : "companies"} found</div>
@@ -530,14 +564,27 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                     return (
                       <div key={p.id} className="as-card">
                         <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
-                          {p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
+                          {p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
                         </div>
-                        <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || p.detail}</div>
+                        <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>
-                            {a.state === "running" ? <><Spinner size={13} /> Saving</> : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : "Set up the campaign"}
+                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : "Saving"}</> : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : "Set up the campaign"}
                           </button>
                         )}
+                        {(a.results || []).map((r, i) => {
+                          const d = domainOf(r.site || r.website || r.domain || "");
+                          return (
+                            <div key={i} className="as-hit" style={{ alignItems: "center" }}>
+                              <span style={{ minWidth: 0, flex: 1 }}>
+                                <span style={{ ...text, fontWeight: 500, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name} <span className="as-tag" title="Found on public web pages. Not checked against the register">web · unverified</span></span>
+                                <span style={muted}>{d || "No website found"}{r.phone ? ` · ${r.phone}` : ""}</span>
+                              </span>
+                              {a.saved?.[i] ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Saved</span>
+                                : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save this company to your Unsorted list" onClick={() => saveWeb(p, r, i)}><Plus size={14} /> Save</button>}
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}
@@ -573,9 +620,17 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
             <div className="as-box">
               <textarea ref={boxRef} rows={1} value={input} placeholder="Find leads, ask about your pipeline, or type / for commands" aria-label="Message the assistant"
                 onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} />
-              <button type="button" className="as-send" aria-label="Send" disabled={!input.trim() || busy} onClick={() => send()}><ArrowUp size={16} /></button>
+              {busy ? <button type="button" className="as-send" aria-label="Stop" title="Stop" onClick={stop}><Square size={13} fill="currentColor" /></button>
+                : <button type="button" className="as-send" aria-label="Send" disabled={!input.trim()} onClick={() => send()}><ArrowUp size={16} /></button>}
             </div>
-            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>Answers come from the company register and your own account. Saving, checking and sending only happen when you press the button on a card.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
+                title={web ? "Web search is on: the assistant can offer to search public web pages. Results are unverified and cost credits per company found, nothing if none" : `Turn on to let the assistant search public web pages for businesses that are not in the register. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none.`}`}>
+                <Globe size={13} aria-hidden="true" /> Web search <span className="as-web-state">{web ? "On" : "Off"}</span>
+              </button>
+              {onImport ? <button type="button" className="as-web" onClick={onImport} title="Bring in your own spreadsheet of companies"><FileSpreadsheet size={13} aria-hidden="true" /> Import</button> : null}
+            </div>
+            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{web ? "Register answers are verified. Web results are labelled unverified, and you confirm before they cost anything." : "Answers come from the company register and your own account."} Saving, checking and sending only happen when you press the button on a card.</div>
           </div>
         ) : null}
         </div>

@@ -7,6 +7,7 @@ import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
 import { useRailTip } from "./RailTip";
 import { NavItem } from "./NavItem";
+import { GlobalAssistant } from "./GlobalAssistant";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
@@ -131,7 +132,7 @@ export function PhoneTabBar({ items, nav, accent }) {
 
 // The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
 // anything the page needs (children), your credits, notifications and profile (accountBar).
-export function PluginHeader({ nav, title, sub, children, accountBar }) {
+export function PluginHeader({ nav, title, sub, children, accountBar, assistant = true }) {
   return (
     <div style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
       <MobileNavButton nav={nav} />
@@ -139,6 +140,7 @@ export function PluginHeader({ nav, title, sub, children, accountBar }) {
       <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
         {children}
+        {assistant ? <GlobalAssistant /> : null}
         {accountBar}
       </div>
     </div>

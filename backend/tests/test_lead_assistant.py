@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.api import lead_assistant as LA
+from app.core.tenancy import org_scope
 from app.main import app
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_records, llm_gateway
@@ -29,7 +30,6 @@ def _rows():
 
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch):
-    LA._used.clear()
     state = {"plan": {"success": True, "reply": "Hello", "tool_calls": []}, "answer": {"success": True, "reply": "I found 2 companies."}}
 
     async def plan(**_):
@@ -91,7 +91,7 @@ async def test_when_the_ai_is_down_the_person_is_told_and_not_charged_a_message(
     async with _client(token) as c:
         r = await c.post("/api/leads/assistant/ask", json={"message": "hi"})
     assert r.status_code == 502 and "did not answer" in r.json()["detail"]
-    assert not LA._used
+    assert await LA._spent_today(db) == 0
 
 
 async def test_the_daily_message_cap_stops_runaway_use(db, fakes, monkeypatch):
@@ -136,12 +136,13 @@ async def test_questions_about_my_own_leads_are_answered_from_my_data(db, fakes,
         return {"success": True, "reply": "Done."}
 
     monkeypatch.setattr(llm_gateway, "call_open_chat_llm", answer)
-    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("my_pipeline")]}
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("my_data", topic="pipeline")]}
     _, token = await make_user(db, "as9", "Admin", org_id="org_as9")
-    db.add_all([LeadAccount(id="la1", org_id="org_as9", name="A", email="a@a.test", stage="new"),
-                LeadAccount(id="la2", org_id="org_as9", name="B", phone="0113", stage="interested"),
-                LeadAccount(id="la3", org_id="other", name="C", email="c@c.test", stage="won")])
-    await db.commit()
+    for org, rows in (("org_as9", [LeadAccount(id="la1", name="A", email="a@a.test", stage="new"), LeadAccount(id="la2", name="B", phone="0113", stage="interested")]),
+                      ("other", [LeadAccount(id="la3", name="C", email="c@c.test", stage="won")])):
+        with org_scope(org):
+            db.add_all(rows)
+            await db.commit()
     async with _client(token) as c:
         r = (await c.post("/api/leads/assistant/ask", json={"message": "how are my leads doing?"})).json()
     assert "Saved companies: 2" in seen["prompt"] and "new 1" in seen["prompt"] and "interested 1" in seen["prompt"] and "won" not in seen["prompt"]
@@ -169,3 +170,108 @@ def test_suggestions_follow_the_state_of_the_chat():
     with_lists = LA.suggestions(found=False, proposals=False, lists=[{"name": "Leeds cafes"}], has_profile=True)
     assert with_lists[0] == "Check my list “Leeds cafes”"
     assert "Help me describe my business" in LA.suggestions(found=False, proposals=False, lists=[], has_profile=False)
+
+
+async def test_tools_chain_over_rounds_and_each_round_sees_the_last(db, fakes, monkeypatch):
+    seen = []
+    plans = [{"success": True, "reply": "", "tool_calls": [_call("my_data", topic="customer_profile")]},
+             {"success": True, "reply": "", "tool_calls": [_call("search_companies", sector=["restaurant"], towns=["Leeds"])]},
+             {"success": True, "reply": "Here are 2 like your best customers.", "tool_calls": []}]
+
+    async def plan(**kw):
+        seen.append(kw["system_prompt"])
+        return plans[len(seen) - 1]
+
+    monkeypatch.setattr(llm_gateway, "call_open_chat_llm_with_tools", plan)
+    _, token = await make_user(db, "as11", "Admin", org_id="org_as11")
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "find companies like my best customers"})).json()
+    assert len(seen) == 3 and "no saved companies yet" in seen[1]
+    assert "Search (" in seen[2]
+    assert r["reply"] == "Here are 2 like your best customers." and r["found"]["total"] == 2
+
+
+async def test_one_tool_failing_does_not_lose_the_turn(db, fakes, monkeypatch):
+    async def boom(db, filters, **_):
+        raise RuntimeError("register down")
+
+    monkeypatch.setattr(business_records, "search_filtered", boom)
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("search_companies", sector=["restaurant"]), _call("show_credits")]}
+    _, token = await make_user(db, "as12", "Admin", org_id="org_as12")
+    async with _client(token) as c:
+        r = await c.post("/api/leads/assistant/ask", json={"message": "cafes and my credits"})
+    assert r.status_code == 200
+    labels = [s["label"] for s in r.json()["steps"]]
+    assert "Read your credits" in labels and any(l.startswith("Could not finish") for l in labels)
+
+
+async def test_the_same_call_is_never_run_twice(db, fakes):
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("show_credits")]}
+    _, token = await make_user(db, "as13", "Admin", org_id="org_as13")
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "credits?"})).json()
+    assert [s["label"] for s in r["steps"]] == ["Read your credits"]
+
+
+async def test_web_search_is_only_offered_when_the_toggle_is_on_and_is_a_proposal(db, fakes, monkeypatch):
+    tools_seen = []
+
+    async def plan(**kw):
+        tools_seen.append([t["function"]["name"] for t in kw["tools"]])
+        return fakes["plan"]
+
+    monkeypatch.setattr(llm_gateway, "call_open_chat_llm_with_tools", plan)
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("search_web", query="dental practices in Leeds")]}
+    _, token = await make_user(db, "as14", "Admin", org_id="org_as14")
+    async with _client(token) as c:
+        off = (await c.post("/api/leads/assistant/ask", json={"message": "web search dentists in Leeds"})).json()
+        on = (await c.post("/api/leads/assistant/ask", json={"message": "web search dentists in Leeds", "web_search": True})).json()
+    assert "search_web" not in tools_seen[0] and "search_web" in tools_seen[-1]
+    assert off["proposals"] == []  # a model that calls it anyway is refused by the server
+    p = on["proposals"][0]
+    assert p["kind"] == "web_search" and p["params"] == {"query": "dental practices in Leeds"}
+
+
+async def test_a_thin_register_result_offers_the_web(db, fakes, monkeypatch):
+    async def few(db, filters, **_):
+        return {"total": 1, "total_capped": False, "rows": _rows()[:1]}
+
+    monkeypatch.setattr(business_records, "search_filtered", few)
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("search_companies", sector=["restaurant"], towns=["Leeds"])]}
+    _, token = await make_user(db, "as15", "Admin", org_id="org_as15")
+    async with _client(token) as c:
+        off = (await c.post("/api/leads/assistant/ask", json={"message": "cafes in Leeds"})).json()
+        on = (await c.post("/api/leads/assistant/ask", json={"message": "cafes in Leeds", "web_search": True})).json()
+    assert off["suggestions"][0] == "Turn on Web search to look beyond the register"
+    assert on["suggestions"][0] == "Search the web for these"
+    assert on["state"]["last_names"] == ["Brew House Ltd"]
+
+
+async def test_the_last_results_reach_the_model_so_the_second_one_resolves(db, fakes, monkeypatch):
+    seen = {}
+
+    async def plan(**kw):
+        seen["prompt"] = kw["system_prompt"]
+        return {"success": True, "reply": "ok", "tool_calls": []}
+
+    monkeypatch.setattr(llm_gateway, "call_open_chat_llm_with_tools", plan)
+    _, token = await make_user(db, "as16", "Admin", org_id="org_as16")
+    async with _client(token) as c:
+        await c.post("/api/leads/assistant/ask", json={"message": "save the second one", "state": {"last_names": ["Brew House Ltd", "Corner Cafe Ltd"]}})
+    assert "2. Corner Cafe Ltd" in seen["prompt"]
+
+
+async def test_the_daily_count_is_shared_through_the_database(db, fakes, monkeypatch):
+    monkeypatch.setattr(LA, "DAILY_MESSAGES", 2)
+    _, token = await make_user(db, "as17", "Admin", org_id="org_as17")
+    async with _client(token) as c:
+        for _ in range(2):
+            assert (await c.post("/api/leads/assistant/ask", json={"message": "hi"})).status_code == 200
+        assert (await c.post("/api/leads/assistant/ask", json={"message": "hi"})).status_code == 429
+
+
+def test_the_tool_set_is_small_and_every_tool_says_when_to_use_it():
+    names = [t["function"]["name"] for t in LA.TOOLS]
+    assert len(names) == len(set(names)) and len(names) <= 6
+    assert all(t["function"]["description"].startswith("USE") for t in LA.TOOLS + [LA.WEB_TOOL])
+    assert "search_web" not in names  # only added when the person switches Web search on

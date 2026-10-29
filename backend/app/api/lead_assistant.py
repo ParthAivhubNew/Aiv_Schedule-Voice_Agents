@@ -31,12 +31,15 @@ from app.services.safe_fetch import FetchRefused, fetch_text
 logger = logging.getLogger("lead_assistant")
 router = APIRouter(prefix="/leads/assistant", tags=["Leads"])
 
-DAILY_MESSAGES = 200  # per account per day; counted in this process, so it is a guard against runaway use, not a bill
-_used: Dict[str, int] = {}
-MAX_TOOL_CALLS = 3
+DAILY_MESSAGES = 200  # per account per day, kept in the database so every server process shares one count
+MAX_ROUNDS = 4  # planning rounds per message: each round sees what the tools returned in the one before
 TOP = 8
+THIN = 3  # a register search with this many results or fewer is "thin": the web is worth offering
 
 _FILTER_PROPS = {k: v for k, v in lead_filters._SCHEMA["properties"].items() if k not in ("action", "remove_names", "keyword")}
+_TOPICS = ["pipeline", "campaigns", "replies", "mailboxes", "follow_ups", "customer_profile"]
+_OLD_TOPIC = {"my_pipeline": "pipeline", "my_campaigns": "campaigns", "reply_breakdown": "replies", "mailbox_health": "mailboxes",
+              "follow_ups_due": "follow_ups", "my_customer_profile": "customer_profile"}
 
 
 def _tool(name: str, description: str, props: Optional[Dict[str, Any]] = None, required: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -45,38 +48,38 @@ def _tool(name: str, description: str, props: Optional[Dict[str, Any]] = None, r
 
 
 TOOLS = [
-    _tool("search_companies", "Search the UK company register. Give the FULL set of filters (keep the current ones the person did not change). "
-                              "Free. Use it whenever they want to find, narrow or change a list of companies.", _FILTER_PROPS),
-    _tool("add_to_list", "Offer to save the companies from the latest search into one of the person's lists (a new name starts a new list). "
-                         "Free. They confirm on screen.", {"list_name": {"type": "string"}, "how_many": {"type": "integer", "description": "1 to 200, default 25"}}, ["list_name"]),
-    _tool("check_list", "Offer to check a saved list: fix its websites, phones and emails and find contacts. It costs credits, so only offer it; "
+    _tool("search_companies", "USE to find, narrow or count companies in the UK company register. Give the FULL set of filters (keep the current ones the person "
+                              "did not change). Set count_only for audience-size, TAM or how-many questions: it returns the size and how complete the profiles are "
+                              "instead of a list. Free. DO NOT use for the person's own saved companies (use my_data) or for businesses outside the register.",
+          {**_FILTER_PROPS, "count_only": {"type": "boolean", "description": "Only size the audience; do not list companies."}}),
+    _tool("my_data", "USE for any question about the person's OWN account: pipeline (saved companies by stage), campaigns, replies (how replies were sorted), "
+                     "mailboxes (deliverability), follow_ups (due in 7 days) or customer_profile (sectors and towns of their best companies, for lookalikes; "
+                     "then call search_companies with what it returns). Free. DO NOT use to find new companies.",
+          {"topic": {"type": "string", "enum": _TOPICS}}, ["topic"]),
+    _tool("show_credits", "USE when the person asks how many credits they have. Free."),
+    _tool("add_to_list", "USE to offer saving the companies from the latest search into one of the person's lists (a new name starts a new list). "
+                         "Free. They confirm on screen. Needs a search first.", {"list_name": {"type": "string"}, "how_many": {"type": "integer", "description": "1 to 200, default 25"}}, ["list_name"]),
+    _tool("check_list", "USE to offer checking a saved list: fixing its websites, phones and emails and finding contacts. It costs credits, so it is only offered; "
                         "the person sees the price before anything is charged.", {"list_name": {"type": "string"}}, ["list_name"]),
-    _tool("start_campaign", "Offer to start an email campaign to one of the person's lists.", {"list_name": {"type": "string"}}, ["list_name"]),
-    _tool("show_credits", "Tell the person how many credits they have left."),
-    _tool("my_pipeline", "Read the person's own saved companies: how many are at each stage (new, contacted, interested, meeting, won, lost) and how "
-                         "many have an email or a phone. Free. Use for questions about their leads, progress or what to work on."),
-    _tool("my_campaigns", "Read the person's own email campaigns: status, how many people are in each, and how many replied or bounced. Free. "
-                          "Use for questions about campaign performance."),
-    _tool("size_market", "Size an audience (a total addressable market): how many companies in the register match the filters, how complete their "
-                         "profiles are, and how many have a website, email or phone. Free. Give the FULL set of filters. Use for TAM, audience size or "
-                         "how-many-are-there questions.", _FILTER_PROPS),
-    _tool("my_customer_profile", "Read the sectors and towns of the person's best saved companies (interested, meeting or won; all saved ones if none yet). "
-                                 "Free. Use for lookalikes, companies like my best customers and ideal-customer questions; then search with what it returns."),
-    _tool("mailbox_health", "Read the person's sending mailboxes: status, bounce rate over 7 days, whether SPF, DKIM and DMARC are verified, daily limit and "
-                            "the last error. Free. Use for deliverability questions."),
-    _tool("reply_breakdown", "Read how replies to the person's campaigns were sorted (interested, not interested, out of office, question, unsubscribe), "
-                             "plus sent, opened and bounced totals for the last 30 days. Free. Use for performance and reply questions."),
-    _tool("follow_ups_due", "Read the saved companies with a callback or follow-up due in the next 7 days. Free."),
+    _tool("start_campaign", "USE to offer starting an email campaign to one of the person's lists.", {"list_name": {"type": "string"}}, ["list_name"]),
 ]
+
+WEB_TOOL = _tool("search_web", "USE only when the register search found nothing or too few, or the person asks for businesses that are not in the register "
+                               "(for example a new or non-UK business). Searches public web pages and directories. Results are unverified and cost credits per "
+                               "company found, so it is only offered and the person confirms on screen. Give a short query: a type of business and a place.",
+                 {"query": {"type": "string"}}, ["query"])
 
 _SYSTEM = (
     "You are the assistant inside the Leads part of Outreach by Aivhub, helping a UK business find and contact companies. "
-    "Companies come only from the stored UK company register through your tools: never name a company, number, email or phone that a tool "
-    "did not return, and say so plainly when something is not known. Searching is free. Checking a list, finding emails and sending cost "
-    "credits, so you only offer them and the person confirms on screen. Keep answers short, plain and friendly. "
-    "Questions about the person's own leads, campaigns, replies, mailboxes, follow-ups or credits are answered only from the tools my_pipeline, "
-    "my_campaigns, reply_breakdown, mailbox_health, follow_ups_due and show_credits: call the right one, then quote its numbers exactly and never estimate. "
-    "For audience size or a total addressable market call size_market; for lookalikes call my_customer_profile and then search_companies with what it returns. "
+    "Companies come only from the stored UK company register (or, when the person has Web search switched on, from a web search they confirm) through your tools: "
+    "never name a company, number, email or phone that a tool did not return, and say so plainly when something is not known. "
+    "Searching the register is free. Web search, checking a list, finding emails and sending cost credits, so you only offer them and the person confirms on screen. "
+    "Keep answers short, plain and friendly. "
+    "Pick ONE tool for each need. Questions about the person's own leads, campaigns, replies, mailboxes or follow-ups use my_data with the right topic, and credits use "
+    "show_credits: quote their numbers exactly and never estimate. For audience size or a total addressable market call search_companies with count_only. "
+    "For lookalikes call my_data with customer_profile and then search_companies with what it returns. "
+    "You can call several tools one after another: wait for a tool's result before choosing the next one. Do not repeat a call that already ran. "
+    "If a request is missing something you need (what to find, where, or which list), ask ONE short question instead of guessing. "
     "When asked to write emails or a sequence, write them from the business profile with merge fields such as {{first_name}} and {{company}}, never invent facts about a recipient, "
     "and say they can set it up under Outreach. When asked which companies fit best, explain only with the fields a search returned. "
     "If the business profile is not filled in and the request needs it, ask what the business sells and who buys it before guessing. "
@@ -90,22 +93,25 @@ class AskIn(BaseModel):
     filters: Dict[str, Any] = {}
     lists: List[Dict[str, Any]] = []  # [{id, name, count}]: the person's own lists
     memory: List[str] = []  # things the person asked the assistant to remember (/remember)
+    web_search: bool = False  # the Web search toggle in the chat: only then does the model get the search_web tool
+    state: Dict[str, Any] = {}  # what the last turn left behind ({last_total, last_names}), sent back so "those" and "the second one" resolve
 
 
 class SiteIn(BaseModel):
     url: str = Field(..., min_length=3, max_length=300)
 
 
-def _spent_today() -> int:
-    key = f"{current_org()}:{date.today().isoformat()}"
-    for stale in [k for k in _used if not k.endswith(date.today().isoformat())]:
-        _used.pop(stale, None)
-    return _used.get(key, 0)
+def _usage_key() -> str:
+    return f"assistant_usage:{current_org()}:{date.today().isoformat()}"
 
 
-def _count_message() -> None:
-    key = f"{current_org()}:{date.today().isoformat()}"
-    _used[key] = _used.get(key, 0) + 1
+async def _spent_today(db: AsyncSession) -> int:
+    return int((await credits._get_doc(db, _usage_key())).get("n", 0))
+
+
+async def _count_message(db: AsyncSession) -> None:
+    await credits._put_doc(db, _usage_key(), {"n": await _spent_today(db) + 1})
+    await db.commit()
 
 
 def _list_named(lists: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
@@ -215,7 +221,8 @@ async def _due(db: AsyncSession) -> List[Dict[str, Any]]:
     return [{"name": r.name, "when": r.next_action_at.strftime("%d %b"), "what": r.next_action or "follow up"} for r in rows]
 
 
-def suggestions(*, found: bool, proposals: bool, lists: List[Dict[str, Any]], has_profile: bool, asked: str = "") -> List[str]:
+def suggestions(*, found: bool, proposals: bool, lists: List[Dict[str, Any]], has_profile: bool, asked: str = "",
+                thin: bool = False, web: bool = False) -> List[str]:
     """Next things worth asking, from the state of the chat. Fixed text, so they never promise what the data does not hold."""
     if found:
         out = ["Only the ones with an email", "Only the ones with a phone number", "Only small companies", "Only companies older than 10 years",
@@ -226,6 +233,8 @@ def suggestions(*, found: bool, proposals: bool, lists: List[Dict[str, Any]], ha
     else:
         out = ["Find cafes in Leeds", "Find accountants in Manchester with an email", "Find small construction companies older than 5 years",
                "How many credits do I have left?", "What can you help me with?"]
+    if thin:
+        out = ["Search the web for these" if web else "Turn on Web search to look beyond the register"] + out
     if proposals:
         out = ["What does that cost?"] + out
     if not has_profile:
@@ -242,9 +251,159 @@ async def _credits_line(db: AsyncSession) -> str:
     return f"{balance:,} credits left."
 
 
+def _ms(t0: float) -> int:
+    return int((time.time() - t0) * 1000)
+
+
+class _Turn:
+    """What one message has done so far: shared by the tool handlers, then turned into the reply."""
+
+    def __init__(self, body: AskIn, lists: List[Dict[str, Any]]):
+        self.body = body
+        self.lists = lists
+        self.steps: List[Dict[str, Any]] = []
+        self.proposals: List[Dict[str, Any]] = []
+        self.notes: List[str] = []
+        self.found: Optional[Dict[str, Any]] = None
+        self.filters: Dict[str, Any] = body.filters or {}
+        self.web_asked = False
+
+
+async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    count_only = bool(args.pop("count_only", False))
+    if count_only:
+        m = await _market(db, args)
+        words = " · ".join(lead_filters.describe(m["filters"])) or "all companies"
+        plus = "+" if m["capped"] else ""
+        tiers = m["tiers"] or {}
+        t.notes.append(f"Market ({words}): {m['total']:,}{plus} companies in the register. Profile detail: full {tiers.get('full', 'unknown')}, partial {tiers.get('partial', 'unknown')}, "
+                       f"basic {tiers.get('basic', 'unknown')}. With a website {m['has_website']:,}, with an email {m['has_email']:,}, with a phone {m['has_phone']:,}. "
+                       f"Already saved by the person: {m['saved'] if m['saved'] is not None else 'unknown'}.")
+        t.steps.append({"label": "Sized the market", "detail": f"{words}: {m['total']:,}{plus}", "ms": _ms(t0)})
+        return
+    res = await _run_search(db, args)
+    if res.get("needs"):
+        t.notes.append(f"The search needs more detail: {res['needs']}")
+        t.steps.append({"label": "Tried the company register", "detail": res["needs"], "ms": _ms(t0)})
+        return
+    t.found = res
+    t.filters = res["filters"]
+    words = " · ".join(lead_filters.describe(res["filters"])) or "your filters"
+    t.steps.append({"label": "Searched the company register", "detail": f"{words}: {res['total']:,}{'+' if res.get('capped') else ''} found", "ms": _ms(t0)})
+    t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies. Top results: "
+                   + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]) or "none")
+                   + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else ""))
+
+
+async def _tool_my_data(db: AsyncSession, t: _Turn, topic: str) -> None:
+    t0 = time.time()
+    if topic == "pipeline":
+        p = await _pipeline(db)
+        t.notes.append("The person has no saved companies yet, so there is no pipeline to report." if not p["total"] else
+                       f"Saved companies: {p['total']}. By stage: " + ", ".join(f"{k} {v}" for k, v in p["stages"].items())
+                       + f". {p['with_email']} have an email and {p['with_phone']} have a phone number.")
+        t.steps.append({"label": "Read your saved companies", "detail": f"{p['total']:,} saved", "ms": _ms(t0)})
+    elif topic == "campaigns":
+        cs = await _campaigns(db)
+        t.notes.append("Campaigns: " + "; ".join(f"{c['name']} is {c['status']}, {c['people']} people, {c['sent']} emails sent, {c['replied']} replied, "
+                                                 f"{c['bounced']} bounced, {c['unsubscribed']} unsubscribed" for c in cs) if cs else "The person has no email campaigns yet.")
+        t.steps.append({"label": "Read your campaigns", "detail": f"{len(cs)} found", "ms": _ms(t0)})
+    elif topic == "replies":
+        r = await _replies(db)
+        sorted_ = ", ".join(f"{k} {v}" for k, v in r["replies"].items()) or "no replies yet"
+        t.notes.append(f"Last 30 days: {r['sent']} sent, {r['opened']} opened, {r['bounced']} bounced. Replies: {sorted_}.")
+        t.steps.append({"label": "Read your replies", "detail": f"{r['sent']} sent", "ms": _ms(t0)})
+    elif topic == "mailboxes":
+        mb = await _mailboxes(db)
+        t.notes.append("Mailboxes: " + "; ".join(
+            f"{m['email']} is {m['status']}, bounce rate {m['bounce']}% (7 days), SPF {'ok' if m['spf'] else 'not verified'}, DKIM {'ok' if m['dkim'] else 'not verified'}, "
+            f"DMARC {'ok' if m['dmarc'] else 'not verified'}, daily limit {m['cap']}" + (f", last error: {m['error']}" if m["error"] else "") for m in mb)
+            if mb else "No sending mailbox is connected yet.")
+        t.steps.append({"label": "Checked your mailboxes", "detail": f"{len(mb)} connected", "ms": _ms(t0)})
+    elif topic == "follow_ups":
+        due = await _due(db)
+        t.notes.append("Follow-ups due in 7 days: " + "; ".join(f"{d['name']} on {d['when']} ({d['what']})" for d in due) if due else "Nothing is due for follow-up in the next 7 days.")
+        t.steps.append({"label": "Checked your follow-ups", "detail": f"{len(due)} due", "ms": _ms(t0)})
+    elif topic == "customer_profile":
+        cp = await _customer_profile(db)
+        if not cp["count"]:
+            t.notes.append("The person has no saved companies yet, so there is nothing to base lookalikes on. Ask who their best customers are.")
+        else:
+            label = "best saved companies (interested, meeting or won)" if cp["basis"] == "best" else "saved companies (none are marked interested or won yet)"
+            t.notes.append(f"Based on {cp['count']} {label}. Sectors: {', '.join(cp['industries']) or 'not recorded'}. Towns: {', '.join(cp['regions']) or 'not recorded'}.")
+        t.steps.append({"label": "Read your best companies", "detail": f"{cp['count']} saved", "ms": _ms(t0)})
+    else:
+        t.notes.append(f"my_data has no topic '{topic}'. The topics are: {', '.join(_TOPICS)}.")
+
+
+async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    name_in = name
+    if name in _OLD_TOPIC:
+        name, args = "my_data", {"topic": _OLD_TOPIC[name]}
+    if name == "size_market":
+        name, args = "search_companies", {**args, "count_only": True}
+    if name == "search_companies":
+        await _tool_search(db, t, dict(args))
+    elif name == "my_data":
+        await _tool_my_data(db, t, str(args.get("topic") or ""))
+    elif name == "search_web":
+        query = str(args.get("query") or "").strip()[:200]
+        if not t.body.web_search:
+            t.notes.append("Web search is switched off, so nothing was searched. Tell the person to turn on the Web search switch under the message box if they want it.")
+        elif not query:
+            t.notes.append("The web search needs a short query: a type of business and a place. Ask the person for it.")
+        elif t.web_asked:
+            t.notes.append("A web search is already waiting for the person to confirm.")
+        else:
+            t.web_asked = True
+            t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "web_search", "title": f"Search the web for “{query}”",
+                                "detail": "Public web pages and directories. Results are unverified. You pay only for companies found, nothing if none.", "params": {"query": query}})
+            t.steps.append({"label": "Prepared a web search for you to confirm", "detail": query, "ms": _ms(t0)})
+            t.notes.append(f"A web search for '{query}' is on screen, waiting for the person to confirm. It costs credits per company found, nothing if none.")
+    elif name == "add_to_list":
+        if not t.filters or not business_records.normalize_filters(t.filters):
+            t.notes.append("There is no search to save yet. Ask the person who they want to find first.")
+            return
+        how_many = min(max(int(args.get("how_many") or 25), 1), 200)
+        list_name = str(args.get("list_name") or "Assistant list").strip()[:80] or "Assistant list"
+        t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "add_to_list", "title": f"Save up to {how_many} companies to “{list_name}”",
+                            "detail": "Free. They are saved from the search above.", "params": {"filters": t.filters, "list_name": list_name, "how_many": how_many}})
+        t.steps.append({"label": "Prepared a list for you to confirm", "detail": f"{list_name}, up to {how_many}", "ms": _ms(t0)})
+        t.notes.append(f"A proposal to save up to {how_many} companies to the list '{list_name}' is on screen, waiting for the person to confirm.")
+    elif name in ("check_list", "start_campaign"):
+        hit = _list_named(t.lists, str(args.get("list_name") or ""))
+        if not hit:
+            t.notes.append(f"No list is called '{args.get('list_name', '')}'. The lists are: {', '.join(x['name'] for x in t.lists) or 'none'}.")
+            return
+        if name == "check_list":
+            t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "check_list", "title": f"Check “{hit['name']}”",
+                                "detail": "You will see the price before anything is charged.", "params": {"list_id": hit["id"]}})
+        else:
+            t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "campaign", "title": f"Start an email campaign to “{hit['name']}”",
+                                "detail": "You set it up and review it before anything is sent.", "params": {"list_id": hit["id"]}})
+        t.steps.append({"label": "Found your list", "detail": hit["name"], "ms": _ms(t0)})
+        t.notes.append(f"A proposal for the list '{hit['name']}' is on screen, waiting for the person.")
+    elif name == "show_credits":
+        line = await _credits_line(db)
+        t.steps.append({"label": "Read your credits", "detail": line, "ms": _ms(t0)})
+        t.notes.append(line)
+    else:
+        t.notes.append(f"There is no tool called '{name_in}'. Do not call it again.")
+
+
+def _prompt_for(context: str, notes: List[str]) -> str:
+    if not notes:
+        return _SYSTEM + "\n\n" + context
+    return (_SYSTEM + "\n\n" + context + "\n\nWhat your tools have returned so far this turn (this is all you know; do not add companies or facts). "
+            "Call another tool only if the person's request still needs one; otherwise answer now in two to four short sentences, saying what was found or prepared and what they can do next:\n- "
+            + "\n- ".join(notes))
+
+
 @router.post("/ask")
 async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    if _spent_today() >= DAILY_MESSAGES:
+    if await _spent_today(db) >= DAILY_MESSAGES:
         raise HTTPException(status_code=429, detail=f"You have used today's {DAILY_MESSAGES} assistant messages. They reset tomorrow.")
     started = time.time()
     history = [{"role": "assistant" if m.get("role") in ("assistant", "ai", "bot") else "user", "content": str(m.get("content") or "")[:1500]}
@@ -252,137 +411,75 @@ async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db))
     lists = [{"id": str(x.get("id", "")), "name": str(x.get("name", ""))[:80], "count": x.get("count")} for x in body.lists[:60]]
     context = (await _business_line(db, request)
                + f"\nFilters in use now: {json.dumps(body.filters or {})}"
-               + f"\nThe person's lists: {', '.join(x['name'] for x in lists) or 'none yet'}")
+               + f"\nThe person's lists: {', '.join(x['name'] for x in lists) or 'none yet'}"
+               + f"\nWeb search switch: {'ON, you may offer search_web' if body.web_search else 'OFF, you have no web search; if the register is not enough, say they can switch Web search on'}")
+    last = body.state if isinstance(body.state, dict) else {}
+    names = [str(n)[:80] for n in (last.get("last_names") or [])[:TOP] if str(n).strip()]
+    if names:
+        context += f"\nThe last search showed (in this order, so 'the second one' means number 2): {'; '.join(f'{i + 1}. {n}' for i, n in enumerate(names))}"
     remembered = [str(m).strip()[:300] for m in body.memory[:20] if str(m).strip()]
     if remembered:
         context += "\nThings the person asked you to remember (apply them; they are preferences, not facts about companies):\n- " + "\n- ".join(remembered)
-    plan = await llm_gateway.call_open_chat_llm_with_tools(
-        messages=[*history, {"role": "user", "content": body.message}], tools=TOOLS, system_prompt=_SYSTEM + "\n\n" + context,
-        temperature=0.2, max_tokens=500, db=db, scope="leadgen")
-    if not plan.get("success"):
-        logger.warning("assistant plan failed: %s", plan.get("error"))
-        raise HTTPException(status_code=502, detail="The AI service did not answer. Try again in a moment.")
-    _count_message()
 
-    steps: List[Dict[str, Any]] = []
-    proposals: List[Dict[str, Any]] = []
-    found: Optional[Dict[str, Any]] = None
-    notes: List[str] = []
-    latest_filters = body.filters or {}
+    tools = TOOLS + ([WEB_TOOL] if body.web_search else [])
+    turn = _Turn(body, lists)
+    messages = [*history, {"role": "user", "content": body.message}]
+    ran: set = set()
+    reply = ""
+    answered = False
+    for rnd in range(MAX_ROUNDS):
+        plan = await llm_gateway.call_open_chat_llm_with_tools(
+            messages=messages, tools=tools, system_prompt=_prompt_for(context, turn.notes), temperature=0.2, max_tokens=500, db=db, scope="leadgen")
+        if not plan.get("success"):
+            logger.warning("assistant plan failed: %s", plan.get("error"))
+            if rnd == 0:
+                raise HTTPException(status_code=502, detail="The AI service did not answer. Try again in a moment.")
+            break
+        if rnd == 0:
+            await _count_message(db)
+        fresh = []
+        for call in plan.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            args = args if isinstance(args, dict) else {}
+            sig = (fn.get("name"), json.dumps(args, sort_keys=True, default=str))
+            if sig not in ran:
+                ran.add(sig)
+                fresh.append((fn.get("name") or "", args))
+        if not fresh:
+            reply = (plan.get("reply") or "").strip()
+            answered = bool(reply)
+            break
+        for name, args in fresh[:MAX_ROUNDS]:
+            try:
+                await _run_tool(db, turn, name, args)
+            except Exception as err:  # one tool failing must not lose the rest of the turn
+                logger.warning("assistant tool %s failed: %s", name, err)
+                turn.notes.append(f"The {name} tool failed ({type(err).__name__}), so there is nothing from it. Say so plainly and offer to try again.")
+                turn.steps.append({"label": f"Could not finish: {name.replace('_', ' ')}", "detail": "Something went wrong. Try again.", "ms": 0, "failed": True})
 
-    for call in (plan.get("tool_calls") or [])[:MAX_TOOL_CALLS]:
-        fn = call.get("function") or {}
-        name = fn.get("name")
-        try:
-            args = json.loads(fn.get("arguments") or "{}")
-        except ValueError:
-            args = {}
-        t0 = time.time()
-        if name == "search_companies":
-            res = await _run_search(db, args)
-            if res.get("needs"):
-                notes.append(f"The search needs more detail: {res['needs']}")
-                steps.append({"label": "Tried the company register", "detail": res["needs"], "ms": int((time.time() - t0) * 1000)})
-                continue
-            found = res
-            latest_filters = res["filters"]
-            words = " · ".join(lead_filters.describe(res["filters"])) or "your filters"
-            steps.append({"label": "Searched the company register", "detail": f"{words}: {res['total']:,}{'+' if res.get('capped') else ''} found", "ms": int((time.time() - t0) * 1000)})
-            notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies. Top results: "
-                         + "; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]))
-        elif name == "add_to_list":
-            if not latest_filters or not business_records.normalize_filters(latest_filters):
-                notes.append("There is no search to save yet. Ask the person who they want to find first.")
-                continue
-            how_many = min(max(int(args.get("how_many") or 25), 1), 200)
-            list_name = str(args.get("list_name") or "Assistant list").strip()[:80] or "Assistant list"
-            proposals.append({"id": f"p{len(proposals)}", "kind": "add_to_list", "title": f"Save up to {how_many} companies to “{list_name}”",
-                              "detail": "Free. They are saved from the search above.", "params": {"filters": latest_filters, "list_name": list_name, "how_many": how_many}})
-            steps.append({"label": "Prepared a list for you to confirm", "detail": f"{list_name}, up to {how_many}", "ms": int((time.time() - t0) * 1000)})
-            notes.append(f"A proposal to save up to {how_many} companies to the list '{list_name}' is on screen, waiting for the person to confirm.")
-        elif name in ("check_list", "start_campaign"):
-            hit = _list_named(lists, str(args.get("list_name") or ""))
-            if not hit:
-                notes.append(f"No list is called '{args.get('list_name', '')}'. The lists are: {', '.join(x['name'] for x in lists) or 'none'}.")
-                continue
-            if name == "check_list":
-                proposals.append({"id": f"p{len(proposals)}", "kind": "check_list", "title": f"Check “{hit['name']}”",
-                                  "detail": "You will see the price before anything is charged.", "params": {"list_id": hit["id"]}})
-            else:
-                proposals.append({"id": f"p{len(proposals)}", "kind": "campaign", "title": f"Start an email campaign to “{hit['name']}”",
-                                  "detail": "You set it up and review it before anything is sent.", "params": {"list_id": hit["id"]}})
-            steps.append({"label": "Found your list", "detail": hit["name"], "ms": int((time.time() - t0) * 1000)})
-            notes.append(f"A proposal for the list '{hit['name']}' is on screen, waiting for the person.")
-        elif name == "show_credits":
-            line = await _credits_line(db)
-            steps.append({"label": "Read your credits", "detail": line, "ms": int((time.time() - t0) * 1000)})
-            notes.append(line)
-        elif name == "my_pipeline":
-            p = await _pipeline(db)
-            if not p["total"]:
-                notes.append("The person has no saved companies yet, so there is no pipeline to report.")
-            else:
-                notes.append(f"Saved companies: {p['total']}. By stage: " + ", ".join(f"{k} {v}" for k, v in p["stages"].items())
-                             + f". {p['with_email']} have an email and {p['with_phone']} have a phone number.")
-            steps.append({"label": "Read your saved companies", "detail": f"{p['total']:,} saved", "ms": int((time.time() - t0) * 1000)})
-        elif name == "my_campaigns":
-            cs = await _campaigns(db)
-            notes.append("Campaigns: " + "; ".join(f"{c['name']} is {c['status']}, {c['people']} people, {c['sent']} emails sent, {c['replied']} replied, "
-                                                  f"{c['bounced']} bounced, {c['unsubscribed']} unsubscribed" for c in cs) if cs else "The person has no email campaigns yet.")
-            steps.append({"label": "Read your campaigns", "detail": f"{len(cs)} found", "ms": int((time.time() - t0) * 1000)})
-        elif name == "size_market":
-            m = await _market(db, args)
-            words = " · ".join(lead_filters.describe(m["filters"])) or "all companies"
-            plus = "+" if m["capped"] else ""
-            tiers = m["tiers"] or {}
-            notes.append(f"Market ({words}): {m['total']:,}{plus} companies in the register. Profile detail: full {tiers.get('full', 'unknown')}, partial {tiers.get('partial', 'unknown')}, "
-                         f"basic {tiers.get('basic', 'unknown')}. With a website {m['has_website']:,}, with an email {m['has_email']:,}, with a phone {m['has_phone']:,}. "
-                         f"Already saved by the person: {m['saved'] if m['saved'] is not None else 'unknown'}.")
-            steps.append({"label": "Sized the market", "detail": f"{words}: {m['total']:,}{plus}", "ms": int((time.time() - t0) * 1000)})
-        elif name == "my_customer_profile":
-            cp = await _customer_profile(db)
-            if not cp["count"]:
-                notes.append("The person has no saved companies yet, so there is nothing to base lookalikes on. Ask who their best customers are.")
-            else:
-                label = "best saved companies (interested, meeting or won)" if cp["basis"] == "best" else "saved companies (none are marked interested or won yet)"
-                notes.append(f"Based on {cp['count']} {label}. Sectors: {', '.join(cp['industries']) or 'not recorded'}. Towns: {', '.join(cp['regions']) or 'not recorded'}.")
-            steps.append({"label": "Read your best companies", "detail": f"{cp['count']} saved", "ms": int((time.time() - t0) * 1000)})
-        elif name == "mailbox_health":
-            mb = await _mailboxes(db)
-            if mb:
-                notes.append("Mailboxes: " + "; ".join(
-                    f"{m['email']} is {m['status']}, bounce rate {m['bounce']}% (7 days), SPF {'ok' if m['spf'] else 'not verified'}, DKIM {'ok' if m['dkim'] else 'not verified'}, "
-                    f"DMARC {'ok' if m['dmarc'] else 'not verified'}, daily limit {m['cap']}" + (f", last error: {m['error']}" if m["error"] else "") for m in mb))
-            else:
-                notes.append("No sending mailbox is connected yet.")
-            steps.append({"label": "Checked your mailboxes", "detail": f"{len(mb)} connected", "ms": int((time.time() - t0) * 1000)})
-        elif name == "reply_breakdown":
-            r = await _replies(db)
-            sorted_ = ", ".join(f"{k} {v}" for k, v in r["replies"].items()) or "no replies yet"
-            notes.append(f"Last 30 days: {r['sent']} sent, {r['opened']} opened, {r['bounced']} bounced. Replies: {sorted_}.")
-            steps.append({"label": "Read your replies", "detail": f"{r['sent']} sent", "ms": int((time.time() - t0) * 1000)})
-        elif name == "follow_ups_due":
-            due = await _due(db)
-            notes.append("Follow-ups due in 7 days: " + "; ".join(f"{d['name']} on {d['when']} ({d['what']})" for d in due) if due else "Nothing is due for follow-up in the next 7 days.")
-            steps.append({"label": "Checked your follow-ups", "detail": f"{len(due)} due", "ms": int((time.time() - t0) * 1000)})
-
-    reply = (plan.get("reply") or "").strip()
-    if notes:
+    if turn.notes and not answered:
         final = await llm_gateway.call_open_chat_llm(
-            messages=[*history, {"role": "user", "content": body.message}],
-            system_prompt=_SYSTEM + "\n\n" + context + "\n\nWhat your tools just did (this is all you know; do not add companies or facts):\n- " + "\n- ".join(notes)
-            + "\n\nNow answer the person in two to four short sentences. Say what was found or prepared and what they can do next.",
+            messages=messages, system_prompt=_prompt_for(context, turn.notes) + "\n\nAnswer now, without calling anything else.",
             temperature=0.3, max_tokens=400, db=db, scope="leadgen")
         reply = (final.get("reply") or "").strip() if final.get("success") else ""
         if not reply:
-            reply = " ".join(n for n in notes if not n.startswith("A proposal")) or "Done. Check what is on screen."
+            reply = " ".join(n for n in turn.notes if not n.startswith("A proposal") and not n.startswith("A web search")) or "Done. Check what is on screen."
     if not reply:
         reply = "I'm not sure what to do with that. Tell me who you want to find, for example “cafes in Leeds”."
 
+    found = turn.found
     has_profile = not context.startswith("The business profile is not filled in")
-    return {"reply": reply, "steps": steps, "proposals": proposals, "took_ms": int((time.time() - started) * 1000),
-            "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(proposals), lists=lists, has_profile=has_profile, asked=body.message),
-            "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"]} if found else None)}
+    thin = bool(found is not None and found["total"] <= THIN)
+    return {"reply": reply, "steps": turn.steps, "proposals": turn.proposals, "took_ms": int((time.time() - started) * 1000),
+            "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(turn.proposals), lists=lists, has_profile=has_profile,
+                                       asked=body.message, thin=thin, web=body.web_search),
+            "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"]} if found else None),
+            "state": {"last_total": found["total"] if found else last.get("last_total"),
+                      "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}
 
 
 @router.post("/profile-from-site")
