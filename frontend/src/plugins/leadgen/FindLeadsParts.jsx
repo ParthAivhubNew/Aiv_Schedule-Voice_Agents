@@ -142,16 +142,15 @@ function link(url) {
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
 function Reach({ value, kind, onFind, web, state }) {
   if (!value && web) {
-    return <span title="Found on the web, not confirmed by the registry. Check it before you use it" style={{ whiteSpace: "nowrap" }}>{web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
+    return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
-  const busyHere = state === `busy:${kind}`;
-  const busyElsewhere = typeof state === "string" && state.startsWith("busy:") && !busyHere; // the other cell asked: this one waits, it does not claim to be searching
+  const busyHere = state === "busy"; // this cell's own lookup; the other cell in the row is never touched by it
   if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
   if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
-  const tip = kind === "email" ? "Open the profile to look for an email" : "Look on the web for this company's website and phone. 1 credit if found (the deeper search is used only if the first finds no website, and only charged if it does). Nothing is charged for a miss";
+  const tip = kind === "email" ? "Open the profile to look for an email" : `Look for this company's ${kind}. 1 credit if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
-  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} disabled={busyElsewhere} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
+  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
 }
 
 function SaveCell({ saved, onSave }) {
@@ -220,8 +219,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[c.id]} onFind={() => onFindSite(c, "website")} />}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[c.id]} onFind={() => onFindSite(c, "phone")} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[`${c.id}:website`]} onFind={() => onFindSite(c, "website")} />}</Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[`${c.id}:phone`]} onFind={() => onFindSite(c, "phone")} /></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" onFind={() => onOpen(c)} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>

@@ -359,7 +359,7 @@ export const api = {
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
-  findCompanyWebsite: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: {}, timeoutMs: 60000 }),
+  findCompanyWebsite: (id, kind = 'website') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: { kind }, timeoutMs: 60000 }),
   searchSummary: (body) => apiRequest('/leads/search/summary', { method: 'POST', body, timeoutMs: 40000 }),
   geocodePostcode: (postcode) => apiRequest(`/leads/geocode-postcode?postcode=${encodeURIComponent(postcode)}`),
   companyLogo: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/logo`, { asBlob: true, timeoutMs: 20000 }),

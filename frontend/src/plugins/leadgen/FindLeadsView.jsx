@@ -706,18 +706,19 @@ function FindLeadsSearch({ store, listsStore, onImport, incoming, onAskAssistant
   const pinCount = companies.filter((c) => points[c.id]).length;
   const saveOne = (c) => store.save([asAccount(c)]);
   // One click on an empty website or phone: look on the web (and, if that finds no website, the deeper search), fill the row.
-  const [lookups, setLookups] = useState({}); // company id -> "busy" | "none"
+  const [lookups, setLookups] = useState({}); // `${company id}:${website|phone}` -> "busy" | "none": each button has its own lookup
   const findSite = async (c, kind = "website") => {
-    if (String(lookups[c.id] || "").startsWith("busy")) return;
-    setLookups((m) => ({ ...m, [c.id]: `busy:${kind}` }));
+    const key = `${c.id}:${kind}`;
+    if (lookups[key] === "busy") return;
+    setLookups((m) => ({ ...m, [key]: "busy" }));
     try {
-      const r = await api.findCompanyWebsite(c.id);
+      const r = await api.findCompanyWebsite(c.id, kind);
       if (r.company) setCompanies((rows) => rows.map((x) => (x.id === c.id ? { ...x, ...r.company, saved: x.saved } : x)));
       setOpenCo((o) => (o && o.id === c.id && r.company ? { ...o, ...r.company, saved: o.saved } : o));
-      setLookups((m) => { const n = { ...m }; if (r.found) delete n[c.id]; else n[c.id] = "none"; return n; });
-      store.toast(r.found ? `Found details for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
+      setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = "none"; return n; });
+      store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
     } catch (err) {
-      setLookups((m) => { const n = { ...m }; delete n[c.id]; return n; });
+      setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
       store.toast(err.message || "The lookup didn't finish. Nothing was charged.");
     }
   };

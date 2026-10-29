@@ -87,6 +87,21 @@ async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
     return False
 
 
+def is_uk_phone(p: str) -> bool:
+    """A UK number as it is really built: 0 or +44, then 9 or 10 digits that start 1, 2, 3, 5, 7 or 8. Premium (09), the 04 and 06 ranges
+    and anything with the wrong length are dropped, so a stray number from a web page never reaches a customer as the company's phone."""
+    digits = re.sub(r"[^\d+]", "", p or "")
+    if digits.startswith("+44"):
+        national = digits[3:]
+        if national.startswith("0"):
+            national = national[1:]
+    elif digits.startswith("0") and not digits.startswith("00"):
+        national = digits[1:]
+    else:
+        return False
+    return national.isdigit() and len(national) in (9, 10) and national[0] in "123578" and len(set(national)) > 2
+
+
 async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False) -> Dict[str, Any]:
     """A live web lookup for the company's website, phones and named team. Stored on the record
     under raw_data['contacts_web'] -- NOT in the verified columns -- so a web guess never sits in a
@@ -114,9 +129,7 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
         d = (e or "").lower().rpartition("@")[2]
         return bool(host) and (d == host or d.endswith("." + host) or host.endswith("." + d))
 
-    def _uk_phone(p: str) -> bool:
-        digits = re.sub(r"[^\d+]", "", p or "")
-        return digits.startswith("+44") or (digits.startswith("0") and not digits.startswith("00"))
+    _uk_phone = is_uk_phone
 
     team = [{"name": t.get("name") or "", "title": t.get("title") or "", "phone": t.get("phone") or "", "email": (t.get("email") or "").lower()}
             for t in (data.get("team") or []) if t.get("name")][:10]

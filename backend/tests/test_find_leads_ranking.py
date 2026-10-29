@@ -278,3 +278,51 @@ async def test_an_empty_register_is_never_remembered_as_the_answer(db):
     _, token = await make_user(db, "fl10", "Admin", org_id="org_acme")
     async with _client(token) as c:
         assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 4
+
+
+def test_only_a_real_shaped_uk_phone_is_kept_from_the_web():
+    from app.services.company_contacts import is_uk_phone as ok
+
+    assert ok("0113 496 0123") and ok("+44 113 496 0123") and ok("07700 900123") and ok("01455 698494") and ok("0800 123 4567")
+    assert not ok("0911 111 1111") and not ok("+1 415 555 2671") and not ok("12345") and not ok("0000000000") and not ok("01132")
+
+
+@pytest.mark.db
+async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(db, monkeypatch):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    await BR.bulk_upsert(db, source_id="ds_ch", rows=[_row("201", "Phone Cafe Ltd", "01/01/2015"), _row("202", "Silent Cafe Ltd", "01/01/2015")])
+    await db.commit()
+    ids = {r.name: r.id for r in (await BR.search_filtered(db, {"towns": ["Leeds"]}))["rows"]}
+    calls = []
+
+    async def fake_web(_db, biz, refresh=False):
+        calls.append(biz.name)
+        if biz.name == "Phone Cafe Ltd":
+            found = {"found": True, "cached": False, "website": "", "phones": ["0113 496 0123"], "emails": [], "team": []}
+            biz.raw_data = {**(biz.raw_data or {}), "contacts_web": found}
+            return found
+        return {"found": False, "cached": False, "website": "", "phones": [], "emails": [], "team": []}
+
+    async def no_places(query):
+        return None
+
+    monkeypatch.setattr("app.services.company_contacts.web_contacts", fake_web)
+    monkeypatch.setattr("app.api.lead_accounts.search_google_places", no_places)
+    _, token = await make_user(db, "fl9", "Admin", org_id="org_acme")
+    with org_scope("org_acme"):
+        await K.add_credits(db, "leadgen", 50, source="grant", note="Trial")
+        await db.commit()
+    async with _client(token) as c:
+        got = (await c.post(f"/api/leads/companies/{ids['Phone Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
+        assert got["found"] and got["source"] == "web" and got["charged"] == 1 and got["company"]["web_phone"] == "0113 496 0123"
+        assert got["company"]["website"] == "" and got["company"]["web_website"] == ""  # the website button is untouched
+        again = (await c.post(f"/api/leads/companies/{ids['Phone Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
+        assert again["source"] == "stored" and again["charged"] == 0
+        with org_scope("org_acme"):
+            before = await K.wallet_balance(db, "leadgen")
+        miss = (await c.post(f"/api/leads/companies/{ids['Silent Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
+        assert not miss["found"] and miss["charged"] == 0 and "Nothing was charged" in miss["note"]
+        with org_scope("org_acme"):
+            assert await K.wallet_balance(db, "leadgen") == before
