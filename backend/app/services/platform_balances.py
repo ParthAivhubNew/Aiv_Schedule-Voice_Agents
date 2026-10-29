@@ -37,9 +37,11 @@ RE_ALERT_AFTER = timedelta(hours=24)
 
 # Fixed USD floors on top of the runway logic: Telnyx stops carrying calls when the account runs dry,
 # and a small prepaid balance can go from fine to empty between two 6-hour polls.
+TELNYX_PORTAL_URL = "https://portal.telnyx.com"
+
 FLOORS_USD: Dict[str, Dict[str, float]] = {
     "telnyx": {
-        "low": float(os.getenv("TELNYX_LOW_BALANCE_USD", "2.0")),
+        "low": float(os.getenv("TELNYX_LOW_BALANCE_USD", "5.0")),
         "critical": float(os.getenv("TELNYX_CRITICAL_BALANCE_USD", "1.5")),
     },
 }
@@ -432,8 +434,12 @@ async def _maybe_alert(db: AsyncSession, assessed: Dict[str, Any]) -> None:
             lines.append(f"Recommended top-up: about <b>${assessed['recommendedTopupUsd']:,.2f}</b> (2 weeks at the current pace).")
         floor = FLOORS_USD.get(provider)
         if floor and assessed.get("remaining", 0) <= floor["low"]:
-            lines.append(f"This is at or below the ${floor['low']:.2f} warning line (critical at ${floor['critical']:.2f}). "
-                         "Recharge now or calls and numbers on this account can stop working.")
+            lines.append(f"The balance is at or below the ${floor['low']:.2f} warning line (critical at ${floor['critical']:.2f}). "
+                         "Please top it up: calls and numbers on this account can stop working when it runs out. "
+                         "You'll get this reminder once a day until the balance is back above the line.")
+            if provider == "telnyx":
+                lines.append(f'To recharge, sign in to Telnyx at <a href="{TELNYX_PORTAL_URL}">{TELNYX_PORTAL_URL}</a> '
+                             "and go to Billing &rarr; Payment &amp; Top-up.")
         lines.append("The Balances page of the owner portal has the full picture.")
         msg = render_owner(subject, lines, page="balances", button_label="Open Balances")
         for to in recipients:
