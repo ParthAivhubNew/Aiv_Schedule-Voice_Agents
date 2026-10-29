@@ -1,137 +1,34 @@
-"""The AI search harness: find a company's own website, phone and email from the open web, and show only what checks out.
+"""Company web lookup: find a company's own website, phone and email from the open web and show only what the guardrail trusts.
 
-1. Search APIs (DeepSeek search, then Tavily) return pages about the company.
-2. The company's own site, if one of the results looks like it, is read in full through DeepSeek's page fetch.
-3. An AI model reads those sources and says which one is the company's own website and where each phone number and email is written.
-4. Code, not the model, then checks every answer: the website must be one of the results and must not be a directory or another
-   business; a phone number must be UK-shaped and must be written in the very source the model named; an email must be written
-   in a source and sit on the company's own domain. Anything that fails is dropped, so nothing the model made up reaches a customer.
+1. The recipe (search_recipe) builds the searches: one template, filled from the register.
+2. Search APIs (DeepSeek, then Tavily) answer them. The company's own site is then read in full (homepage, and contact pages when the
+   homepage has none), which also proves the site is alive.
+3. The guardrail (guardrail.py) turns every source into candidates per field, rejects the bad ones, scores the rest, and returns one
+   winner per field or nothing.
+4. Retries run only while there is no confident website: the name written differently, then one advanced-depth search. The searches
+   per lookup are capped (search_recipe.MAX_SEARCHES). Every lookup returns a ledger of what it spent and an audit of what it weighed.
 
-Without an AI key, step 3 is done by plain rules on the same sources, and step 4 still applies.
+No AI model decides anything here: the rules decide, so the same evidence always gives the same answer.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from app.services import company_contacts as CC
 from app.services import enrichment_service as ES
-from app.services import llm_gateway, site_check
+from app.services import guardrail as G
+from app.services import search_recipe as R
+from app.services import site_check
+from app.services.safe_fetch import FetchRefused, fetch_text
 
 logger = logging.getLogger("web_harness")
 
-MAX_SOURCES = 10
-FETCH_PAGES = 2
-PAGE_CHARS = 1800
-EVIDENCE_CHARS = 14000
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "website_source": {"type": "integer", "description": "Number of the source that is this business's OWN website. -1 if none of them is."},
-        "phones": {"type": "array", "description": "UK phone numbers of this business, each exactly as written in a source.",
-                   "items": {"type": "object", "properties": {"number": {"type": "string"}, "source": {"type": "integer"}}, "required": ["number", "source"]}},
-        "emails": {"type": "array", "description": "Email addresses of this business, each exactly as written in a source.",
-                   "items": {"type": "object", "properties": {"address": {"type": "string"}, "source": {"type": "integer"}}, "required": ["address", "source"]}},
-        "reason": {"type": "string", "description": "One short sentence: what you found, or why nothing fits."},
-    },
-    "required": ["website_source", "phones", "emails"],
-}
-
-_SYSTEM = (
-    "You read web search results about ONE specific UK business and pick out its contact details. Use only the numbered sources given. "
-    "website_source is the source that is the business's OWN website: not a directory, a social page, a register, a review or rating "
-    "site, or a different business with a similar name. Use -1 if none is. phones and emails must be copied exactly as a source writes "
-    "them, with that source's number. Never guess, complete or reformat a number or address, and never use one that a source does not "
-    "contain. Hold every source up against what we already know about the business (its place, postcode and what it does): if a "
-    "source is about a business with a similar name somewhere else, or in a different line of work, do not use it. If none fits, "
-    "return -1 and empty lists."
-)
-
-
-def _squash(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
-
-
-def _national(raw: str) -> str:
-    """A UK number reduced to its digits without the country code or the leading zero, so +44 113 496 0123 and 0113 496 0123 match."""
-    d = re.sub(r"\D", "", str(raw or ""))
-    if d.startswith("0044"):
-        d = d[4:]
-    elif d.startswith("44") and len(d) >= 11:
-        d = d[2:]
-    return d.lstrip("0") if d.startswith("0") else d
-
-
-def _numbers_in(text: str) -> set:
-    return {_national(m) for m in re.findall(r"(?:\+?44|0)[\d\s().\-]{8,16}\d", text or "")}
-
-
-def _mentions(name: str, text: str) -> bool:
-    """Does this source talk about this business? Every real word of its name is in the text (run together or not)."""
-    words = site_check._tokens(name)
-    squashed = _squash(text)
-    return bool(words) and all(w in squashed for w in words)
-
-
-def _queries(name: str, place: str, facts: Dict[str, Any]) -> List[str]:
-    """Most exact first: the name with its postcode, then with its area, then the plain "official website" search. A name written
-    differently on the company's own site ("Teddybears" for "Teddy Bears") gets its own query."""
-    postcode = str(facts.get("postcode") or "").strip()
-    run_together = re.sub(r"[\s\-]+", "", str(name))
-    queries = []
-    if postcode:
-        queries.append(f"{name} {postcode}")
-    queries += [f"{name} {place}".strip(), f"{name} official website contact phone".strip()]
-    if run_together.lower() != str(name).lower() and len(run_together) >= 6:
-        queries.append(f"{run_together} {place}".strip())
-    return list(dict.fromkeys(q[:128] for q in queries if q.strip()))[:4]
-
-
-async def _gather(name: str, place: str, facts: Dict[str, Any]) -> List[Dict[str, Any]]:
-    gate = asyncio.Semaphore(2)
-
-    async def run(q: str) -> List[Dict[str, str]]:
-        async with gate:
-            return await ES.search_open_web(q, max_results=6)
-
-    found: List[Dict[str, Any]] = []
-    seen = set()
-    for batch in await asyncio.gather(*[run(q) for q in _queries(name, place, facts)]):
-        for r in batch:
-            url = r.get("url") or ""
-            key = urlparse(url).netloc.lower().removeprefix("www.") + urlparse(url).path.rstrip("/")
-            if not url or key in seen:
-                continue
-            seen.add(key)
-            found.append({"url": url, "title": r.get("title") or "", "text": (r.get("content") or r.get("summary") or r.get("snippet") or "")[:PAGE_CHARS]})
-            if len(found) >= MAX_SOURCES:
-                return found
-    return found
-
-
-async def _read_own_site(name: str, sources: List[Dict[str, Any]]) -> None:
-    """The results that look like the company's own site are fetched in full, so a phone number in the page footer is seen."""
-    own = [s for s in sources if site_check.plausible_site(name, s["url"])][:FETCH_PAGES]
-    pages = await asyncio.gather(*[ES.fetch_deepseek(s["url"]) for s in own], return_exceptions=True)
-    for s, page in zip(own, pages):
-        if isinstance(page, dict) and page.get("content"):
-            s["text"] = (s["text"] + "\n" + page["content"][:PAGE_CHARS * 2])[:PAGE_CHARS * 2 + 600]
-            s["read"] = True
-
-
-def _evidence(sources: List[Dict[str, Any]]) -> str:
-    out, used = [], 0
-    for i, s in enumerate(sources):
-        block = f"[{i}] {s['url']}\n{s['title']}\n{s['text']}".strip()
-        if used + len(block) > EVIDENCE_CHARS:
-            break
-        out.append(block)
-        used += len(block)
-    return "\n\n".join(out)
+CONTACT_PATHS = ("/contact", "/contact-us", "/about")
+PAGE_CHARS = 6000
 
 
 def _homepage(url: str) -> str:
@@ -139,90 +36,202 @@ def _homepage(url: str) -> str:
     return f"{p.scheme or 'https'}://{p.netloc}" if p.netloc else url
 
 
-def _verify(name: str, sources: List[Dict[str, Any]], picked: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep only what the sources really say about this business. The model proposes; this decides."""
-    def at(i: Any) -> Optional[Dict[str, Any]]:
-        return sources[i] if isinstance(i, int) and 0 <= i < len(sources) else None
-
-    website, site_src = "", None
-    cand = at(picked.get("website_source"))
-    if cand and not site_check.is_listing_host(cand["url"], name) and (site_check.plausible_site(name, cand["url"]) or site_check.same_business(name, cand["title"])):
-        website, site_src = _homepage(cand["url"]), cand
-    host = site_check._host(website)
-
-    phones: List[str] = []
-    for item in picked.get("phones") or []:
-        src, num = at((item or {}).get("source")), str((item or {}).get("number") or "").strip()
-        if not src or not num or not CC.is_uk_phone(num):
-            continue
-        if _national(num) not in _numbers_in(src["text"]):
-            continue  # the source does not contain this number: the model made it up or mistyped it
-        if src is not site_src and not _mentions(name, f"{src['title']} {src['text']}"):
-            continue  # a page about some other business
-        if num not in phones:
-            phones.append(num)
-
-    emails: List[str] = []
-    for item in picked.get("emails") or []:
-        src, addr = at((item or {}).get("source")), str((item or {}).get("address") or "").strip().lower()
-        domain = addr.rpartition("@")[2]
-        if not src or "@" not in addr or addr not in src["text"].lower() or not host:
-            continue
-        if domain == host or domain.endswith("." + host) or host.endswith("." + domain):
-            if addr not in emails:
-                emails.append(addr)
-    used = [s["url"] for s in sources if (s is site_src)]
-    return {"website": website, "phones": phones[:5], "emails": emails[:5], "sources": used}
+_DEAD = ("could not be found", "error 404", "error 410")  # the site is gone; any other refusal (403, 429, a timeout) is a site that keeps bots out
 
 
-def _by_rules(name: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """The same answer without an AI model: the first result that looks like the company's own site, and the numbers and addresses
-    written on it. The checks in _verify() still apply."""
-    for i, s in enumerate(sources):
-        if site_check.is_listing_host(s["url"], name) or not site_check.plausible_site(name, s["url"]):
-            continue
-        emails, phones = ES._harvest_contacts_from_text(s["text"])
-        return {"website_source": i, "phones": [{"number": p, "source": i} for p in phones], "emails": [{"address": e, "source": i} for e in emails]}
-    return {"website_source": -1, "phones": [], "emails": []}
+async def _read_page(url: str) -> Optional[Tuple[str, str]]:
+    """(title, text) of a page on the company's own site, or None. DeepSeek's page fetch when it is switched on, else our own safe fetch.
+    Sets _read_page.dead when the failure means the site does not exist; a site that merely refuses our reader is not dead and we do not
+    work around the refusal."""
+    _read_page.dead = False
+    page = await ES.fetch_deepseek(url)
+    if page and (page.get("content") or "").strip():
+        return page.get("title") or "", page["content"][:PAGE_CHARS * 5]
+    try:
+        title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5)
+        return (title or ""), text
+    except FetchRefused as err:
+        _read_page.dead = any(m in str(err) for m in _DEAD)
+        return None
+    except Exception as err:
+        logger.info("harness: could not read %s: %s", url, err)
+        return None
 
 
-def _known(name: str, place: str, facts: Dict[str, Any]) -> str:
-    """What we already hold about the company, for the model to hold each source up against. Public register facts only: the name,
-    where it is and what it does. Never a person's name, and nothing the customer typed about it."""
-    lines = [f"Business: {name}", f"Place: {place or 'not given'}"]
-    for key, label in (("address", "Registered address"), ("postcode", "Postcode"), ("industry", "What it does (industry)"), ("company_number", "Company number")):
-        if str(facts.get(key) or "").strip():
-            lines.append(f"{label}: {str(facts[key]).strip()[:160]}")
-    for key, label in (("website", "Website we already hold"), ("phone", "Phone we already hold")):
-        if str(facts.get(key) or "").strip():
-            lines.append(f"{label}: {str(facts[key]).strip()[:120]} (a source agreeing with this is good evidence)")
-    return "\n".join(lines)
+_read_page.dead = False
 
 
-async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[Dict[str, Any]] = None, scope: str = "leadgen") -> Dict[str, Any]:
-    """{website, phones, emails, sources, found, via}. `facts` is what the register holds (address, postcode, industry, company
-    number, any website or phone we already have): it sharpens the searches and lets the model check each source fits this exact
-    business. Never raises: a failed step just finds less."""
-    facts = facts or {}
-    out: Dict[str, Any] = {"website": "", "phones": [], "emails": [], "sources": [], "found": False, "via": "none"}
+async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """A Google business lookup is a LEAD, never a fact we keep. Its website is read, and it is kept only when that page is the
+    company's own (it names the company, or shows its postcode). Its phone is kept only when the same page prints that number.
+    Returns only what the company's own site confirmed, so nothing that only Google said is ever stored."""
+    site = str((place or {}).get("website") or "").strip()
+    if not site or not site_check.plausible_site(name, site, strict=False):
+        return {}
+    try:
+        title, text = await fetch_text(site, max_chars=30000)
+    except FetchRefused:
+        return {}  # a dead or unreadable site confirms nothing
+    except Exception as err:
+        logger.info("confirm_place: could not read %s: %s", site, err)
+        return {}
+    page = f"{title} {text}"
+    own = G.mentions(name, page) or (bool(postcode) and G.squash(postcode) in G.squash(page))
+    if not own:
+        return {}
+    out = {"website": site}
+    phone = str((place or {}).get("phone") or "").strip()
+    if phone and CC.is_uk_phone(phone) and G.national(phone) in G.numbers_in(page):
+        out["phone"] = phone
+    return out
+
+
+def _facts(name: str, place: str, facts: Dict[str, Any]) -> Dict[str, Any]:
+    postcode = str(facts.get("postcode") or "").strip()
+    return {"name": name, "region": place, "postcode": postcode, "area": R.area_of(place, postcode), "industry": facts.get("industry") or "",
+            "website": facts.get("website") or "", "domain": facts.get("domain") or "", "phone": facts.get("phone") or "",
+            "email": facts.get("email") or "", "trading_as": facts.get("trading_as") or "", "status": facts.get("status") or ""}
+
+
+def _closed(status: str) -> bool:
+    s = str(status or "").strip().lower()
+    return bool(s) and s not in ("active", "open", "live", "registered")
+
+
+async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[Dict[str, Any]] = None, scope: str = "leadgen",
+                       threshold: int = G.THRESHOLD, margin: int = G.MARGIN, want: str = "all") -> Dict[str, Any]:
+    """{website, phones, emails, sources, found, via, confidence, audit, ledger, reason}. Never raises: a failed step finds less."""
+    F = _facts(name, place, facts or {})
+    meter: Dict[str, Any] = {"searches": 0, "tavily_credits": 0.0, "extract_pages": 0}
+    out: Dict[str, Any] = {"website": "", "phones": [], "emails": [], "sources": [], "found": False, "via": "guardrail", "confidence": {},
+                           "audit": [], "reason": "", "ledger": meter}
     if not (name or "").strip():
         return out
-    sources = await _gather(name, place, facts)
-    if not sources:
+    if _closed(F["status"]):
+        out["reason"] = f"the register shows this company as {F['status']}"
+        meter["outcome"] = "closed"
         return out
-    await _read_own_site(name, sources)
-    picked = None
-    try:
-        picked = await llm_gateway.extract_structured(
-            system_prompt=_SYSTEM, schema=_SCHEMA, tool_name="company_contacts", db=db, scope=scope, max_tokens=700,
-            user_text=f"{_known(name, place, facts)}\n\nSources:\n{_evidence(sources)}")
-    except Exception as err:
-        logger.warning("harness: the AI step failed (%s); using rules", err)
-    out["via"] = "ai" if picked else "rules"
-    if not picked:
-        picked = _by_rules(name, sources)
-    checked = _verify(name, sources, picked)
-    out.update(checked)
-    out["found"] = bool(checked["website"] or checked["phones"] or checked["emails"])
-    logger.info("harness: %r via %s -> website=%s phones=%d emails=%d (%d sources)", name, out["via"], bool(out["website"]), len(out["phones"]), len(out["emails"]), len(sources))
+
+    steps = R.plan(F)
+    must = list(G.words_of(name))
+    raw: List[Dict[str, Any]] = []
+    seen_urls: set = set()
+    read_domains: Dict[str, bool] = {}  # domain -> was its site readable (alive)
+
+    async def run(query: str, *, include: Optional[List[str]] = None, depth: str = "basic") -> int:
+        if meter["searches"] >= R.MAX_SEARCHES:
+            return 0
+        rows = await ES.search_web(query, max_results=R.SETTINGS["max_results"], include_domains=include,
+                                   exclude_domains=None if include else R.EXCLUDE_DOMAINS, must_mention=must or None, depth=depth, meter=meter)
+        added = 0
+        for r in rows:
+            key = G.registered_domain(r["url"]) + urlparse(r["url"]).path.rstrip("/")
+            if key in seen_urls:
+                continue
+            seen_urls.add(key)
+            raw.append({"url": r["url"], "title": r.get("title") or "", "text": r.get("summary") or r.get("snippet") or "", "score": r.get("score") or 0.0})
+            added += 1
+        return added
+
+    def evaluate() -> Dict[str, Any]:
+        src = G.prepare_sources(raw, F)
+        wc = G.website_candidates(src, F)
+        for c in wc:
+            if read_domains.get(c["key"]) is False:
+                c["rejected"] = c["rejected"] or "dead site: the page could not be loaded"
+        G.score(wc, src, F, [])
+        win_w, why_w = G.decide(wc, threshold, margin)
+        own = [win_w["key"]] if win_w else [c["key"] for c in wc if not c["rejected"] and G.domain_matches_name(c["key"], name)]
+        pc, ec = G.phone_candidates(src), G.email_candidates(src, own)
+        G.score(pc, src, F, own)
+        G.score(ec, src, F, own)
+        win_p, why_p = G.decide(pc, threshold, margin)
+        win_e, why_e = G.decide(ec, threshold, margin)
+        return {"src": src, "cands": wc + pc + ec, "w": win_w, "p": win_p, "e": win_e, "why": {"website": why_w, "phone": why_p, "email": why_e}}
+
+    async def read_own_sites(state: Dict[str, Any]) -> bool:
+        """Reads the homepage (and contact pages when it has no number or address) of the best look-alike domains. True if it read anything,
+        live or dead, because either changes the evidence. A page read from a site inherits the best search score that site was found with."""
+        live = sorted((c for c in state["cands"] if c["field"] == "website" and not c["rejected"]), key=lambda c: -c["score"])[:2]
+        added = False
+        for c in live:
+            domain = c["key"]
+            if domain in read_domains:
+                continue
+            home = _homepage(state["src"][c["sources"][0]]["url"])
+            page = await _read_page(home)
+            meter["extract_pages"] += 1
+            read_domains[domain] = page is not None or not _read_page.dead
+            added = True
+            if page is None:
+                continue
+            title, text = page
+            found_with = max((r["score"] or 0.0 for r in raw if G.registered_domain(r["url"]) == domain), default=0.0)
+            raw.append({"url": home, "title": title, "text": text, "score": found_with, "read": True})
+            # the contact pages are read (our own fetch, no search credit) until the site shows a contact AND the company's place: a
+            # postcode on the company's own contact page is what tells two look-alike sites apart
+            def complete(t: str) -> bool:
+                return bool(G.numbers_in(t) or "@" in t) and G._place_hit(t, F["postcode"], F["area"])
+
+            seen = text
+            if not complete(seen):
+                for path in CONTACT_PATHS:
+                    sub = await _read_page(home + path)
+                    meter["extract_pages"] += 1
+                    if sub:
+                        raw.append({"url": home + path, "title": sub[0], "text": sub[1], "score": found_with, "read": True})
+                        seen += " " + sub[1]
+                        if complete(seen):
+                            break
+        return added
+
+    # 1. the website search and the phone/email search together
+    # only what was asked for: Find website searches for the website, Find phone for the phone, and only "all" does both
+    ask_site, ask_contact = want in ("all", "website"), want in ("all", "phone", "email")
+    first = [run(steps[0]["query"])] if ask_site else []
+    if ask_contact and len(steps) > 1:
+        first.append(run(steps[1]["query"]))
+    await asyncio.gather(*first)
+    state = evaluate()
+    if await read_own_sites(state):
+        state = evaluate()
+
+    # 2. still no confident website: the name written differently, then once at advanced depth
+    if ask_site and not state["w"]:
+        for step in [s for s in steps if s["retry"]]:
+            if await run(step["query"]):
+                await read_own_sites(evaluate())
+                state = evaluate()
+            if state["w"]:
+                break
+    no_candidate = not any(c["field"] == "website" and not c["rejected"] for c in state["cands"])  # advanced costs 2 credits: only when nothing was found at all
+    if ask_site and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES:
+        if await run(steps[0]["query"], depth="advanced"):
+            await read_own_sites(evaluate())
+            state = evaluate()
+
+    # 3. a website but no phone or email: the contact page, restricted to that website's own domain
+    if ask_contact and state["w"] and not (state["p"] and state["e"]) and meter["searches"] < R.MAX_SEARCHES:
+        if await run(R.build_query("contact", F), include=[state["w"]["key"]]):
+            state = evaluate()
+
+    # the answer: one value per field, or nothing
+    src, w, p, e = state["src"], state["w"], state["p"], state["e"]
+    if w:
+        home = _homepage(src[w["sources"][0]]["url"])
+        host = urlparse(home).netloc.lower()
+        out["website"] = home if host in (w["key"], "www." + w["key"]) else f"https://{w['key']}"  # jobs.x.com, shop.x.com -> x.com
+        out["confidence"]["website"] = {"score": w["score"], "label": G.label(w["score"])}
+        out["sources"] = list(dict.fromkeys(src[i]["url"] for i in w["sources"]))[:4]
+    if p:
+        out["phones"] = [p["value"]]
+        out["confidence"]["phone"] = {"score": p["score"], "label": G.label(p["score"])}
+    if e:
+        out["emails"] = [e["value"]]
+        out["confidence"]["email"] = {"score": e["score"], "label": G.label(e["score"])}
+    out["found"] = bool(out["website"] or out["phones"] or out["emails"])
+    out["audit"] = G.audit_of(state["cands"], src)
+    out["reason"] = "" if out["found"] else "; ".join(f"{k}: {v}" for k, v in state["why"].items() if v)
+    meter["outcome"] = "found" if out["found"] else ("no_web_search" if not raw else "not_found")
+    logger.info("lookup_ledger %s", json.dumps({"company": name, **meter, "shown": list(out["confidence"])}, default=str))
     return out

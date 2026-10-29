@@ -62,8 +62,8 @@ async def test_an_engine_with_only_off_topic_results_hands_over_to_the_next(monk
     async def real(query, max_results=5):
         return [{"title": "Leeds Smile Centre", "snippet": "Dentist in Leeds", "url": "https://leedssmile.co.uk/"}]
 
-    monkeypatch.setattr(E, "search_tavily", decoys)
-    monkeypatch.setattr(E, "search_duckduckgo_lite", real)
+    monkeypatch.setattr(E, "search_deepseek", decoys)   # the first engine answers with off-topic pages: the next (Tavily) is used
+    monkeypatch.setattr(E, "search_tavily", real)
     assert [r["title"] for r in await E.search_open_web("dentists in Leeds")] == ["Leeds Smile Centre"]
 
 

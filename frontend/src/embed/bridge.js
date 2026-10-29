@@ -13,8 +13,10 @@ export const inFrame = () => {
   }
 };
 
-// The web address of the page above us, when the browser says. Otherwise "*" (nothing sent is secret).
-function parentOrigin() {
+// The web address of the page above us: what the browser says, else the address its first message came from. "" when not known yet.
+let learnedOrigin = "";
+
+export function parentOrigin() {
   try {
     const a = window.location.ancestorOrigins;
     if (a && a.length) return a[0];
@@ -22,13 +24,18 @@ function parentOrigin() {
   try {
     if (document.referrer) return new URL(document.referrer).origin;
   } catch (_) {}
-  return "*";
+  return learnedOrigin;
 }
+
+// Messages that carry no data, so they may go out before the parent's address is known (they are how it learns we are here).
+const OPEN = new Set(["ready", "token-needed", "closed"]);
 
 export function toParent(type, data = {}) {
   if (!inFrame()) return;
+  const origin = parentOrigin() || (OPEN.has(type) ? "*" : "");
+  if (!origin) return;
   try {
-    window.parent.postMessage({ source: "outreach-embed", type, ...data }, parentOrigin());
+    window.parent.postMessage({ source: "outreach-embed", type, ...data }, origin);
   } catch (_) {}
 }
 
@@ -38,6 +45,7 @@ export function fromParent(handler) {
     if (ev.source !== window.parent) return;
     const d = ev.data;
     if (!d || typeof d !== "object" || d.source !== "outreach-loader" || typeof d.type !== "string") return;
+    if (!learnedOrigin && ev.origin && ev.origin !== "null") learnedOrigin = ev.origin;
     handler(d);
   };
   window.addEventListener("message", on);

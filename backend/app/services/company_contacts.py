@@ -102,59 +102,66 @@ def is_uk_phone(p: str) -> bool:
     return national.isdigit() and len(national) in (9, 10) and national[0] in "123578" and len(set(national)) > 2
 
 
-async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False) -> Dict[str, Any]:
-    """A live web lookup for the company's website, phones and named team. Stored on the record
-    under raw_data['contacts_web'] -- NOT in the verified columns -- so a web guess never sits in a
-    field the registry tier vouches for, and the next person to ask gets it without another search."""
+CACHE_DAYS = 90        # a lookup is reused for this long; after that the next ask searches again
+AUDIT_DAYS = 365       # the audit of what a lookup weighed is kept for this long, then dropped
+
+
+def _age_days(stamp: Any) -> float:
+    try:
+        return (datetime.utcnow() - datetime.fromisoformat(str(stamp).rstrip("Z"))).total_seconds() / 86400
+    except (TypeError, ValueError):
+        return 1e9
+
+
+async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False, want: str = "all") -> Dict[str, Any]:
+    """A live web lookup for the company's website, phone and email. Stored on the record under raw_data['contacts_web'] -- NOT in the
+    verified columns -- so a web finding never sits in a field the registry tier vouches for.
+
+    The lookup is the guardrail's: web_harness searches with one recipe, and only a candidate that passes the hard rules and scores
+    over the threshold is kept, one value per field. A saved lookup is reused for CACHE_DAYS; one saved before the guardrail existed
+    (no `guardrail` mark) is stale at once, because its phones and emails were never checked."""
     cached = (biz.raw_data or {}).get("contacts_web")
-    if cached and not refresh:
+    fresh = bool(cached) and bool(cached.get("guardrail")) and _age_days(cached.get("fetched_at")) <= CACHE_DAYS
+    if cached and not refresh and fresh:
+        if cached.get("audit") and _age_days(cached.get("fetched_at")) > AUDIT_DAYS:
+            raw = dict(biz.raw_data or {})
+            raw["contacts_web"] = {k: v for k, v in cached.items() if k != "audit"}
+            biz.raw_data = raw
+            await db.flush()
         return {**cached, "cached": True}
     from app.services import web_harness
-    from app.services.enrichment_service import enrich_prospect_intelligence
 
-    # The AI search harness first, given everything the register holds so the search is for this exact business. If it finds
-    # nothing, the older multi-query search runs (it too now searches through the search APIs only).
     facts = {"address": biz.address, "postcode": biz.postcode, "industry": (biz.sic_text or biz.industry or "").split(" | ")[0],
-             "company_number": biz.registration_number, "website": biz.website or biz.domain, "phone": biz.phone}
-    data = None
+             "company_number": biz.registration_number, "website": biz.website or biz.domain, "phone": biz.phone, "email": biz.email,
+             "status": biz.status}
     try:
-        found = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts)
-        if found.get("found"):
-            data = {"domain": found["website"], "phones": found["phones"], "emails": found["emails"], "team": [], "citations": found["sources"]}
+        got = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts, want=want)
     except Exception as err:
-        logger.warning("harness failed for %s: %s", biz.name, err)
-    if data is None:
-        data = await enrich_prospect_intelligence(name=biz.name, company=biz.name, domain=biz.domain or None,
-                                                  place=biz.region or None, db=db)
-    from app.services.enrichment_service import _host_of, _is_directory_host, _is_junk_web_host
-
-    site = data.get("domain") or ""
-    if site and (_is_directory_host(site) or _is_junk_web_host(site)):
-        site = ""  # a directory page about the company, not its own website
-    from app.services import site_check
-
-    if site and not site_check.plausible_site(biz.name, site):
-        site = ""  # a register, rating site or some other business's page: not this company's own website
-    host = _host_of(site)
-
-    def _own_email(e: str) -> bool:
-        # Only addresses on the company's own website; without one there is nothing to tie them to this company.
-        d = (e or "").lower().rpartition("@")[2]
-        return bool(host) and (d == host or d.endswith("." + host) or host.endswith("." + d))
-
-    _uk_phone = is_uk_phone
-
-    team = [{"name": t.get("name") or "", "title": t.get("title") or "", "phone": t.get("phone") or "", "email": (t.get("email") or "").lower()}
-            for t in (data.get("team") or []) if t.get("name")][:10]
-    team = [{**t, "email": t["email"] if _own_email(t["email"]) else "", "phone": t["phone"] if _uk_phone(t["phone"]) else ""} for t in team]
-    found = {
-        "website": site, "phones": [p for p in (data.get("phones") or []) if _uk_phone(p)][:5],
-        "emails": [e for e in (data.get("emails") or []) if _own_email(e)][:5],
-        "team": team, "sources": (data.get("citations") or [])[:8],
-        "source": "web", "verified": False, "fetched_at": datetime.utcnow().isoformat() + "Z",
-    }
-    if not (found["website"] or found["phones"] or found["emails"] or team):
-        return {**found, "found": False, "cached": False}
+        logger.warning("web lookup failed for %s: %s", biz.name, err)
+        raise
+    stamp = datetime.utcnow().isoformat() + "Z"
+    if got.get("ledger", {}).get("outcome") == "closed":
+        return {"website": "", "phones": [], "emails": [], "team": [], "sources": [], "source": "web", "verified": False, "found": False, "cached": False,
+                "closed": True, "reason": got.get("reason", ""), "fetched_at": stamp}
+    found = {"website": got["website"], "phones": got["phones"][:1], "emails": got["emails"][:1], "team": [], "sources": got["sources"][:8],
+             "source": "web", "verified": False, "guardrail": True, "confidence": got["confidence"], "audit": got["audit"], "ledger": got["ledger"],
+             "fetched_at": stamp}
+    if cached and cached.get("guardrail"):  # a refresh adds to what an earlier checked lookup found; it never throws that away
+        found["website"] = found["website"] or cached.get("website") or ""
+        found["phones"] = found["phones"] or list(cached.get("phones") or [])[:1]
+        found["emails"] = found["emails"] or list(cached.get("emails") or [])[:1]
+    elif cached:
+        # A lookup from before the guardrail: its website was only checked for looking like the company's, and its phones and emails
+        # were never checked. They are retired here, so nothing unchecked is shown again.
+        found["website"] = found["website"] or (cached.get("website") or "")
+    if not (found["website"] or found["phones"] or found["emails"]):
+        if cached and not cached.get("guardrail"):
+            raw = dict(biz.raw_data or {})
+            raw["contacts_web"] = {**found, "website": "", "phones": [], "emails": []}
+            biz.raw_data = raw
+            business_records.refresh_rank(biz)
+            await db.flush()
+        return {**found, "found": False, "cached": False, "reason": got.get("reason", "")}
     raw = dict(biz.raw_data or {})
     raw["contacts_web"] = found
     biz.raw_data = raw

@@ -26,6 +26,20 @@ There are three pieces, and each has one job.
 > **Careful:** the secret key lets anyone who has it act as your company on Outreach. That is why a web page cannot hold it, and why
 > your server is needed for the one small file below.
 
+## File names at a glance
+
+Each kit has one server file, named after the tool it plugs into. Use the one in your kit, and only that one.
+
+| You build with | Server file | The two lines you add |
+|---|---|---|
+| Vite or React | `outreach-vite.mjs` | `import outreach from "./outreach-vite.mjs";` in `vite.config.ts`, and `outreach()` inside `plugins: [ ... ]` |
+| Node / Express | `outreach-express.mjs` | `import outreach from "./outreach-express.mjs";` and `app.use(outreach());` |
+| Next.js | `app/outreach-start/route.js` | none: it is already in the right folder |
+| Python / Flask | `outreach_flask.py` | `from outreach_flask import outreach` and `app.register_blueprint(outreach)` |
+| PHP | `outreach-start.php` | none: put it in your website folder |
+
+The three that need lines all use the same word, `outreach`. The JavaScript ones are `import outreach from "…"` with no curly braces.
+
 ## 1. Your secret key
 
 In Outreach, open Admin, APIs & Webhooks, then Partner programme, and make a secret key. It is shown once. Copy `.env.example` to
@@ -93,15 +107,16 @@ One file. It reads the secret key from `.env`, asks Outreach for a pass, and giv
 
 ### Vite or React with no server of its own
 
-Save as `outreach-plugin.mjs` next to `package.json`. In `vite.config.ts` add `import outreach from "./outreach-plugin.mjs"` at the top
-and `outreach()` inside `plugins: [ ... ]`. Restart `npm run dev`.
+Save as `outreach-vite.mjs` next to `package.json` (with `outreach-vite.d.mts`, which stops TypeScript complaining). In
+`vite.config.ts` add `import outreach from "./outreach-vite.mjs";` at the top, with the other imports, and `outreach()` inside
+`plugins: [ ... ]`. No curly braces. Restart `npm run dev`.
 
 {{server:vite}}
 
 ### Node and Express
 
-Save as `outreach-routes.mjs`. In your server file add `import { mountOutreach } from "./outreach-routes.mjs"; mountOutreach(app);`
-before any catch-all route such as `app.get("*", ...)`.
+Save as `outreach-express.mjs`. In your server file add `import outreach from "./outreach-express.mjs";` and `app.use(outreach());`
+before any catch-all route such as `app.get("*", ...)`. No curly braces.
 
 {{server:node}}
 
@@ -113,7 +128,7 @@ Save as `app/outreach-start/route.js`. Put the key in `.env.local` and restart `
 
 ### Python and Flask
 
-Save as `outreach_pass.py` next to your app file. Add `from outreach_pass import outreach` and `app.register_blueprint(outreach)`.
+Save as `outreach_flask.py` next to your app file. Add `from outreach_flask import outreach` and `app.register_blueprint(outreach)`.
 
 {{server:python}}
 
@@ -147,6 +162,8 @@ If a screen cannot open, the page shows a red message that says why. The usual o
 | What you see | What it means | What to do |
 |---|---|---|
 | `your app answered with its own web page` | Your app has no `/outreach-start` route yet | Add the server file from step 3, then restart |
+| `No matching export … for import "outreach"`, or `outreach is not defined` | The import does not match your kit's file, or is missing | Use the exact lines from "File names at a glance". Check you have the kit for your tool |
+| `Cannot find module … check.mjs` | The kit's files are in a sub-folder, not in the project folder | Move them up into the folder with `package.json` |
 | `The secret key is missing` | `.env` is missing or the key is not in it | Copy `.env.example` to `.env` and paste the key after `OUTREACH_SECRET=` |
 | `Invalid secret key` | The key is wrong or was replaced | Make a new key in Partner programme and paste it in `.env` |
 | `Add data-key="pk_..."` | The script line has no publishable key | Copy the script line again from step 2 |

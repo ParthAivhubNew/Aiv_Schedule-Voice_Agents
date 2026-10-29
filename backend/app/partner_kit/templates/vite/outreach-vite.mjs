@@ -1,4 +1,5 @@
 // Adds the /outreach-start address to your own Vite server (npm run dev and npm run preview).
+// In vite.config.ts add:  import outreach from "./outreach-vite.mjs";   and put  outreach()  inside  plugins: [ ... ]
 // Your web page asks it for a short-lived pass; it asks Outreach for one with your secret key and hands the pass back.
 // The secret key is read from the .env file next to this one and never reaches the web page.
 import fs from "node:fs";

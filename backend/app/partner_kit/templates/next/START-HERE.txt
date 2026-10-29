@@ -1,11 +1,16 @@
 OUTREACH STARTER KIT FOR {{COMPANY}}   (Next.js, app folder layout)
-==================================================================
+===================================================================
 
 Three steps. About ten minutes.
 
+THE ONE FILE THAT MATTERS IN THIS KIT:  app/outreach-start/route.js
+  It is the only server file here. (Other kits have other names, for other tools: if you were sent a different one, ask for this kit.)
+
 STEP 1 - Unzip into your project
   Unzip this kit into your project folder (the one with package.json). If asked, choose "merge" or "replace".
-  Every file lands where it belongs by itself (app/outreach-start/route.js and public/outreach-test.html).
+  Every file lands where it belongs by itself (app/outreach-start/route.js and public/outreach-test.html). Nothing to edit.
+  Check: check.mjs must sit next to your project's own files. Some tools unzip into a NEW folder named after the zip. If you see
+  one, move everything out of it into your project folder (including the hidden files .env.example and later .env).
 
 STEP 2 - Paste your secret key
   a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
@@ -13,6 +18,7 @@ STEP 2 - Paste your secret key
          Windows:   copy .env.example .env.local
          Mac/Linux: cp .env.example .env.local
   c) Open .env.local and replace the text after the = with your key. No quotes, no spaces.
+  (Running in Docker? Instead set  OUTREACH_SECRET=your key  as an environment variable on the container.)
 
 STEP 3 - Restart your app and check it
   Stop your app (Ctrl+C) and start it again:      npm run dev
@@ -28,7 +34,7 @@ SHOW IT YOUR WAY  (after the test page works)
     drawer.html       a button opens it in a side panel
     full-page.html    a link opens it as a full page
     OutreachScreen.jsx   for React and Next.js
-  Every file already has your key. The same code is in the Docs tab of Partner programme.
+  Every file already has your key. The same code is in the Docs tab of Partner programme, under "Copy-paste code".
 
 Before real users
   - In app/outreach-start/route.js replace the fixed test person with the id of whoever is signed in, and return a 401 when nobody is.

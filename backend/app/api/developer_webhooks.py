@@ -205,6 +205,22 @@ async def send_test_webhook(
     }
 
 
+@router.post("/{endpoint_id}/logs/{log_id}/replay")
+async def replay_delivery(endpoint_id: str, log_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Send a past event again with the same event id, so the receiver can tell it is a repeat."""
+    ctx = admin_ctx(request)
+    ep = await db.get(WebhookEndpoint, endpoint_id)
+    if not ep or ep.org_id != ctx["org_id"]:
+        raise HTTPException(status_code=404, detail="Webhook endpoint not found.")
+    log = await db.get(WebhookDeliveryLog, log_id)
+    if not log or log.endpoint_id != endpoint_id or not isinstance(log.payload, dict):
+        raise HTTPException(status_code=404, detail="That delivery was not found.")
+    envelope = log.payload
+    result = await deliver_to_endpoint(ep, event_id=str(envelope.get("id") or f"evt_{uuid.uuid4().hex[:14]}"),
+                                       event_type=log.event_type, data=envelope.get("data") or {}, test=not envelope.get("livemode", True))
+    return {"result": result}
+
+
 @router.get("/{endpoint_id}/logs")
 async def get_webhook_logs(
     endpoint_id: str,

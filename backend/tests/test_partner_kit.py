@@ -43,10 +43,10 @@ def test_every_kit_ships_the_same_page_snippets_filled_in(stack):
 
 
 def test_files_land_where_the_project_expects_them():
-    assert {"outreach-plugin.mjs", "outreach-plugin.d.mts", "public/outreach-test.html"} <= set(files("vite"))
-    assert {"outreach-routes.mjs", "public/outreach-test.html"} <= set(files("node"))
+    assert {"outreach-vite.mjs", "outreach-vite.d.mts", "public/outreach-test.html"} <= set(files("vite"))
+    assert {"outreach-express.mjs", "public/outreach-test.html"} <= set(files("node"))
     assert {"app/outreach-start/route.js", "public/outreach-test.html"} <= set(files("next"))
-    assert {"outreach_pass.py", "outreach-test.html"} <= set(files("python"))
+    assert {"outreach_flask.py", "outreach-test.html"} <= set(files("python"))
     assert {"outreach-start.php", "outreach-test.html"} <= set(files("php"))
 
 
@@ -91,6 +91,49 @@ def test_the_docs_show_the_very_files_the_kit_ships():
     assert not re.search(r"\{\{(snippet|server|HOST)", page)
 
 
+def test_every_server_file_is_named_after_its_tool_and_the_notes_use_that_exact_name():
+    names = {"vite": "outreach-vite.mjs", "node": "outreach-express.mjs", "next": "app/outreach-start/route.js", "python": "outreach_flask.py", "php": "outreach-start.php"}
+    for stack, name in names.items():
+        kit = files(stack)
+        assert name in kit
+        assert f"THE ONE FILE THAT MATTERS IN THIS KIT:  {name}" in kit["START-HERE.txt"]
+        others = [n for k, n in names.items() if k != stack and not n.startswith("app/") and n != "outreach-start.php"]
+        assert not any(o in kit["START-HERE.txt"] for o in others)      # a kit never names another tool's file
+    assert 'import outreach from "./outreach-vite.mjs";' in files("vite")["START-HERE.txt"]
+    assert 'import outreach from "./outreach-express.mjs";' in files("node")["START-HERE.txt"] and "app.use(outreach());" in files("node")["START-HERE.txt"]
+    assert "from outreach_flask import outreach" in files("python")["START-HERE.txt"]
+
+
+def test_the_docs_use_the_same_file_names_and_lines_as_the_kit():
+    for name in ("snippets", "start"):
+        page = DOCS._guide_html(name).replace("&quot;", '"')
+        for token in ("outreach-vite.mjs", "outreach-express.mjs", "outreach_flask.py", "outreach-start.php", "app/outreach-start/route.js"):
+            assert token in page, (name, token)
+        for old in ("outreach-plugin", "outreach-routes", "mountOutreach", "outreach_pass", "app/api/outreach-start"):
+            assert old not in page, (name, old)
+    assert 'import outreach from "./outreach-vite.mjs";' in DOCS._guide_html("snippets").replace("&quot;", '"')
+
+
+def test_the_checker_catches_the_wrong_vite_import_the_way_aiv_support_wrote_it(tmp_path):
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    for name, text in files("vite").items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+
+    def run(config):
+        (tmp_path / "vite.config.ts").write_text(config, encoding="utf-8")
+        done = subprocess.run(["node", "check.mjs", "http://localhost:1"], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+        return done.stdout
+
+    wrong = run('import { outreach } from "./outreach-routes.mjs";\nexport default { plugins: [outreach()] };\n')
+    assert "[X]   vite.config.ts imports \"./outreach-routes.mjs\", which is not this kit's file" in wrong
+    assert "[X]   vite.config.ts does not use outreach-vite.mjs yet" in run("export default { plugins: [outreach()] };\n")
+    assert "[ok]  vite.config.ts uses outreach-vite.mjs" in run('import outreach from "./outreach-vite.mjs";\nexport default { plugins: [outreach()] };\n')
+
+
 def test_unknown_stack_is_refused():
     with pytest.raises(ValueError):
         build("cobol", **ARGS)
@@ -111,7 +154,7 @@ def test_every_node_script_in_the_kit_parses(stack, tmp_path):
 
 
 def test_the_python_file_compiles():
-    compile(files("python")["outreach_pass.py"], "outreach_pass.py", "exec")
+    compile(files("python")["outreach_flask.py"], "outreach_flask.py", "exec")
 
 
 @pytest.mark.skipif(shutil.which("php") is None, reason="php is not installed")

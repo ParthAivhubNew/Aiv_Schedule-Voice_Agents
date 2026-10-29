@@ -201,6 +201,21 @@ async def _in_org(org_id: str, fn):
             return await fn(db)
 
 
+async def _partners_by_org(db) -> dict:
+    """org id -> the partners it is tied to: connected through a link, or created from a partner's sign-up page."""
+    rows = (await db.execute(text(
+        "SELECT l.org_id, p.id, p.name, l.status, l.created_account FROM partner_links l JOIN partners p ON p.id = l.partner_id"))).all()
+    out: dict = {}
+    for org_id, pid, name, status, created in rows:
+        out.setdefault(org_id, []).append({"id": pid, "name": name, "status": status, "createdAccount": bool(created)})
+    referred = (await db.execute(text(
+        "SELECT o.id, p.id, p.name FROM organizations o JOIN partners p ON p.id = o.referred_by_partner_id"))).all()
+    for org_id, pid, name in referred:
+        if not any(x["id"] == pid for x in out.get(org_id, [])):  # tagged at sign-up but no link row
+            out.setdefault(org_id, []).append({"id": pid, "name": name, "status": "none", "createdAccount": True})
+    return out
+
+
 @router.get("/clients")
 async def clients(request: Request, include_aivhub: bool = True, include_archived: bool = False):
     from app.services import credits as K
@@ -218,6 +233,7 @@ async def clients(request: Request, include_aivhub: bool = True, include_archive
             f"(SELECT count(*) FROM operators u WHERE u.org_id = o.id) AS users, "
             f"(SELECT count(*) FROM org_phone_numbers n WHERE n.org_id = o.id AND n.status = 'active') AS numbers "
             f"FROM organizations o WHERE {filter_sql} ORDER BY o.created_at DESC NULLS LAST"))).all()
+        partners = await _partners_by_org(db)
     out = []
     for org_id, name, status, created, users, numbers in orgs:
         async def detail(db):
@@ -230,7 +246,7 @@ async def clients(request: Request, include_aivhub: bool = True, include_archive
                     "enforce": (await K.org_settings(db, org_id))["enforce"],
                     "verification": ver.status if ver else None, "subscription": sub or "none"}
         out.append({"id": org_id, "name": name, "status": status or "active", "createdAt": created.isoformat() if created else None,
-                    "users": users, "numbers": numbers, **(await _in_org(org_id, detail))})
+                    "users": users, "numbers": numbers, "partners": partners.get(org_id, []), **(await _in_org(org_id, detail))})
     return out
 
 
@@ -269,7 +285,9 @@ async def client_detail(org_id: str, request: Request):
             "history": await K.history(db, 50),
         }
 
-    return {"id": org[0], "name": org[1], "slug": org[2], "status": org[3] or "active",
+    async with AsyncSessionLocal() as db:
+        partners = (await _partners_by_org(db)).get(org_id, [])
+    return {"id": org[0], "name": org[1], "slug": org[2], "status": org[3] or "active", "partners": partners,
             "createdAt": org[4].isoformat() if org[4] else None, **(await _in_org(org_id, load))}
 
 
@@ -1258,8 +1276,11 @@ async def partner_approve(app_id: str, body: ReviewBody, request: Request):
         if (await db.execute(select(Partner).where(Partner.owner_org_id == a.owner_org_id))).scalars().first() is not None:
             raise HTTPException(status_code=409, detail="This organisation is already a partner.")
         a.status, a.review_note, a.reviewed_by, a.reviewed_at = "approved", body.note.strip(), staff.get("email", ""), datetime.utcnow()
-        db.add(Partner(owner_org_id=a.owner_org_id, application_id=a.id, client_id=PT.new_client_id(), name=a.company,
-                       status="sandbox", webhook_secret=PT.new_webhook_secret()))
+        partner = Partner(owner_org_id=a.owner_org_id, application_id=a.id, client_id=PT.new_client_id(), name=a.company,
+                          status="sandbox", webhook_secret=PT.new_webhook_secret())
+        db.add(partner)
+        await db.flush()
+        PT.audit(db, partner.id, f"staff:{staff.get('email', '')}", "application_approved", body.note.strip())
         await db.commit()
     await _mail_applicant(a, "You are approved as an Outreach partner", [
         f"Hi {a.contact_name or 'there'},",
@@ -1288,13 +1309,25 @@ async def partner_reject(app_id: str, body: ReviewBody, request: Request):
     return {"id": app_id, "status": "rejected"}
 
 
+@router.get("/partners/{partner_id}/activity")
+async def partner_activity(partner_id: str, request: Request):
+    from app.models.models import PartnerAudit
+    from app.services import partners as PT
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(PartnerAudit).where(PartnerAudit.partner_id == partner_id)
+                                 .order_by(PartnerAudit.created_at.desc()).limit(200))).scalars().all()
+    return {"activity": PT.audit_json(rows)}
+
+
 @router.post("/partners/{partner_id}/status")
 async def partner_set_status(partner_id: str, body: PartnerStatusBody, request: Request):
     """sandbox -> live when the integration has been checked; suspended stops every key the partner holds."""
     from app.models.models import Partner
     from app.services import partners as PT
 
-    _admin_only(request)
+    staff = _admin_only(request)
     if body.status not in ("sandbox", "live", "suspended"):
         raise HTTPException(status_code=400, detail="Status is sandbox, live or suspended.")
     async with AsyncSessionLocal() as db:
@@ -1302,6 +1335,7 @@ async def partner_set_status(partner_id: str, body: PartnerStatusBody, request: 
         if p is None:
             raise HTTPException(status_code=404, detail="Partner not found.")
         stopped = 0
+        PT.audit(db, p.id, f"staff:{staff.get('email', '')}", "status_changed", f"{p.status} -> {body.status}")
         p.status = body.status
         if body.status == "live":
             p.live_requested_at = None

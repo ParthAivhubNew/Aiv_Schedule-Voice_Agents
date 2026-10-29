@@ -1,6 +1,6 @@
 """Adds Outreach to your Flask app. In your app file add these two lines:
 
-    from outreach_pass import outreach
+    from outreach_flask import outreach
     app.register_blueprint(outreach)
 
 It adds two addresses: /outreach-start (hands your page a short-lived pass) and /outreach-test.html (the test page).

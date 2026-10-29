@@ -2097,6 +2097,18 @@ class PartnerLink(Base):
     __table_args__ = (UniqueConstraint("partner_id", "org_id", name="uq_partner_link_org"),)
 
 
+class PartnerAudit(Base):
+    """Who changed what on a partner's integration: keys, settings, going live, accounts connected or disconnected. Never holds a secret."""
+    __tablename__ = "partner_audit"
+
+    id = Column(String, primary_key=True, default=lambda: f"paud_{uuid.uuid4().hex[:12]}")
+    partner_id = Column(String, ForeignKey("partners.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor = Column(String, default="")  # partner:<operator> | staff:<email> | user | system
+    action = Column(String, nullable=False)
+    detail = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 from sqlalchemy import event as _sa_event  # noqa: E402
 
 

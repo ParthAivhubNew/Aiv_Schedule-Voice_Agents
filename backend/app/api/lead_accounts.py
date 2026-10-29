@@ -476,12 +476,17 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
-        web = await CC.web_contacts(db, biz)
+        web = await CC.web_contacts(db, biz, want="website")
+        if web.get("cached") and not web.get("website"):
+            web = await CC.web_contacts(db, biz, refresh=True, want="website")  # an earlier lookup found a phone but no site: look again for the site
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
-    if web and web.get("website") and not site_check.plausible_site(biz.name, web["website"]):
-        web = {**web, "website": ""}  # a lookup stored earlier may hold a register or directory page
+    if web and web.get("closed"):
+        return {"found": False, "source": "", "charged": 0, "company": lead_filters.card(biz),
+                "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
+    if web and web.get("website") and not web.get("guardrail") and not site_check.plausible_site(biz.name, web["website"]):
+        web = {**web, "website": ""}  # a lookup stored before the guardrail may hold a register or directory page
     found_web = bool(web and web.get("found") and web.get("website"))  # a phone that turns up on the way is kept, but only a website is charged here
     if found_web:
         source = "web"
@@ -502,12 +507,18 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         elif not place:
             logger.info("find-website: nothing for %r on the web (web found %s); deeper search %s", biz.name, bool(web and web.get("found")),
                         "returned nothing or is not switched on")
-        if place and place.get("website") and site_check.plausible_site(biz.name, place["website"], strict=False):
+        from app.services import web_harness
+
+        confirmed = await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {}
+        if place and not confirmed:
+            logger.info("find-website: the deeper search named a site for %r but it could not be confirmed on the site itself", biz.name)
+        if confirmed.get("website"):
             try:
+                # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
                 await business_records.upsert(
                     db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
-                    data={"name": biz.name, "registration_number": biz.registration_number, "website": place.get("website"),
-                          "phone": place.get("phone"), "region": biz.region})
+                    data={"name": biz.name, "registration_number": biz.registration_number, "website": confirmed.get("website"),
+                          "phone": confirmed.get("phone"), "region": biz.region})
                 await db.commit()
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
@@ -533,12 +544,15 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
-        web = await CC.web_contacts(db, biz)
+        web = await CC.web_contacts(db, biz, want="phone")
         if web.get("cached") and not web.get("phones"):
-            web = await CC.web_contacts(db, biz, refresh=True)  # the earlier lookup was for a website: this one is for a phone
+            web = await CC.web_contacts(db, biz, refresh=True, want="phone")  # the earlier lookup was for a website: this one is for a phone
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
+    if web and web.get("closed"):
+        return {"found": False, "source": "", "charged": 0, "company": lead_filters.card(biz),
+                "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     if web and web.get("phones"):
         source = "web"
         await db.commit()
@@ -558,12 +572,17 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
         elif not place:
             logger.info("find-phone: nothing for %r on the web (web found %s); deeper search returned nothing or is not switched on",
                         biz.name, bool(web and web.get("found")))
-        if place and place.get("phone") and CC.is_uk_phone(place["phone"]):
+        from app.services import web_harness
+
+        confirmed = await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {}
+        if place and not confirmed.get("phone"):
+            logger.info("find-phone: the deeper search had a phone for %r but the company's own site does not show it", biz.name)
+        if confirmed.get("phone"):
             try:
                 await business_records.upsert(
                     db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
-                    data={"name": biz.name, "registration_number": biz.registration_number, "website": place.get("website"),
-                          "phone": place.get("phone"), "region": biz.region})
+                    data={"name": biz.name, "registration_number": biz.registration_number, "website": confirmed.get("website"),
+                          "phone": confirmed.get("phone"), "region": biz.region})
                 await db.commit()
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
@@ -811,17 +830,22 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     if not place:
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
-    row.phone = _phone(row.phone) or _phone(place.get("phone"))
-    site = _clean(place.get("website"), 300)
-    row.website = row.website or (site if site and site_check.plausible_site(row.name, site, strict=False) else "")
-    row.region = row.region or _clean(place.get("address"), 120)
+    from app.services import web_harness
+
+    # Google's answer is a lead: only what the company's own site confirms is kept (and its address and rating are not stored).
+    confirmed = await web_harness.confirm_place(row.name, "", place)
+    if not confirmed:
+        biz = await _registry_for(db, account_id)
+        return _out(row, biz)
+    row.phone = _phone(row.phone) or _phone(confirmed.get("phone"))
+    site = _clean(confirmed.get("website"), 300)
+    row.website = row.website or (site or "")
     if not row.domain and row.website:
         row.domain = _domain(row.website)
     try:
         shared_row = await business_records.upsert(
             db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
-            data={"name": row.name, "domain": row.domain, "website": row.website, "phone": row.phone,
-                  "region": row.region, "description": f"Rating {place['rating']}/5 on Google." if place.get("rating") else ""},
+            data={"name": row.name, "domain": row.domain, "website": row.website, "phone": _phone(confirmed.get("phone"))},
         )
         row.business_record_id = row.business_record_id or shared_row.id
     except ValueError:

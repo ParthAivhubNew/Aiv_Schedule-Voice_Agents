@@ -1,11 +1,16 @@
 OUTREACH STARTER KIT FOR {{COMPANY}}   (your own Node / Express server)
-======================================================================
+=======================================================================
 
 Four steps. About ten minutes.
+
+THE ONE FILE THAT MATTERS IN THIS KIT:  outreach-express.mjs
+  It is the only server file here. (Other kits have other names, for other tools: if you were sent a different one, ask for this kit.)
 
 STEP 1 - Unzip into your project
   Unzip this kit into the folder that holds your server file. If asked, choose "merge" or "replace".
   (public/outreach-test.html should end up in the folder your server serves files from, often "public".)
+  Check: check.mjs must sit next to your project's own files. Some tools unzip into a NEW folder named after the zip. If you see
+  one, move everything out of it into your project folder (including the hidden files .env.example and later .env).
 
 STEP 2 - Paste your secret key
   a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
@@ -13,12 +18,14 @@ STEP 2 - Paste your secret key
          Windows:   copy .env.example .env
          Mac/Linux: cp .env.example .env
   c) Open .env and replace the text after the = with your key. No quotes, no spaces.
+  (Running in Docker? Instead set  OUTREACH_SECRET=your key  as an environment variable on the container.)
 
 STEP 3 - Add two lines to your server file
   Put them BEFORE any catch-all route such as  app.get("*", ...):
-         import { mountOutreach } from "./outreach-routes.mjs";
-         mountOutreach(app);
-  (If your server uses require(...), rename the server file to end in .mjs.)
+         import outreach from "./outreach-express.mjs";
+         app.use(outreach());
+  (Exactly this spelling: no curly braces, and the file is outreach-express.mjs. If your server uses require(...), rename the
+  server file to end in .mjs.)
 
 STEP 4 - Restart your server and check it
   Stop your server and start it again.
@@ -34,10 +41,10 @@ SHOW IT YOUR WAY  (after the test page works)
     drawer.html       a button opens it in a side panel
     full-page.html    a link opens it as a full page
     OutreachScreen.jsx   for React and Next.js
-  Every file already has your key. The same code is in the Docs tab of Partner programme.
+  Every file already has your key. The same code is in the Docs tab of Partner programme, under "Copy-paste code".
 
 Before real users
-  - Change  mountOutreach(app)  to  mountOutreach(app, (req) => String(req.user.id), requireLogin)
+  - Change  app.use(outreach())  to  app.use(outreach({ getUserId: (req) => String(req.user.id), requireLogin }))
     so the pass is made for whoever is signed in, and only for people who are signed in.
   - Put your page's address in Partner programme > step 2 exactly as the browser bar shows it.
   - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.

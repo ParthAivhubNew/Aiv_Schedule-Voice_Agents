@@ -40,8 +40,9 @@ def _kind(data: bytes) -> str:
     return ""
 
 
-async def _read(client: httpx.AsyncClient, url: str, cap: int) -> Optional[Tuple[bytes, str]]:
-    """The body (up to cap bytes) and final address of a public page, following a few redirects."""
+async def _read(client: httpx.AsyncClient, url: str, cap: int, whole: bool = False) -> Optional[Tuple[bytes, str]]:
+    """The body (up to cap bytes) and final address of a public page, following a few redirects. With whole=True an image bigger than cap
+    is refused, not cut short: a cut-off image would show broken."""
     current = url
     for _ in range(4):
         await _check(current)
@@ -55,9 +56,57 @@ async def _read(client: httpx.AsyncClient, url: str, cap: int) -> Optional[Tuple
             async for chunk in r.aiter_bytes():
                 body += chunk
                 if len(body) > cap:
+                    if whole:
+                        return None
                     break
             return body[:cap], current
     return None
+
+
+_JSONLD = re.compile(r"""<script[^>]+application/ld\+json[^>]*>(.*?)</script>""", re.I | re.S)
+_IMG = re.compile(r"<img\b[^>]*>", re.I)
+_SVG = re.compile(r"\.svg(\?|$)", re.I)
+
+
+def _declared_logo(html: str, base: str) -> List[str]:
+    """The logo a site declares for search engines (schema.org Organization 'logo'). It is meant to be the logo, so it is the best source."""
+    import json
+
+    out: List[str] = []
+
+    def walk(node) -> None:
+        if isinstance(node, list):
+            for n in node:
+                walk(n)
+        elif isinstance(node, dict):
+            logo = node.get("logo")
+            if isinstance(logo, dict):
+                logo = logo.get("url") or logo.get("contentUrl")
+            if isinstance(logo, str) and logo.strip() and not _SVG.search(logo):
+                out.append(urljoin(base, logo.strip()))
+            for v in node.values():
+                if isinstance(v, (list, dict)):
+                    walk(v)
+
+    for block in _JSONLD.findall(html or ""):
+        try:
+            walk(json.loads(block))
+        except ValueError:
+            continue
+    return list(dict.fromkeys(out))
+
+
+def _logo_images(html: str, base: str) -> List[str]:
+    """Images on the homepage that call themselves the logo (in the file name, class, id or alt text). Pictures that are not
+    labelled as a logo are never taken, so a banner or a photo is not mistaken for one."""
+    out = []
+    for tag in _IMG.findall((html or "")[:120_000]):
+        attrs = {m.group(1).lower(): (m.group(2) if m.group(2) is not None else m.group(3)) for m in _ATTR.finditer(tag)}
+        src = attrs.get("src") or attrs.get("data-src") or ""
+        label = " ".join([src, attrs.get("class") or "", attrs.get("id") or "", attrs.get("alt") or ""]).lower()
+        if src and not src.startswith("data:") and not _SVG.search(src) and "logo" in label and "sprite" not in label:
+            out.append(urljoin(base, src))
+    return list(dict.fromkeys(out))
 
 
 def _icon_links(html: str, base: str) -> List[str]:
@@ -116,11 +165,14 @@ async def logo_for(site: str) -> Optional[Tuple[bytes, str]]:
                         continue
                     if page:
                         served = root
-                        candidates = _icon_links(page[0].decode("utf-8", "ignore"), page[1])
+                        html = page[0].decode("utf-8", "ignore")
+                        icons = _icon_links(html, page[1])
+                        # sharpest first: the declared logo, the big icons (apple-touch-icon), the homepage's own logo image, then the small icons
+                        candidates = (_declared_logo(html, page[1])[:2] + icons[:1] + _logo_images(html, page[1])[:2] + icons[1:3])
                         break
-                for url in candidates[:3] + [f"https://{served}/apple-touch-icon.png", f"https://{served}/favicon.ico"]:
+                for url in candidates[:6] + [f"https://{served}/apple-touch-icon.png", f"https://{served}/favicon.ico"]:
                     try:
-                        got = await _read(client, url, MAX_IMAGE)
+                        got = await _read(client, url, MAX_IMAGE, whole=True)
                     except (FetchRefused, httpx.HTTPError):
                         continue
                     if got and len(got[0]) >= 200 and _kind(got[0]):

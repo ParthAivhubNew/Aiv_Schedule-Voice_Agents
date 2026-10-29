@@ -1,10 +1,15 @@
 OUTREACH STARTER KIT FOR {{COMPANY}}   (Python / Flask)
-======================================================
+=======================================================
 
 Four steps. About ten minutes.
 
+THE ONE FILE THAT MATTERS IN THIS KIT:  outreach_flask.py
+  It is the only server file here. (Other kits have other names, for other tools: if you were sent a different one, ask for this kit.)
+
 STEP 1 - Unzip into your project
   Unzip this kit into the folder that holds your Flask app file. If asked, choose "merge" or "replace".
+  Check: check.mjs must sit next to your project's own files. Some tools unzip into a NEW folder named after the zip. If you see
+  one, move everything out of it into your project folder (including the hidden files .env.example and later .env).
 
 STEP 2 - Paste your secret key
   a) In Outreach: Admin APIs & Webhooks > Partner programme > make a secret key. Copy it now, it is shown once.
@@ -12,11 +17,13 @@ STEP 2 - Paste your secret key
          Windows:   copy .env.example .env
          Mac/Linux: cp .env.example .env
   c) Open .env and replace the text after the = with your key. No quotes, no spaces.
+  (Running in Docker? Instead set  OUTREACH_SECRET=your key  as an environment variable on the container.)
 
 STEP 3 - Add two lines to your Flask app file
-         from outreach_pass import outreach
+         from outreach_flask import outreach
          app.register_blueprint(outreach)
-  (This adds /outreach-start and /outreach-test.html. Not Flask? Open outreach_pass.py: it is about 40 lines, and the Docs tab shows the steps in plain terms.)
+  (This adds /outreach-start and /outreach-test.html. Not Flask? Open outreach_flask.py: it is about 40 lines, and the Docs tab
+  shows the steps in plain terms.)
 
 STEP 4 - Restart your app and check it
   Stop your app and start it again.
@@ -32,10 +39,10 @@ SHOW IT YOUR WAY  (after the test page works)
     drawer.html       a button opens it in a side panel
     full-page.html    a link opens it as a full page
     OutreachScreen.jsx   for React and Next.js
-  Every file already has your key. The same code is in the Docs tab of Partner programme.
+  Every file already has your key. The same code is in the Docs tab of Partner programme, under "Copy-paste code".
 
 Before real users
-  - In outreach_pass.py replace get_user_id() with the id of whoever is signed in, and return a 401 when nobody is.
+  - In outreach_flask.py replace get_user_id() with the id of whoever is signed in, and return a 401 when nobody is.
   - Put your page's address in Partner programme > step 2 exactly as the browser bar shows it.
   - To go live: use a live secret key (psk_live_) in .env, then ask for go-live in Partner programme.
 

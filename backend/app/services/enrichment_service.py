@@ -417,36 +417,100 @@ async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
     }
 
 
-async def search_tavily(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit)."""
+_TAVILY_WHY = {
+    400: "Tavily refused the request as malformed (400)",
+    401: "Tavily rejected the saved key (401): check the Tavily key under Platform Keys",
+    432: "the Tavily plan limit is used up (432): upgrade or wait for the monthly reset",
+    433: "the Tavily pay-as-you-go limit is used up (433): raise the limit",
+}
+
+
+async def search_tavily(query: str, max_results: int = 5, *, include_domains: Optional[List[str]] = None, exclude_domains: Optional[List[str]] = None,
+                        depth: str = "basic", meter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit). basic is 1 Tavily credit and
+    advanced 2. Narrowing to a company's own site is include_domains (never query text); directories are exclude_domains. Each result
+    carries Tavily's relevance `score`. A 429 is retried once after the wait Tavily asks for. `meter`, when given, counts the
+    search and the credits it used."""
     key = await tavily_key()
     if not key:
         return []
-    results = []
+    body: Dict[str, Any] = {"query": (query or "").strip()[:400], "max_results": max(1, min(int(max_results), 20)), "search_depth": depth,
+                            "country": "united kingdom", "include_usage": True}
+    if include_domains:
+        body["include_domains"] = include_domains[:20]
+    if exclude_domains:
+        body["exclude_domains"] = exclude_domains[:150]
+    results: List[Dict[str, Any]] = []
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(
-                "https://api.tavily.com/search",
-                headers={"Authorization": f"Bearer {key}"},
-                # British results, as SEARCH_HEADERS asks of the other engines ("Birmingham" is not Alabama).
-                json={"query": query, "max_results": max_results, "search_depth": "basic", "country": "united kingdom"},
-            )
-            await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            for attempt in range(2):
+                resp = await client.post("https://api.tavily.com/search", headers={"Authorization": f"Bearer {key}"}, json=body)
+                if resp.status_code == 429 and attempt == 0:
+                    try:
+                        wait = float(resp.headers.get("Retry-After") or 1)
+                    except ValueError:
+                        wait = 1.0
+                    await asyncio.sleep(min(max(wait, 0.2), 5.0))
+                    continue
+                break
             if resp.status_code == 200:
                 data = resp.json()
+                await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
+                if meter is not None:
+                    credits = ((data.get("usage") or {}).get("credits")) or (2 if depth == "advanced" else 1)
+                    meter["searches"] = meter.get("searches", 0) + 1
+                    meter["tavily_credits"] = meter.get("tavily_credits", 0) + float(credits)
                 for item in data.get("results", [])[:max_results]:
                     url = item.get("url") or ""
                     if url and not _is_junk_web_host(url):
-                        results.append({
-                            "title": item.get("title") or "",
-                            "snippet": item.get("content") or "",
-                            "url": url,
-                        })
+                        results.append({"title": item.get("title") or "", "snippet": item.get("content") or "", "url": url,
+                                        "score": float(item.get("score") or 0.0), "engine": "tavily"})
             else:
-                logger.warning(f"Tavily search error for '{query}': HTTP {resp.status_code}")
+                logger.warning("Tavily search '%s': %s", (query or "")[:80], _TAVILY_WHY.get(resp.status_code) or f"HTTP {resp.status_code} {resp.text[:160]}")
     except Exception as err:
-        logger.debug(f"Tavily search error for '{query}': {err}")
+        logger.warning(f"Tavily search error for '{query}': {err}")
     return results
+
+
+async def search_web(query: str, *, max_results: int = 5, include_domains: Optional[List[str]] = None, exclude_domains: Optional[List[str]] = None,
+                     must_mention: Optional[List[str]] = None, depth: str = "basic", meter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """The company-lookup search: DeepSeek first (when ticked), then Tavily, using the settings from search_recipe. `must_mention` are
+    the company's name words: a result that mentions none of them (in its title, text or address) is dropped. DeepSeek has no domain
+    filter setting, so a domain limit becomes `site:` in its query and the exclusions are applied to what comes back."""
+    if not query or not query.strip():
+        return []
+    skip = [d.lower() for d in (exclude_domains or [])]
+
+    def keep(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out = []
+        for r in rows:
+            host = _host_of(r.get("url") or "")
+            if any(host == d or host.endswith("." + d) for d in skip):
+                continue
+            if must_mention:
+                blob = re.sub(r"[^a-z0-9]", "", f"{r.get('title') or ''} {r.get('snippet') or ''} {r.get('summary') or ''} {r.get('url') or ''}".lower())
+                if not any(k in blob for k in must_mention):
+                    continue
+            out.append(r)
+        return out
+
+    ds_query = query + (f" site:{include_domains[0]}" if include_domains else "")
+    rows = keep(await search_deepseek(ds_query, max_results=max_results, need_content=False))
+    if rows:
+        if meter is not None:
+            meter["searches"] = meter.get("searches", 0) + 1
+            meter["deepseek_searches"] = meter.get("deepseek_searches", 0) + 1
+        logger.info("web search %r answered by DeepSeek (%d results)", query[:80], len(rows))
+        return [{**r, "engine": "deepseek"} for r in rows]
+    # Tavily's own exclude_domains list steers its ranking away from the company (live test: "Official website of Gails" returned
+    # airport and hotel pages with the list, gails.com without it), so directories are dropped here, from a slightly longer result list.
+    rows = keep(await search_tavily(query, max_results=max_results + (5 if skip else 0), include_domains=include_domains, depth=depth, meter=meter))[:max_results]
+    if rows:
+        logger.info("web search %r answered by Tavily (%d results)", query[:80], len(rows))
+        return rows
+    logger.warning("web search %r found nothing. If this keeps happening, check Platform Keys > Leads: the DeepSeek search box and key, "
+                   "or a Tavily key. Without one of them there is no web search.", query[:80])
+    return []
 
 
 async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:

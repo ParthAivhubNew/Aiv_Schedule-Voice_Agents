@@ -63,7 +63,7 @@ def build(stack: str, *, client_id: str, host: str, origin: str, company: str) -
     if stack not in STACKS:
         raise ValueError(f"stack must be one of: {', '.join(STACKS)}")
     values = {"CLIENT_ID": client_id, "HOST": host.rstrip("/"), "ORIGIN": (origin or "https://app.yourproduct.com").rstrip("/"),
-              "COMPANY": (company or "your company").strip(), "PASS": PASS.get(stack, "/outreach-start")}
+              "COMPANY": (company or "your company").strip(), "PASS": PASS.get(stack, "/outreach-start"), "STACK": stack}
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name, text in _files(stack):

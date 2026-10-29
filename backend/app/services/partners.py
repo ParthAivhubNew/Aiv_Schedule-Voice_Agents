@@ -22,7 +22,7 @@ from sqlalchemy.future import select
 
 from app.core.security import generate_api_key
 from app.database import AsyncSessionLocal
-from app.models.models import ApiKey, Operator, Organization, Partner, PartnerLink, WebhookEndpoint
+from app.models.models import ApiKey, Operator, Organization, Partner, PartnerAudit, PartnerLink, WebhookEndpoint
 
 logger = logging.getLogger("partners")
 
@@ -39,6 +39,16 @@ class PartnerError(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
         self.status, self.code, self.message = status, code, message
+
+
+def audit(db: AsyncSession, partner_id: str, actor: str, action: str, detail: str = "") -> None:
+    """Add a line to the partner's activity record. The caller commits. Details are plain words, never a key or secret."""
+    db.add(PartnerAudit(partner_id=partner_id, actor=(actor or "")[:200], action=action, detail=(detail or "")[:500]))
+
+
+def audit_json(rows: List[PartnerAudit]) -> List[Dict[str, Any]]:
+    return [{"id": r.id, "actor": r.actor, "action": r.action, "detail": r.detail or "",
+             "at": r.created_at.isoformat() if r.created_at else None} for r in rows]
 
 
 async def tell_owner(subject: str, lines: List[str]) -> None:
@@ -208,6 +218,7 @@ async def connect(db: AsyncSession, partner: Partner, org_id: str, operator_id: 
         link.status, link.revoked_by, link.revoked_at = "active", "", None
         link.operator_id = operator_id or link.operator_id
         link.consent_version, link.consented_at = consent_version, now
+    audit(db, partner.id, "user", "account_connected", f"{org_id}{' (created through the partner)' if created else ''}")
     await db.flush()
     await ensure_webhook(db, partner, org_id, active=True)
     return link
@@ -216,6 +227,7 @@ async def connect(db: AsyncSession, partner: Partner, org_id: str, operator_id: 
 async def revoke(db: AsyncSession, link: PartnerLink, by: str) -> None:
     await _drop_key(db, link.key_id)
     link.key_id, link.status, link.revoked_by, link.revoked_at = "", "revoked", by, datetime.utcnow()
+    audit(db, link.partner_id, by, "account_disconnected", link.org_id)
     await ensure_webhook_state(db, link.partner_id, link.org_id, active=False)
     _forget_keys()
 

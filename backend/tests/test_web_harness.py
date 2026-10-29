@@ -1,108 +1,16 @@
-"""The AI search harness: the model proposes, the code decides. None of this needs a database or a network."""
+"""Search-service calls (DeepSeek, Tavily) and Google confirmation. None of this needs a database or a network."""
 import asyncio
 
 import pytest
 
 from app.services import enrichment_service as ES
-from app.services import llm_gateway, web_harness as H
+from app.services import web_harness as H
 
 NAME = "Teddy Bears Pre-School"
-FACTS = {"postcode": "SG4 0QY", "address": "1 High St, Hitchin", "industry": "Child day-care activities", "company_number": "0123"}
-
-SOURCES = [
-    {"url": "https://www.teddybears-preschool.co.uk/contact", "title": "Teddybears Pre-School | Hitchin", "text": "Call us on 01462 123456 or email hello@teddybears-preschool.co.uk"},
-    {"url": "https://www.yell.com/biz/teddy-bears-pre-school", "title": "Teddy Bears Pre-School - Yell", "text": "Phone 01462 999111"},
-    {"url": "https://www.otherplace.co.uk/", "title": "Teddy Bears Nursery Leeds", "text": "Ring 0113 496 0123"},
-]
 
 
 def run(coro):
     return asyncio.run(coro)
-
-
-@pytest.fixture
-def web(monkeypatch):
-    seen = {"queries": [], "fetched": []}
-
-    async def search(q, max_results=5):
-        seen["queries"].append(q)
-        return [{"url": s["url"], "title": s["title"], "snippet": s["text"]} for s in SOURCES]
-
-    async def fetch(url):
-        seen["fetched"].append(url)
-        return None
-
-    monkeypatch.setattr(ES, "search_open_web", search)
-    monkeypatch.setattr(ES, "fetch_deepseek", fetch)
-    return seen
-
-
-def ai(monkeypatch, answer):
-    async def fake(**kw):
-        return answer
-    monkeypatch.setattr(llm_gateway, "extract_structured", fake)
-
-
-def test_the_searches_use_the_postcode_first_and_the_name_as_the_site_spells_it(web, monkeypatch):
-    ai(monkeypatch, {"website_source": -1, "phones": [], "emails": []})
-    run(H.find_company(None, name=NAME, place="North Hertfordshire SG4 0QY", facts=FACTS))
-    assert web["queries"][0] == "Teddy Bears Pre-School SG4 0QY"
-    assert any("TeddyBearsPreSchool" in q for q in web["queries"]) and len(web["queries"]) <= 4
-
-
-def test_the_model_pick_is_kept_when_the_sources_back_it(web, monkeypatch):
-    ai(monkeypatch, {"website_source": 0, "phones": [{"number": "01462 123456", "source": 0}], "emails": [{"address": "hello@teddybears-preschool.co.uk", "source": 0}]})
-    out = run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))
-    assert out["found"] and out["via"] == "ai"
-    assert out["website"] == "https://www.teddybears-preschool.co.uk"
-    assert out["phones"] == ["01462 123456"] and out["emails"] == ["hello@teddybears-preschool.co.uk"]
-
-
-def test_a_phone_the_source_does_not_contain_is_dropped(web, monkeypatch):
-    ai(monkeypatch, {"website_source": 0, "phones": [{"number": "01462 654321", "source": 0}], "emails": []})  # not on the page
-    assert run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))["phones"] == []
-
-
-def test_a_number_from_a_page_about_another_business_is_dropped(web, monkeypatch):
-    ai(monkeypatch, {"website_source": -1, "phones": [{"number": "0113 496 0123", "source": 2}], "emails": []})  # a nursery in Leeds
-    assert run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))["phones"] == []
-
-
-def test_a_directory_is_never_taken_as_the_website_but_its_number_can_stand(web, monkeypatch):
-    ai(monkeypatch, {"website_source": 1, "phones": [{"number": "01462 999111", "source": 1}], "emails": []})
-    out = run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))
-    assert out["website"] == ""                    # yell.com is a listing, not the company's own site
-    assert out["phones"] == ["01462 999111"]       # but it does name this business and carries its number
-
-
-def test_an_email_must_sit_on_the_companys_own_domain(web, monkeypatch):
-    ai(monkeypatch, {"website_source": 0, "phones": [], "emails": [{"address": "someone@gmail.com", "source": 0}, {"address": "hello@teddybears-preschool.co.uk", "source": 0}]})
-    assert run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))["emails"] == ["hello@teddybears-preschool.co.uk"]
-
-
-def test_a_source_number_the_model_invents_cannot_get_through(web, monkeypatch):
-    ai(monkeypatch, {"website_source": 99, "phones": [{"number": "01462 123456", "source": 99}], "emails": []})
-    out = run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))
-    assert not out["found"]
-
-
-def test_without_an_ai_answer_plain_rules_find_the_site_and_still_check(web, monkeypatch):
-    ai(monkeypatch, None)
-    out = run(H.find_company(None, name=NAME, place="Hitchin", facts=FACTS))
-    assert out["via"] == "rules" and out["website"] == "https://www.teddybears-preschool.co.uk" and "01462 123456" in out["phones"]
-
-
-def test_the_model_is_given_what_the_register_holds_and_no_person_names(web, monkeypatch):
-    seen = {}
-
-    async def fake(**kw):
-        seen["prompt"] = kw["user_text"]
-        return {"website_source": -1, "phones": [], "emails": []}
-
-    monkeypatch.setattr(llm_gateway, "extract_structured", fake)
-    run(H.find_company(None, name=NAME, place="Hitchin", facts={**FACTS, "officers": ["Jane Smith"], "notes": "my private note"}))
-    assert "SG4 0QY" in seen["prompt"] and "Child day-care" in seen["prompt"] and "0123" in seen["prompt"]
-    assert "Jane Smith" not in seen["prompt"] and "private note" not in seen["prompt"]
 
 
 def test_no_search_api_means_no_scraped_fallback(monkeypatch):
@@ -248,3 +156,42 @@ def test_requests_are_spaced_under_the_five_a_second_limit(monkeypatch):
     started = time.monotonic()
     run(three())
     assert time.monotonic() - started >= 0.22 and len(log) == 3
+
+
+
+def _site(monkeypatch, title, text=None, raises=None):
+    async def fake(url, max_chars=6000):
+        if raises:
+            raise raises
+        return title, text
+    monkeypatch.setattr(H, "fetch_text", fake)
+
+
+PLACE = {"name": "Teddybears Pre-School", "website": "https://www.teddybears-preschool.co.uk/", "phone": "01462 123456", "place_id": "p1"}
+
+
+def test_google_is_only_a_lead_the_site_must_confirm_it(monkeypatch):
+    _site(monkeypatch, "Teddybears Pre-School | Hitchin", "Welcome. Call us on 01462 123456.")
+    assert run(H.confirm_place(NAME, "SG4 0QY", PLACE)) == {"website": "https://www.teddybears-preschool.co.uk/", "phone": "01462 123456"}
+
+
+def test_a_google_phone_the_site_does_not_print_is_not_kept(monkeypatch):
+    _site(monkeypatch, "Teddybears Pre-School", "Welcome to our pre-school. Contact us by email.")
+    assert run(H.confirm_place(NAME, "SG4 0QY", PLACE)) == {"website": "https://www.teddybears-preschool.co.uk/"}
+
+
+def test_a_page_about_another_business_confirms_nothing(monkeypatch):
+    _site(monkeypatch, "Acme Plumbing", "Boilers in Leeds. Call 01462 123456.")
+    assert run(H.confirm_place(NAME, "SG4 0QY", PLACE)) == {}
+
+
+def test_the_postcode_on_the_page_can_confirm_a_site_that_does_not_name_the_company(monkeypatch):
+    _site(monkeypatch, "Welcome", "Visit us at 1 High Street, Hitchin SG4 0QY. Phone 01462 123456")
+    assert run(H.confirm_place(NAME, "SG4 0QY", PLACE))["website"] == "https://www.teddybears-preschool.co.uk/"
+
+
+def test_a_dead_site_and_a_listing_page_confirm_nothing(monkeypatch):
+    _site(monkeypatch, "", raises=H.FetchRefused("The page answered with error 404."))
+    assert run(H.confirm_place(NAME, "SG4 0QY", PLACE)) == {}
+    assert run(H.confirm_place(NAME, "SG4 0QY", {**PLACE, "website": "https://www.yell.com/biz/teddy-bears"})) == {}
+    assert run(H.confirm_place(NAME, "SG4 0QY", None)) == {}

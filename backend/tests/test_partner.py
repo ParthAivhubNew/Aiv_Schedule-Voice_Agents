@@ -369,3 +369,52 @@ async def test_the_owner_is_emailed_when_a_partner_applies_and_when_it_asks_to_g
     assert r.status_code == 200
     assert [s[:2] for s in sent] == [("owner@outreach.test", "New partner application: Acme <b>CRM</b>")]
     assert "<b>CRM</b>" not in sent[0][2] and "&lt;b&gt;CRM" in sent[0][2]  # what the applicant typed is shown as text, never as markup
+
+
+# ── Activity record ─────────────────────────────────────────────────────────
+
+async def test_admin_changes_are_recorded_and_no_secret_is_in_them(anon, client, staff, partner):
+    out = (await run(anon, "auth", "signup", _signup(partner))).json()
+    key = (await client.post("/api/partner/secret/rotate")).json()["secretKey"]
+    assert (await client.post("/api/partner/webhook-secret/rotate")).status_code == 200
+    assert (await client.put("/api/partner/settings", json={"logo_url": "https://app.partner.test/l.png"})).status_code == 200
+    link = (await client.get("/api/partner/links")).json()["links"][0]
+    assert (await client.delete(f"/api/partner/links/{link['id']}")).status_code == 200
+    rows = (await client.get("/api/partner/activity")).json()["activity"]
+    actions = [r["action"] for r in rows]
+    for want in ("application_approved", "terms_accepted", "settings_changed", "secret_key_rotated", "webhook_secret_rotated",
+                 "account_connected", "account_disconnected"):
+        assert want in actions, (want, actions)
+    assert rows[0]["at"] and rows[0]["actor"]
+    assert key not in str(rows) and out["api_key"] not in str(rows)
+    pid = (await client.get("/api/partner")).json()["partner"]["id"]
+    seen = (await staff.get(f"/api/admin-api/partners/{pid}/activity")).json()["activity"]
+    assert len(seen) == len(rows)
+    assert (await staff.post(f"/api/admin-api/partners/{pid}/status", json={"status": "live"})).status_code == 200
+    seen = (await staff.get(f"/api/admin-api/partners/{pid}/activity")).json()["activity"]
+    assert seen[0]["action"] == "status_changed" and seen[0]["detail"] == "sandbox -> live" and seen[0]["actor"].startswith("staff:")
+
+
+async def test_a_past_webhook_delivery_can_be_replayed_with_the_same_event_id(client, db, monkeypatch):
+    from app.models.models import WebhookDeliveryLog, WebhookEndpoint
+    from app.services import webhook_dispatcher as W
+
+    sent = []
+
+    async def fake(ep, event_id, event_type, data, test=False):
+        sent.append((event_id, event_type, data))
+        return {"success": True, "status_code": 200, "duration_ms": 1, "error": None, "blocked": False}
+
+    monkeypatch.setattr("app.api.developer_webhooks.deliver_to_endpoint", fake)
+    monkeypatch.setattr(W, "url_problem", lambda *a, **k: "")
+    monkeypatch.setattr("app.api.developer_webhooks.url_problem", lambda *a, **k: "")
+    made = await client.post("/api/developer/webhooks", json={"url": "https://hooks.partner.test/in", "events": ["call.completed"]})
+    assert made.status_code in (200, 201), made.text
+    ep = made.json().get("endpoint") or made.json()
+    db.add(WebhookDeliveryLog(id="whlog_t1", endpoint_id=ep["id"], org_id=(await db.get(WebhookEndpoint, ep["id"])).org_id,
+                              event_type="call.completed", success=False, status_code=500,
+                              payload={"id": "evt_abc", "event": "call.completed", "livemode": True, "data": {"call_id": "c1"}}))
+    await db.commit()
+    r = await client.post(f"/api/developer/webhooks/{ep['id']}/logs/whlog_t1/replay")
+    assert r.status_code == 200 and sent == [("evt_abc", "call.completed", {"call_id": "c1"})]
+    assert (await client.post(f"/api/developer/webhooks/{ep['id']}/logs/nope/replay")).status_code == 404

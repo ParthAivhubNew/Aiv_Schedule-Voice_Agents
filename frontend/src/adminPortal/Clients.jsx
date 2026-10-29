@@ -70,7 +70,7 @@ export function Clients({ canEdit, openId, open }) {
         }
       />
       <Note error>{err}</Note>
-      <Table head={["Organisation", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
+      <Table head={["Organisation", "Partner", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
         {shown.map((o) => (
           <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
             <td style={{ ...cell, ...((o.emptyWallets?.length || o.lowWallets?.length) ? { borderLeft: `4px solid ${o.emptyWallets?.length ? C.red : C.amber}` } : {}) }}>
@@ -79,6 +79,7 @@ export function Clients({ canEdit, openId, open }) {
               {o.emptyWallets?.length > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Out of credits: {o.emptyWallets.join(", ")}</div>}
               {o.lowWallets?.length > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: C.amber }}>Low credits: {o.lowWallets.join(", ")}</div>}
             </td>
+            <td style={cell}>{o.partners?.length ? o.partners.map((p) => <div key={p.id}>{p.name}<div style={{ fontSize: 11, color: C.slate }}>{p.createdAccount ? "Created through them" : "Existing account"}{p.status === "revoked" ? " · disconnected" : ""}</div></div>) : "—"}</td>
             <td style={cell}><Pill tone={statusTone(o.status)}>{o.status}</Pill></td>
             <td style={cell}>{o.users}</td>
             <td style={cell}>{o.numbers}</td>
@@ -219,6 +220,7 @@ function ClientDetail({ id, canEdit, back }) {
         <Pill tone={statusTone(c.status)}>{c.status}</Pill>
         {c.subscription && <Pill tone="blue">Subscription: {c.subscription.status}{c.subscription.renewsAt ? ` · renews ${when(c.subscription.renewsAt)}` : ""}</Pill>}
         {c.telnyx && <Pill tone={c.telnyx.status === "ready" ? "green" : "amber"}>Telnyx {c.telnyx.mode}: {c.telnyx.status}</Pill>}
+        {(c.partners || []).map((p) => <Pill key={p.id} tone="blue">Partner: {p.name} · {p.createdAccount ? "created through them" : "existing account"}{p.status === "revoked" ? " · disconnected" : ""}</Pill>)}
       </div>
       {c.telnyx?.error && <Note error>Telnyx: {c.telnyx.error}</Note>}
       <Note error={msg.error}>{msg.text}</Note>

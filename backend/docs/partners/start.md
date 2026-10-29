@@ -20,18 +20,28 @@ Your page  →  asks your server  →  your server asks Outreach (with the secre
 
 ## The fastest way: the starter kit
 
-In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with (Vite or React, your own
-Node server, Next.js, Python or PHP) and download a zip made for you, with your publishable key and addresses already filled in. It
-holds:
+In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with and download a zip made for
+you, with your publishable key and addresses already filled in. Each kit holds the same four things:
 
-- the `.env` file for your secret key,
-- one small server file for your language (it hands your page a short-lived pass),
-- ready-to-paste page snippets: a panel inside your page, a popup, a side panel, a full page, and a React component,
-- `node check.mjs`, which tests every part and says what is still missing, in plain words.
+| In the kit | What it is |
+|---|---|
+| `.env.example` | Where your secret key goes. Copy it to `.env`. |
+| **One server file**, named after your tool | The small file that hands your page a pass. It is the only server file in the kit. |
+| `snippets/` | Page code to paste: panel, popup, side panel, full page, React component. |
+| `check.mjs` | `node check.mjs` tests every part and says what to fix, in plain words. |
 
-Unzip it into your project folder and follow `START-HERE.txt`: three or four short steps. The same code is on the
-[Copy-paste code](snippets.md) page, so you can also build it by hand or in another language. Steps 4 to 6 below explain what the
-kit does.
+**Which server file?** It is named after the tool it plugs into, so it cannot be mixed up with another:
+
+| You build with | Your server file | The two lines you add |
+|---|---|---|
+| Vite or React (no server of its own) | `outreach-vite.mjs` | in `vite.config.ts`: `import outreach from "./outreach-vite.mjs";` and `outreach()` inside `plugins: [ ... ]` |
+| Your own Node / Express server | `outreach-express.mjs` | in your server file: `import outreach from "./outreach-express.mjs";` and `app.use(outreach());` |
+| Next.js | `app/outreach-start/route.js` | nothing: it is already in the right folder |
+| Python / Flask | `outreach_flask.py` | `from outreach_flask import outreach` and `app.register_blueprint(outreach)` |
+| PHP | `outreach-start.php` | nothing: put it in your website folder |
+
+Unzip the kit **into your project folder** (next to `package.json`), then follow `START-HERE.txt`. The same files are on the
+[Copy-paste code](snippets.md) page, so you can also do all of this by hand or in another language.
 
 ## Before you start
 
@@ -67,307 +77,54 @@ not added shows an empty box that says "refused to connect".
 
 While you are testing you get test keys (`psk_test_…`). Nothing real is sent or charged.
 
-## Step 4. Add one endpoint to your server (your developer)
+## Step 4. Add the server file (your developer)
 
-This endpoint answers one question for your page: is this user connected, and if so, here is a pass. It runs **on your server**
-(the code that already handles your logins and your database), never in the web page.
+Your page needs somewhere on **your server** to ask for a pass. That is the one small server file from the starter kit. It reads the
+secret key from a `.env` file, asks Outreach for a pass, and hands it to your page. It never runs in the browser.
 
-### 4a. Keep the secret key in a settings file, not in the code
+1. **Unzip the kit into your project folder**, next to `package.json`. Some tools unzip into a new folder named after the zip: if
+   you see one, move everything out of it into your project folder (including the hidden `.env.example`).
+2. **Put the secret key in `.env`.** Copy `.env.example` to `.env` (`.env.local` for Next.js), and paste the key after
+   `OUTREACH_SECRET=`. No quotes, no spaces. In Docker, set `OUTREACH_SECRET` as an environment variable on the container instead.
+3. **Add the two lines** from the table above to your own file. Use exactly that spelling.
+4. **Restart your app.** A new plugin or route only loads on a restart.
+5. **Run `node check.mjs`**, in the project folder, with your page's address: `node check.mjs https://app.yourproduct.com`.
+   Every line must say `[ok]`.
 
-1. Open the file where your server keeps its settings. Most projects have a file called `.env` in the main project folder. If you
-   have none, create one there.
-2. Add one line, with your own key after the `=` and no quotes or spaces:
+Not using one of those tools? The [Copy-paste code](snippets.md) page has the steps for any language, in three plain parts: call
+`POST /api/embed/connect-sessions` with your secret key, return the `connect_token` if the user is not linked yet, otherwise call
+`POST /api/embed/sessions` and return the `token`.
 
-```
-OUTREACH_SECRET=psk_test_paste_your_key_here
-```
+**Keep the key safe.** Never put the secret key in a variable whose name starts with `VITE_`, `NEXT_PUBLIC_` or `REACT_APP_`: those
+are copied into the web page.
 
-Then:
+## Step 5. Show the screen in your page (your developer)
 
-- Make sure `.env` is listed in your `.gitignore` file, so the key is never uploaded to GitHub.
-- On your live website the key goes in your hosting dashboard instead, under "Environment variables" (Vercel, Render, Heroku,
-  Railway, AWS and others all have this). The `.env` file stays on your own computer.
-- Restart your server after changing it. Settings are read only when the server starts. A Node server also needs to load the
-   file: run it with `node --env-file=.env server.js`, or add the `dotenv` package. Next.js and most hosting set-ups do this for you.
+Open the `snippets` folder in the kit, or the [Copy-paste code](snippets.md) page, and pick how Outreach should look:
 
-### 4b. Add the endpoint to your server code
+| You want | Use |
+|---|---|
+| The screen inside your page | `panel.html` |
+| A button that opens a popup | `popup.html` |
+| A button that opens a side panel | `drawer.html` |
+| A link that opens a full page | `full-page.html` |
+| A React or Next.js component | `OutreachScreen.jsx` |
 
-Put it in the file where your other routes live, for example `server.js`, `app.js` or `routes/outreach.js`. **Pick the version that
-matches your server.**
+Each file has two parts: **one script line** (once per page, just before `</body>`) and **one tag** where the screen should show.
+Your publishable key (`pk_…`) is already in the script line. It is safe in a page. The secret key must never appear there.
 
-**Node 18 or newer, Express**
-
-```js
-const OUTREACH = "https://outreach.aivhub.com/api/embed";
-
-async function outreach(path, body) {
-  const res = await fetch(`${OUTREACH}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OUTREACH_SECRET}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || `Outreach answered ${res.status}`);
-  return data;
-}
-
-// requireLogin is whatever you already use to make sure someone is signed in.
-app.get("/outreach-start", requireLogin, async (req, res) => {
-  try {
-    const external_id = String(req.user.id);          // your own id for the person who is signed in
-    const component = req.query.component || "leads"; // leads, campaigns, mail, voice or social
-    const info = await outreach("/connect-sessions", { external_id, component });
-    if (!info.linked) return res.json({ connect_token: info.connect_token });   // not connected yet
-    const pass = await outreach("/sessions", { external_id, component });
-    res.json({ token: pass.token });
-  } catch (err) {
-    console.error("Outreach:", err.message);
-    res.status(502).json({ error: "Outreach could not be reached." });
-  }
-});
-```
-
-**Next.js** (create the file `app/api/outreach-start/route.js`)
-
-```js
-const OUTREACH = "https://outreach.aivhub.com/api/embed";
-
-async function outreach(path, body) {
-  const res = await fetch(`${OUTREACH}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OUTREACH_SECRET}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || `Outreach answered ${res.status}`);
-  return data;
-}
-
-export async function GET(request) {
-  const user = await getCurrentUser();                // your own way of finding who is signed in
-  if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
-  const component = new URL(request.url).searchParams.get("component") || "leads";
-  const info = await outreach("/connect-sessions", { external_id: String(user.id), component });
-  if (!info.linked) return Response.json({ connect_token: info.connect_token });
-  const pass = await outreach("/sessions", { external_id: String(user.id), component });
-  return Response.json({ token: pass.token });
-}
-```
-
-**Python (Flask)**
-
-```python
-import os, requests
-from flask import jsonify, request
-
-OUTREACH = "https://outreach.aivhub.com/api/embed"
-
-def outreach(path, body):
-    r = requests.post(OUTREACH + path, json=body, timeout=15,
-                      headers={"Authorization": "Bearer " + os.environ["OUTREACH_SECRET"]})
-    r.raise_for_status()
-    return r.json()
-
-@app.get("/outreach-start")
-@login_required                                      # your own sign-in check
-def outreach_start():
-    external_id = str(current_user.id)               # your own id for the person who is signed in
-    component = request.args.get("component", "leads")
-    info = outreach("/connect-sessions", {"external_id": external_id, "component": component})
-    if not info["linked"]:
-        return jsonify(connect_token=info["connect_token"])
-    return jsonify(token=outreach("/sessions", {"external_id": external_id, "component": component})["token"])
-```
-
-Any other language works too. Each call is a `POST` to `https://outreach.aivhub.com/api/embed/...` with the header
-`Authorization: Bearer <your secret key>` and a JSON body.
-
-### Things to get right
-
-- **The address must match Step 5.** The page asks for `/outreach-start`. If you name the route something else, change it in the
-  page snippet too.
-- **Sign-in check:** only signed-in people may reach this route, and `external_id` must always come from your own login, never
-  from the request. Otherwise anyone could ask for a pass for someone else's account.
-- **`external_id` never changes for a person.** Use your own user id (or your account id, if one Outreach account serves a whole
-  team). Do not use an email address, which people change.
-- **Only your server calls Outreach.** A call from a browser is refused with `403`, on purpose.
-- **Screen names:** `leads`, `campaigns`, `mail`, `voice` and `social`. Any other word gives a `422` error.
-- **The endpoint is code that runs, not a file that is shown.** Put it in the server program (the one you start with `node server.js`,
-  `flask run` and so on), never in a file inside the folder your web server hands out to browsers. A file served as a page is never
-  run: the address then returns your own site's page instead of JSON.
-- **Register the route before any catch-all.** Many single-page set-ups end with a rule such as `app.get("*", ...)` or
-  `try_files ... /index.html` that returns `index.html` for every unknown address. The `/outreach-start` route must come before it.
-  If your page is served by a separate front-end server (a static host, a container, an nginx), set that server to pass
-  `/outreach-start` on to your back end.
-- **Test the route by itself.** Open `https://your-site/outreach-start?component=leads` in a browser tab (signed in to your product).
-  You must see JSON such as `{"connect_token": "..."}`, or a sign-in error in JSON. If you see your own website, the route is
-  not reaching the server code.
-- **The secret key lives in the settings, not in the code.** Read it from `OUTREACH_SECRET` (see 4a). A key written into a code
-  file ends up in GitHub or in a page anyone can read. If a key was ever put in a file that is served or uploaded, revoke it in
-  Partner programme and make a new one.
-
-### If your product has no server of its own (Vite, Lovable, Bolt, Create React App)
-
-These tools build only the web page. Nothing in them can keep a secret key, and the development server answers every unknown
-address with `index.html`. That is why the page asks for `/outreach-start` and gets a web page back (`Content-Type: text/html`)
-instead of JSON, and the Outreach box stays blank. The endpoint has to run somewhere that is not the browser.
-
-**The easy way for a Vite app: the starter kit.** Its `outreach-plugin.mjs` adds `/outreach-start` to your own Vite server. You
-add two lines to `vite.config.ts` (`import outreach from "./outreach-plugin.mjs"` and `outreach()` inside `plugins`), restart, and
-there is no second program and no proxy. Use that if you can. The options below are for when you cannot. Pick one:
-
-**A. A small Node server next to your app.** Save the Step 4b Express code as `server.js` with `app.listen(3000)` at the end, and
-put `OUTREACH_SECRET` in a `.env` file next to it. Start it with `node --env-file=.env server.js`. Then tell Vite to pass that
-one address to it, in `vite.config.ts`:
-
-```ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  server: { proxy: { "/outreach-start": "http://127.0.0.1:3000" } },
-});
-```
-
-Restart `npm run dev`. On your live site, do the same with your web server or host: send `/outreach-start` to the server.
-
-**B. A serverless function** (Supabase Edge Function, Vercel or Netlify function, Cloudflare Worker). Put the Step 4b code in
-the function, store `OUTREACH_SECRET` in the platform's secrets, and change the page's `fetch("/outreach-start…")` to the
-function's own address. The function must answer with the header `Access-Control-Allow-Origin` set to your site.
-
-**Do not** put the secret in a `.env` variable that starts with `VITE_` (or `NEXT_PUBLIC_`, `REACT_APP_`). Those are copied into
-the web page for anyone to read. The secret belongs only in the server's own settings.
-
-To check it worked, open `/outreach-start?component=leads` straight in the browser's address bar. You should see JSON such as
-`{"connect_token":"…"}`. If you see your app's page, the route is still not reaching the server.
-
-### 4c. Test it before touching the page
-
-Start your server, then run this in a terminal, with your own key and a user id that exists in your product:
-
-```
-curl -X POST https://outreach.aivhub.com/api/embed/connect-sessions \
-  -H "Authorization: Bearer psk_test_paste_your_key_here" \
-  -H "Content-Type: application/json" \
-  -d '{"external_id":"user-123","component":"leads"}'
-```
-
-You should get back `"linked": false` and a `connect_token`. That means your key works. A `401` means the key is wrong or has a
-space in it. A `403` with "terms" in the message means you have not accepted the partner terms yet (Step 1). A `403` saying the integration is
-paused means the Outreach team has paused it: write to them.
-
-## Step 5. Paste this into your page (your developer)
-
-This part runs **in the browser**, on the page of your product where the Outreach screen should appear. Your **publishable key**
-(`pk_…`) goes here. It is safe to put in a page. Your **secret key** (`psk_…`) must never appear in it.
-
-Before you paste, check three things:
+Before you paste, check:
 
 - The page's address is in your list from Step 2, exactly as it shows in the browser bar. While testing on your own computer add
   `http://localhost:3000` (use your own port number).
-- The route name matches Step 4. The snippets call `/outreach-start`.
 - If your site sets a Content-Security-Policy, allow `https://outreach.aivhub.com` for scripts and frames.
-
-**Pick the version that matches your product.**
-
-**A plain page** (an `.html` file, or a template such as `templates/outreach.html`, `views/outreach.ejs` or `outreach.php`):
-paste this where the screen should show, near the end of the page just before `</body>`.
-
-```html
-<div id="box" style="height: 700px"></div>
-<script src="https://outreach.aivhub.com/embed.js"></script>
-<script>
-  const outreach = Outreach("pk_…", { host: "https://outreach.aivhub.com" });
-  const ask = (component) => fetch("/outreach-start?component=" + component, { cache: "no-store" }).then(async (r) => {
-    const text = await r.text();
-    try { return JSON.parse(text); } catch { throw new Error("/outreach-start answered " + r.status + " and not JSON: " + text.slice(0, 150)); }
-  });
-
-  async function show(component) {
-    const answer = await ask(component);
-    if (answer.connect_token) {                      // first time: the person connects their account
-      const win = outreach.connect({
-        connectToken: answer.connect_token,
-        onConnected: () => { win.close(); show(component); },   // close the window, then show the screen
-      });
-      win.open({ mode: "modal" });
-      return;
-    }
-    outreach.create(component, {
-      getToken: () => ask(component).then((a) => a.token),   // fetches a new pass when the old one ends
-      appearance: "auto",                                    // matches your colours
-    }).mount("#box");
-  }
-  show("leads");
-</script>
-```
-
-Replace `pk_…` with your publishable key and `"leads"` with the screen you want.
-
-**A React app** (also fine in Next.js, as a client component): create a new file `src/OutreachScreen.jsx`, paste this in, then use
-`<OutreachScreen component="leads" />` on the page where the screen should appear. Do not add a script tag by hand: the file loads
-it.
-
-```jsx
-import { useEffect, useRef } from "react";
-
-const HOST = "https://outreach.aivhub.com";
-const PUBLISHABLE_KEY = "pk_…"; // safe to keep in code
-
-function loadOutreach() {
-  if (window.Outreach) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = `${HOST}/embed.js`;
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-const ask = (component) => fetch(`/outreach-start?component=${component}`, { cache: "no-store" }).then(async (r) => {
-  const text = await r.text();
-  try { return JSON.parse(text); } catch { throw new Error(`/outreach-start answered ${r.status} and not JSON: ${text.slice(0, 150)}`); }
-});
-
-export default function OutreachScreen({ component = "leads" }) {
-  const box = useRef(null);
-
-  useEffect(() => {
-    let screen, win, gone = false;
-    async function show() {
-      await loadOutreach();
-      if (gone) return;
-      const outreach = window.Outreach(PUBLISHABLE_KEY, { host: HOST });
-      const answer = await ask(component);
-      if (gone) return;
-      if (answer.connect_token) {
-        win = outreach.connect({ connectToken: answer.connect_token, onConnected: () => { win.close(); show(); } });
-        win.open({ mode: "modal" });
-        return;
-      }
-      screen = outreach.create(component, { getToken: () => ask(component).then((a) => a.token), appearance: "auto" });
-      screen.mount(box.current);
-    }
-    show();
-    return () => { gone = true; if (screen) screen.destroy(); if (win) win.destroy(); };
-  }, [component]);
-
-  return <div ref={box} style={{ height: 700 }} />;
-}
-```
-
-If your front end and server run on different addresses (for example the page on port 5173 and the server on port 3000), the
-`fetch` in either version needs the server's full address, or a proxy set in your dev server's settings. Otherwise the page asks
-itself and gets "not found".
 
 **What the person sees:** the first time, a window opens where they sign in to Outreach (or create an account) and agree to what
 you can do. When they finish it closes and the screen appears. After that the screen opens straight away.
 
 ## Step 6. Test it
 
-1. Start your server (with `OUTREACH_SECRET` set, see Step 4a) and open your page in the browser. Sign in to your own product as a
+1. Start your app (with the secret key in `.env`, see Step 4) and open your page in the browser, or open `/outreach-test.html` from the kit. Sign in to your own product as a
    test user.
 2. You should see the connect window. Sign in to an Outreach account, or create a new one, and tick the agreement. The window
    closes and the Leads screen appears.
@@ -381,7 +138,8 @@ you can do. When they finish it closes and the screen appears. After that the sc
 1. In **Partner programme → 5. Go live**, press the request button. It works once the terms are accepted and you have at least one web address and one return address. The Outreach team checks your integration and switches it on.
 2. Make a new **live** secret key in Partner programme (it starts with `psk_live_`). The test key stops working for live use.
 3. On your live website, open your hosting dashboard's "Environment variables" and replace the value of `OUTREACH_SECRET` with
-   the live key. Your own `.env` file keeps the test key. Then redeploy or restart the live server.
+   the live key. Your own `.env` file keeps the test key. Then redeploy or restart the live server. (The Vite plugin only runs under
+   `npm run dev` and `npm run preview`: a site hosted as plain static files needs a server route at `/outreach-start` as well.)
 4. Check that the page is served from a live address that is in your list from Step 2 (for example `https://app.yourproduct.com`),
    not only `localhost`.
 
@@ -396,11 +154,12 @@ you can do. When they finish it closes and the screen appears. After that the sc
 | The screen stops after 15 minutes | The page kept an old pass | Use `getToken` as in Step 5. It fetches a fresh one |
 | "…is not on this account yet" | The account has no plan for that screen | The person buys the plan on Outreach |
 | The person cannot connect | Only the account's admin can connect it | Ask the admin of that Outreach account |
-| `curl http://127.0.0.1:3000/…` says "failed to connect" | Your token server is not running, or curl ran on a different machine or container than the server | Read the terminal where you started it. Common errors: `bad option: --env-file` (Node older than 20.6: set `OUTREACH_SECRET` in the command instead), `Cannot use import statement` (name the file `.mjs`), `EADDRINUSE` (port 3000 is taken: pick another and change it in `vite.config.ts` too). Run the server and the curl on the same machine |
-| Console says `Unexpected end of JSON input` | `/outreach-start` answered with an empty body. With a Vite proxy this means Vite could not reach your token server: it is not running, it crashed, or `localhost` resolved to a different address than the one the server listens on | Check the token server's terminal is still running and prints no error. Point the proxy at `http://127.0.0.1:3000` instead of `localhost`. Test `curl http://127.0.0.1:3000/outreach-start?component=leads`. The updated page snippet now shows the status and text instead |
-| Console says `Unexpected token '<', "<!doctype "... is not valid JSON` | The page asked your own server for `/outreach-start` and got an HTML page back: the route does not exist, is served as a static file, or sits behind a catch-all that returns `index.html` | Add the Step 4 endpoint to your running server, before any catch-all, and check the address shows JSON (see "Things to get right"). Nothing is wrong at Outreach: the request never reached it |
+| Console says `Unexpected token '<', "<!doctype "... is not valid JSON`, or the page says "your app answered with its own web page" | The page asked your own server for `/outreach-start` and got an HTML page back: the server file is not added yet, or sits behind a catch-all that returns `index.html` | Do Step 4: add the two lines, put them before any catch-all route, and restart. Nothing is wrong at Outreach: the request never reached it |
+| `No matching export in "…mjs" for import "outreach"`, or `outreach is not defined` (any error about an `outreach` import) | The import in your config does not match the file in your kit. Each kit has its own file name (`outreach-vite.mjs`, `outreach-express.mjs`, `outreach_flask.py`), and the JavaScript ones are imported without curly braces | Use the lines from the table in "The fastest way". Check you downloaded the kit for your tool. `node check.mjs` names the exact lines to fix |
+| `Cannot find module '.../check.mjs'` | The kit files are not in your project folder, often because the unzip tool made a sub-folder | Move everything out of that folder into the folder with `package.json`, including hidden files |
+| The app does not start after you add the two lines | The import line is missing, misspelled, or the file is not where `./` points | Run `grep -n outreach vite.config.ts` (or your server file): you must see the import line and the call. In Docker, the kit files must be inside the container too |
 | The `outreach-start` request in the Network tab shows `200` or `304` with an HTML response | Same cause. `304` only means the browser re-used a saved copy of that page | Same fix. Click the request and read its **Response** tab: it must be JSON |
-| Your `curl` to `/api/embed/connect-sessions` works but the page still fails | Step 4c proves the key, not the route on your own site | Test `/outreach-start` itself, as in "Things to get right" |
+| Your `curl` to `/api/embed/connect-sessions` works but the page still fails | That proves the key, not the route on your own site | Open `/outreach-start` in your browser: it must show JSON. Run `node check.mjs` |
 
 **Check which sites Outreach lets frame the screen.** Run this with your own publishable key:
 

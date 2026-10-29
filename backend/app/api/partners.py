@@ -48,6 +48,10 @@ class SettingsBody(BaseModel):
     webhook_url: Optional[str] = Field(None, max_length=500)
 
 
+def _who(ctx: Dict[str, Any]) -> str:
+    return f"partner:{ctx.get('email') or ctx.get('username') or ctx.get('operator_id') or 'admin'}"
+
+
 def _application_json(a: PartnerApplication) -> Dict[str, Any]:
     return {"id": a.id, "company": a.company, "product": a.product, "useCase": a.use_case, "expectedUsers": a.expected_users,
             "contactName": a.contact_name, "contactEmail": a.contact_email, "website": a.website, "status": a.status,
@@ -139,6 +143,7 @@ async def accept_terms(request: Request, db: AsyncSession = Depends(get_db)):
     ctx = admin_ctx(request)
     p = await _partner_or_404(db, ctx["org_id"])
     p.terms_version, p.terms_accepted_at = PT.TERMS_VERSION, datetime.utcnow()
+    PT.audit(db, p.id, _who(ctx), "terms_accepted", PT.TERMS_VERSION)
     await db.commit()
     return PT.partner_json(p)
 
@@ -165,6 +170,10 @@ async def settings(body: SettingsBody, request: Request, db: AsyncSession = Depe
         if color and not (color.startswith("#") and len(color) in (4, 7) and all(c in "0123456789abcdefABCDEF" for c in color[1:])):
             raise HTTPException(status_code=400, detail="Colour must look like #3457D5.")
         p.accent_color = color
+    changed = [n for n, v in (("name", body.name), ("web addresses", body.allowed_origins), ("return URLs", body.return_urls),
+                              ("logo", body.logo_url), ("accent colour", body.accent_color), ("webhook address", body.webhook_url)) if v is not None]
+    if changed:
+        PT.audit(db, p.id, _who(ctx), "settings_changed", ", ".join(changed))
     resync = False
     if body.webhook_url is not None:
         url = body.webhook_url.strip()
@@ -188,6 +197,7 @@ async def rotate_webhook_secret(request: Request, db: AsyncSession = Depends(get
     ctx = admin_ctx(request)
     p = await _partner_or_404(db, ctx["org_id"])
     p.webhook_secret = PT.new_webhook_secret()
+    PT.audit(db, p.id, _who(ctx), "webhook_secret_rotated")
     await PT.sync_webhooks(db, p)
     await db.commit()
     return PT.partner_json(p)
@@ -204,6 +214,7 @@ async def rotate_secret(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Your integration is paused. Contact the Outreach team.")
     raw, prefix, hashed = EM.new_secret(live=p.status == "live")
     p.secret_hash, p.secret_prefix = hashed, prefix
+    PT.audit(db, p.id, _who(ctx), "secret_key_rotated", f"{'live' if p.status == 'live' else 'test'} key {prefix}")
     await db.commit()
     return {"secretKey": raw, "prefix": prefix, "mode": "live" if p.status == "live" else "test"}
 
@@ -223,6 +234,7 @@ async def save_theme(body: ThemeBody, request: Request, db: AsyncSession = Depen
     if bad:
         raise HTTPException(status_code=400, detail="These could not be used: " + "; ".join(bad[:6]) + ".")
     p.theme = TH.clean_appearance({"variables": body.variables})
+    PT.audit(db, p.id, _who(ctx), "theme_saved")
     await db.commit()
     return PT.partner_json(p)
 
@@ -240,6 +252,7 @@ async def request_live(request: Request, db: AsyncSession = Depends(get_db)):
     if not p.allowed_origins or not p.return_urls:
         raise HTTPException(status_code=409, detail="Add at least one web address and one return URL before going live.")
     p.live_requested_at = datetime.utcnow()
+    PT.audit(db, p.id, _who(ctx), "live_requested")
     await db.commit()
     logger.info(f"[partners] {p.name} asks to go live ({p.id})")
     await PT.tell_owner(f"{p.name} is asking to go live", [
@@ -267,6 +280,18 @@ async def _credits_used(partner_id: str, org_ids: List[str], days: int = 30) -> 
                 CreditEntry.partner_id == partner_id, CreditEntry.kind == "usage", CreditEntry.created_at >= since,
                 CreditEntry.org_id.in_(org_ids)).group_by(CreditEntry.org_id))).all()
     return {org: int(total or 0) for org, total in rows}
+
+
+@router.get("/activity")
+async def activity(request: Request, offset: int = 0, db: AsyncSession = Depends(get_db)):
+    """What changed on this integration, newest first."""
+    from app.models.models import PartnerAudit
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    rows = (await db.execute(select(PartnerAudit).where(PartnerAudit.partner_id == p.id)
+                             .order_by(PartnerAudit.created_at.desc()).offset(max(0, offset)).limit(LINK_PAGE))).scalars().all()
+    return {"activity": PT.audit_json(rows)}
 
 
 @router.get("/links")

@@ -23,6 +23,31 @@ for (const name of [".env", ".env.local"]) {
 
 console.log(`\nChecking your Outreach set-up for ${APP}\n`);
 
+// 0. The files sit in your project folder. Many unzip tools make a new folder named after the zip: then everything is one level too deep.
+const here = (name) => fs.existsSync(new URL(`./${name}`, import.meta.url));
+const above = (name) => fs.existsSync(new URL(`../${name}`, import.meta.url));
+const MARKERS = ["package.json", "requirements.txt", "pyproject.toml", "composer.json", "index.php"];
+if (!MARKERS.some(here) && MARKERS.some(above)) {
+  fail("These files are in a sub-folder of your project, not in the project folder itself", "Move everything in this folder (including the hidden .env and .env.example) up one level, into the folder that holds " + (MARKERS.find(above)) + ". Then run this again from there.");
+} else pass("The files are in your project folder");
+
+// 0b. Vite only: vite.config must import this kit's file and use it. A wrong file name or a wrong import style is the usual slip.
+const STACK = "{{STACK}}";
+if (STACK === "vite") {
+  const cfg = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"].find(here);
+  if (!cfg) fail("No vite.config file next to check.mjs", "Open the folder that holds your vite.config.ts and put this kit's files there.");
+  else {
+    const text = fs.readFileSync(new URL(`./${cfg}`, import.meta.url), "utf8");
+    const right = /import\s+outreach\s+from\s+["']\.\/outreach-vite\.mjs["']/.test(text);
+    if (right && /\boutreach\s*\(\s*\)/.test(text)) pass(`${cfg} uses outreach-vite.mjs`);
+    else {
+      const wrong = text.match(/import[^;\n]*from\s+["']\.\/(outreach[^"']*)["']/);
+      fail(wrong && !right ? `${cfg} imports "./${wrong[1]}", which is not this kit's file` : `${cfg} does not use outreach-vite.mjs yet`,
+        `Open ${cfg}. At the top, with the other imports, it needs exactly:  import outreach from "./outreach-vite.mjs";  and inside plugins: [ ... ] it needs:  outreach()  (no curly braces, small o).`);
+    }
+  }
+}
+
 // 1. Node
 const major = Number(process.versions.node.split(".")[0]);
 if (major >= 18) pass(`Node ${process.versions.node}`);
