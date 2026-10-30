@@ -44,6 +44,8 @@ from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
 from app.api.lead_checks import router as lead_checks_router
 from app.api.lead_assistant import router as lead_assistant_router
+from app.api.plugin_assistant import router as plugin_assistant_router
+from app.api.agent import router as agent_router
 from app.api.lead_lists import router as lead_lists_router
 from app.api.connected import router as connected_router
 from app.api.connected_home import router as connected_home_router
@@ -545,6 +547,13 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await split_platform(conn)
     await resolve_signing_key()
+    try:
+        from app.services.agent_runs import mark_interrupted
+        stopped = await mark_interrupted()
+        if stopped:
+            logger.warning(f"{stopped} assistant run(s) were mid-step when the server stopped; they are marked interrupted and can be resumed.")
+    except Exception as run_err:
+        logger.warning(f"Could not check interrupted assistant runs: {run_err}")
     from app.services.telnyx_client import refresh_saved_key
     await refresh_saved_key()
     from app.services.platform_mailbox import refresh as refresh_platform_mailbox
@@ -917,6 +926,8 @@ app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(lead_assistant_router, prefix=settings.API_PREFIX)
+app.include_router(plugin_assistant_router, prefix=settings.API_PREFIX)
+app.include_router(agent_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)

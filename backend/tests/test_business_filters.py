@@ -150,12 +150,13 @@ async def test_contacts_use_only_the_exact_company_number_and_label_web_results(
         assert hit["company_number"] == "001"  # the exact number, not the near miss
         return {"name": "Corner Cafe Ltd", "officers": [{"name": "SMITH, John", "role": "director"}], "raw": hit}
 
-    async def fake_web(**kwargs):
-        return {"domain": "cornercafe.example", "phones": ["020 0000 0000"], "citations": ["https://cornercafe.example"]}
+    async def fake_web(db, *, name, place="", facts=None, want="all", **kwargs):  # the guardrail's lookup (web_harness.find_company)
+        return {"website": "cornercafe.example", "phones": ["020 0000 0000"], "emails": [], "sources": ["https://cornercafe.example"], "found": True,
+                "confidence": {}, "audit": [], "reason": "", "ledger": {"outcome": "found"}}
 
     monkeypatch.setattr(conn, "search", fake_search)
     monkeypatch.setattr(conn, "fetch_profile", fake_profile)
-    monkeypatch.setattr(enrichment_service, "enrich_prospect_intelligence", fake_web)
+    monkeypatch.setattr("app.services.web_harness.find_company", fake_web)
     charged = []
 
     async def allow(db):

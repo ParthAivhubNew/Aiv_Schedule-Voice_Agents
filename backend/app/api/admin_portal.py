@@ -2005,6 +2005,10 @@ async def preview_data_source(source_id: str, request: Request):
 
 class StartRunBody(BaseModel):
     queries: List[str] = []  # one search term per item -- empty/unused for a bulk-file source
+    job: str = ""  # "people": read directors (and owners) from the registry for the best-ranked companies, instead of importing or searching
+    limit: int = 0  # people job: how many companies to read
+    share: int = 75  # people job: the share of the registry's rate limit it may use
+    owners: bool = False  # people job: also read each company's owners (doubles the calls)
 
 
 @router.post("/data-sources/{source_id}/start")
@@ -2022,14 +2026,37 @@ async def start_data_source_run(source_id: str, body: StartRunBody, request: Req
         source = await _get_data_source(db, source_id)
         bulk = is_bulk(source)
         try:
-            run = await DS.start_run(db, source, body.queries)
+            if body.job == "people":
+                run = await DS.start_people_run(db, source, limit=body.limit, share=body.share, owners=body.owners)
+            else:
+                run = await DS.start_run(db, source, body.queries)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         await db.commit()
         run_id = run.id
-    DS.spawn(DS.run_bulk(run_id) if bulk else DS.run_batch(run_id))
+    DS.spawn(DS.run_people(run_id) if body.job == "people" else DS.run_bulk(run_id) if bulk else DS.run_batch(run_id))
     async with AsyncSessionLocal() as db:
         return _data_source_out(await _get_data_source(db, source_id))
+
+
+@router.get("/data-sources/{source_id}/people-status")
+async def data_source_people_status(source_id: str, request: Request):
+    """How far the people job has got across the whole register: companies read so far, and how many eligible ones are still waiting."""
+    from sqlalchemy import func
+
+    from app.core.tenancy import system_scope
+    from app.models.models import BusinessRecord as B
+    from app.services import data_sources as DS
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        await _get_data_source(db, source_id)
+        with system_scope():
+            read = (await db.execute(select(func.count()).select_from(B).where(B.people_checked_at.isnot(None)))).scalar() or 0
+            with_people = (await db.execute(select(func.count()).select_from(B).where(B.people_checked_at.isnot(None), B.officers.isnot(None),
+                                                                                    func.json_array_length(B.officers) > 0))).scalar() or 0
+            waiting = (await db.execute(select(func.count()).select_from(DS._people_todo(set()).order_by(None).subquery()))).scalar() or 0
+    return {"read": read, "withPeople": with_people, "waiting": waiting}
 
 
 @router.post("/data-sources/{source_id}/{action}")
@@ -2089,6 +2116,8 @@ async def list_data_source_runs(source_id: str, request: Request, limit: int = 2
         "id": r.id, "status": r.status, "recordsFound": r.records_found, "recordsNew": r.records_new,
         "recordsUpdated": r.records_updated, "errorMessage": r.error_message or "",
         "total": (r.cursor or {}).get("total") or 0, "currentQuery": (r.cursor or {}).get("current") or "",
+        "job": (r.cursor or {}).get("job") or "", "failed": (r.cursor or {}).get("failed") or 0, "waiting": (r.cursor or {}).get("waiting") or "",
+        "owners": bool((r.cursor or {}).get("owners")),
         "startedAt": r.started_at.isoformat() + "Z" if r.started_at else None,
         "finishedAt": r.finished_at.isoformat() + "Z" if r.finished_at else None,
     } for r in rows]}

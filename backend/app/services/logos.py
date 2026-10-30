@@ -40,6 +40,22 @@ def _kind(data: bytes) -> str:
     return ""
 
 
+def _has_picture(data: bytes) -> bool:
+    """False for an icon that shows nothing: fully transparent, or only white. Some sites ship a blank 16x16 favicon, which would
+    show as an empty box. An image Pillow cannot read is kept, because the browser may still draw it."""
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(data)).convert("RGBA")
+        im.thumbnail((48, 48))
+        px = list(im.getdata())
+        return sum(1 for r, g, b, a in px if a > 40 and min(r, g, b) < 245) >= max(4, len(px) // 100)
+    except Exception:
+        return True
+
+
 async def _read(client: httpx.AsyncClient, url: str, cap: int, whole: bool = False) -> Optional[Tuple[bytes, str]]:
     """The body (up to cap bytes) and final address of a public page, following a few redirects. With whole=True an image bigger than cap
     is refused, not cut short: a cut-off image would show broken."""
@@ -124,7 +140,7 @@ def _icon_links(html: str, base: str) -> List[str]:
 
 
 def _paths(host: str) -> Tuple[Path, Path, Path]:
-    key = hashlib.sha1(host.encode()).hexdigest()
+    key = hashlib.sha1(("v2:" + host).encode()).hexdigest()  # v2: logos kept before blank icons were skipped are not reused
     return LOGO_DIR / f"{key}.bin", LOGO_DIR / f"{key}.type", LOGO_DIR / f"{key}.none"
 
 
@@ -175,7 +191,7 @@ async def logo_for(site: str) -> Optional[Tuple[bytes, str]]:
                         got = await _read(client, url, MAX_IMAGE, whole=True)
                     except (FetchRefused, httpx.HTTPError):
                         continue
-                    if got and len(got[0]) >= 200 and _kind(got[0]):
+                    if got and len(got[0]) >= 200 and _kind(got[0]) and _has_picture(got[0]):
                         result = (got[0], _kind(got[0]))
                         break
         except Exception as err:  # a logo is a nicety: never an error

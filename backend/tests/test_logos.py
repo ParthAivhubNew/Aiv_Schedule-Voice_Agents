@@ -28,3 +28,23 @@ def test_only_images_that_call_themselves_a_logo_are_taken_from_the_page():
 def test_the_big_icon_is_still_ranked_before_the_small_one():
     html = '<link rel="icon" href="/f.ico"><link rel="apple-touch-icon" sizes="180x180" href="/touch.png">'
     assert L._icon_links(html, BASE)[0] == "https://www.example.co.uk/touch.png"
+
+
+def _png(pixels, size=(16, 16)):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", size, pixels).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_a_blank_or_white_icon_is_not_taken_as_a_logo():
+    assert L._has_picture(_png((0, 0, 0, 0))) is False
+    assert L._has_picture(_png((255, 255, 255, 255))) is False
+    assert L._has_picture(_png((20, 90, 160, 255))) is True
+
+
+def test_an_image_that_cannot_be_read_is_kept():
+    assert L._has_picture(b"not an image") is True

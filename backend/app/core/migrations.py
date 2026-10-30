@@ -574,6 +574,41 @@ async def _companies_house_bulk_config(conn: AsyncConnection) -> None:
     await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
 
 
+async def _companies_house_people_fields(conn: AsyncConnection) -> None:
+    """Officers and owners keep what the register publishes about them (nationality, occupation, country, birth year, what the owner controls),
+    and a company's whole board is read, not the first 25. Rewrites the two field maps only where they still lack these fields, so a map
+    staff have edited is left alone."""
+    import json
+
+    row = (await conn.execute(text("SELECT config FROM data_sources WHERE id = 'ds_companies_house'"))).first()
+    if not row:
+        return
+    config = row[0] if isinstance(row[0], dict) else json.loads(row[0] or "{}")
+    if "nationality" not in (config.get("officers_field_map") or {}):
+        config["officers_endpoint"] = "/company/{id}/officers?items_per_page=100"
+        config["officers_field_map"] = {
+            "name": "name", "role": "officer_role", "appointed_on": "appointed_on", "resigned_on": "resigned_on",
+            "nationality": "nationality", "occupation": "occupation", "country_of_residence": "country_of_residence",
+            "born_year": "date_of_birth.year", "born_month": "date_of_birth.month", "appointments_link": "links.officer.appointments",
+        }
+    if "natures_of_control" not in str(config.get("psc_field_map") or ""):
+        config["psc_endpoint"] = "/company/{id}/persons-with-significant-control?items_per_page=50"
+        config["psc_field_map"] = {
+            "name": "name", "kind": "kind", "notified_on": "notified_on", "ceased_on": "ceased_on",
+            "nature_of_control": "natures_of_control", "nationality": "nationality", "country_of_residence": "country_of_residence",
+            "born_year": "date_of_birth.year",
+        }
+    await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = 'ds_companies_house'"), {"c": json.dumps(config)})
+
+
+async def _business_record_people_checked(conn: AsyncConnection) -> None:
+    """When a company's officers were last read from the registry, and the index the background people job walks (best-ranked first,
+    only the companies not read yet). The column is added empty and instantly; the index takes a minute on a few million rows."""
+    await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS people_checked_at TIMESTAMP"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo ON business_records (rank_score DESC NULLS LAST) WHERE people_checked_at IS NULL"))
+    await conn.execute(text("UPDATE business_records SET people_checked_at = now() WHERE officers IS NOT NULL AND people_checked_at IS NULL"))
+
+
 async def _business_record_search_indexes(conn: AsyncConnection) -> None:
     """GIN trigram indexes so searching business_records (name/domain/reg number/industry/
     region/email/phone, all ILIKE '%term%') stays fast once there are millions of rows -- a plain
@@ -889,6 +924,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_15_open_data_notes_and_pay_gap", _open_data_notes_and_pay_gap),
     ("2026_11_16_business_record_rank_score", _business_record_rank_score),
     ("2026_11_17_clear_directory_websites", _clear_directory_websites),
+    ("2026_11_18_companies_house_people_fields", _companies_house_people_fields),
+    ("2026_11_19_business_record_people_checked", _business_record_people_checked),
 ]
 
 

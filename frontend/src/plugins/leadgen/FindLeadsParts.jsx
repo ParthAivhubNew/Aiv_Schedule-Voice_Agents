@@ -142,7 +142,7 @@ function link(url) {
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
 function Reach({ value, kind, onFind, web, state }) {
   if (!value && web) {
-    return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
+    return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
   const busyHere = state === "busy"; // this cell's own lookup; the other cell in the row is never touched by it
   if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;

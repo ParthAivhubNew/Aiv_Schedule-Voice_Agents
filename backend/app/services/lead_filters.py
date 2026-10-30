@@ -99,7 +99,10 @@ def _own_site(biz) -> str:
 def _web_site(biz) -> str:
     from app.services import site_check
 
-    site = str(((biz.raw_data or {}).get("contacts_web") or {}).get("website") or "")
+    cw = (biz.raw_data or {}).get("contacts_web") or {}
+    site = str(cw.get("website") or "")
+    if cw.get("guardrail"):
+        return site  # the guardrail already weighed this site against the company; a name-shape check here would hide right answers
     return site if site_check.plausible_site(biz.name, site) else ""
 
 

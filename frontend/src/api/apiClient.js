@@ -6,6 +6,7 @@ import {
   setSession,
   clearSession,
 } from "./authStore";
+import { postEventStream } from "./sseStream";
 
 const API_BASE = "/api";
 
@@ -444,6 +445,14 @@ export const api = {
   deepSearchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/deep-search`, { method: 'POST', timeoutMs: 30000 }),
   fillContactGaps: (payload, extra = {}) => apiRequest('/enrichment/fill-gaps', { method: 'POST', body: payload, signal: extra.signal }),
   assistantAsk: (body) => apiRequest('/leads/assistant/ask', { method: 'POST', body, timeoutMs: 90000 }),
+  assistantStream: (body, onEvent, signal) => postEventStream('/leads/assistant/ask/stream', body, onEvent, { signal }),
+  agentRuns: () => apiRequest('/agent/runs'),
+  agentStart: (id) => apiRequest(`/agent/runs/${encodeURIComponent(id)}/start`, { method: 'POST' }),
+  agentPause: (id) => apiRequest(`/agent/runs/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  agentResume: (id) => apiRequest(`/agent/runs/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  agentCancel: (id) => apiRequest(`/agent/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  agentGate: (id, action) => apiRequest(`/agent/runs/${encodeURIComponent(id)}/gate`, { method: 'POST', body: { action } }),
+  pluginAssistantStream: (plugin, body, onEvent, signal) => postEventStream(`/assistant/${encodeURIComponent(plugin)}/ask/stream`, body, onEvent, { signal }),
   assistantProfileFromSite: (url) => apiRequest('/leads/assistant/profile-from-site', { method: 'POST', body: { url }, timeoutMs: 60000 }),
   copilotChat: (payload) => apiRequest('/enrichment/copilot-chat', { method: 'POST', body: payload }),
   chatHistory: (plugin) => apiRequest(`/enrichment/chats/${plugin}`),

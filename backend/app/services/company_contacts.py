@@ -41,17 +41,85 @@ def split_officer_name(name: str) -> Dict[str, str]:
     return {"first_name": first.title(), "last_name": last.title()}
 
 
+PEOPLE_V = 2  # officers saved with nationality, occupation and the rest carry this mark; older saves are read again when the company is opened
+
+
+def _year_of(stamp: Any) -> int:
+    m = re.match(r"(\d{4})", str(stamp or ""))
+    return int(m.group(1)) if m else 0
+
+
+def _officer_id(link: Any) -> str:
+    m = re.search(r"/officers/([^/]+)/appointments", str(link or ""))
+    return m.group(1) if m else ""
+
+
 def active_officers(officers: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     out = []
+    this_year = datetime.utcnow().year
     for o in officers or []:
         if not isinstance(o, dict) or not o.get("name") or o.get("resigned_on"):
             continue
         role = str(o.get("role") or "")
         if role and not _ROLE_KEEP.search(role.replace("-", " ")):
             continue
+        since = _year_of(o.get("appointed_on"))
         out.append({"name": o["name"], "role": role.replace("-", " ").title(), "appointed_on": o.get("appointed_on") or "",
+                    "years_in_role": max(this_year - since, 0) if since else None,
+                    "nationality": o.get("nationality") or "", "occupation": o.get("occupation") or "",
+                    "country_of_residence": o.get("country_of_residence") or "", "born_year": o.get("born_year") or "",
+                    "officer_id": _officer_id(o.get("appointments_link")),
                     **split_officer_name(o["name"]), "source": "registry", "verified": True})
     return out
+
+
+def recent_leavers(officers: Optional[List[Dict[str, Any]]], days: int = 365) -> List[Dict[str, Any]]:
+    """Directors and secretaries who resigned in the last year: a change at the top is a reason to get in touch."""
+    out = []
+    for o in officers or []:
+        if not isinstance(o, dict) or not o.get("name") or not o.get("resigned_on"):
+            continue
+        role = str(o.get("role") or "")
+        if role and not _ROLE_KEEP.search(role.replace("-", " ")):
+            continue
+        if _age_days(str(o["resigned_on"])[:10] + "T00:00:00") <= days:
+            out.append({"name": o["name"], "role": role.replace("-", " ").title(), "resigned_on": o["resigned_on"]})
+    return sorted(out, key=lambda x: x["resigned_on"], reverse=True)
+
+
+_SHARES = re.compile(r"(ownership-of-shares|ownership-of-voting-rights|voting-rights)-(more-than-)?(\d+)(?:-to-(\d+))?-percent")
+
+
+def _nature_words(code: str) -> str:
+    """'ownership-of-shares-25-to-50-percent' -> 'Owns 25 to 50% of the shares'."""
+    code = code.strip()
+    m = _SHARES.match(code)
+    if m:
+        share = f"{'more than ' if m.group(2) else ''}{m.group(3)}{' to ' + m.group(4) if m.group(4) else ''}%"
+        words = f"Owns {share} of the shares" if m.group(1) == "ownership-of-shares" else f"Holds {share} of the votes"
+        return words + (" (through a trust)" if "-as-trust" in code else " (through a firm)" if "-as-firm" in code else "")
+    return code.replace("-", " ").capitalize()
+
+
+def controllers(psc: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """The people and companies that own or control this one and still do (not ceased), with what they control in plain words."""
+    out = []
+    for p in psc or []:
+        if not isinstance(p, dict) or not p.get("name") or p.get("ceased_on"):
+            continue
+        natures = [_nature_words(n) for n in str(p.get("nature_of_control") or "").split(", ") if n.strip()]
+        out.append({"name": p["name"], "kind": str(p.get("kind") or "").replace("-", " ").replace("persons with significant control", "").strip(),
+                    "controls": natures, "since": p.get("notified_on") or "", "nationality": p.get("nationality") or "",
+                    "country_of_residence": p.get("country_of_residence") or "", "born_year": p.get("born_year") or ""})
+    return out
+
+
+def people_stale(biz: BusinessRecord) -> bool:
+    """True when the officers still need reading: none saved yet, or saved before nationality, occupation and the rest were kept."""
+    saved = biz.officers
+    if not saved:
+        return getattr(biz, "people_checked_at", None) is None  # read before and it had none: leave it
+    return any(isinstance(o, dict) and o.get("v") != PEOPLE_V for o in saved)
 
 
 async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
@@ -80,9 +148,13 @@ async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
         except Exception as err:
             logger.warning(f"[company_contacts] {source.name} profile failed: {err}")
             continue
+        for o in profile.get("officers") or []:
+            if isinstance(o, dict):
+                o["v"] = PEOPLE_V
         profile.setdefault("registration_number", biz.registration_number)
         await business_records.upsert(db, source_id=source.id, source_type=source.kind, confidence_tier="verified_registry", data=profile)
         await db.refresh(biz)
+        biz.people_checked_at = datetime.utcnow()
         return True
     return False
 

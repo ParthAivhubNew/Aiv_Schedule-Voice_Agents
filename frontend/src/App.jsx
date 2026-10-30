@@ -5,6 +5,7 @@ import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
 import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
 import { AppChrome } from "./app/ui";
+import { AgentWidget } from "./agent/AgentWidget";
 import { Loader } from "./app/Loader";
 import { SessionGuard } from "./hub/SessionGuard";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
@@ -802,6 +803,7 @@ function MainApp({ onSignedOut }) {
     <OrgSettingsProvider>
       <SessionGuard onTimeout={handleLogout} busy={liveCalls.length > 0} />
       <ListHandoffPrompt plugin={plugin} />
+      <AgentWidget />
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome

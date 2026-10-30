@@ -272,6 +272,28 @@ async def test_the_daily_count_is_shared_through_the_database(db, fakes, monkeyp
 
 def test_the_tool_set_is_small_and_every_tool_says_when_to_use_it():
     names = [t["function"]["name"] for t in LA.TOOLS]
-    assert len(names) == len(set(names)) and len(names) <= 6
+    assert len(names) == len(set(names)) and len(names) <= 8  # six for the work itself, plus propose_plan and use_plugin for planning with the person
+    assert {"propose_plan", "use_plugin"} <= set(names)
     assert all(t["function"]["description"].startswith("USE") for t in LA.TOOLS + [LA.WEB_TOOL])
     assert "search_web" not in names  # only added when the person switches Web search on
+
+
+async def test_the_stream_sends_each_step_as_it_happens_then_the_same_reply(db, fakes):
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("search_companies", sector=["restaurant"], towns=["Leeds"])]}
+    _, token = await make_user(db, "as_stream", "Admin", org_id="org_as_stream")
+    async with _client(token) as c:
+        r = await c.post("/api/leads/assistant/ask/stream", json={"message": "cafes in Leeds"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+    events = [json.loads(line[6:]) for line in r.text.split("\n\n") if line.startswith("data: ")]
+    kinds = [e["type"] for e in events]
+    assert kinds[0] == "status" and "tool" in kinds and "step" in kinds and "ui" in kinds and kinds[-1] == "final"
+    assert kinds.index("tool") < kinds.index("step") < kinds.index("final")
+    assert events[-1]["result"]["reply"] == "I found 2 companies." and events[-1]["result"]["found"]["total"] == 2
+
+
+async def test_the_stream_refuses_past_the_daily_limit_before_it_opens(db, fakes, monkeypatch):
+    monkeypatch.setattr(LA, "DAILY_MESSAGES", 1)
+    _, token = await make_user(db, "as_stream2", "Admin", org_id="org_as_stream2")
+    async with _client(token) as c:
+        assert (await c.post("/api/leads/assistant/ask/stream", json={"message": "hi"})).status_code == 200
+        assert (await c.post("/api/leads/assistant/ask/stream", json={"message": "again"})).status_code == 429

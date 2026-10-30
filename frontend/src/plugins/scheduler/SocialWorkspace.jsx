@@ -1,7 +1,9 @@
 import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "../../app/Loader";
+import { AssistantButton, AssistantPanel, assistantHasChat } from "../leadgen/AssistantPanel";
 import { createPortal } from "react-dom";
 import {
+  Bot,
   CalendarClock,
   CalendarDays,
   Check,
@@ -4354,6 +4356,24 @@ export function SocialWorkspace({
     setApprovalOpen(false);
     setPage(id);
   };
+  const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
+  // Leaving the full-screen assistant for another page docks it in the right corner, so the chat carries on beside the page.
+  const lastPage = useRef(page);
+  useEffect(() => {
+    if (lastPage.current === "assistant" && page !== "assistant" && assistantHasChat("social") && window.innerWidth > 820) setAssistantOpen(true);
+    lastPage.current = page;
+  }, [page]);
+  // The Social assistant's buttons: open a page, and put its plan request in the planner's box for the person to send.
+  useEffect(() => {
+    const on = (e) => {
+      const d = e.detail || {};
+      if (d.page) goPage(d.page);
+      if (d.prompt) setDraft(d.prompt);
+      if (page !== "assistant" && d.prompt) setAssistantOpen(false);
+    };
+    window.addEventListener("aivhub:social-goto", on);
+    return () => window.removeEventListener("aivhub:social-goto", on);
+  });
   const retryFromOverview = async (id) => {
     const row = posts.find((p) => p.id === id);
     if (row) {
@@ -4373,6 +4393,7 @@ export function SocialWorkspace({
   };
   const navGroups = [
     { label: "Posts", items: [
+      { id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, active: page === "assistant" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("assistant") },
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "Post approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
       { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights"),
@@ -4398,6 +4419,7 @@ export function SocialWorkspace({
     listening: ["Results & Ideas", "Public posts that mention your brand, products or competitors."],
     media: ["Library", "Pictures and videos to reuse in posts."],
     import: ["Library", "Add many posts at once from a CSV or Excel file."],
+    assistant: ["AI Assistant", "Ask in plain words. It reads your posts, results and accounts, and changes nothing: to plan or edit posts it opens the planner for you."],
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
     approvals: ["Post approve", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts", "The social accounts your posts go to."],
@@ -4413,7 +4435,9 @@ export function SocialWorkspace({
         onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "insights", "accounts"]} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <PluginHeader nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar} />
+        <PluginHeader assistant={false} nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar}>
+          {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
+        </PluginHeader>
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
           onContinue={() => resumeGeneration("continue")} onStartNew={() => resumeGeneration("new")}
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
@@ -4506,6 +4530,10 @@ export function SocialWorkspace({
               </div>
             </div>
             <SubscriptionPage wallet="scheduler" back="/scheduler" />
+          </div>
+        ) : page === "assistant" && !pluginLocked ? (
+          <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+            <AssistantPanel page plugin="social" open onClose={() => goPage("plan")} />
           </div>
         ) : page === "accounts" ? (
           <SimpleAccountsPage
@@ -5137,6 +5165,7 @@ export function SocialWorkspace({
         )}
       </div>
 
+      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="social" open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
       <ScheduleWindow
         open={schedulesOpen}
         onClose={() => setSchedulesOpen(false)}

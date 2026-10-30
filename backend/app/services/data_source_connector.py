@@ -106,6 +106,65 @@ class ConnectorError(Exception):
     endpoint, unreachable host) -- as opposed to a call that succeeded but matched nothing."""
 
 
+class RateLimited(ConnectorError):
+    """Companies House answered 429: too many calls in its 5-minute window. `wait` is how long to hold off."""
+
+    def __init__(self, wait: float):
+        super().__init__("Companies House asked us to slow down (429).")
+        self.wait = wait
+
+
+class KeyRejected(ConnectorError):
+    """No key, or the key was refused (401/403): nothing more can be read until it is fixed."""
+
+
+def _retry_after(resp: httpx.Response) -> float:
+    """Seconds to wait after a 429: Retry-After if sent, else until X-Ratelimit-Reset (a unix time), else a minute; never under 5 s or over 5 min."""
+    import time
+
+    try:
+        if resp.headers.get("Retry-After"):
+            return min(max(float(resp.headers["Retry-After"]), 5.0), 310.0)
+        if resp.headers.get("X-Ratelimit-Reset"):
+            return min(max(float(resp.headers["X-Ratelimit-Reset"]) - time.time(), 5.0), 310.0)
+    except ValueError:
+        pass
+    return 60.0
+
+
+async def fetch_people(source, company_number: str, *, owners: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+    """One company's officers (and its owners when asked) for the background job. Unlike fetch_profile it says WHY nothing came back: a
+    company the register has no officers for (404) gives an empty list, while a 429, a refused key or an outage raises, so the job never
+    records a failed call as "this company has no officers"."""
+    cfg = source.config or {}
+    if source.auth_type not in ("none", "", None) and not source.api_key:
+        raise KeyRejected("No API key is saved for this source.")
+    plan = [("officers", cfg.get("officers_endpoint"), cfg.get("officers_items_path", "items"), cfg.get("officers_field_map") or {}, 100)]
+    if owners:
+        plan.append(("significant_control", cfg.get("psc_endpoint"), cfg.get("psc_items_path", "items"), cfg.get("psc_field_map") or {}, 50))
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    async with _client(source) as client:
+        for name, endpoint, items_path, field_map, limit in plan:
+            if not endpoint:
+                continue
+            try:
+                resp = await client.get(endpoint.format(id=company_number))
+            except httpx.HTTPError as err:
+                raise ConnectorError(f"Couldn't reach {source.base_url}: {err}") from err
+            if resp.status_code == 429:
+                raise RateLimited(_retry_after(resp))
+            if resp.status_code in (401, 403):
+                raise KeyRejected(f"{resp.status_code}: the API key was rejected -- check it's correct and still active.")
+            if resp.status_code == 404:
+                out[name] = []
+                continue
+            if resp.status_code >= 400:
+                raise ConnectorError(f"{resp.status_code} from {source.base_url} for {company_number}")
+            items = _dig(resp.json(), items_path)
+            out[name] = [map_fields(it, field_map) for it in items[:limit] if isinstance(it, dict)] if isinstance(items, list) else []
+    return out
+
+
 async def _raw_search(source, query: str, limit: int = 10) -> List[Dict[str, Any]]:
     cfg = source.config or {}
     endpoint = cfg.get("search_endpoint")
@@ -628,9 +687,9 @@ async def fetch_profile(source, item: Dict[str, Any]) -> Dict[str, Any]:
         officers_endpoint = cfg.get("officers_endpoint")
         if officers_endpoint:
             mapped["officers"] = await _fetch_list(source, officers_endpoint, id_value,
-                                                     cfg.get("officers_items_path", "items"), cfg.get("officers_field_map") or {})
+                                                     cfg.get("officers_items_path", "items"), cfg.get("officers_field_map") or {}, limit=100)
         psc_endpoint = cfg.get("psc_endpoint")
         if psc_endpoint:
             mapped["significant_control"] = await _fetch_list(source, psc_endpoint, id_value,
-                                                                cfg.get("psc_items_path", "items"), cfg.get("psc_field_map") or {})
+                                                                cfg.get("psc_items_path", "items"), cfg.get("psc_field_map") or {}, limit=50)
     return {**mapped, "raw": raw}

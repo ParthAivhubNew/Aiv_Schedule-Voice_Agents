@@ -52,6 +52,7 @@ import {
   ArrowUp,
   SquarePen,
   ListChecks,
+  Bot,
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
@@ -61,7 +62,7 @@ import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
-import { GlobalAssistant } from "../../../hub/GlobalAssistant";
+import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
 import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
@@ -93,6 +94,7 @@ import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
+  { id: "assistant", label: "AI Assistant", icon: Bot, section: "calling", hint: "Ask about your calls, lists and schedule in plain words" },
   { id: "list", label: "Call list", icon: List, section: "calling", hint: "Make calls: call one number, or upload a list and call many people" },
   { id: "logs", label: "Conversations", icon: FileText, section: "calling", hint: "Past calls with their summaries, and calls happening right now. WhatsApp chats too" },  // calls and WhatsApp
   { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling", hint: "Meetings that were booked, and calls to try again later" },
@@ -104,7 +106,7 @@ const PAGES = [
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
-  { label: "Outreach", ids: ["list", "logs", "schedule", "analytics"] },
+  { label: "Outreach", ids: ["assistant", "list", "logs", "schedule", "analytics"] },
   { label: "Settings", ids: ["ai", "company"] },
 ];
 
@@ -967,6 +969,13 @@ export function CallingWorkspace({
   const [logs, setLogs] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [scheduleFocus, setScheduleFocus] = useState(""); // "list" opens booked list inside Schedule
+  const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
+  // Leaving the full-screen assistant for another page docks it in the right corner, so the chat carries on beside the page.
+  const lastPage = useRef(page);
+  useEffect(() => {
+    if (lastPage.current === "assistant" && page !== "assistant" && assistantHasChat("voice") && window.innerWidth > 820) setAssistantOpen(true);
+    lastPage.current = page;
+  }, [page]);
   const [companyDirty, setCompanyDirty] = useState(false);
   const [templatesDirty, setTemplatesDirty] = useState(false);
   const [unsavedLeaveTarget, setUnsavedLeaveTarget] = useState(null);
@@ -2726,6 +2735,7 @@ export function CallingWorkspace({
   const logPageNo = Math.min(logPage, logPageCount);
   const pagedLogs = filteredLogs.slice((logPageNo - 1) * LOG_PAGE_SIZE, logPageNo * LOG_PAGE_SIZE);
   const titles = {
+    assistant: ["AI Assistant", "Ask in plain words. It reads your calls, lists, schedule and numbers, and changes nothing: for that it takes you to the right screen."],
     list: ["Call list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
     logs: ["Conversations", "Past calls on the left, calls happening now on the right. WhatsApp chats open from the tab above."],
     schedule: ["Meetings & callbacks", "Park a call on the left. Calendar for slots · List view for bookings."],
@@ -2854,7 +2864,7 @@ export function CallingWorkspace({
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <GlobalAssistant />
+            {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
                 notifications={notifications}
@@ -2883,7 +2893,8 @@ export function CallingWorkspace({
           }}>{toast}</div>
         ) : null}
 
-        <div className={page === "list" && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates") ? "hidden" : "auto", padding: page === "list" && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates") ? "column" : undefined }}>
+        <div className={(page === "list" || page === "assistant") && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates" || page === "assistant") ? "hidden" : "auto", padding: (page === "list" || page === "assistant") && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates" || page === "assistant") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates" || page === "assistant") ? "column" : undefined }}>
+          {page === "assistant" && !pluginLocked ? <AssistantPanel page plugin="voice" open onClose={() => goPage("list")} /> : null}
           {pluginLocked && peekCallList() ? (
             <div role="status" style={{ maxWidth: 1240, marginBottom: 14, padding: "12px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
               Your list of {peekCallList().count.toLocaleString()} {peekCallList().count === 1 ? "company" : "companies"} from Lead Gen is saved. Choose a plan below and it will be ready to call straight after.
@@ -4486,6 +4497,8 @@ export function CallingWorkspace({
           </div>
         </div>
       )}
+
+      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="voice" open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
 
       {/* In-Browser LiveKit WebRTC Voice Call Modal */}
       <LiveKitBrowserCallModal

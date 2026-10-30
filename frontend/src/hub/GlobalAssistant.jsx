@@ -9,7 +9,18 @@ import { navigateHash } from "../utils/route";
 // The assistant outside Leads: a button in the header of Voice and Social that opens the same chat, with the same conversation, as a
 // panel over the page. Anything the chat finds or prepares opens in Leads, where it belongs. Shown only to companies that have Leads.
 
-function Dock({ open, onClose }) {
+function Dock({ open, onClose, plugin }) {
+  if (plugin !== "leads") {
+    return (
+      <div style={{ position: "fixed", top: 0, right: 0, zIndex: 80 }}>
+        <AssistantPanel plugin={plugin} open={open} onClose={onClose} />
+      </div>
+    );
+  }
+  return <LeadsDock open={open} onClose={onClose} />;
+}
+
+function LeadsDock({ open, onClose }) {
   const toast = () => {};
   const listsStore = useLeadLists(toast);
   const store = useLeadAccounts(toast, listsStore.reload);
@@ -24,15 +35,16 @@ function Dock({ open, onClose }) {
   );
 }
 
-export function GlobalAssistant() {
+// plugin: which assistant the header button opens ("leads", "voice" or "social"): the one for the screen you are on.
+export function GlobalAssistant({ plugin = "leads" }) {
   const { plugins } = useConnections();
   const [open, setOpen] = useState(false);
   const [used, setUsed] = useState(false); // the panel's data loads only once it has been opened
-  if (!plugins.leads) return null;
+  if (plugin === "leads" && !plugins.leads) return null;
   return (
     <>
-      <AssistantButton open={open} onClick={() => { setUsed(true); setOpen((v) => !v); }} />
-      {used ? createPortal(<Dock open={open} onClose={() => setOpen(false)} />, document.body) : null}
+      <AssistantButton label={plugin === "voice" ? "Voice assistant" : plugin === "social" ? "Social assistant" : "AI Assistant"} open={open} onClick={() => { setUsed(true); setOpen((v) => !v); }} />
+      {used ? createPortal(<Dock plugin={plugin} open={open} onClose={() => setOpen(false)} />, document.body) : null}
     </>
   );
 }

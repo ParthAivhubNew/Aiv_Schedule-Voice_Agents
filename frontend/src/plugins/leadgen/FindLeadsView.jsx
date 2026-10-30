@@ -120,9 +120,15 @@ function WebRow({ label, children }) {
   );
 }
 
+// The second line under an officer: how long in the role, nationality, trade, where they live, birth year. Only what the register publishes.
+function personLine(o) {
+  const years = o.years_in_role == null ? "" : o.years_in_role === 0 ? "joined this year" : `${o.years_in_role} ${o.years_in_role === 1 ? "year" : "years"} in the role`;
+  return [years, o.nationality, o.occupation, o.country_of_residence ? `lives in ${o.country_of_residence}` : "", o.born_year ? `born ${o.born_year}` : ""].filter(Boolean).join(" · ");
+}
+
 function ContactsPanel({ company }) {
   const [data, setData] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);  // the registry is read as soon as the panel opens, so it starts in the loading state
   const [error, setError] = useState("");
   const [domain, setDomain] = useState("");
   const [emails, setEmails] = useState({});
@@ -164,7 +170,13 @@ function ContactsPanel({ company }) {
   return (
     <div style={{ marginTop: 10, padding: 12, background: C.bgSoft || "#F7F8FA", borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-      {!data && busy ? <div style={muted}>Reading the registry…</div> : null}
+      {!data && busy ? (
+        <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}><Spinner size={13} /> Reading the registry for the people at this company…</div>
+          {[0, 1, 2].map((i) => <div key={i} aria-hidden="true" style={{ height: 30, borderRadius: 6, background: C.borderLight, opacity: 1 - i * 0.25 }} />)}
+          <div style={{ ...muted, fontSize: 12 }}>This usually takes a few seconds. It's free.</div>
+        </div>
+      ) : null}
       {data ? (
         <>
           <div>
@@ -175,7 +187,10 @@ function ContactsPanel({ company }) {
               const e = emails[o.name] || {};
               return (
                 <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${C.borderLight}` }}>
-                  <span style={{ ...text, fontSize: 13, flex: "1 1 200px" }}>{o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role || "Officer"}</span></span>
+                  <span style={{ ...text, fontSize: 13, flex: "1 1 200px", minWidth: 0 }}>
+                    {o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role || "Officer"}</span>
+                    {personLine(o) ? <span style={{ ...muted, fontSize: 12, display: "block", marginTop: 1 }}>{personLine(o)}</span> : null}
+                  </span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
                     : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person at that website. Nothing charged.</span>
                     : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>We couldn't find this company's website, so there's nowhere to look for an email. Nothing charged.</span>
@@ -186,8 +201,26 @@ function ContactsPanel({ company }) {
                 </div>
               );
             }) : <div style={{ ...muted, fontSize: 12.5 }}>{data.officers_note || "No current officers listed."}</div>}
+            {(data.recent_leavers || []).length ? (
+              <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>
+                Left in the last year: {data.recent_leavers.map((l) => `${l.name.includes(",") ? l.name.split(",").reverse().map((x) => x.trim()).join(" ") : l.name} (${l.role}, ${l.resigned_on})`).join("; ")}
+              </div>
+            ) : null}
             {domain ? <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>Looking for emails on {domain}.</div> : null}
           </div>
+          {(data.controllers || []).length ? (
+            <div>
+              <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                <Users size={13} /> Who owns or controls it <span style={{ fontWeight: 400, color: C.green }}>(verified)</span>
+              </div>
+              {data.controllers.map((c) => (
+                <div key={c.name} style={{ padding: "6px 0", borderBottom: `1px solid ${C.borderLight}` }}>
+                  <div style={{ ...text, fontSize: 13 }}>{c.name}{c.since ? <span style={{ color: C.slate }}> · since {c.since.slice(0, 4)}</span> : null}</div>
+                  <div style={{ ...muted, fontSize: 12 }}>{[...c.controls, c.nationality, c.country_of_residence ? `lives in ${c.country_of_residence}` : "", c.born_year ? `born ${c.born_year}` : ""].filter(Boolean).join(" · ")}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div>
             <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Contact details</div>
             {data.stored.website || data.stored.phone || data.stored.email ? (

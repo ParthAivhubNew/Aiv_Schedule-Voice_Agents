@@ -1906,6 +1906,7 @@ class BusinessRecord(Base):
     fetch_hash = Column(String, default="")  # hash of the last raw fetch; skips reprocessing unchanged content
     fetched_at = Column(DateTime, default=datetime.utcnow)
     last_verified_at = Column(DateTime, nullable=True)
+    people_checked_at = Column(DateTime, nullable=True)  # when the registry was asked for this company's officers: set even when it had none, so it is not asked again
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -2107,6 +2108,28 @@ class PartnerAudit(Base):
     action = Column(String, nullable=False)
     detail = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AgentRun(Base):
+    """A job the AI assistant planned with the person and runs in the background: its steps (each in one plugin), where it is, and what each did.
+    Only steps that read, or that save for free, run on their own; a step that costs credits or sends something waits for the person."""
+    __tablename__ = "agent_runs"
+
+    id = Column(String, primary_key=True, default=lambda: f"run_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    operator_id = Column(String, nullable=False, index=True)
+    origin = Column(String, default="")  # the plugin whose chat made the plan: leads | voice | social
+    title = Column(String, default="")
+    steps = Column(JSON, default=list)  # [{i, plugin, tool, args, label, kind: read|do|gate, state: pending|running|done|failed|waiting|skipped, result, ms, go}]
+    # planned | running | waiting (for the person) | paused | done | cancelled | failed | interrupted (the server restarted mid-run)
+    status = Column(String, default="planned", index=True)
+    cursor = Column(Integer, default=0)
+    ctx = Column(JSON, default=dict)  # what steps hand to later steps (the latest search's filters)
+    actor = Column(JSON, default=dict)  # who may run it: {operator_id, perms}
+    summary = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
 
 
 from sqlalchemy import event as _sa_event  # noqa: E402

@@ -107,9 +107,14 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/analytics"), "analytics"),
     (re.compile(r"^/logs"), "process_logs"),
     (re.compile(r"^/enrichment/copilot-chat$"), None),  # shared AI chat used by every plugin
+    (re.compile(r"^/enrichment/chats/voice_assistant(_memory)?(/|$)"), "calling"),  # the Voice assistant's saved chats and memory
+    (re.compile(r"^/enrichment/chats/social_assistant(_memory)?(/|$)"), "scheduler"),
     (re.compile(r"^/enrichment"), "leadgen"),
     (re.compile(r"^/leads(/|$)"), "leadgen"),
     (re.compile(r"^/scheduler"), "scheduler"),
+    (re.compile(r"^/agent/"), None),  # a person's own plans: the handlers check each step against what they may use
+    (re.compile(r"^/assistant/voice(/|$)"), "calling"),
+    (re.compile(r"^/assistant/social(/|$)"), "scheduler"),
     (re.compile(r"^/email/u/"), None),  # unsubscribe links (public; signed)
     (re.compile(r"^/legal/"), None),  # public notice and opt-out pages
     (re.compile(r"^/docs/partners"), None),  # public partner guides

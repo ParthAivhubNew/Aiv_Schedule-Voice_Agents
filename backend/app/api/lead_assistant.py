@@ -1,6 +1,7 @@
 """The AI assistant beside the Leads pages.
 
 POST /leads/assistant/ask               one message: the assistant picks tools, runs the free ones, and proposes the rest
+POST /leads/assistant/ask/stream        the same turn as server-sent events, one per step as it happens
 POST /leads/assistant/profile-from-site read a business's own website into profile fields (nothing is saved here)
 
 The model only chooses what to do and words the answer. Companies come from the stored register, never from the model, and
@@ -16,6 +17,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +27,8 @@ from app.core.auth_middleware import current
 from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import CompanyProfile, EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, LeadAccount
-from app.services import business_records, credits, lead_filters, llm_gateway, phrase_understanding
+from app.services.assistant_engine import clean_reply, proposal_reply
+from app.services import agent_runs, business_records, credits, lead_filters, llm_gateway, phrase_understanding
 from app.services.safe_fetch import FetchRefused, fetch_text
 
 logger = logging.getLogger("lead_assistant")
@@ -62,6 +65,7 @@ TOOLS = [
     _tool("check_list", "USE to offer checking a saved list: fixing its websites, phones and emails and finding contacts. It costs credits, so it is only offered; "
                         "the person sees the price before anything is charged.", {"list_name": {"type": "string"}}, ["list_name"]),
     _tool("start_campaign", "USE to offer starting an email campaign to one of the person's lists.", {"list_name": {"type": "string"}}, ["list_name"]),
+    *agent_runs.plan_tools(),
 ]
 
 WEB_TOOL = _tool("search_web", "USE only when the register search found nothing or too few, or the person asks for businesses that are not in the register "
@@ -84,6 +88,7 @@ _SYSTEM = (
     "and say they can set it up under Outreach. When asked which companies fit best, explain only with the fields a search returned. "
     "If the business profile is not filled in and the request needs it, ask what the business sells and who buys it before guessing. "
     "If the message is not about finding, saving or contacting companies, answer it directly without a tool."
+    + agent_runs.AGENT_PROMPT
 )
 
 
@@ -267,6 +272,7 @@ class _Turn:
         self.found: Optional[Dict[str, Any]] = None
         self.filters: Dict[str, Any] = body.filters or {}
         self.web_asked = False
+        self.actor: Dict[str, Any] = {}
 
 
 async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None:
@@ -385,6 +391,10 @@ async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any])
                                 "detail": "You set it up and review it before anything is sent.", "params": {"list_id": hit["id"]}})
         t.steps.append({"label": "Found your list", "detail": hit["name"], "ms": _ms(t0)})
         t.notes.append(f"A proposal for the list '{hit['name']}' is on screen, waiting for the person.")
+    elif name == "propose_plan":
+        await agent_runs.make_plan(db, t, args, "leads")
+    elif name == "use_plugin":
+        await agent_runs.make_switch(t, args, "leads")
     elif name == "show_credits":
         line = await _credits_line(db)
         t.steps.append({"label": "Read your credits", "detail": line, "ms": _ms(t0)})
@@ -401,10 +411,18 @@ def _prompt_for(context: str, notes: List[str]) -> str:
             + "\n- ".join(notes))
 
 
-@router.post("/ask")
-async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+_DOING = {"search_companies": "Searching the company register", "my_data": "Reading your account", "show_credits": "Checking your credits",
+          "propose_plan": "Writing the plan", "use_plugin": "Checking the other plugin", "add_to_list": "Preparing the list", "check_list": "Finding your list", "start_campaign": "Finding your list", "search_web": "Preparing a web search"}
+
+
+async def _guard(db: AsyncSession) -> None:
     if await _spent_today(db) >= DAILY_MESSAGES:
         raise HTTPException(status_code=429, detail=f"You have used today's {DAILY_MESSAGES} assistant messages. They reset tomorrow.")
+
+
+async def _events(body: AskIn, request: Request, db: AsyncSession):
+    """One message, as it happens: status, tool, step and ui events, then one final event holding the whole reply.
+    A failure the person must see arrives as an error event with its status code."""
     started = time.time()
     history = [{"role": "assistant" if m.get("role") in ("assistant", "ai", "bot") else "user", "content": str(m.get("content") or "")[:1500]}
                for m in body.history[-8:] if str(m.get("content") or "").strip()]
@@ -423,17 +441,21 @@ async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db))
 
     tools = TOOLS + ([WEB_TOOL] if body.web_search else [])
     turn = _Turn(body, lists)
+    ctx_auth = current(request)
+    turn.actor = {"operator_id": ctx_auth["operator_id"], "perms": ctx_auth["perms"]}
     messages = [*history, {"role": "user", "content": body.message}]
     ran: set = set()
     reply = ""
     answered = False
     for rnd in range(MAX_ROUNDS):
+        yield {"type": "status", "text": "Thinking" if rnd == 0 else "Reading what came back"}
         plan = await llm_gateway.call_open_chat_llm_with_tools(
             messages=messages, tools=tools, system_prompt=_prompt_for(context, turn.notes), temperature=0.2, max_tokens=500, db=db, scope="leadgen")
         if not plan.get("success"):
             logger.warning("assistant plan failed: %s", plan.get("error"))
             if rnd == 0:
-                raise HTTPException(status_code=502, detail="The AI service did not answer. Try again in a moment.")
+                yield {"type": "error", "status": 502, "message": "The AI service did not answer. Try again in a moment."}
+                return
             break
         if rnd == 0:
             await _count_message(db)
@@ -450,36 +472,77 @@ async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db))
                 ran.add(sig)
                 fresh.append((fn.get("name") or "", args))
         if not fresh:
-            reply = (plan.get("reply") or "").strip()
+            reply = clean_reply(plan.get("reply") or "")
             answered = bool(reply)
             break
         for name, args in fresh[:MAX_ROUNDS]:
+            yield {"type": "tool", "name": name, "text": _DOING.get(name, "Working")}
+            seen, had_found = len(turn.steps), turn.found
             try:
                 await _run_tool(db, turn, name, args)
             except Exception as err:  # one tool failing must not lose the rest of the turn
                 logger.warning("assistant tool %s failed: %s", name, err)
                 turn.notes.append(f"The {name} tool failed ({type(err).__name__}), so there is nothing from it. Say so plainly and offer to try again.")
                 turn.steps.append({"label": f"Could not finish: {name.replace('_', ' ')}", "detail": "Something went wrong. Try again.", "ms": 0, "failed": True})
+            for s in turn.steps[seen:]:
+                yield {"type": "step", "step": s}
+            if turn.found is not had_found and turn.found:
+                yield {"type": "ui", "action": "filters", "filters": turn.found["filters"], "total": turn.found["total"]}
 
     if turn.notes and not answered:
+        yield {"type": "status", "text": "Writing the answer"}
         final = await llm_gateway.call_open_chat_llm(
             messages=messages, system_prompt=_prompt_for(context, turn.notes) + "\n\nAnswer now, without calling anything else.",
             temperature=0.3, max_tokens=400, db=db, scope="leadgen")
-        reply = (final.get("reply") or "").strip() if final.get("success") else ""
+        reply = clean_reply(final.get("reply") or "") if final.get("success") else ""
         if not reply:
-            reply = " ".join(n for n in turn.notes if not n.startswith("A proposal") and not n.startswith("A web search")) or "Done. Check what is on screen."
+            reply = proposal_reply(turn.proposals) or " ".join(n for n in turn.notes if not n.startswith("A proposal") and not n.startswith("A web search")) or "Done. Check what is on screen."
     if not reply:
         reply = "I'm not sure what to do with that. Tell me who you want to find, for example “cafes in Leeds”."
 
     found = turn.found
     has_profile = not context.startswith("The business profile is not filled in")
     thin = bool(found is not None and found["total"] <= THIN)
-    return {"reply": reply, "steps": turn.steps, "proposals": turn.proposals, "took_ms": int((time.time() - started) * 1000),
-            "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(turn.proposals), lists=lists, has_profile=has_profile,
-                                       asked=body.message, thin=thin, web=body.web_search),
-            "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"]} if found else None),
-            "state": {"last_total": found["total"] if found else last.get("last_total"),
-                      "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}
+    yield {"type": "final", "result": {
+        "reply": reply, "steps": turn.steps, "proposals": turn.proposals, "took_ms": int((time.time() - started) * 1000),
+        "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(turn.proposals), lists=lists, has_profile=has_profile,
+                                   asked=body.message, thin=thin, web=body.web_search),
+        "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"]} if found else None),
+        "state": {"last_total": found["total"] if found else last.get("last_total"),
+                  "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}}
+
+
+@router.post("/ask")
+async def ask(body: AskIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _guard(db)
+    async for ev in _events(body, request, db):
+        if ev["type"] == "error":
+            raise HTTPException(status_code=ev["status"], detail=ev["message"])
+        if ev["type"] == "final":
+            return ev["result"]
+    raise HTTPException(status_code=502, detail="The AI service did not answer. Try again in a moment.")
+
+
+def sse(ev: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(ev, default=str)}\n\n"
+
+
+@router.post("/ask/stream")
+async def ask_stream(body: AskIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """The same turn as /ask, sent as server-sent events so the chat can show each step the moment it is done."""
+    await _guard(db)
+
+    async def gen():
+        try:
+            async for ev in _events(body, request, db):
+                yield sse(ev)
+                if await request.is_disconnected():
+                    return
+        except Exception as err:  # the stream is already open, so the failure travels as an event
+            logger.warning("assistant stream failed: %s", err)
+            yield sse({"type": "error", "status": 500, "message": "Something went wrong. Try again."})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.post("/profile-from-site")

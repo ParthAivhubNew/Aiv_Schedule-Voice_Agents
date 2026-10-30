@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, FileSpreadsheet, Globe, ListPlus, Mail, Maximize2, PenLine, Plus, RotateCcw, Search, Send, ShieldCheck, Sparkles, Square, Trash2, Users, X } from "lucide-react";
+import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, FileSpreadsheet, Globe, ListPlus, Mail, ArrowRight, Maximize2, Mic, PenLine, Plus, RotateCcw, Search, Send, ShieldCheck, Sparkles, Square, Trash2, Users, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { Spinner } from "../../app/Loader";
+import { useSpeech } from "../../hooks/useSpeech";
+import { navigateHash } from "../../utils/route";
+import { PlanCard } from "../../agent/PlanCard";
 import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
@@ -28,29 +31,102 @@ const COMMANDS = [
   { cmd: "/memory", note: "See and delete what I remember", memory: true },
   { cmd: "/import", note: "Bring in your own spreadsheet of companies", importer: true },
 ];
-const MEMORY_KEY = "leadgen_assistant_memory";
 const WEB_KEY = "leadgen_assistant_web";
 const readWeb = () => { try { return localStorage.getItem(WEB_KEY) === "on"; } catch { return false; } };
 
 // The conversation lives here, outside any one screen, so the full page and the docked panel show the same chat: go to another tab and the
 // chat moves to the corner with its answer still coming in; expand it and it fills the page again.
-const shared = { s: { messages: [], busy: false, acts: {}, suggest: [], filters: {}, chatId: `a_${Date.now()}`, run: 0, turnState: {} }, subs: new Set() };
-const setShared = (patch) => {
-  shared.s = { ...shared.s, ...(typeof patch === "function" ? patch(shared.s) : patch) };
-  shared.subs.forEach((f) => f());
+// Each plugin (Leads, Voice, Social) has its own store, so a chat in one never shows in another.
+const stores = {};
+const storeFor = (id) => stores[id] || (stores[id] = {
+  s: { messages: [], busy: false, live: { status: "", steps: [] }, acts: {}, suggest: [], filters: {}, chatId: `a_${Date.now()}`, run: 0, turnState: {} },
+  subs: new Set(), aborter: null, // aborter stops the answer that is being streamed
+});
+const setShared = (store, patch) => {
+  store.s = { ...store.s, ...(typeof patch === "function" ? patch(store.s) : patch) };
+  store.subs.forEach((f) => f());
 };
-const useShared = () => useSyncExternalStore((f) => { shared.subs.add(f); return () => shared.subs.delete(f); }, () => shared.s);
-const sharedRef = (key) => ({ get current() { return shared.s[key]; }, set current(v) { shared.s = { ...shared.s, [key]: v }; } });
-const filtersRef = sharedRef("filters");
-const chatIdRef = sharedRef("chatId");
-const runRef = sharedRef("run");
-const turnRef = sharedRef("turnState");
-const settable = (key) => (v) => setShared((st) => ({ [key]: typeof v === "function" ? v(st[key]) : v }));
-const setMessages = settable("messages");
-const setBusy = settable("busy");
-const setActs = settable("acts");
-const setSuggest = settable("suggest");
-export const assistantHasChat = () => shared.s.messages.length > 0;
+const useShared = (store) => useSyncExternalStore((f) => { store.subs.add(f); return () => store.subs.delete(f); }, () => store.s);
+const sharedRef = (store, key) => ({ get current() { return store.s[key]; }, set current(v) { store.s = { ...store.s, [key]: v }; } });
+const settable = (store, key) => (v) => setShared(store, (st) => ({ [key]: typeof v === "function" ? v(st[key]) : v }));
+export const assistantHasChat = (plugin = "leads") => storeFor(plugin).s.messages.length > 0;
+
+// What differs between the plugins' assistants. The look and the behaviour are the same.
+const PLUGINS = {
+  leads: {
+    id: "leads", short: "Leads", name: "AI Assistant", history: "leadgen_assistant", memory: "leadgen_assistant_memory", leads: true,
+    ask: (body, on, signal) => api.assistantStream(body, on, signal), goals: GOALS,
+    placeholder: "Find leads, ask about your pipeline, or type / for commands",
+    starters: ["Find cafes in Leeds", "Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"],
+    foot: "Saving, checking and sending only happen when you press the button on a card.",
+    get presets() { return PRESETS; },
+  },
+  voice: {
+    id: "voice", short: "Voice", name: "Voice assistant", history: "voice_assistant", memory: "voice_assistant_memory", leads: false,
+    ask: (body, on, signal) => api.pluginAssistantStream("voice", body, on, signal),
+    goals: [
+      { id: "results", Icon: BarChart3, title: "How did my calls go?", note: "Results by outcome, and the latest calls", prompt: "How did my calls go this week?" },
+      { id: "find", Icon: Search, title: "Find a call", note: "By name, company or number, with its summary", prefill: "What happened with " },
+      { id: "lists", Icon: ListPlus, title: "My call lists", note: "Who is on them and who was already called", prompt: "What call lists do I have?" },
+      { id: "sched", Icon: CalendarClock, title: "What is scheduled?", note: "Calls set to run later or repeatedly", prompt: "Do I have any calls scheduled?" },
+      { id: "setup", Icon: ShieldCheck, title: "Is my AI caller ready?", note: "Your numbers and the AI caller's state", prompt: "Is my AI caller set up, and which numbers do I have?" },
+      { id: "credits", Icon: Sparkles, title: "How many credits do I have?", note: "Calling minutes left", prompt: "How many credits do I have left?" },
+    ],
+    placeholder: "Ask about your calls, lists or schedule",
+    starters: ["How did my calls go this week?", "Which calls ended in a meeting?", "Do I have any calls scheduled?", "How many credits do I have left?", "Is my AI caller set up?"],
+    foot: "I read your own calls and settings. To change something I take you to its screen.",
+    presets: [
+      { id: "results", label: "Results", Icon: BarChart3, items: [
+        { title: "How did my calls go this week?", prompt: "How did my calls go this week?" },
+        { title: "Which calls ended in a meeting?", prompt: "Which calls ended with a meeting booked?" },
+        { title: "Which calls need a callback?", prompt: "Which calls asked for a callback, and when?" },
+        { title: "Find a call", prefill: "What happened with " }] },
+      { id: "setup", label: "Setup", Icon: ShieldCheck, items: [
+        { title: "Is my AI caller ready?", prompt: "Is my AI caller set up, and which numbers do I have?" },
+        { title: "Change what the AI caller says", prompt: "I want to change what the AI caller says on calls." },
+        { title: "How many credits do I have?", prompt: "How many credits do I have left?" }] },
+      { id: "calling", label: "Calling", Icon: CalendarClock, items: [
+        { title: "What call lists do I have?", prompt: "What call lists do I have, and who was already called?" },
+        { title: "What is scheduled?", prompt: "Do I have any calls scheduled?" },
+        { title: "Help me schedule calls to a list", prompt: "Help me schedule calls to one of my lists." }] },
+    ],
+  },
+  social: {
+    id: "social", short: "Social", name: "Social assistant", history: "social_assistant", memory: "social_assistant_memory", leads: false,
+    ask: (body, on, signal) => api.pluginAssistantStream("social", body, on, signal),
+    goals: [
+      { id: "next", Icon: CalendarClock, title: "What is going out?", note: "Posts by status, and the next ones", prompt: "What is scheduled to go out?" },
+      { id: "results", Icon: BarChart3, title: "How did my posts do?", note: "Best posts by reach, likes and clicks", prompt: "How did my posts do this month?" },
+      { id: "accounts", Icon: ShieldCheck, title: "Are my accounts connected?", note: "Each network and any error", prompt: "Are my social accounts connected?" },
+      { id: "plan", Icon: PenLine, title: "Plan some posts", note: "Say the topic and when; the planner opens ready", prefill: "Plan 3 posts for next week about " },
+      { id: "credits", Icon: Sparkles, title: "How many credits do I have?", note: "Social credits left", prompt: "How many credits do I have left?" },
+    ],
+    placeholder: "Ask about your posts, results or accounts",
+    starters: ["What is scheduled to go out?", "How did my posts do this month?", "Are my accounts connected?", "Plan 3 posts for next week", "How many credits do I have left?"],
+    foot: "I read your own posts and accounts. To plan or change posts I open the planner for you.",
+    presets: [
+      { id: "posts", label: "Posts", Icon: CalendarClock, items: [
+        { title: "What is going out?", prompt: "What is scheduled to go out?" },
+        { title: "What needs my approval?", prompt: "Which posts are waiting for my approval?" },
+        { title: "Plan some posts", prefill: "Plan 3 posts for next week about " }] },
+      { id: "results", label: "Results", Icon: BarChart3, items: [
+        { title: "How did my posts do this month?", prompt: "How did my posts do this month?" },
+        { title: "Which post did best?", prompt: "Which of my posts did best, and why might that be?" }] },
+      { id: "setup", label: "Setup", Icon: ShieldCheck, items: [
+        { title: "Are my accounts connected?", prompt: "Are my social accounts connected?" },
+        { title: "How many credits do I have?", prompt: "How many credits do I have left?" }] },
+    ],
+  },
+};
+
+// A button from the assistant that opens somewhere else in the app. Social's pages are inside one screen, so it is told by event.
+function goTo(hash, prompt) {
+  if (hash.startsWith("#/scheduler/")) {
+    window.dispatchEvent(new CustomEvent("aivhub:social-goto", { detail: { page: hash.split("/")[2] || "plan", prompt: prompt || "" } }));
+    return;
+  }
+  navigateHash(hash);
+}
 // The full page opens on these groups, the way Apollo's does. Every prompt maps to something the assistant can really read or do here.
 const PRESETS = [
   { id: "prospecting", label: "Prospecting", Icon: Search, items: [
@@ -76,7 +152,6 @@ const PRESETS = [
     { title: "Why might my emails land in spam?", prompt: "Look at my mailboxes and tell me what could make my emails land in spam, and what to fix first." }] },
 ];
 const STAGES = ["Understanding your request", "Searching the company register", "Putting the answer together"];
-const HISTORY_KEY = "leadgen_assistant";
 
 const css = `
 .as-wrap{flex:0 0 400px;width:400px;height:100vh;overflow:hidden;position:relative;z-index:70;animation:as-grow .28s var(--mo-ease,cubic-bezier(.2,.8,.2,1)) both}
@@ -112,6 +187,14 @@ const css = `
 .as-send{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;background:#111520;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:transform .12s var(--mo-ease,ease),opacity .15s}
 .as-send:not([disabled]):hover{transform:translateY(-1px)}.as-send:not([disabled]):active{transform:scale(.94)}
 .as-send[disabled]{opacity:.35;cursor:default}
+.as-mic{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;color:var(--ui-muted,#6B7280);display:inline-flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}
+.as-mic:hover{background:var(--ui-accent-soft,#EEF2FE);color:var(--ui-accent,#3457D5)}
+.as-mic[data-on="true"]{background:#DC2626;color:#fff;animation:as-listen 1.2s ease-in-out infinite}
+.as-mic:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+@keyframes as-listen{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.45)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
+.as-live{margin:0;padding:0 0 0 2px;list-style:none;display:grid;gap:5px}
+.as-live li{display:flex;gap:8px;font:12.5px/1.4 Inter,sans-serif;color:var(--ui-muted,#6B7280);animation:mo-rise .3s var(--mo-ease,ease) both}
+.as-live strong{color:var(--ui-ink,#111827);font-weight:600}
 .as-send:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .as-icon{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--ui-muted,#6B7280);transition:background-color .12s,color .12s}
 .as-icon:hover,.as-icon:focus-visible{background:var(--ui-hover,#F1F3F8);color:var(--ui-ink,#111827)}
@@ -162,17 +245,17 @@ const css = `
   .as-panel{width:100%}
 }
 @media (prefers-reduced-motion:reduce){
-  .as-wrap,.as-wrap[data-leaving="true"],.as-goal,.as-me,.as-bot,.as-card,.as-orb{animation:none}
+  .as-wrap,.as-wrap[data-leaving="true"],.as-goal,.as-me,.as-bot,.as-card,.as-orb,.as-live li,.as-mic[data-on="true"]{animation:none}
   .as-steps,.as-chev,.as-goal,.as-send{transition:none}
   .as-dots i{animation:none;opacity:.7}
 }
 `;
 
-export function AssistantButton({ open, onClick }) {
+export function AssistantButton({ open, onClick, label = "AI Assistant" }) {
   return (
     <button type="button" className="ui-btn ui-btn--sm as-open" aria-pressed={open} title={open ? "Close the AI assistant" : "Open the AI assistant"} onClick={onClick}
       style={{ background: "#111520", color: "#fff", border: "1px solid #111520", display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
-      <Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">AI Assistant</span>
+      <Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">{label}</span>
     </button>
   );
 }
@@ -260,11 +343,18 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, onImport, page = false }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, onImport, page = false, plugin = "leads" }) {
+  const cfg = PLUGINS[plugin] || PLUGINS.leads;
+  const sh = storeFor(cfg.id);
   const [render, setRender] = useState(open);
   const [leaving, setLeaving] = useState(false);
   const [input, setInput] = useState("");
-  const { messages, busy, acts, suggest } = useShared();
+  const { messages, busy, live, acts, suggest } = useShared(sh);
+  const setMessages = settable(sh, "messages");
+  const setBusy = settable(sh, "busy");
+  const setLive = settable(sh, "live");
+  const setActs = settable(sh, "acts");
+  const setSuggest = settable(sh, "suggest");
   const [stage, setStage] = useState(0);
   const [needsProfile, setNeedsProfile] = useState(false);
   const [view, setView] = useState("chat"); // chat | history | context | memory
@@ -276,20 +366,30 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const [web, setWebOn] = useState(readWeb); // the Web search switch: only when it is on does the assistant get its web search
   const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
   const setWeb = (v) => { setWebOn(v); try { localStorage.setItem(WEB_KEY, v ? "on" : "off"); } catch { /* the choice just is not remembered */ } };
-  const filters = filtersRef;
-  const chatId = chatIdRef;
-  const run = runRef;
-  const turn = turnRef;
+  const filters = sharedRef(sh, "filters");
+  const chatId = sharedRef(sh, "chatId");
+  const run = sharedRef(sh, "run");
+  const turn = sharedRef(sh, "turnState");
+  const HISTORY_KEY = cfg.history;
+  const MEMORY_KEY = cfg.memory;
   const endRef = useRef(null);
   const boxRef = useRef(null);
+  const spoken = useRef({ base: "" }); // what was already in the box when the mic was turned on
+  const mic = useSpeech((said) => setInput(`${spoken.current.base}${spoken.current.base && said ? " " : ""}${said}`));
+  const toggleMic = () => {
+    if (mic.listening) { mic.stop(); return; }
+    spoken.current.base = input.trim();
+    mic.start();
+    boxRef.current?.focus();
+  };
 
   const loadProfile = useCallback(() => {
     api.emailGetWritingProfile().then((r) => setNeedsProfile(!r?.edit?.company || !r?.edit?.sells)).catch(() => {});
   }, []);
-  useEffect(() => { loadProfile(); }, [loadProfile]);
-  const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, []);
+  useEffect(() => { if (cfg.leads) loadProfile(); }, [loadProfile, cfg.leads]);
+  const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, [HISTORY_KEY]);
   useEffect(() => { if (page) loadHistory(); }, [page, loadHistory]);
-  useEffect(() => { api.chatHistory(MEMORY_KEY).then((r) => setMemory((r?.chats || []).map((c) => ({ id: c.id, text: c.title })))).catch(() => {}); }, []);
+  useEffect(() => { api.chatHistory(MEMORY_KEY).then((r) => setMemory((r?.chats || []).map((c) => ({ id: c.id, text: c.title })))).catch(() => {}); }, [MEMORY_KEY]);
   useEffect(() => {
     if (open) { setRender(true); setLeaving(false); return undefined; }
     if (!render) return undefined;
@@ -330,11 +430,28 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     const mine = ++run.current;
     let res = null;
     let failure = null;
+    setLive({ status: "Thinking", steps: [] });
+    sh.aborter = new AbortController();
     try {
-      res = await api.assistantAsk({ message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current });
-    } catch (err) { failure = err; }
+      const body = cfg.leads
+        ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current }
+        : { message: text, history: prior, memory: memory.map((m) => m.text), state: turn.current };
+      await cfg.ask(body, (ev) => {
+        if (mine !== run.current) return;
+        if (ev.type === "status" || ev.type === "tool") setLive((l) => ({ ...l, status: ev.text }));
+        else if (ev.type === "step") setLive((l) => ({ ...l, steps: [...l.steps, ev.step] }));
+        else if (ev.type === "ui" && ev.action === "filters") filters.current = ev.filters;
+        else if (ev.type === "final") res = ev.result;
+        else if (ev.type === "error") failure = new Error(ev.message);
+      }, sh.aborter.signal);
+      if (!res && !failure) failure = new Error("The answer stopped part way. Try again.");
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      failure = err;
+    }
     if (mine !== run.current) return;
     setBusy(false);
+    setLive({ status: "", steps: [] });
     let next;
     if (failure) {
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, retry: text, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
@@ -360,8 +477,8 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     } catch { if (!quiet) say(["I couldn't save that. Try again in a moment."]); }
   };
   const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
-  const stop = () => { run.current += 1; setBusy(false); };
-  const fresh = () => { run.current += 1; setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
+  const stop = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setLive({ status: "", steps: [] }); };
+  const fresh = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");
     api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => setHistory([]));
@@ -382,7 +499,28 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
 
   // A card's button: the only place the assistant's suggestions turn into action.
+  // "This needs Leads. Switch and ask?": the other plugin's own assistant answers the one question, and the answer comes back into this chat. The chats stay separate.
+  const doSwitch = async (p) => {
+    const target = PLUGINS[p.params.plugin];
+    if (!target) return;
+    setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
+    let res = null;
+    let failure = null;
+    const body = target.leads ? { message: p.params.task, history: [], filters: {}, lists: [], memory: [], web_search: false, state: {} } : { message: p.params.task, history: [], memory: [], state: {} };
+    try {
+      await target.ask(body, (ev) => { if (ev.type === "final") res = ev.result; else if (ev.type === "error") failure = new Error(ev.message); });
+    } catch (err) { failure = err; }
+    if (failure || !res) {
+      setActs((a) => ({ ...a, [p.id]: { state: "error", text: failure?.message || `The ${target.short} assistant did not answer. Try again.` } }));
+      return;
+    }
+    setActs((a) => ({ ...a, [p.id]: { state: "done", text: `Asked the ${target.short} assistant. Its answer is below.` } }));
+    setMessages((m) => [...m, { id: `a${Date.now()}`, role: "assistant", from: target.short, text: res.reply, steps: res.steps, tookMs: res.took_ms }]);
+  };
+
   const confirm = async (p) => {
+    if (p.kind === "switch") { doSwitch(p); return; }
+    if (p.kind === "go" || p.kind === "plan") { goTo(p.params.hash || "", p.params.prompt); if (!page) onClose?.(); return; }
     if (p.kind === "check_list") { onOpenList?.(p.params.list_id); return; }
     if (p.kind === "campaign") { onCampaign?.(p.params.list_id); return; }
     if (p.kind === "web_search") {
@@ -415,8 +553,8 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (e.key === "Escape") onClose();
   };
 
-  const slash = input.startsWith("/") && !/\s/.test(input) ? COMMANDS.filter((c) => c.cmd.startsWith(input.toLowerCase())) : [];
-  const starters = messages.length ? [] : ["Find cafes in Leeds", "Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"];
+  const slash = input.startsWith("/") && !/\s/.test(input) ? (cfg.leads ? COMMANDS : COMMANDS.filter((c) => c.memory || c.cmd === "/remember")).filter((c) => c.cmd.startsWith(input.toLowerCase())) : [];
+  const starters = messages.length ? [] : cfg.starters;
   const typed = input.trim().toLowerCase();
   const pool = suggest.length ? suggest : starters;
   const chips = (typed && !slash.length ? pool.filter((c) => c.toLowerCase().includes(typed.split(/\s+/)[0])) : pool).slice(0, 6);
@@ -437,12 +575,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
 
   return (
     <div className={page ? "as-wrap as-page" : "as-wrap"} data-leaving={leaving}>
-      <aside className="as-panel" aria-label="AI assistant">
+      <aside className="as-panel" aria-label={cfg.name}>
         <style>{css}</style>
         {page ? (
           <nav className="as-side" aria-label="Assistant menu">
             <button type="button" className="as-nav" onClick={fresh}><Plus size={16} aria-hidden="true" /><span>Start new chat</span></button>
-            <button type="button" className="as-nav" data-on={view === "context"} onClick={() => setView("context")}><BookOpen size={16} aria-hidden="true" /><span>Context center</span></button>
+            {cfg.leads ? <button type="button" className="as-nav" data-on={view === "context"} onClick={() => setView("context")}><BookOpen size={16} aria-hidden="true" /><span>Context center</span></button> : null}
             <button type="button" className="as-nav" data-on={view === "memory"} onClick={() => setView("memory")}><Brain size={16} aria-hidden="true" /><span>Memory</span></button>
             <div className="as-cap">Chats</div>
             {history.length ? history.map((h) => (
@@ -453,7 +591,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
         <div className="as-col">
         {!page ? <div className="as-head">
           <Sparkles size={16} aria-hidden="true" />
-          <strong style={{ ...text, fontSize: 14, flex: 1 }}>{view === "history" ? "Earlier chats" : "AI Assistant"}</strong>
+          <strong style={{ ...text, fontSize: 14, flex: 1 }}>{view === "history" ? "Earlier chats" : cfg.name}</strong>
           <button type="button" className="as-icon" title="Earlier chats" aria-label="Earlier chats" onClick={() => (view === "history" ? setView("chat") : showHistory())}><Clock size={16} /></button>
           <button type="button" className="as-icon" title="Start a new chat" aria-label="Start a new chat" onClick={fresh}><Plus size={16} /></button>
           {onExpand ? <button type="button" className="as-icon" title="Open full screen" aria-label="Open the assistant full screen" onClick={onExpand}><Maximize2 size={15} /></button> : null}
@@ -515,9 +653,9 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                     <p style={{ ...muted, margin: "6px 0 0" }}>Ask in your own words, type / for commands, or start from a preset.</p>
                   </div>
                   <div className="as-pills" role="group" aria-label="Presets">
-                    {PRESETS.map((g) => <button key={g.id} type="button" className="as-pill" data-on={preset === g.id} aria-pressed={preset === g.id} onClick={() => setPreset(preset === g.id ? "" : g.id)}><g.Icon size={14} aria-hidden="true" /> {g.label}</button>)}
+                    {cfg.presets.map((g) => <button key={g.id} type="button" className="as-pill" data-on={preset === g.id} aria-pressed={preset === g.id} onClick={() => setPreset(preset === g.id ? "" : g.id)}><g.Icon size={14} aria-hidden="true" /> {g.label}</button>)}
                   </div>
-                  {(PRESETS.find((g) => g.id === preset)?.items || []).map((it) => (
+                  {(cfg.presets.find((g) => g.id === preset)?.items || []).map((it) => (
                     <button key={it.title} type="button" className="as-row" onClick={() => (it.prompt ? send(it.prompt) : (setInput(it.prefill || ""), boxRef.current?.focus()))}>{it.title}</button>
                   ))}
                   {needsProfile ? <ProfileSetup onSaved={() => { setNeedsProfile(false); loadProfile(); }} /> : null}
@@ -530,7 +668,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                     <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>What can I do for you today?</h2>
                     <p style={{ ...muted, margin: "6px 0 0" }}>Ask in your own words, or start with one of these.</p>
                   </div>
-                  {GOALS.map((g) => (
+                  {cfg.goals.map((g) => (
                     <button key={g.id} type="button" className="as-goal" onClick={() => pick(g)}>
                       <g.Icon size={18} color="var(--ui-accent, #3457D5)" aria-hidden="true" style={{ marginTop: 2, flex: "none" }} />
                       <span><span style={{ ...text, fontWeight: 600, display: "block" }}>{g.title}</span><span style={muted}>{g.note}</span></span>
@@ -544,6 +682,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 <div key={m.id} className="as-me" style={text}>{m.text}</div>
               ) : (
                 <div key={m.id} className="as-bot" style={{ ...text, color: m.error ? C.red : C.ink }}>
+                  {m.from ? <div style={{ ...muted, fontSize: 11.5, fontWeight: 600, marginBottom: 2 }}>From the {m.from} assistant</div> : null}
                   <Steps steps={m.steps} tookMs={m.tookMs} />
                   {m.text}
                   {m.error && m.retry ? <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setMessages((l) => l.filter((x) => x.id !== m.id)); send(m.retry); }}><RotateCcw size={13} aria-hidden="true" /> Try again</button></div> : null}
@@ -560,16 +699,17 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                     </div>
                   ) : null}
                   {(m.proposals || []).map((p) => {
+                    if (p.kind === "plan_run") return <PlanCard key={p.id} plan={p.params.run} />;
                     const a = acts[p.id] || {};
                     return (
                       <div key={p.id} className="as-card">
                         <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
-                          {p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
+                          {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
                         </div>
                         <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>
-                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : "Saving"}</> : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : "Set up the campaign"}
+                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : "Set up the campaign"}
                           </button>
                         )}
                         {(a.results || []).map((r, i) => {
@@ -593,9 +733,16 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
 
               {busy ? (
                 <div role="status" aria-live="polite" style={{ ...muted, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Spinner size={14} /> <span>{STAGES[stage]}<span className="as-dots" aria-hidden="true"><i /><i /><i /></span></span>
+                  <Spinner size={14} /> <span>{live.status || STAGES[stage]}<span className="as-dots" aria-hidden="true"><i /><i /><i /></span></span>
                   <button type="button" className="ui-link" style={{ marginLeft: "auto" }} onClick={stop}>Stop</button>
                 </div>
+              ) : null}
+              {busy && live.steps.length ? (
+                <ol className="as-live" aria-label="What I have done so far">
+                  {live.steps.map((s, i) => (
+                    <li key={i}><Check size={13} color={C.green} aria-hidden="true" style={{ flex: "none", marginTop: 2 }} /><span><strong>{s.label}</strong>{s.detail ? <> · {s.detail}</> : null}</span></li>
+                  ))}
+                </ol>
               ) : null}
               <div ref={endRef} />
             </>
@@ -618,19 +765,21 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
               </div>
             ) : null}
             <div className="as-box">
-              <textarea ref={boxRef} rows={1} value={input} placeholder="Find leads, ask about your pipeline, or type / for commands" aria-label="Message the assistant"
+              <textarea ref={boxRef} rows={1} value={input} placeholder={cfg.placeholder} aria-label="Message the assistant"
                 onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} />
+              {mic.supported ? <button type="button" className="as-mic" data-on={mic.listening} aria-pressed={mic.listening} aria-label={mic.listening ? "Stop listening" : "Speak your message"} title={mic.listening ? "Stop listening" : "Speak your message"} onClick={toggleMic}><Mic size={15} /></button> : null}
               {busy ? <button type="button" className="as-send" aria-label="Stop" title="Stop" onClick={stop}><Square size={13} fill="currentColor" /></button>
                 : <button type="button" className="as-send" aria-label="Send" disabled={!input.trim()} onClick={() => send()}><ArrowUp size={16} /></button>}
             </div>
+            {mic.error ? <div role="alert" style={{ ...muted, color: C.red, marginTop: 6 }}>{mic.error}</div> : mic.listening ? <div role="status" style={{ ...muted, marginTop: 6 }}>Listening… speak, then press the mic again or Send.</div> : null}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
+              {cfg.leads ? <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
                 title={web ? "Web search is on: the assistant can offer to search public web pages. Results are unverified and cost credits per company found, nothing if none" : `Turn on to let the assistant search public web pages for businesses that are not in the register. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none.`}`}>
                 <Globe size={13} aria-hidden="true" /> Web search <span className="as-web-state">{web ? "On" : "Off"}</span>
-              </button>
-              {onImport ? <button type="button" className="as-web" onClick={onImport} title="Bring in your own spreadsheet of companies"><FileSpreadsheet size={13} aria-hidden="true" /> Import</button> : null}
+              </button> : null}
+              {cfg.leads && onImport ? <button type="button" className="as-web" onClick={onImport} title="Bring in your own spreadsheet of companies"><FileSpreadsheet size={13} aria-hidden="true" /> Import</button> : null}
             </div>
-            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{web ? "Register answers are verified. Web results are labelled unverified, and you confirm before they cost anything." : "Answers come from the company register and your own account."} Saving, checking and sending only happen when you press the button on a card.</div>
+            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{cfg.leads ? (web ? "Register answers are verified. Web results are labelled unverified, and you confirm before they cost anything." : "Answers come from the company register and your own account.") + " " : ""}{cfg.foot}</div>
           </div>
         ) : null}
         </div>

@@ -427,7 +427,7 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     registry_checked = False
-    if not biz.officers:
+    if CC.people_stale(biz):
         registry_checked = await CC.refresh_from_registry(db, biz)
     web: Optional[Dict[str, Any]] = None
     if body.include_web:
@@ -436,6 +436,10 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
             web = await CC.web_contacts(db, biz, refresh=body.refresh_web)
         except Exception:
             raise HTTPException(status_code=502, detail="The web lookup didn't finish. Nothing was charged; try again in a minute.")
+    else:
+        saved = (biz.raw_data or {}).get("contacts_web") or {}  # an earlier lookup is shown again free: it is already paid for
+        if saved.get("guardrail") and (saved.get("website") or saved.get("phones") or saved.get("emails")):
+            web = {**{k: v for k, v in saved.items() if k not in ("audit", "ledger")}, "found": True, "cached": True}
     await db.commit()
     if web and web.get("found") and not web.get("cached") and not body.find_site_only:
         await _charge_leads(db, 1, f"Contacts for {biz.name}")
@@ -443,6 +447,8 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
     return {
         "company": lead_filters.card(biz),
         "officers": officers,
+        "controllers": CC.controllers(biz.significant_control),
+        "recent_leavers": CC.recent_leavers(biz.officers),
         "officers_note": "" if officers else (
             "The registry lists no current officers for this company." if (biz.officers or registry_checked)
             else "Couldn't reach the registry to read this company's officers just now."),

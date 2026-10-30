@@ -691,6 +691,12 @@ function DataSources({ canEdit }) {
                   onClick={() => remove(s)}>Remove</button>
               </div>
             )}
+            {s.config?.officers_endpoint && <PeopleJob source={s} canEdit={canEdit} latest={(runsData[s.id] || [])[0]} onStarted={async () => {
+              setRunsOpen(s.id);
+              const r = await adminApi.dataSourceRuns(s.id);
+              setRunsData((d) => ({ ...d, [s.id]: r.runs || [] }));
+              reload();
+            }} />}
             {filesOpen === s.id && <DataSourceFiles source={s} canEdit={canEdit} onChanged={reload} />}
             {startOpen === s.id && !isBulk(s) && (
               <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
@@ -711,7 +717,7 @@ function DataSources({ canEdit }) {
                 {(runsData[s.id] || []).map((r) => (
                   <div key={r.id} style={{ fontSize: 11.5, color: C.slate, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <Pill tone={r.status === "done" ? "green" : r.status === "error" || r.status === "stuck" ? "red" : r.status === "running" ? "green" : undefined}>{r.status}</Pill>
-                    <span>{r.total ? `${r.recordsFound}/${r.total} processed, ${r.recordsNew} new` : `${r.recordsFound.toLocaleString()} read: ${r.recordsNew.toLocaleString()} new, ${(r.recordsUpdated || 0).toLocaleString()} already had`}</span>
+                    <span>{r.job === "people" ? `People: ${r.recordsFound.toLocaleString()} of ${r.total.toLocaleString()} read, ${r.recordsNew.toLocaleString()} had people, ${(r.recordsUpdated || 0).toLocaleString()} had none${r.failed ? `, ${r.failed} failed` : ""}` : r.total ? `${r.recordsFound}/${r.total} processed, ${r.recordsNew} new` : `${r.recordsFound.toLocaleString()} read: ${r.recordsNew.toLocaleString()} new, ${(r.recordsUpdated || 0).toLocaleString()} already had`}</span>
                     {r.status === "running" && r.currentQuery && <span style={{ fontStyle: "italic" }}>now: "{r.currentQuery}"</span>}
                     <span>{r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}</span>
                     {r.errorMessage && <span style={{ color: C.red || "#c0392b" }}>{r.errorMessage}</span>}
@@ -735,6 +741,67 @@ function DataSources({ canEdit }) {
 }
 
 const CONFIDENCE_TONE = { verified_registry: "green", scraped: undefined, llm_fallback: "amber" };
+
+// The people job: reads each company's directors (and owners) from the registry in the background and saves them on the company.
+// Start, Pause, Resume and Stop are the source's own buttons; this only chooses how much to read and shows where it has got to.
+function PeopleJob({ source, canEdit, latest, onStarted }) {
+  const [limit, setLimit] = useState(500000);
+  const [share, setShare] = useState(75);
+  const [owners, setOwners] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [msg, run] = useAction(() => { onStarted(); adminApi.peopleStatus(source.id).then(setStatus).catch(() => {}); });
+  useEffect(() => { adminApi.peopleStatus(source.id).then(setStatus).catch(() => setStatus(null)); }, [source.id, source.runState]);
+  const busy = source.runState === "running" || source.runState === "paused";
+  const calls = Number(limit || 0) * (owners ? 2 : 1);
+  const days = calls / (600 * 12 * 24 * (share / 100));
+  const job = latest && latest.job === "people" ? latest : null;
+  const label = { fontSize: 11.5, color: C.slate, display: "grid", gap: 3 };
+  return (
+    <div style={{ display: "grid", gap: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4 }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Directors and owners</div>
+      <div style={{ fontSize: 12, color: C.slate }}>
+        Reads each company's directors from the registry, best-ranked companies first, and saves them on the company. Companies already read are skipped,
+        so stopping and starting again carries on where it left off. It runs under the registry's limit of 600 calls per 5 minutes and leaves room for the app.
+      </div>
+      {status && (
+        <div style={{ fontSize: 12 }}>
+          Read so far: <b>{status.read.toLocaleString()}</b> ({status.withPeople.toLocaleString()} had people) · Still waiting: <b>{status.waiting.toLocaleString()}</b> active companies
+        </div>
+      )}
+      {job && busy && (
+        <div style={{ fontSize: 12 }}>
+          This run: <b>{job.recordsFound.toLocaleString()}</b> of {job.total.toLocaleString()} read · {job.recordsNew.toLocaleString()} had people · {(job.recordsUpdated || 0).toLocaleString()} had none
+          {job.failed ? ` · ${job.failed} failed` : ""}{job.waiting ? ` · waiting for ${job.waiting}` : ""}{job.currentQuery ? ` · latest: ${job.currentQuery}` : ""}
+        </div>
+      )}
+      {canEdit && !busy && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <label style={label}>How many companies
+            <input type="number" min="1" max="6000000" step="1000" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ ...input, width: 130 }} />
+          </label>
+          <label style={label}>Share of the limit
+            <select value={share} onChange={(e) => setShare(Number(e.target.value))} style={{ ...input, width: 110 }}>
+              {[50, 75, 90].map((n) => <option key={n} value={n}>{n}%</option>)}
+            </select>
+          </label>
+          <label style={{ ...label, display: "flex", alignItems: "center", gap: 6, paddingBottom: 6 }}>
+            <input type="checkbox" checked={owners} onChange={(e) => setOwners(e.target.checked)} /> Also read owners (doubles the calls)
+          </label>
+          <button type="button" style={btn(true)} disabled={!source.hasKey}
+            title={source.hasKey ? "" : "Save this source's API key first"}
+            onClick={() => {
+              if (window.confirm(`Read directors for up to ${Number(limit).toLocaleString()} companies? About ${days < 1 ? "under a day" : `${days.toFixed(1)} days`} at ${share}% of the limit. You can pause or stop it at any time.`)) {
+                run(() => adminApi.startPeopleJob(source.id, { limit: Number(limit), share, owners }), "Started. Watch the progress here, or under Runs.");
+              }
+            }}>Start reading people</button>
+        </div>
+      )}
+      {canEdit && !busy && <div style={{ fontSize: 11.5, color: C.slate }}>About {days < 1 ? "under a day" : `${days.toFixed(1)} days`} at {share}% of the limit ({calls.toLocaleString()} calls). Directors' names, roles, nationality, occupation and birth year are saved; home addresses are not.</div>}
+      {busy && <div style={{ fontSize: 11.5, color: C.slate }}>Use Pause or Stop above to control it. Another run on this source can't start until it ends.</div>}
+      <Note error={msg.error}>{msg.text}</Note>
+    </div>
+  );
+}
 
 // The shared BusinessRecord store, in a table -- so staff can actually see what scraping has
 // produced, and search it the same way a user's question would be matched, to check whether a
