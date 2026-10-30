@@ -10,7 +10,7 @@ import ipaddress
 import logging
 import re
 import socket
-from typing import List, Tuple
+from typing import Optional, List, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -57,12 +57,12 @@ async def _check(url: str) -> None:
             raise FetchRefused("That address is not a public website.")
 
 
-async def fetch_text(url: str, max_chars: int = 6000) -> Tuple[str, str]:
+async def fetch_text(url: str, max_chars: int = 6000, timeout: Optional[float] = None) -> Tuple[str, str]:
     """(title, text) of a public page. Raises FetchRefused with a plain reason."""
     from app.services.crawler_service import USER_AGENT, extract_clean_text_from_html
 
     current = url
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         for _ in range(MAX_REDIRECTS + 1):
             await _check(current)
             async with client.stream("GET", current) as r:

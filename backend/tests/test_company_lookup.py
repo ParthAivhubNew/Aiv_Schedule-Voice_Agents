@@ -359,20 +359,50 @@ def test_a_page_is_read_by_our_own_reader_first_and_deepseek_is_asked_only_when_
 
     monkeypatch.setattr(ES, "fetch_deepseek", deepseek)
 
-    async def ours_ok(url, max_chars=0):
+    async def ours_ok(url, max_chars=0, timeout=None):
         return "Ours", "our text"
 
     monkeypatch.setattr(H, "fetch_text", ours_ok)
     assert run(H._read_page("https://a.example")) == ("Ours", "our text") and asked == []  # quick and free: DeepSeek is not asked
 
-    async def dead(url, max_chars=0):
+    async def dead(url, max_chars=0, timeout=None):
         raise FetchRefused("the page could not be found")
 
     monkeypatch.setattr(H, "fetch_text", dead)
     assert run(H._read_page("https://gone.example")) is None and H._read_page.dead is True and asked == []  # a dead site never waits on a second reader
 
-    async def blocked(url, max_chars=0):
+    async def blocked(url, max_chars=0, timeout=None):
         raise FetchRefused("the site refused the request (403)")
 
     monkeypatch.setattr(H, "fetch_text", blocked)
     assert run(H._read_page("https://shy.example")) == ("From DeepSeek", "page text") and asked == ["https://shy.example"] and H._read_page.dead is False
+
+
+def test_the_sites_found_are_read_at_the_same_time_and_every_step_is_timed(monkeypatch):
+    import asyncio
+    import time
+
+    other = {"url": "https://www.teddybears-nursery.co.uk", "title": "Teddybears Nursery | Hitchin", "snippet": "Teddybears Nursery in Hitchin SG4 0QY", "score": 0.8}
+    _web(monkeypatch, {"Official website": [TEDDY_SITE, other]},
+         pages={OWN: ("Teddybears Pre-School", "Hitchin SG4 0QY. Call 01462 123456"), other["url"]: ("Teddybears Nursery", "Hitchin SG4 0QY. Call 01462 999000")})
+    inner = H._read_page
+
+    async def slow(url):
+        await asyncio.sleep(0.3)
+        return await inner(url)
+
+    slow.dead = False
+
+    async def read_page(url):
+        page = await slow(url)
+        read_page.dead = getattr(inner, "dead", False)
+        return page
+
+    read_page.dead = False
+    monkeypatch.setattr(H, "_read_page", read_page)
+    started = time.monotonic()
+    out = run(H.find_company(None, name=NAME, place=FACTS["region"], facts=FACTS, want="website"))
+    took = time.monotonic() - started
+    assert took < 0.85  # two sites at 0.3 s each, and their contact pages together: well under the one-after-another total of 1.8 s
+    steps = [t["step"] for t in out["ledger"]["timings"]]
+    assert any(x.startswith("search by") for x in steps) and any(x.startswith("read ") for x in steps) and out["ledger"]["seconds"] >= 0.3

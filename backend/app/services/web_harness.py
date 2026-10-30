@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -28,6 +29,8 @@ from app.services.safe_fetch import FetchRefused, fetch_text
 logger = logging.getLogger("web_harness")
 
 CONTACT_PATHS = ("/contact", "/contact-us", "/about")
+READ_TIMEOUT = 6.0  # a company page that has not answered in this long is not worth waiting for
+BUDGET_S = 25.0  # past this, no new search is started: the lookup answers with what it has
 PAGE_CHARS = 6000
 
 
@@ -46,7 +49,7 @@ async def _read_page(url: str) -> Optional[Tuple[str, str]]:
     means the site does not exist; a site that merely refuses our reader is not dead and we do not work around the refusal."""
     _read_page.dead = False
     try:
-        title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5)
+        title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5, timeout=READ_TIMEOUT)
         return (title or ""), text
     except FetchRefused as err:
         if any(m in str(err) for m in _DEAD):
@@ -61,6 +64,12 @@ async def _read_page(url: str) -> Optional[Tuple[str, str]]:
 
 
 _read_page.dead = False
+
+
+async def _read(url: str) -> Tuple[Optional[Tuple[str, str]], bool]:
+    """(page, site is dead). The dead flag is read the moment the page comes back, so pages read at the same time never mix it up."""
+    page = await _read_page(url)
+    return page, bool(_read_page.dead)
 
 
 async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -104,7 +113,14 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
                        threshold: int = G.THRESHOLD, margin: int = G.MARGIN, want: str = "all") -> Dict[str, Any]:
     """{website, phones, emails, sources, found, via, confidence, audit, ledger, reason}. Never raises: a failed step finds less."""
     F = _facts(name, place, facts or {})
-    meter: Dict[str, Any] = {"searches": 0, "tavily_credits": 0.0, "extract_pages": 0}
+    meter: Dict[str, Any] = {"searches": 0, "tavily_credits": 0.0, "extract_pages": 0, "timings": []}
+    t0 = time.monotonic()
+
+    def took(label: str, started: float) -> None:
+        meter["timings"].append({"step": label, "s": round(time.monotonic() - started, 2)})
+
+    def over_budget() -> bool:
+        return time.monotonic() - t0 > BUDGET_S
     out: Dict[str, Any] = {"website": "", "phones": [], "emails": [], "sources": [], "found": False, "via": "guardrail", "confidence": {},
                            "audit": [], "reason": "", "ledger": meter}
     if not (name or "").strip():
@@ -123,9 +139,11 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
     async def run(query: str, *, include: Optional[List[str]] = None, depth: str = "basic", engine: str = "auto") -> int:
         if meter["searches"] >= R.MAX_SEARCHES:
             return 0
+        started = time.monotonic()
         rows = await ES.search_web(query, max_results=R.SETTINGS["max_results"], include_domains=include,
                                    exclude_domains=None if include else R.EXCLUDE_DOMAINS, must_mention=must or None, depth=depth, meter=meter,
                                    engine=engine)
+        took(f"search by {rows[0].get('engine') if rows else 'none'}{' (advanced)' if depth == 'advanced' else ''}{' (contact)' if include else ''}", started)
         if rows and not any(r.get("engine") == "deepseek" for r in rows):
             meter["tavily_used"] = True
         added = 0
@@ -154,41 +172,43 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         win_e, why_e = G.decide(ec, threshold, margin)
         return {"src": src, "cands": wc + pc + ec, "w": win_w, "p": win_p, "e": win_e, "why": {"website": why_w, "phone": why_p, "email": why_e}}
 
+    def complete(t: str) -> bool:
+        return bool(G.numbers_in(t) or "@" in t) and G._place_hit(t, F["postcode"], F["area"])
+
+    async def read_one(c: Dict[str, Any], state: Dict[str, Any]) -> Tuple[Dict[str, Any], str, Any, bool]:
+        home = _homepage(state["src"][c["sources"][0]]["url"])
+        started = time.monotonic()
+        page, dead = await _read(home)
+        meter["extract_pages"] += 1
+        took(f"read {c['key']}{' (dead)' if dead else ''}", started)
+        return c, home, page, dead
+
     async def read_own_sites(state: Dict[str, Any]) -> bool:
-        """Reads the homepage (and contact pages when it has no number or address) of the best look-alike domains. True if it read anything,
-        live or dead, because either changes the evidence. A page read from a site inherits the best search score that site was found with."""
+        """Reads the homepage (and contact pages when it has no number or address) of the best look-alike domains, the sites at the same time.
+        True if it read anything, live or dead, because either changes the evidence. A page read from a site inherits the best search score
+        that site was found with."""
         live = sorted((c for c in state["cands"] if c["field"] == "website" and not c["rejected"]), key=lambda c: -c["score"])[:2]
-        added = False
-        for c in live:
+        todo = [c for c in live if c["key"] not in read_domains]
+        results = await asyncio.gather(*(read_one(c, state) for c in todo))
+        for c, home, page, dead in results:
             domain = c["key"]
-            if domain in read_domains:
-                continue
-            home = _homepage(state["src"][c["sources"][0]]["url"])
-            page = await _read_page(home)
-            meter["extract_pages"] += 1
-            read_domains[domain] = page is not None or not _read_page.dead
-            added = True
+            read_domains[domain] = page is not None or not dead
             if page is None:
                 continue
             title, text = page
             found_with = max((r["score"] or 0.0 for r in raw if G.registered_domain(r["url"]) == domain), default=0.0)
             raw.append({"url": home, "title": title, "text": text, "score": found_with, "read": True})
-            # the contact pages are read (our own fetch, no search credit) until the site shows a contact AND the company's place: a
-            # postcode on the company's own contact page is what tells two look-alike sites apart
-            def complete(t: str) -> bool:
-                return bool(G.numbers_in(t) or "@" in t) and G._place_hit(t, F["postcode"], F["area"])
-
-            seen = text
-            if not complete(seen):
-                for path in CONTACT_PATHS:
-                    sub = await _read_page(home + path)
+            # the contact pages are read (our own fetch, no search credit) when the homepage shows no contact AND the company's place: a
+            # postcode on the company's own contact page is what tells two look-alike sites apart. They are asked for together.
+            if not complete(text):
+                started = time.monotonic()
+                subs = await asyncio.gather(*(_read(home + path) for path in CONTACT_PATHS))
+                took(f"read {domain} contact pages", started)
+                for path, (sub, _dead) in zip(CONTACT_PATHS, subs):
                     meter["extract_pages"] += 1
                     if sub:
                         raw.append({"url": home + path, "title": sub[0], "text": sub[1], "score": found_with, "read": True})
-                        seen += " " + sub[1]
-                        if complete(seen):
-                            break
-        return added
+        return bool(todo)
 
     # 1. the website search and the phone/email search together
     # only what was asked for: Find website searches for the website, Find phone for the phone, and only "all" does both
@@ -201,21 +221,17 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
     if await read_own_sites(state):
         state = evaluate()
 
-    # 2. still no confident website: the name written differently, then once at advanced depth
-    if ask_site and not state["w"]:
-        for step in [s for s in steps if s["retry"]]:
-            if await run(step["query"]):
-                await read_own_sites(evaluate())
-                state = evaluate()
-            if state["w"]:
-                break
-    if ask_site and not state["w"] and meter.get("tavily_used") and meter["searches"] < R.MAX_SEARCHES:
-        # Tavily answers first and DeepSeek is never tried when it returns anything, so a miss gets one DeepSeek search as a second opinion
-        if await run(steps[0]["query"], engine="deepseek"):
+    # 2. still no confident website: the name written differently and DeepSeek's second opinion, asked together (they do not depend on each other)
+    if ask_site and not state["w"] and not over_budget():
+        pending = [run(step["query"]) for step in steps if step["retry"]]
+        if meter.get("tavily_used") and meter["searches"] + len(pending) < R.MAX_SEARCHES:
+            pending.append(run(steps[0]["query"], engine="deepseek"))  # Tavily answers first, so DeepSeek is only ever the second opinion
+        if pending:
+            await asyncio.gather(*pending)
             await read_own_sites(evaluate())
             state = evaluate()
     no_candidate = not any(c["field"] == "website" and not c["rejected"] for c in state["cands"])  # advanced costs 2 credits: only when nothing was found at all
-    if ask_site and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES:
+    if ask_site and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES and not over_budget():
         if await run(steps[0]["query"], depth="advanced"):
             await read_own_sites(evaluate())
             state = evaluate()
@@ -243,5 +259,6 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
     out["audit"] = G.audit_of(state["cands"], src)
     out["reason"] = "" if out["found"] else "; ".join(f"{k}: {v}" for k, v in state["why"].items() if v)
     meter["outcome"] = "found" if out["found"] else ("no_web_search" if not raw else "not_found")
+    meter["seconds"] = round(time.monotonic() - t0, 2)
     logger.info("lookup_ledger %s", json.dumps({"company": name, **meter, "shown": list(out["confidence"])}, default=str))
     return out
