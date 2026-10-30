@@ -57,6 +57,7 @@ class Turn:
         self.steps: List[Dict[str, Any]] = []
         self.proposals: List[Dict[str, Any]] = []
         self.notes: List[str] = []
+        self.verbatim: List[str] = []  # text a tool wrote (a draft): shown word for word under the answer, never retold by the model
 
     def step(self, label: str, detail: str, t0: float) -> None:
         self.steps.append({"label": label, "detail": detail, "ms": int((time.time() - t0) * 1000)})
@@ -78,6 +79,7 @@ class Spec:
     doing: Dict[str, str] = field(default_factory=dict)  # tool name -> "Reading your calls", shown while it runs
     suggest: Callable[[Turn], List[str]] = lambda t: []
     fallback: str = "I'm not sure what to do with that. Tell me what you want to look at."
+    once: frozenset = frozenset()  # tools that write something: run once per message, however many times the model asks
 
 
 def _prompt(spec: Spec, context: str, notes: List[str]) -> str:
@@ -119,6 +121,8 @@ async def events(spec: Spec, db: AsyncSession, message: str, history: List[Dict[
                 args = {}
             args = args if isinstance(args, dict) else {}
             sig = (fn.get("name"), json.dumps(args, sort_keys=True, default=str))
+            if fn.get("name") in spec.once:
+                sig = (fn.get("name"), "once")
             if sig not in ran:
                 ran.add(sig)
                 fresh.append((fn.get("name") or "", args))
@@ -152,5 +156,7 @@ async def events(spec: Spec, db: AsyncSession, message: str, history: List[Dict[
             reply = proposal_reply(turn.proposals) or " ".join(n for n in turn.notes if not n.startswith("A proposal")) or "Done. Check what is on screen."
     if not reply:
         reply = spec.fallback
+    if turn.verbatim:
+        reply = reply.rstrip() + "\n\n" + "\n\n".join(turn.verbatim)
     yield {"type": "final", "result": {"reply": reply, "steps": turn.steps, "proposals": turn.proposals, "found": None,
                                        "took_ms": int((time.time() - started) * 1000), "suggestions": spec.suggest(turn), "state": {}}}

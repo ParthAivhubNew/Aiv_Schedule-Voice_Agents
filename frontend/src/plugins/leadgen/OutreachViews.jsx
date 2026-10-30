@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Loader } from "../../app/Loader";
+import { Loader, Dotted } from "../../app/Loader";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Note, Pill, btn as baseBtn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
@@ -767,7 +767,7 @@ export function SentList({ outreach, initialMailbox = "" }) {
         </select>
         <button type="button" style={btn(false)} title="Clear every filter" onClick={reset}>Reset</button>
       </div>
-      <div style={small}>{busy && !rows.length ? "Loading…" : `${total.toLocaleString()} email${total === 1 ? "" : "s"}. Warm-up emails are not listed.`}</div>
+      <div style={small}>{busy && !rows.length ? <Dotted text="Loading" /> : `${total.toLocaleString()} email${total === 1 ? "" : "s"}. Warm-up emails are not listed.`}</div>
       {!busy && rows.length === 0 && <div style={{ ...card, ...small }}>No emails match. Emails appear here as soon as they are sent.</div>}
       {rows.map((m) => (
         <div key={m.id} style={{ ...card, display: "grid", gap: 8 }}>
@@ -793,7 +793,7 @@ export function SentList({ outreach, initialMailbox = "" }) {
           )}
         </div>
       ))}
-      {rows.length < total ? <div><button type="button" style={btn(false)} disabled={busy} title="Load the next emails" onClick={() => load(rows.length)}>{busy ? "Loading…" : "Show more"}</button></div> : null}
+      {rows.length < total ? <div><button type="button" style={btn(false)} disabled={busy} title="Load the next emails" onClick={() => load(rows.length)}>{busy ? <Dotted text="Loading" /> : "Show more"}</button></div> : null}
     </div>
   );
 }

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
-import { Spinner } from "../../app/Loader";
+import { Loader, Spinner } from "../../app/Loader";
 import { Note, Pill, btn as baseBtn, card, input, useAction, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
 import { useConnection, openPlans } from "../../hooks/useConnections";
 import { Drawer } from "./FindLeadsParts";
+import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, priBtn, secBtn } from "../scheduler/ScheduleWindow";
 import { parseLeads } from "./OutreachViews";
-import { ArrowDown, ArrowUp, Bot, CheckSquare, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import {
   CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, sortTasks, stepLine,
   stepsForSave, typeOf, waitText,
@@ -20,6 +21,54 @@ const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", 
 const label = { display: "grid", gap: 4, fontSize: 12, fontWeight: 600, color: C.slate };
 const ICONS = { email: Mail, call: Phone, manual_email: PenLine, call_task: Phone, task: CheckSquare, social_task: Share2, linkedin_task: Users };
 const ACCENT = { email: [C.cobalt, C.cobaltSoft], manual_email: [C.cobalt, C.cobaltSoft], call: [C.teal, C.tealSoft], call_task: [C.teal, C.tealSoft], social_task: [C.amber, C.amberSoft], task: [C.slate, C.paperSoft], linkedin_task: [C.slate, C.paperSoft] };
+
+// ── A list that scrolls like a wheel: no scroll bar, arrows where there is more, the edges fade ─────────────────
+const WHEEL_CSS = `
+.jw-scroll{scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:smooth;overscroll-behavior:contain}
+.jw-scroll::-webkit-scrollbar{display:none}
+.jw-scroll[data-up="true"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%)}
+.jw-scroll[data-up="true"][data-down="false"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px);mask-image:linear-gradient(to bottom,transparent 0,#000 34px)}
+.jw-scroll[data-up="false"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%)}
+.jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #D5D9E0;color:#475467;box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
+.jw-arrow:hover{background:#F4F6FA}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#7C3AED);outline-offset:2px}
+.jw-arrow[data-dir="down"]{bottom:2px;animation:jw-nudge 1.8s ease-in-out infinite}
+.jw-arrow[data-dir="up"]{top:2px}
+.jw-quiet{scrollbar-width:none;-ms-overflow-style:none}.jw-quiet::-webkit-scrollbar{display:none}
+@keyframes jw-nudge{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,3px)}}
+@media (prefers-reduced-motion:reduce){.jw-scroll{scroll-behavior:auto}.jw-arrow[data-dir="down"]{animation:none}}
+`;
+
+function Wheel({ label, children }) {
+  const ref = useRef(null);
+  const [edge, setEdge] = useState({ up: false, down: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const next = { up: el.scrollTop > 4, down: el.scrollTop + el.clientHeight < el.scrollHeight - 4 };
+    setEdge((e) => (e.up === next.up && e.down === next.down ? e : next));
+  }, []);
+  useEffect(() => {
+    measure();
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure, children]);
+  const by = (dir) => { const el = ref.current; if (el) el.scrollBy({ top: dir * Math.max(120, el.clientHeight * 0.75) }); };
+  return (
+    <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+      <style>{WHEEL_CSS}</style>
+      <div ref={ref} className="jw-scroll" role="region" aria-label={label} tabIndex={0} data-up={edge.up} data-down={edge.down} onScroll={measure}
+        title={edge.up || edge.down ? "Scroll with your mouse wheel, your finger or the arrows to see more" : undefined}
+        style={{ height: "100%", overflowY: "auto", display: "grid", gap: 8, alignContent: "start", padding: "2px 2px 6px", scrollSnapType: "y proximity" }}>
+        {children}
+      </div>
+      {edge.up ? <button type="button" className="jw-arrow" data-dir="up" aria-label="Scroll up for more" title="More above" onClick={() => by(-1)}><ChevronUp size={16} /></button> : null}
+      {edge.down ? <button type="button" className="jw-arrow" data-dir="down" aria-label="Scroll down for more" title="More below: scroll or press" onClick={() => by(1)}><ChevronDown size={16} /></button> : null}
+    </div>
+  );
+}
 
 // ── One step: a row you can open and change where it is ─────────────────────
 function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove, callOk }) {
@@ -161,7 +210,10 @@ function NeedsYou({ tasks, replied, onDone, onSkip, onMail, busy }) {
   );
 }
 
-// ── Rules: only what is asked, the rest under More ──────────────────────────
+// ── Rules: the same fields and look as the Voice and Social schedulers (days, times, a daily limit), then when to stop ──
+const DAY_OPTIONS = WEEKDAYS.map(([n, w]) => ({ id: n, label: w }));
+const ALWAYS_STOP = ["reply", "booking", "optout"];
+
 function RulesPanel({ j, mailboxes, onSave, saving }) {
   const s = j.settings;
   const [draft, setDraft] = useState(() => ({
@@ -170,55 +222,56 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
     skip_stages: s.rules.skip_stages || [],
   }));
   const [more, setMore] = useState(false);
-  const toggle = (key, value) => setDraft((d) => ({ ...d, [key]: d[key].includes(value) ? d[key].filter((x) => x !== value) : [...d[key], value] }));
-  const chip = (on) => ({ ...btn(on), padding: "5px 11px" });
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const toggleBox = (id) => set({ mailbox_ids: draft.mailbox_ids.includes(id) ? draft.mailbox_ids.filter((x) => x !== id) : [...draft.mailbox_ids, id] });
+  const days = DAY_OPTIONS.filter((d) => draft.days_of_week.includes(d.id)).map((d) => d.label).join(", ");
+  const from = mailboxes.filter((m) => draft.mailbox_ids.includes(m.id)).map((m) => m.email);
+  const sentence = days
+    ? `Emails go out ${days}, between ${draft.sending_window_start} and ${draft.sending_window_end}${draft.daily_cap ? `, at most ${draft.daily_cap} a day` : ""}${from.length ? `, from ${from.join(", ")}` : ""}.`
+    : "Pick the days emails may go out.";
+  const stopValue = [...ALWAYS_STOP, ...(draft.on_not_interested ? ["not_interested"] : [])];
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      <fieldset style={{ border: 0, margin: 0, padding: 0, display: "grid", gap: 6 }}>
-        <legend style={{ ...label, padding: 0 }}>Send emails as</legend>
-        {mailboxes.length ? mailboxes.map((m) => (
-          <label key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-            <input type="checkbox" checked={draft.mailbox_ids.includes(m.id)} onChange={() => toggle("mailbox_ids", m.id)} /> {m.email}
-          </label>
-        )) : <div style={small}>No email account is connected yet. Connect one under Email accounts.</div>}
-      </fieldset>
-      <div style={{ display: "grid", gap: 6 }}>
-        <span style={label}>Send on</span>
-        <div role="group" aria-label="Sending days" style={row}>
-          {WEEKDAYS.map(([n, w]) => <button key={n} type="button" aria-pressed={draft.days_of_week.includes(n)} style={chip(draft.days_of_week.includes(n))} onClick={() => toggle("days_of_week", n)}>{w}</button>)}
-        </div>
-        <div style={row}>
-          <label style={label}>From<input type="time" style={input} value={draft.sending_window_start} onChange={(e) => setDraft({ ...draft, sending_window_start: e.target.value })} /></label>
-          <label style={label}>Until<input type="time" style={input} value={draft.sending_window_end} onChange={(e) => setDraft({ ...draft, sending_window_end: e.target.value })} /></label>
-          <label style={label}>Most emails a day (0 = no extra limit)<input type="number" min="0" style={{ ...input, width: 110 }} value={draft.daily_cap} onChange={(e) => setDraft({ ...draft, daily_cap: Number(e.target.value) || 0 })} /></label>
-        </div>
-      </div>
-      <fieldset style={{ border: 0, margin: 0, padding: 0, display: "grid", gap: 6 }}>
-        <legend style={{ ...label, padding: 0 }}>Stop for a person when they</legend>
-        {[["reply", "reply"], ["book a meeting", "book a meeting"], ["opt out", "opt out"]].map(([k, w]) => (
-          <label key={k} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.slate }}><input type="checkbox" checked disabled /> {w} <Lock size={12} aria-label="always on" /></label>
-        ))}
-        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={draft.on_not_interested} onChange={(e) => setDraft({ ...draft, on_not_interested: e.target.checked })} /> say they are not interested</label>
-      </fieldset>
-      <button type="button" aria-expanded={more} style={{ ...btn(false), justifySelf: "start" }} onClick={() => setMore((m) => !m)}>{more ? "Fewer options" : "More options"}</button>
-      {more ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <label style={label}>Mark as "no answer" after this many days of silence (0 = never)
-            <input type="number" min="0" max="60" style={{ ...input, width: 110 }} value={draft.unresponsive_days} onChange={(e) => setDraft({ ...draft, unresponsive_days: Number(e.target.value) || 0 })} />
-          </label>
-          <div style={{ display: "grid", gap: 6 }}>
-            <span style={label}>Leave out anyone whose stage is</span>
-            <div role="group" aria-label="Stages to leave out" style={row}>
-              {STAGES.map(([v, w]) => <button key={v} type="button" aria-pressed={draft.skip_stages.includes(v)} style={chip(draft.skip_stages.includes(v))} onClick={() => toggle("skip_stages", v)}>{w}</button>)}
-            </div>
+    <div>
+      <InfoNote tone={days && from.length ? undefined : "warn"}>{from.length ? sentence : `${sentence} Choose an email account to send from.`}</InfoNote>
+      <Field label="Send emails as" hint={mailboxes.length ? "Pick one or more. The journey spreads its emails across them." : ""}>
+        {mailboxes.length ? (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <Chips options={mailboxes.map((m) => ({ id: m.id, label: m.email }))} value={draft.mailbox_ids} onChange={(v) => set({ mailbox_ids: v })} />
           </div>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={draft.one_at_a_time} onChange={(e) => setDraft({ ...draft, one_at_a_time: e.target.checked })} /> Don't add people who are already in another running journey</label>
-        </div>
+        ) : <div style={small}>No email account is connected yet. Connect one under Email accounts.</div>}
+      </Field>
+      <Field label="Send on">
+        <Chips options={DAY_OPTIONS} value={draft.days_of_week} onChange={(v) => set({ days_of_week: v })} />
+      </Field>
+      <FieldRow>
+        <Field label="From"><input type="time" aria-label="Send from" style={timeInput} value={draft.sending_window_start} onChange={(e) => set({ sending_window_start: e.target.value })} /></Field>
+        <Field label="Until"><input type="time" aria-label="Send until" style={timeInput} value={draft.sending_window_end} onChange={(e) => set({ sending_window_end: e.target.value })} /></Field>
+        <Field label="Most emails a day" hint="0 means no extra limit."><input type="number" min="0" aria-label="Most emails a day" style={timeInput} value={draft.daily_cap} onChange={(e) => set({ daily_cap: Number(e.target.value) || 0 })} /></Field>
+      </FieldRow>
+      <Field label="Stop for a person when they" hint="Replying, booking a meeting and opting out always stop it, so nobody who answers is written to again.">
+        <Chips options={[{ id: "reply", label: "Reply" }, { id: "booking", label: "Book a meeting" }, { id: "optout", label: "Opt out" }, { id: "not_interested", label: "Say they are not interested" }]}
+          value={stopValue} onChange={(v) => set({ on_not_interested: v.includes("not_interested") })} />
+      </Field>
+      <div style={{ marginBottom: 14 }}>
+        <button type="button" aria-expanded={more} style={secBtn} onClick={() => setMore((m) => !m)}>{more ? "Fewer options" : "More options"}</button>
+      </div>
+      {more ? (
+        <>
+          <Field label="Mark as no answer after" hint="Days of silence after the last step. 0 means never.">
+            <input type="number" min="0" max="60" aria-label="Days of silence before no answer" style={{ ...timeInput, width: 140 }} value={draft.unresponsive_days} onChange={(e) => set({ unresponsive_days: Number(e.target.value) || 0 })} />
+          </Field>
+          <Field label="Leave out anyone whose stage is">
+            <Chips options={STAGES.map(([v, w]) => ({ id: v, label: w }))} value={draft.skip_stages} onChange={(v) => set({ skip_stages: v })} />
+          </Field>
+          <Field label="Other journeys">
+            <Chips options={[{ id: "one", label: "Skip people already in another running journey" }]} value={draft.one_at_a_time ? ["one"] : []} onChange={(v) => set({ one_at_a_time: v.includes("one") })} />
+          </Field>
+        </>
       ) : null}
-      <button type="button" style={{ ...btn(true, saving), justifySelf: "start" }} disabled={saving} onClick={() => onSave({
+      <button type="button" style={{ ...priBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={() => onSave({
         mailbox_ids: draft.mailbox_ids, days_of_week: draft.days_of_week, sending_window_start: draft.sending_window_start, sending_window_end: draft.sending_window_end,
         daily_cap: draft.daily_cap, one_at_a_time: draft.one_at_a_time, rules: { on_not_interested: draft.on_not_interested, unresponsive_days: draft.unresponsive_days, skip_stages: draft.skip_stages },
-      })}>Save</button>
+      })}>{saving ? <><Spinner size={13} /> Saving</> : "Save"}</button>
     </div>
   );
 }
@@ -403,7 +456,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         {!people.length && !adding ? <div style={small}>Nobody yet. Add a list, then start the journey.</div> : null}
       </div>
 
-      <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name}>
+      <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name} avatar={<span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.paperSoft || "#F4F6FA", display: "grid", placeItems: "center", color: C.slate }}><SlidersHorizontal size={18} /></span>}>
         <RulesPanel key={j.id + String(rules)} j={j} mailboxes={outreach.mailboxes} saving={busy} onSave={(body) => run(async () => { await api.journeySettings(j.id, body); setRules(false); }, "Saved.")} />
       </Drawer>
       <Drawer open={details} onClose={() => setDetails(false)} title="Results and advice" sub={j.name}>
@@ -469,8 +522,14 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
         <textarea aria-label="What the journey is for" style={{ ...input, minHeight: 74, resize: "vertical" }} value={goal} onChange={(e) => setGoal(e.target.value)}
           placeholder="Introduce us to dental practices in Leeds, then ring them if they have not replied" maxLength={600} />
         <div style={row}>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, opacity: callOk ? 1 : 0.6 }}><input type="checkbox" disabled={!callOk} checked={calls && callOk} onChange={(e) => setCalls(e.target.checked)} /> Add a call{callOk ? "" : " (needs Voice)"}</label>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={tasks} onChange={(e) => setTasks(e.target.checked)} /> Add a task for me</label>
+          <label title={callOk ? "Tick to add a step where the AI phones the person if they have not replied to your emails. Calls use your calling credits, and you review the journey before anything starts." : "Needs the Voice plugin and a plan. It would add a step where the AI phones people who have not replied to your emails."}
+            style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, opacity: callOk ? 1 : 0.6, cursor: callOk ? "pointer" : "not-allowed" }}>
+            <input type="checkbox" disabled={!callOk} checked={calls && callOk} onChange={(e) => setCalls(e.target.checked)} /> Add a call{callOk ? "" : " (needs Voice)"}
+          </label>
+          <label title="Tick to add a step that becomes a to-do for you when someone has not replied, such as ringing them yourself, a LinkedIn message or a personal email. That person waits until you mark it done."
+            style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+            <input type="checkbox" checked={tasks} onChange={(e) => setTasks(e.target.checked)} /> Add a task for me
+          </label>
         </div>
         <button type="button" style={{ ...btn(true, !goal.trim() || Boolean(busy)), justifySelf: "start" }} disabled={!goal.trim() || Boolean(busy)}
           onClick={go("draft", () => api.journeyDraft({ goal: goal.trim(), channels: [...(calls && callOk ? ["call"] : []), ...(tasks ? ["task"] : [])], count: 3 }))}>
@@ -530,12 +589,13 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   useEffect(() => { if (initialListId) { setPrefill(initialListId); setCreating(true); onConsumed?.(); } }, [initialListId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (journeys && !selected && !creating && journeys.length) setSelected(journeys[0].id); }, [journeys, selected, creating]);
 
-  if (journeys === null) return <div style={{ padding: 24 }}><Spinner size={18} /></div>;
+  if (journeys === null) return <Loader compact label="Loading your journeys" />;
   const open = (id) => { setCreating(false); setSelected(id); load(); };
   const empty = !journeys.length;
 
   return (
-    <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+    <div style={narrow ? { display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflowY: "auto" } : { display: "flex", gap: 16, alignItems: "stretch", height: "100%", minHeight: 0 }} className={narrow ? "jw-quiet" : undefined}>
+      <style>{WHEEL_CSS}</style>
       <Note error>{error}</Note>
       {narrow ? (
         <div style={{ ...row, flex: "1 1 100%", flexWrap: "nowrap" }}>
@@ -546,13 +606,14 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
           <button type="button" style={btn(true)} onClick={() => setCreating(true)}><Plus size={14} /> New</button>
         </div>
       ) : (
-      <aside aria-label="Your journeys" style={{ flex: "1 1 230px", maxWidth: 290, minWidth: 0, display: "grid", gap: 8 }}>
-        <button type="button" style={btn(true)} onClick={() => { setCreating(true); }}><Plus size={14} /> New journey</button>
+      <aside aria-label="Your journeys" style={{ flex: "0 0 270px", minWidth: 0, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
+        <button type="button" style={{ ...btn(true), width: "100%", justifyContent: "center", textAlign: "center" }} onClick={() => { setCreating(true); }}><Plus size={14} /> New journey</button>
+        <Wheel label="Your journeys: scroll for more">
         {journeys.map((j) => {
           const on = !creating && j.id === selected;
           return (
             <button key={j.id} type="button" aria-current={on ? "true" : undefined} onClick={() => open(j.id)}
-              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gap: 3, padding: "10px 12px", borderRadius: 12, border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
+              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
               <span style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "space-between" }}>
                 <strong style={{ fontSize: 13.5, overflowWrap: "anywhere" }}>{j.name}</strong>
                 <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
@@ -562,9 +623,10 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
           );
         })}
         {empty ? <div style={small}>No journeys yet.</div> : null}
+        </Wheel>
       </aside>
       )}
-      <main style={{ flex: "3 1 420px", minWidth: 0 }}>
+      <main className="jw-quiet" style={{ flex: "1 1 0", minWidth: 0, minHeight: 0, overflowY: narrow ? "visible" : "auto", paddingBottom: 12 }}>
         {creating || empty ? (
           <NewJourney lists={lists} initialListId={prefill} onGuided={onGuided} onCancel={() => setCreating(false)} onCreated={(id) => { open(id); }} />
         ) : selected ? (

@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { Dotted } from "../app/Loader";
 import { RefreshCw } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
@@ -34,7 +35,7 @@ export function Logs() {
         } />
       <Note error>{err}</Note>
       <Table head={["When", "Client", "Level", "Where", "Message"]} minWidth={900}>
-        {shown.length === 0 && <tr><td colSpan={5} style={{ ...cell, color: C.slate }}>{rows ? "No logs." : "Loading…"}</td></tr>}
+        {shown.length === 0 && <tr><td colSpan={5} style={{ ...cell, color: C.slate }}>{rows ? "No logs." : <Dotted text="Loading" />}</td></tr>}
         {shown.map((r) => (
           <tr key={r.id}>
             <td style={{ ...cell, whiteSpace: "nowrap" }}>{when(r.at)}</td>

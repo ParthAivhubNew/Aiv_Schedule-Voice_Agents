@@ -368,6 +368,8 @@ export const api = {
   townDistricts: (town, includeClosed = false) => apiRequest(`/leads/districts?town=${encodeURIComponent(town)}&include_closed=${includeClosed}`),
   areaCount: (body) => apiRequest('/leads/search/area-count', { method: 'POST', body, timeoutMs: 60000 }),
   geocodeCompanies: (ids) => apiRequest('/leads/geocode', { method: 'POST', body: { ids }, timeoutMs: 40000 }),
+  companyProfile: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/profile`, { timeoutMs: 120000 }),
+  companyAddToJourney: (id, journeyId) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/add-to-journey`, { method: 'POST', body: { journey_id: journeyId } }),
   companyContacts: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/contacts`, { method: 'POST', body, timeoutMs: 120000 }),
   researchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/research`, { method: 'POST', timeoutMs: 120000 }),
   quickCheckLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/quick-check`, { method: 'POST' }),

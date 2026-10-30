@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Dotted } from "../app/Loader";
 import { Check, Copy, Handshake } from "lucide-react";
 import { C, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
@@ -136,7 +137,7 @@ export function PartnerProgram() {
     setBusy(false);
   };
 
-  if (!info) return <div style={{ color: C.slate, fontSize: 13 }}>{msg.text || "Loading…"}</div>;
+  if (!info) return <div style={{ color: C.slate, fontSize: 13 }}>{msg.text || <Dotted text="Loading" />}</div>;
   const partner = info.partner;
   const lastApp = (info.applications || [])[0];
   const ready = partner && info.termsAccepted && settings && lines(settings.origins).length > 0 && lines(settings.returns).length > 0;

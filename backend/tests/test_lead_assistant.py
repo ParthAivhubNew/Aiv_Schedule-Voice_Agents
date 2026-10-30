@@ -272,7 +272,7 @@ async def test_the_daily_count_is_shared_through_the_database(db, fakes, monkeyp
 
 def test_the_tool_set_is_small_and_every_tool_says_when_to_use_it():
     names = [t["function"]["name"] for t in LA.TOOLS]
-    assert len(names) == len(set(names)) and len(names) <= 9  # six for the work itself, plus planning, switching and writing a workflow
+    assert len(names) == len(set(names)) and len(names) <= 10  # seven for the work itself, plus planning, switching and writing a workflow
     assert {"propose_plan", "use_plugin"} <= set(names)
     assert all(t["function"]["description"].startswith("USE") for t in LA.TOOLS + [LA.WEB_TOOL])
     assert "search_web" not in names  # only added when the person switches Web search on

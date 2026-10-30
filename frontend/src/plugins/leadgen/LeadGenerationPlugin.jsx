@@ -46,6 +46,7 @@ import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
 import { NewCampaign } from "./CampaignSimple";
 import { JourneysView } from "./JourneysView";
+import { CompanyPage } from "./CompanyPage";
 import { ProfileBox } from "./EmailWriter";
 import { SavedPeople, SavedTabs, peopleOf } from "./SavedPeople";
 import { takeOpenLead } from "../../connections/ConnectedHome";
@@ -83,13 +84,20 @@ export default function LeadGenerationPlugin({
     try {
       const hash = routeHash().replace(/^#\/?/, "");
       const parts = hash.split("/");
-      if (parts[0] === "leadgen" && parts[1]) return normalizeLeadgenView(parts[1]);
+      if (parts[0] === "leadgen" && parts[1] === "company" && parts[2]) return "company";
+      if (parts[0] === "leadgen" && parts[1]) return normalizeLeadgenView(parts[1] === "company" ? "find_leads" : parts[1]);
       if (parts[0] === "emailoutreach") return "outreach";
-      return normalizeLeadgenView(localStorage.getItem("aivhub_leadgen_view") || "find_leads");
+      const saved = localStorage.getItem("aivhub_leadgen_view") || "find_leads";
+      return normalizeLeadgenView(saved === "company" ? "find_leads" : saved);
     } catch (_) {
       return "find_leads";
     }
   });
+  const [companyId, setCompanyId] = useState(() => { try { const p = routeHash().replace(/^#\/?/, "").split("/"); return p[0] === "leadgen" && p[1] === "company" ? p[2] || "" : ""; } catch (_) { return ""; } }); // the company page being shown
+  const cameFrom = useRef("find_leads"); // where the company page's back button goes
+  const [assistantSeed, setAssistantSeed] = useState(null); // a message the assistant sends when opened from a page ("Ask AI" on a company)
+  const openCompany = (id) => { cameFrom.current = view === "company" ? cameFrom.current : view; setCompanyId(id); setView("company"); };
+  const askAbout = (message) => { setAssistantSeed({ id: Date.now(), text: message }); setAssistantOpen(true); };
   const nav = useMobileNav(view);
   const embedViews = useEmbedViews(); // set when this app is shown inside a partner's page: only those pages
   // Find Leads stays alive (just hidden) once opened, so a search, its results and a drawn map area are
@@ -111,20 +119,23 @@ export default function LeadGenerationPlugin({
 
   useEffect(() => {
     try {
-      localStorage.setItem("aivhub_leadgen_view", view);
-      const target = `#/leadgen/${view}`;
+      if (view !== "company") localStorage.setItem("aivhub_leadgen_view", view);
+      const target = view === "company" && companyId ? `#/leadgen/company/${companyId}` : `#/leadgen/${view}`;
       if (routeHash() !== target) {
         replaceHash(target);
       }
     } catch (_) {}
-  }, [view]);
+  }, [view, companyId]);
 
   useEffect(() => {
     const onHash = () => {
       try {
         const hash = routeHash().replace(/^#\/?/, "");
         const parts = hash.split("/");
-        if (parts[0] === "leadgen" && parts[1]) {
+        if (parts[0] === "leadgen" && parts[1] === "company" && parts[2]) {
+          if (parts[2] !== companyId) setCompanyId(parts[2]);
+          if (view !== "company") setView("company");
+        } else if (parts[0] === "leadgen" && parts[1]) {
           const norm = normalizeLeadgenView(parts[1]);
           if (norm !== view) setView(norm);
         } else if (parts[0] === "emailoutreach") {
@@ -133,7 +144,7 @@ export default function LeadGenerationPlugin({
       } catch (_) {}
     };
     return onRouteChange(onHash);
-  }, [view]);
+  }, [view, companyId]);
   const [openAccount, setOpenAccount] = useState(null); // the saved account shown in the side panel
   const [toastMessage, setToastMessage] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -269,13 +280,13 @@ export default function LeadGenerationPlugin({
         </PluginHeader>
 
         {/* Main Content Area */}
-        <div className={view === "find_leads" ? "app-page fl-fit" : "app-page"} style={view === "assistant" ? { flex: 1, minHeight: 0, overflow: "hidden", padding: 0, display: "flex" } : { flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
+        <div className={view === "find_leads" ? "app-page fl-fit" : "app-page"} style={view === "assistant" ? { flex: 1, minHeight: 0, overflow: "hidden", padding: 0, display: "flex" } : view === "outreach" && !wizard && !embedViews ? { flex: 1, minHeight: 0, overflow: "hidden", padding: "16px 24px 8px", display: "flex", flexDirection: "column" } : { flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
           {isLocked && embedViews ? <EmbedPlanNotice app="Leads" /> : isLocked && view !== "subscription" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div
                 style={{
-                  background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.04))",
-                  border: `1px solid ${C.border}`,
+                  background: "linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.03))",
+                  border: "1px solid rgba(139,92,246,0.30)",
                   borderRadius: 14,
                   padding: "18px 22px",
                   display: "flex",
@@ -287,7 +298,7 @@ export default function LeadGenerationPlugin({
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Plan Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#5B21B6" }}>Subscription Required</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Leads.</div>
                 </div>
               </div>
@@ -296,14 +307,14 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} onOpenCompany={openCompany} /></div>
           )}
 
 
           {view === "assistant" && !embedViews && (
             <AssistantPanel page open onClose={() => goTo("find_leads")} onGo={goTo} store={store} onImport={goImport}
               lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
-              onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney}
+              onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney} onOpenCompany={openCompany} seed={assistantSeed}
               onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); }} />
           )}
 
@@ -318,6 +329,10 @@ export default function LeadGenerationPlugin({
           {view === "saved_companies" && <AccountsView store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
           {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
+
+          {view === "company" && companyId && (
+            <CompanyPage id={companyId} store={store} onBack={() => setView(cameFrom.current || "find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
+          )}
 
           {view === "outreach" && (wizard
             ? <NewCampaign store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
@@ -341,7 +356,7 @@ export default function LeadGenerationPlugin({
       {!isLocked && !embedViews && view !== "assistant" ? (
         <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
           lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
-          onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney}
+          onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney} onOpenCompany={openCompany} seed={assistantSeed}
           onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
       ) : null}
 

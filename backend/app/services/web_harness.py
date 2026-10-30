@@ -40,22 +40,24 @@ _DEAD = ("could not be found", "error 404", "error 410")  # the site is gone; an
 
 
 async def _read_page(url: str) -> Optional[Tuple[str, str]]:
-    """(title, text) of a page on the company's own site, or None. DeepSeek's page fetch when it is switched on, else our own safe fetch.
-    Sets _read_page.dead when the failure means the site does not exist; a site that merely refuses our reader is not dead and we do not
-    work around the refusal."""
+    """(title, text) of a page on the company's own site, or None. Our own safe fetch goes first: it is quick, free, and says at once when a
+    site does not exist. DeepSeek's page fetch (when it is switched on) is only asked when our reader was refused or failed for another
+    reason, such as a site that needs a browser, so a dead address never waits on a slow second reader. Sets _read_page.dead when the failure
+    means the site does not exist; a site that merely refuses our reader is not dead and we do not work around the refusal."""
     _read_page.dead = False
-    page = await ES.fetch_deepseek(url)
-    if page and (page.get("content") or "").strip():
-        return page.get("title") or "", page["content"][:PAGE_CHARS * 5]
     try:
         title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5)
         return (title or ""), text
     except FetchRefused as err:
-        _read_page.dead = any(m in str(err) for m in _DEAD)
-        return None
+        if any(m in str(err) for m in _DEAD):
+            _read_page.dead = True
+            return None
     except Exception as err:
         logger.info("harness: could not read %s: %s", url, err)
-        return None
+    page = await ES.fetch_deepseek(url)
+    if page and (page.get("content") or "").strip():
+        return page.get("title") or "", page["content"][:PAGE_CHARS * 5]
+    return None
 
 
 _read_page.dead = False

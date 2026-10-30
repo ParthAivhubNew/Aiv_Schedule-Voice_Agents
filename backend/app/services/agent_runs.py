@@ -37,6 +37,7 @@ CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "my_data": {"kind": "read", "does": "read the person's own pipeline, campaigns, replies, mailboxes or follow-ups (topic)"},
         "show_credits": {"kind": "read", "does": "read the credits left"},
         "add_to_list": {"kind": "do", "does": "save the companies of the latest search step into a list (list_name, how_many up to 200); free"},
+        "company_details": {"kind": "read", "does": "read everything about one saved company (name)"},
         "check_list": {"kind": "gate", "does": "check a saved list's websites, phones and emails (costs credits; list_name)", "go": "#/leadgen/lists"},
         "start_campaign": {"kind": "gate", "does": "set up an email campaign to a list (list_name)", "go": "#/leadgen/outreach"},
         "search_web": {"kind": "gate", "does": "search public web pages for more businesses (costs credits; query)", "go": "#/leadgen/find_leads"},
@@ -51,6 +52,8 @@ CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "voice_setup": {"kind": "read", "does": "read the phone numbers and the AI caller's state"},
         "call_lists": {"kind": "read", "does": "read the call lists"},
         "call_schedules": {"kind": "read", "does": "read the scheduled calls"},
+        "knowledge_search": {"kind": "read", "does": "search the person's uploaded documents (question)"},
+        "build_call_list": {"kind": "do", "does": "make a call list from a Leads list: only people with a phone number (leads_list, call_list_name); free"},
         "show_credits": {"kind": "read", "does": "read the calling credits left"},
         "schedule_calls": {"kind": "gate", "does": "schedule or start calls to a call list (the person does it on the Meetings and callbacks screen)", "go": "#/voice/schedule"},
     },
@@ -58,6 +61,7 @@ CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "post_overview": {"kind": "read", "does": "read posts by status and what goes out next"},
         "post_results": {"kind": "read", "does": "read how published posts did (days)"},
         "my_accounts": {"kind": "read", "does": "read the connected social accounts"},
+        "post_details": {"kind": "read", "does": "read one post (query)"},
         "show_credits": {"kind": "read", "does": "read the Social credits left"},
         "plan_posts": {"kind": "gate", "does": "plan and write posts in the post planner (request: topic, channels and dates)", "go": "#/scheduler/plan"},
     },
@@ -253,6 +257,14 @@ async def run_step(db: AsyncSession, run: AgentRun, step: Dict[str, Any], actor:
     from app.api import plugin_assistant as PA
     from app.services.assistant_engine import Turn
 
+    if plugin == "voice" and name == "build_call_list":
+        built = await PA.call_list_rows(db, str(args.get("leads_list") or ""))
+        if not built["found"]:
+            return f"There is no Leads list called “{args.get('leads_list', '')}”, so no call list was made."
+        if not built["rows"]:
+            return f"None of the {built['left_out']} companies in “{built['name']}” has a phone number, so no call list was made."
+        made = await PA.create_call_list(db, str(args.get("call_list_name") or built["name"]), built["rows"], actor.get("operator_id", ""))
+        return f"Made the call list “{made.name}” with {len(built['rows'])} people" + (f" ({built['left_out']} left out: no phone number)." if built["left_out"] else ".")
     spec = PA.SPECS["voice" if plugin == "voice" else "social"]
     t = Turn(db, "run")
     await spec.handlers[name](t, args)

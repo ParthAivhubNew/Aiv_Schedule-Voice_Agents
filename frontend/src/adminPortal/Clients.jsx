@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
+import { Dotted } from "../app/Loader";
 import { ArrowLeft, Ban, Check, Search } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
@@ -54,7 +55,7 @@ export function Clients({ canEdit, openId, open }) {
     <>
       <PageTitle
         title="Clients"
-        sub={list ? `${list.length} organisation${list.length === 1 ? "" : "s"} (${includeAivhub ? "including Aivhub" : "clients only"}${includeArchived ? ", including archived" : ""})` : "Loading…"}
+        sub={list ? `${list.length} organisation${list.length === 1 ? "" : "s"} (${includeAivhub ? "including Aivhub" : "clients only"}${includeArchived ? ", including archived" : ""})` : <Dotted text="Loading" />}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <AivhubToggle value={includeAivhub} onChange={onToggle} />

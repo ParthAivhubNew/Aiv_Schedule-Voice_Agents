@@ -341,7 +341,7 @@ async def fetch_deepseek(url: str) -> Optional[Dict[str, str]]:
     key = await deepseek_key()
     if not key:
         return None
-    data = await _deepseek_post("fetch", "/v1/tools/fetch", {"url": url}, key, 30.0)
+    data = await _deepseek_post("fetch", "/v1/tools/fetch", {"url": url}, key, 12.0)
     if not data or not str(data.get("content") or "").strip():
         return None
     await _bump_vendor_call("deepseek_fetch")

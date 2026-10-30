@@ -336,3 +336,43 @@ def test_the_audit_is_dropped_after_12_months_and_a_closed_company_is_reported_n
     biz2 = _biz()
     out = run(CC.web_contacts(_Db(), biz2))
     assert out["closed"] and not out["found"] and "contacts_web" not in biz2.raw_data
+
+
+def test_a_miss_says_the_closest_site_and_what_held_it_back():
+    from app.api import lead_accounts as LA
+
+    assert LA._closest(None) == ""
+    assert "no site that looked like theirs" in LA._closest({"audit": [{"field": "phone", "value": "0113", "score": 90, "rejected": ""}]})
+    close = LA._closest({"audit": [{"field": "website", "value": "mrbeans.co.uk", "score": 64, "rejected": ""}, {"field": "website", "value": "yell.com", "score": 5, "rejected": "x"}]})
+    assert "mrbeans.co.uk" in close and "(64)" in close and "70" in close
+    assert "left out because a directory" in LA._closest({"audit": [{"field": "website", "value": "facebook.com", "score": 80, "rejected": "a directory or social page"}]})
+
+
+def test_a_page_is_read_by_our_own_reader_first_and_deepseek_is_asked_only_when_that_fails_for_another_reason(monkeypatch):
+    from app.services.safe_fetch import FetchRefused
+
+    asked = []
+
+    async def deepseek(url):
+        asked.append(url)
+        return {"title": "From DeepSeek", "content": "page text"}
+
+    monkeypatch.setattr(ES, "fetch_deepseek", deepseek)
+
+    async def ours_ok(url, max_chars=0):
+        return "Ours", "our text"
+
+    monkeypatch.setattr(H, "fetch_text", ours_ok)
+    assert run(H._read_page("https://a.example")) == ("Ours", "our text") and asked == []  # quick and free: DeepSeek is not asked
+
+    async def dead(url, max_chars=0):
+        raise FetchRefused("the page could not be found")
+
+    monkeypatch.setattr(H, "fetch_text", dead)
+    assert run(H._read_page("https://gone.example")) is None and H._read_page.dead is True and asked == []  # a dead site never waits on a second reader
+
+    async def blocked(url, max_chars=0):
+        raise FetchRefused("the site refused the request (403)")
+
+    monkeypatch.setattr(H, "fetch_text", blocked)
+    assert run(H._read_page("https://shy.example")) == ("From DeepSeek", "page text") and asked == ["https://shy.example"] and H._read_page.dead is False

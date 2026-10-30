@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader } from "../../app/Loader";
+import { Loader, Dotted } from "../../app/Loader";
 import { createPortal } from "react-dom";
 import { Copy, Eye, FileText, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
@@ -202,7 +202,7 @@ export function ReportsPage({ showToast, embedded = false }) {
               onClick={() => (sharing && sharing.id === r.id ? setSharing(null) : openShare(r))}>
               <Send size={13} /> Share to somebody
             </button>
-            <button type="button" style={btn} disabled={busy === r.id + "preview"} onClick={() => openPreview(r)}><Eye size={13} /> {busy === r.id + "preview" ? "Loading…" : "Preview"}</button>
+            <button type="button" style={btn} disabled={busy === r.id + "preview"} onClick={() => openPreview(r)}><Eye size={13} /> {busy === r.id + "preview" ? <Dotted text="Loading" /> : "Preview"}</button>
             <button type="button" style={btn} disabled={busy === r.id + "link"} onClick={() => copyLink(r)} title="Copy a link that shows the latest numbers. It works for 120 days"><Copy size={13} /> Copy link</button>
             <button type="button" style={btn} onClick={() => setEditing(r)} aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
             <button type="button" style={{ ...btn, color: "#B42318", borderColor: "#F3D1CD" }} onClick={() => remove(r)} aria-label={`Delete ${r.name}`}><Trash2 size={13} /></button>

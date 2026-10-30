@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader, Spinner } from "../../../app/Loader";
+import { Loader, Spinner, Dotted } from "../../../app/Loader";
 import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Info, MapPin, Phone, Search, ShieldAlert, ShoppingCart, User, XCircle } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
 import { api } from "../../../api/apiClient";
@@ -233,7 +233,7 @@ function VerificationWizard({ onDone, onCancel }) {
 
       {step === 2 && (
         <>
-          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Spinner size={14} /> Loading the form…</div>}
+          {!fields && !error && <div style={{ fontSize: 13, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}><Spinner size={14} /> <Dotted text="Loading the form" /></div>}
           <div style={{ display: "grid", gap: 14 }}>
             {(fields || []).map((f) => (
               <div key={f.id}>

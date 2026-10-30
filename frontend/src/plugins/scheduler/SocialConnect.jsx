@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader } from "../../app/Loader";
+import { Loader, Dotted } from "../../app/Loader";
 import { CalendarDays, ChevronDown, Lightbulb, Lock, Mail, MessageCircle, Phone, RefreshCw, Sparkles, UserPlus, Users } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
@@ -158,7 +158,7 @@ function PostRow({ post, toast, lists, meetings }) {
                 </select>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" aria-expanded={Boolean(share.pick)} disabled={!preview || !sendable.length}
                   onClick={() => setShare({ ...share, pick: !share.pick, chosen: share.chosen || new Set(sendable.map((p) => p.id)) })}>
-                  <Users size={13} /> {!preview ? "Loading…" : share.chosen ? `${share.chosen.size} of ${sendable.length} chosen` : `Everyone (${sendable.length})`}
+                  <Users size={13} /> {!preview ? <Dotted text="Loading" /> : share.chosen ? `${share.chosen.size} of ${sendable.length} chosen` : `Everyone (${sendable.length})`}
                 </button>
                 <input className="ui-input" aria-label="A line to go with it" style={{ flex: 1, minWidth: 160 }} placeholder="A line to go with it (optional)" maxLength={300} value={share.note} onChange={(e) => setShare({ ...share, note: e.target.value })} />
                 <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!share.listId || busy === "share" || !preview || (share.chosen && !share.chosen.size)} onClick={doShare}>Make a draft campaign</button>

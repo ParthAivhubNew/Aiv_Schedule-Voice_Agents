@@ -314,7 +314,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant }) {
+function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -1123,6 +1123,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant }) {
       <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={openCo?.name || ""} sub={openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : ""}
         actions={openCo ? (
           <>
+            {onOpenCompany ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="The full page: why now, people and contact details" onClick={() => { const id = openCo.id; setOpenCo(null); onOpenCompany(id); }}>Open page</button> : null}
             {isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>
               : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => saveOne(openCo)}><Plus size={14} /> Save</button>}
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => store.save([asAccount(openCo)], FAVOURITES)}><Star size={14} /> Favourite</button>
@@ -1149,7 +1150,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant }) {
   );
 }
 
-export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant, importAsk }) {
+export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant, importAsk, onOpenCompany }) {
   const [sub, setSub] = useState("search");
   useEffect(() => { if (importAsk) setSub("import"); }, [importAsk]);
   return (
@@ -1159,7 +1160,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistan
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

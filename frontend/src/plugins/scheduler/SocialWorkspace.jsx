@@ -4514,8 +4514,8 @@ export function SocialWorkspace({
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER }}>
             <div
               style={{
-                background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.04))",
-                border: `1px solid ${C.border}`,
+                background: "linear-gradient(135deg, rgba(12,140,125,0.10), rgba(12,140,125,0.03))",
+                border: "1px solid rgba(12,140,125,0.28)",
                 borderRadius: 14,
                 padding: "18px 22px",
                 marginBottom: 16,
@@ -4524,11 +4524,11 @@ export function SocialWorkspace({
                 gap: 10,
               }}
             >
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#8B5CF6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#0C8C7D", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Lock size={16} />
               </div>
               <div>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Subscription Required</div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#065F54" }}>Subscription Required</div>
                 <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Social.</div>
               </div>
             </div>
@@ -4888,6 +4888,7 @@ export function SocialWorkspace({
               minHeight: 0,
               overflow: "hidden",
               position: "relative",
+              ...(assistantOpen ? { display: "none" } : {}),
             }}
           >
             <div

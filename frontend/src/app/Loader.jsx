@@ -1,4 +1,23 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+
+// "Loading" with dots that grow from one to four and start again, so a wait looks like something is happening and not like plain text.
+export function Dots() {
+  const [n, setN] = useState(1);
+  useEffect(() => {
+    let still = false;
+    try { still = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { /* no media query: animate */ }
+    if (still) { setN(3); return undefined; }
+    const t = setInterval(() => setN((x) => (x % 4) + 1), 380);
+    return () => clearInterval(t);
+  }, []);
+  return <span aria-hidden="true" style={{ display: "inline-block", width: "1.5em", textAlign: "left" }}>{".".repeat(n)}</span>;
+}
+
+// The text with its own dots or ellipsis taken off, and the moving dots put on.
+export function Dotted({ text }) {
+  const clean = String(text == null ? "" : text).replace(/[\s.…]+$/, "");
+  return <>{clean}<Dots /></>;
+}
 
 // The one loading look for the whole app. Three pieces, all drawn from the theme colours:
 //   Spinner   a small ring, for buttons and inline "working" moments
@@ -19,7 +38,7 @@ export function Loader({ label = "Loading", detail, compact = false, style }) {
   return (
     <div className={`ld-block${compact ? " ld-block--compact" : ""}`} role="status" aria-live="polite" style={style}>
       <span className="ld-orb" aria-hidden="true"><Spinner size={compact ? 22 : 34} /></span>
-      <div className="ld-label">{label}</div>
+      <div className="ld-label"><Dotted text={label} /></div>
       {detail ? <div className="ld-detail">{detail}</div> : null}
     </div>
   );

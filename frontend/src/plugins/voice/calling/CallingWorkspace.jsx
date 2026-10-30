@@ -2908,8 +2908,8 @@ export function CallingWorkspace({
             <div style={{ maxWidth: 1240 }}>
               <div
                 style={{
-                  background: "linear-gradient(135deg, rgba(52,87,213,0.08), rgba(59,130,246,0.04))",
-                  border: `1px solid ${C.border}`,
+                  background: "linear-gradient(135deg, rgba(52,87,213,0.10), rgba(52,87,213,0.03))",
+                  border: "1px solid rgba(52,87,213,0.28)",
                   borderRadius: 14,
                   padding: "18px 22px",
                   marginBottom: 16,
@@ -2922,7 +2922,7 @@ export function CallingWorkspace({
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.textInk }}>Plan Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#26409E" }}>Subscription Required</div>
                   <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Voice.</div>
                 </div>
               </div>
@@ -2934,7 +2934,7 @@ export function CallingWorkspace({
             <PhoneLineSetup isAdmin={!!operator?.is_admin} onGetNumber={() => goPage("numbers")} style={{ marginBottom: 14 }} />
           )}
           {page === "list" && (
-            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) ${listAiW}px`, flex: 1, minHeight: 0 }}>
+            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: assistantOpen ? "minmax(0, 1fr)" : `minmax(0, 1fr) ${listAiW}px`, flex: 1, minHeight: 0 }}>
               <PaneSwitch value={listPane} onChange={setListPane} panes={[{ id: "main", label: "Contacts", badge: rows.length || "" }, { id: "side", label: "List AI" }]} />
               <div
                 data-pane="main"
@@ -3641,7 +3641,7 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              <div data-pane="side" className="list-ai" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
+              <div data-pane="side" className="list-ai" style={{ display: assistantOpen ? "none" : "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
                 <div
                   className="split-resize"
                   role="separator"

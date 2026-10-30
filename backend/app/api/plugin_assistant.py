@@ -23,12 +23,12 @@ from sqlalchemy.future import select
 
 from app.core.tenancy import current_org
 from app.database import get_db
-from app.models.models import (CallList, CallLog, CallSchedule, CompanyProfile, OrgPhoneNumber, SocialAccount, SocialPost, SocialPostMetric,
-                               VoiceAssistant)
+from app.models.models import (CallList, CallLog, CallSchedule, CompanyProfile, ConversationTemplate, LeadAccount, OrgPhoneNumber, SocialAccount, SocialPost,
+                               SocialPostMetric, VoiceAssistant)
 from app.core.auth_middleware import current
-from app.services import agent_runs, credits
+from app.services import agent_runs, brand_voice, credits, llm_gateway
 from app.services import workflows as WF
-from app.services.assistant_engine import Spec, Turn, events, tool
+from app.services.assistant_engine import Spec, Turn, clean_reply, events, tool
 
 logger = logging.getLogger("plugin_assistant")
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
@@ -156,6 +156,116 @@ async def _call_schedules(t: Turn, _args: Dict[str, Any]) -> None:
     t.step("Read your scheduled calls", f"{len(rows)} found", t0)
 
 
+CALL_HEADERS = ["Company name", "Contact name", "Phone", "Email", "Website", "Lead ID"]
+
+
+async def _generate(db: AsyncSession, scope: str, system: str, prompt: str, max_tokens: int = 500) -> str:
+    """One piece of writing from the model, or "" when it could not be done. Nothing is saved."""
+    res = await llm_gateway.call_open_chat_llm(messages=[{"role": "user", "content": prompt}], system_prompt=system, temperature=0.5, max_tokens=max_tokens, db=db, scope=scope)
+    return clean_reply(res.get("reply") or "") if res and res.get("success") else ""
+
+
+async def call_list_rows(db: AsyncSession, leads_list: str) -> Dict[str, Any]:
+    """The rows of a call list made from one of the person's Leads lists: the companies that have a phone number. The rest are counted, not dropped silently."""
+    from app.api.lead_lists import _load
+
+    want = (leads_list or "").strip().lower()
+    lst = next((l for l in await _load(db) if str(l.get("name", "")).strip().lower() == want), None)
+    if lst is None:
+        return {"found": False, "rows": [], "left_out": 0}
+    leads = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(lst.get("ids", [])[:2000])))).scalars().all()
+    rows, left_out = [], 0
+    for a in leads:
+        if not (a.phone or "").strip():
+            left_out += 1
+            continue
+        rows.append({"Company name": a.name or "", "Contact name": a.contact_name or "", "Phone": a.phone, "Email": a.email or "", "Website": a.website or "", "Lead ID": a.id})
+    return {"found": True, "name": lst["name"], "rows": rows, "left_out": left_out}
+
+
+async def create_call_list(db: AsyncSession, name: str, rows: List[Dict[str, Any]], who: str = "") -> CallList:
+    """Saves a call list (a list with the same name is replaced, as on the Call list screen). The calls themselves still go through the Call list screen's checks."""
+    name = " ".join((name or "").split())[:80] or "Call list"
+    hit = (await db.execute(select(CallList).where(func.lower(CallList.name) == name.lower()))).scalars().first()
+    if hit is None:
+        hit = CallList(id=f"cl_{__import__('uuid').uuid4().hex[:12]}", name=name, created_by=who)
+        db.add(hit)
+    hit.headers, hit.rows, hit.row_count, hit.called_count = list(CALL_HEADERS), list(rows), len(rows), 0
+    hit.updated_at = datetime.utcnow()
+    await db.commit()
+    return hit
+
+
+async def _call_transcript(t: Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    q = str(args.get("query") or "").strip()[:80]
+    like = f"%{q}%"
+    row = (await t.db.execute(select(CallLog).where(or_(CallLog.canonical_name.ilike(like), CallLog.listed_as.ilike(like), CallLog.phone.ilike(like)))
+                              .order_by(CallLog.created_at.desc()).limit(1))).scalars().first() if q else None
+    if row is None:
+        t.notes.append(f"No call found for '{q}'." if q else "The search needs a name, company or phone number. Ask the person for it.")
+        t.step("Looked for the call", "none found", t0)
+        return
+    lines = [x for x in (row.transcript or []) if isinstance(x, dict)][-40:]
+    said = " | ".join(f"{'Caller' if x.get('who') == 'them' else 'AI'}: {str(x.get('text') or '')[:220]}" for x in lines if x.get("text"))
+    t.notes.append(f"Transcript of the call with {row.canonical_name or row.listed_as} {_ago(row.created_at)} (last {len(lines)} lines): {said or 'no transcript was kept'}")
+    t.step("Read the call transcript", f"{row.canonical_name or row.listed_as}, {len(lines)} lines", t0)
+
+
+async def _knowledge_search(t: Turn, args: Dict[str, Any]) -> None:
+    from app.services.rag_service import search_knowledge
+
+    t0 = time.time()
+    q = str(args.get("question") or "").strip()[:300]
+    if not q:
+        t.notes.append("The search needs a question. Ask the person for it.")
+        return
+    hits = await search_knowledge(t.db, query=q, top_k=3)
+    if not hits:
+        t.notes.append(f"Nothing in the person's uploaded documents matches '{q}'. Say so plainly; do not answer from memory as if it were in their documents.")
+    for h in hits:
+        t.notes.append(f"From the document “{(h.get('title') or 'untitled')[:80]}”: {str(h.get('content') or '')[:600]}")
+    t.step("Searched your documents", f"{len(hits)} passage{'s' if len(hits) != 1 else ''} for “{q[:60]}”", t0)
+
+
+async def _draft_greeting(t: Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    about = str(args.get("about") or "").strip()[:400]
+    prof = (await t.db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    tpl = (await t.db.execute(select(ConversationTemplate).where(ConversationTemplate.call_direction == "outbound").limit(1))).scalars().first()
+    current = (getattr(tpl, "greeting_template", "") or "").strip()[:400]
+    company = (getattr(prof, "name", "") or "").strip()
+    if not company or company == "Your company":
+        t.notes.append("The business profile is not filled in, so a greeting would be generic. Tell the person to fill in Business Setup first.")
+        return
+    text = await _generate(t.db, "voice", "You write the opening line an AI phone caller says when a call connects, for a UK business. Short, warm, plain, no hype, no invented facts. "
+                           "Keep placeholders such as {{prospect.name}} and {{company.name}} exactly as written. Give exactly two options, numbered 1 and 2, each under 35 words.",
+                           f"Company: {company}. What it does: {(getattr(prof, 'pitch', '') or '')[:300]}. Caller name: {getattr(prof, 'caller_name', '') or 'Sam'}.\n"
+                           f"Current greeting: {current or '(none yet)'}\nWhat the person wants: {about or 'a friendlier, shorter opening'}")
+    if text:
+        t.verbatim.append(text)
+        t.notes.append("Two draft greetings were written and are shown under your answer word for word. Introduce them in one sentence and say nothing was changed: the person edits the real greeting under AI caller. Do not repeat the greetings.")
+    else:
+        t.notes.append("The greeting could not be written just now. Try again.")
+    t.step("Drafted greetings", "two options", t0)
+
+
+async def _build_call_list(t: Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    built = await call_list_rows(t.db, str(args.get("leads_list") or ""))
+    if not built["found"]:
+        t.notes.append(f"No Leads list is called '{args.get('leads_list', '')}'. Ask the person which list, or use use_plugin to ask the Leads assistant for their list names.")
+        return
+    if not built["rows"]:
+        t.notes.append(f"None of the {built['left_out']} companies in “{built['name']}” has a phone number, so there is no one to call. Suggest checking the list in Leads first.")
+        return
+    name = " ".join(str(args.get("call_list_name") or built["name"]).split())[:80]
+    t.propose("call_list", f"Make the call list “{name}”", f"{len(built['rows'])} people with a phone number" + (f"; {built['left_out']} left out (no phone)." if built["left_out"] else "."),
+              {"name": name, "headers": CALL_HEADERS, "rows": built["rows"][:500], "left_out": built["left_out"], "hash": "#/voice/list"})
+    t.step("Prepared a call list for you to confirm", f"{len(built['rows'])} people", t0)
+    t.notes.append(f"A button to make the call list '{name}' ({len(built['rows'])} people) is on screen. Calls only start from the Call list screen, after its checks.")
+
+
 VOICE = Spec(
     plugin="voice", scope="voice",
     system=("You are the assistant inside the Voice part of Outreach by Aivhub, where an AI caller phones people for a UK business. "
@@ -173,14 +283,21 @@ VOICE = Spec(
         tool("show_credits", "USE when the person asks how many credits (calling minutes) they have. Free."),
         tool("open_screen", "USE when the person wants to make calls, schedule calls, change the AI caller's script or voice, or see stats: gives them a button to that screen.",
              {"screen": {"type": "string", "enum": list(VOICE_SCREENS)}}, ["screen"]),
+        tool("call_transcript", "USE to read what was actually said on one call (by the person's or company's name or phone number). Free.", {"query": {"type": "string"}}, ["query"]),
+        tool("knowledge_search", "USE to answer a question from the person's own uploaded documents (what the AI caller knows). Shows the passages it found. Free.", {"question": {"type": "string"}}, ["question"]),
+        tool("draft_greeting", "USE when the person wants a better opening line for the AI caller: writes two options for them to read. Changes nothing.", {"about": {"type": "string", "description": "what they want different"}}),
+        tool("build_call_list", "USE to turn one of the person's Leads lists into a call list (only people with a phone number). Shows a button; nothing is made until they press it.",
+             {"leads_list": {"type": "string"}, "call_list_name": {"type": "string"}}, ["leads_list"]),
     ],
-    handlers={"call_results": _call_results, "find_call": _find_call, "voice_setup": _voice_setup, "call_lists": _call_lists, "call_schedules": _call_schedules,
+    handlers={"call_transcript": _call_transcript, "knowledge_search": _knowledge_search, "draft_greeting": _draft_greeting, "build_call_list": _build_call_list, "call_results": _call_results, "find_call": _find_call, "voice_setup": _voice_setup, "call_lists": _call_lists, "call_schedules": _call_schedules,
               "show_credits": lambda t, a: _show_credits("voice", "calling", t, a), "open_screen": _open_screen(VOICE_SCREENS, "voice")},
-    doing={"call_results": "Reading your calls", "find_call": "Looking for the call", "voice_setup": "Checking your numbers", "call_lists": "Reading your call lists",
+    doing={"call_transcript": "Reading the call", "knowledge_search": "Searching your documents", "draft_greeting": "Writing greetings", "build_call_list": "Building the call list",
+           "call_results": "Reading your calls", "find_call": "Looking for the call", "voice_setup": "Checking your numbers", "call_lists": "Reading your call lists",
            "call_schedules": "Reading your schedule", "show_credits": "Checking your credits", "open_screen": "Finding the screen"},
     suggest=lambda t: ["How did my calls go this week?", "Which calls ended in a meeting?", "Do I have any calls scheduled?", "How many credits do I have left?",
                        "Is my AI caller set up?", "Help me schedule calls to a list"],
     fallback="I'm not sure what to do with that. Ask about your calls, call lists or schedule, for example “how did my calls go this week?”.",
+    once=frozenset({"draft_greeting"}),
 )
 
 
@@ -232,6 +349,47 @@ async def _plan_posts(t: Turn, args: Dict[str, Any]) -> None:
     t.notes.append(f"A button to plan posts for '{ask}' is on screen. The planner writes them and the person reviews before anything goes out.")
 
 
+async def _post_details(t: Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    q = str(args.get("query") or "").strip()[:80]
+    like = f"%{q}%"
+    rows = (await t.db.execute(select(SocialPost).where(or_(SocialPost.title.ilike(like), SocialPost.copy.ilike(like))).order_by(SocialPost.slot_date_ms.desc().nullslast()).limit(3))).scalars().all() if q else []
+    if not rows:
+        t.notes.append(f"No post matches '{q}'." if q else "The search needs a few words from the post. Ask the person for them.")
+        t.step("Looked for the post", "none found", t0)
+        return
+    for p in rows:
+        when = datetime.utcfromtimestamp(p.due_at_ms / 1000).strftime("%d %b %H:%M UTC") if p.due_at_ms else "no date"
+        m = (await t.db.execute(select(SocialPostMetric).where(SocialPostMetric.post_id == p.id))).scalars().all()
+        nums = "; ".join(f"{x.platform}: reach {'not reported' if x.reach is None else f'{x.reach:,}'}, likes {'not reported' if x.likes is None else x.likes}" for x in m) or "no numbers yet"
+        t.notes.append(f"Post “{p.title[:80]}” ({p.status.replace('_', ' ')}, {', '.join(p.channels or [])}, {when}): {(p.copy or '(no text yet)')[:700]} | Results: {nums}")
+    t.step("Read the post", f"{len(rows)} found for “{q[:50]}”", t0)
+
+
+async def _write_caption(t: Turn, args: Dict[str, Any]) -> None:
+    t0 = time.time()
+    brief = str(args.get("brief") or "").strip()[:600]
+    channel = str(args.get("channel") or "linkedin").strip().lower()[:20]
+    if not brief:
+        t.notes.append("A caption needs a topic. Ask the person what the post is about.")
+        return
+    prof = (await t.db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    company = (getattr(prof, "name", "") or "").strip()
+    if not company or company == "Your company":
+        t.notes.append("The business profile is not filled in, so a caption would be generic. Tell the person to fill in the company profile first.")
+        return
+    voice = brand_voice.prompt_block(await brand_voice.load(t.db))
+    text = await _generate(t.db, "scheduler", f"You write one social media post for {channel} for a UK business, in its own voice. Plain words, no hype, no invented facts, figures or quotes, "
+                           f"no hashtags unless asked. Only the post text, nothing else.\n{voice}",
+                           f"Company: {company}. What it does: {(getattr(prof, 'pitch', '') or '')[:300]}.\nWhat the post is about: {brief}", 450)
+    if text:
+        t.verbatim.append(text)
+        t.notes.append(f"A draft {channel} post was written and is shown under your answer word for word. Introduce it in one sentence and say it is not saved: the person can send it to the planner. Do not repeat the post.")
+    else:
+        t.notes.append("The caption could not be written just now. Try again.")
+    t.step("Wrote a draft post", channel, t0)
+
+
 SOCIAL = Spec(
     plugin="social", scope="scheduler",
     system=("You are the assistant inside the Social part of Outreach by Aivhub, where a UK business plans, writes and publishes social posts. "
@@ -248,14 +406,18 @@ SOCIAL = Spec(
         tool("plan_posts", "USE when the person wants posts planned or written: pass their request in their own words, including topic, channels and dates if given.",
              {"request": {"type": "string"}}, ["request"]),
         tool("open_screen", "USE to take the person to a Social screen.", {"screen": {"type": "string", "enum": list(SOCIAL_SCREENS)}}, ["screen"]),
+        tool("post_details", "USE to read one post: its text, status, channels, date and results. Free.", {"query": {"type": "string", "description": "a few words from the post"}}, ["query"]),
+        tool("write_caption", "USE to write a draft post in the company's own voice when the person wants to see wording before planning. Nothing is saved or scheduled.",
+             {"brief": {"type": "string"}, "channel": {"type": "string", "enum": ["linkedin", "x", "facebook", "instagram", "threads"]}}, ["brief"]),
     ],
-    handlers={"post_overview": _post_overview, "post_results": _post_results, "my_accounts": _my_accounts, "show_credits": lambda t, a: _show_credits("scheduler", "Social", t, a),
+    handlers={"post_details": _post_details, "write_caption": _write_caption, "post_overview": _post_overview, "post_results": _post_results, "my_accounts": _my_accounts, "show_credits": lambda t, a: _show_credits("scheduler", "Social", t, a),
               "plan_posts": _plan_posts, "open_screen": _open_screen(SOCIAL_SCREENS, "scheduler")},
-    doing={"post_overview": "Reading your posts", "post_results": "Reading your results", "my_accounts": "Checking your accounts", "show_credits": "Checking your credits",
+    doing={"post_details": "Reading the post", "write_caption": "Writing a draft", "post_overview": "Reading your posts", "post_results": "Reading your results", "my_accounts": "Checking your accounts", "show_credits": "Checking your credits",
            "plan_posts": "Preparing the plan", "open_screen": "Finding the screen"},
     suggest=lambda t: ["What is scheduled to go out?", "How did my posts do this month?", "Are my accounts connected?", "Plan 3 posts for next week",
                        "How many credits do I have left?", "What should I post about?"],
     fallback="I'm not sure what to do with that. Ask about your posts, results or accounts, or tell me what to plan.",
+    once=frozenset({"write_caption"}),
 )
 
 def _planning(spec: Spec, origin: str) -> None:

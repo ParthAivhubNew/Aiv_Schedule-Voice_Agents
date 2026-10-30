@@ -358,7 +358,7 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onExpand, onImport, page = false, plugin = "leads" }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onOpenCompany, seed, onExpand, onImport, page = false, plugin = "leads" }) {
   const cfg = PLUGINS[plugin] || PLUGINS.leads;
   const sh = storeFor(cfg.id);
   const [render, setRender] = useState(open);
@@ -501,6 +501,11 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
   const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
   const stop = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setLive({ status: "", steps: [] }); };
+  // A page can hand the assistant a message ("Ask AI" on a company): it is sent once, when the panel is open.
+  const lastSeed = useRef(0);
+  useEffect(() => {
+    if (seed && seed.id !== lastSeed.current && open && !busy) { lastSeed.current = seed.id; send(seed.text); }
+  });
   const fresh = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");
@@ -543,9 +548,20 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
 
   const confirm = async (p) => {
     if (p.kind === "switch") { doSwitch(p); return; }
+    if (p.kind === "call_list") {
+      setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
+      try {
+        const r = await api.saveCallList({ name: p.params.name, headers: p.params.headers, rows: p.params.rows });
+        setActs((a) => ({ ...a, [p.id]: { state: "done", text: `Made the call list “${r?.list?.name || p.params.name}” with ${p.params.rows.length} people. Open the Call list screen to check it and call.` } }));
+      } catch (err) {
+        setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "Couldn't make the list." } }));
+      }
+      return;
+    }
     if (p.kind === "go" || p.kind === "plan") { goTo(p.params.hash || "", p.params.prompt); if (!page) onClose?.(); return; }
     if (p.kind === "check_list") { onOpenList?.(p.params.list_id); return; }
     if (p.kind === "campaign") { onCampaign?.(p.params.list_id); return; }
+    if (p.kind === "company_open") { onOpenCompany?.(p.params.company_id); if (!page) onClose?.(); return; }
     if (p.kind === "journey_open") { onOpenJourney?.(p.params.journey_id); if (!page) onClose?.(); return; }
     if (p.kind.startsWith("journey_")) {
       // Everything the chat offers about a journey happens here, when the person presses the button: the same calls the Journeys page makes.
@@ -757,7 +773,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                         <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>
-                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : p.kind.startsWith("journey_") ? "Working" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : p.kind === "journey_open" ? "Open it" : p.kind === "journey_edit" ? (a.state === "error" ? "Try again" : "Make the change") : p.kind === "journey_people" ? (a.state === "error" ? "Try again" : "Add them") : p.kind === "journey_control" ? (a.state === "error" ? "Try again" : { start: "Start it", pause: "Pause it", stop: "Stop it" }[p.params.action]) : p.kind === "journey_tasks" ? (a.state === "error" ? "Try again" : "Mark them") : "Set up the campaign"}
+                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : p.kind === "call_list" ? "Making the list" : p.kind.startsWith("journey_") ? "Working" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "call_list" ? (a.state === "error" ? "Try again" : "Make the list") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : p.kind === "journey_open" || p.kind === "company_open" ? "Open it" : p.kind === "journey_edit" ? (a.state === "error" ? "Try again" : "Make the change") : p.kind === "journey_people" ? (a.state === "error" ? "Try again" : "Add them") : p.kind === "journey_control" ? (a.state === "error" ? "Try again" : { start: "Start it", pause: "Pause it", stop: "Stop it" }[p.params.action]) : p.kind === "journey_tasks" ? (a.state === "error" ? "Try again" : "Mark them") : "Set up the campaign"}
                           </button>
                         )}
                         {(a.results || []).map((r, i) => {

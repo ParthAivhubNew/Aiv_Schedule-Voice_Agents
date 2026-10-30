@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Dotted } from "../app/Loader";
 import { ArrowRight, Circle, Lock, Phone, Search } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
@@ -173,7 +174,7 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
       <div className="home-main">
         <div className="home-col">
           <Panel title="Do next" right={next && next.total > next.items.length ? <span style={muted}>{next.total} in all</span> : null}>
-            {!next ? <Empty>Loading…</Empty> : !next.items.length ? <Empty>Nothing is waiting on you. Callbacks, warm leads and meetings to write up show here.</Empty> : next.items.map((it) => (
+            {!next ? <Empty><Dotted text="Loading" /></Empty> : !next.items.length ? <Empty>Nothing is waiting on you. Callbacks, warm leads and meetings to write up show here.</Empty> : next.items.map((it) => (
               <div key={`${it.kind}${it.lead_id}${it.meeting_id || ""}`} style={row}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, ...clamp }}>{it.title}</div>
@@ -195,7 +196,7 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
             ) : null}
             {inboxFailed ? (
               <Empty>We couldn't load your inbox. <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={loadInbox}>Try again</button></Empty>
-            ) : !inbox ? <Empty>Loading…</Empty> : !items.length ? <Empty>Nothing new. Replies, callbacks and comments from your plugins land here.</Empty> : items.slice(0, 5).map((i) => (
+            ) : !inbox ? <Empty><Dotted text="Loading" /></Empty> : !items.length ? <Empty>Nothing new. Replies, callbacks and comments from your plugins land here.</Empty> : items.slice(0, 5).map((i) => (
               <button key={i.type + i.id} type="button" onClick={() => (i.lead_id ? openLead(i.lead_id) : navigateHash(i.type === "comment" ? "#/scheduler/plan" : i.type === "reply" || i.type === "meeting_request" ? "#/leadgen/replies" : "#/voice/logs"))}
                 style={{ ...text, all: "unset", cursor: "pointer", display: "block", boxSizing: "border-box", width: "100%", borderTop: `1px solid ${C.border}`, padding: "9px 0" }}>
                 <div style={{ fontSize: 13, color: C.ink, fontWeight: 600, ...clamp, WebkitLineClamp: 1 }}>{i.title}</div>

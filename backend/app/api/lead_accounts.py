@@ -535,9 +535,80 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     card = lead_filters.card(biz)
     got = bool(card["website"] or card["web_website"])
     if not got and not note:
-        note = "No website found for this company. Nothing was charged."
+        note = "No website found for this company." + _closest(web) + " Nothing was charged."
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": card}
+
+
+def _closest(web: Optional[Dict[str, Any]]) -> str:
+    """Why a lookup found no website, in a sentence: the closest site it saw and what held it back. Empty when the lookup did not run."""
+    from app.services import guardrail as G
+
+    if not web:
+        return ""
+    sites = sorted((a for a in (web.get("audit") or []) if a.get("field") == "website"), key=lambda a: -a.get("score", 0))
+    if not sites:
+        return " The web search came back with no site that looked like theirs, only directories or other businesses."
+    a = sites[0]
+    if a.get("rejected"):
+        return f" The closest was {a['value']}, left out because {a['rejected']}."
+    return f" The closest was {a['value']}, but its match score ({a['score']}) was under the {G.THRESHOLD} needed to be sure it is theirs."
+
+
+@router.get("/companies/{company_id}/profile")
+async def company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
+    """Everything we hold about one company, for the company page. Officers are read from the registry the first time (free, saved for next time)."""
+    from app.services import company_contacts as CC, company_profile as CP
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    if CP.is_registry_company(biz) and CC.people_stale(biz):
+        try:
+            await CC.refresh_from_registry(db, biz)
+            await db.commit()
+        except Exception as err:  # the page still opens with what is stored
+            logger.info("company page: registry people not read for %s: %s", company_id, err)
+    return {"company": await CP.build(db, biz)}
+
+
+class JourneyIn(BaseModel):
+    journey_id: str
+
+
+@router.post("/companies/{company_id}/add-to-journey")
+async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSession = Depends(get_db)):
+    """Saves the company if it is not saved yet and puts it in a journey. The person to write to is the saved contact, else the first director on the register."""
+    from app.core.tenancy import current_org
+    from app.models.models import EmailCampaign
+    from app.services import company_contacts as CC, journeys as J, lead_filters
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    camp = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == body.journey_id))).scalars().first()
+    if not camp:
+        raise HTTPException(status_code=404, detail="That journey isn't there any more.")
+    lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
+    if not lead:
+        card = lead_filters.card(biz)
+        await add_accounts(AccountsIn(accounts=[AccountIn(name=biz.name, website=card["website"] or card["web_website"], phone=card["phone"] or card["web_phone"], email=card["email"],
+                                                          industry=card["industry"], region=card["region"], source="scout", business_record_id=biz.id)], list_name="Unsorted"), db)
+        lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
+    if not lead:
+        raise HTTPException(status_code=400, detail="This company couldn't be saved, so it can't be added.")
+    first = (CC.active_officers(biz.officers) or [{}])[0]
+    parts = (lead.contact_name or "").split()
+    person = {"email": lead.email or lead_filters.card(biz)["email"] or "", "first_name": parts[0] if parts else first.get("first_name", ""),
+              "last_name": " ".join(parts[1:]) if parts else first.get("last_name", ""), "company": biz.name, "lead_id": lead.id}
+    out = await J.enrol(db, camp, [person], current_org())
+    await db.commit()
+    if not out["added"]:
+        why = next((k for k, n in out["skipped"].items() if n), "")
+        words = {"invalid": "It has no email address yet, so an email journey can't write to it. Find one first.", "duplicate": "It is already in that journey.",
+                 "do_not_email": "It is on your do-not-email list.", "in_another_journey": "It is already in another running journey.", "no_contact": "It has no contact details."}
+        raise HTTPException(status_code=400, detail=words.get(why, "It couldn't be added."))
+    return {"added": out["added"], "journey": camp.name}
 
 
 async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:

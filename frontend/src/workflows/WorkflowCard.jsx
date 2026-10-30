@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Check, Workflow } from "lucide-react";
 import { api } from "../api/apiClient";
-import { Spinner } from "../app/Loader";
+import { Spinner, Dotted } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
 import { openWorkflows } from "./openWorkflows";
 import { summary } from "./workflowModel";
@@ -28,7 +28,7 @@ export function WorkflowCard({ rule }) {
   return (
     <div className="as-card" role="group" aria-label={`Workflow: ${rule.name}`}>
       <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}><Workflow size={15} aria-hidden="true" /> {rule.name}</div>
-      <div style={{ ...muted, margin: "4px 0 8px" }}>{meta ? summary(rule, meta) : "Loading…"}</div>
+      <div style={{ ...muted, margin: "4px 0 8px" }}>{meta ? summary(rule, meta) : <Dotted text="Loading" />}</div>
       {state === "on" ? (
         <div style={{ ...muted, color: C.green, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <Check size={14} aria-hidden="true" /> It is on. It runs the next time that happens.
