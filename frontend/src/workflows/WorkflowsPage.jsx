@@ -11,7 +11,7 @@ import { PLUGIN_COLOR, PLUGIN_NAME, STATUS_LABEL, blankAction, blankWorkflow, bl
 const css = `
 .wf{position:fixed;inset:0;z-index:120;background:var(--ui-paper,#F6F7F9);overflow-y:auto;font-family:${FONT_BODY};color:#12141C}
 .wf-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;padding:12px clamp(16px,4vw,32px);background:#fff;border-bottom:1px solid #E3E6EB}
-.wf-main{max-width:980px;margin:0 auto;padding:22px clamp(16px,4vw,32px) 72px;display:grid;gap:16px}
+.wf-main{width:100%;margin:0;padding:22px clamp(16px,3vw,32px) 72px;display:grid;gap:16px;align-content:start}
 .wf-tabs{display:flex;gap:4px;border-bottom:1px solid #E3E6EB}
 .wf-tab{all:unset;cursor:pointer;padding:9px 14px;font-size:13.5px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px}
 .wf-tab[aria-selected="true"]{color:#12141C;border-bottom-color:#12141C}

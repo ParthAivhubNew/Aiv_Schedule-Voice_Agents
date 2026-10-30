@@ -436,6 +436,8 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
             web = await CC.web_contacts(db, biz, refresh=body.refresh_web)
         except Exception:
             raise HTTPException(status_code=502, detail="The web lookup didn't finish. Nothing was charged; try again in a minute.")
+        if not body.find_site_only and web and not web.get("cached"):
+            CC.note_lookup(biz, "email", bool(web.get("emails") or biz.email))
     else:
         saved = (biz.raw_data or {}).get("contacts_web") or {}  # an earlier lookup is shown again free: it is already paid for
         if saved.get("guardrail") and (saved.get("website") or saved.get("phones") or saved.get("emails")):
@@ -534,6 +536,10 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     await db.refresh(biz)
     card = lead_filters.card(biz)
     got = bool(card["website"] or card["web_website"])
+    if got or not note:  # a lookup that did not finish proves nothing, so only a finished one is remembered
+        CC.note_lookup(biz, "website", got)
+        await db.commit()
+        card = lead_filters.card(biz)
     if not got and not note:
         note = "No website found for this company." + _closest(web) + " Nothing was charged."
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
@@ -669,6 +675,10 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     await db.refresh(biz)
     card = lead_filters.card(biz)
     got = bool(card["phone"] or card["web_phone"])
+    if got or not note:
+        CC.note_lookup(biz, "phone", got)
+        await db.commit()
+        card = lead_filters.card(biz)
     if not got and not note:
         note = "No phone number found for this company. Nothing was charged."
     _PAGE_CACHE.clear()

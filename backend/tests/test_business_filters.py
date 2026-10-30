@@ -219,3 +219,13 @@ async def test_one_keyword_box_matches_a_company_name_or_a_sector_word(db):
     by_sector = await BR.search_filtered(db, {"keyword": ["accounting"]})
     assert [r.name for r in by_sector["rows"]] == ["Smith & Co Accountants"]
     assert {r.name for r in (await BR.search_filtered(db, {"keyword": ["cafe"], "towns": ["London"]}))["rows"]} == {"Corner Cafe Ltd"}
+
+
+def test_a_company_number_typed_in_the_search_box_finds_that_company():
+    from app.services import business_records as br
+    assert br._number_forms("1234567") == ["01234567"]
+    assert br._number_forms(" sc123456 ") == ["SC123456"]
+    assert br._number_forms("17492624") == ["17492624"]
+    assert br._number_forms("cafe") == [] and br._number_forms("2024") == []
+    sql = str(br._by_name_or_number("17492624", br.BusinessRecord.name).compile(compile_kwargs={"literal_binds": True}))
+    assert "registration_number IN ('17492624')" in sql

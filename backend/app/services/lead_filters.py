@@ -120,6 +120,8 @@ def card(biz) -> Dict[str, Any]:
         "has_officers": bool(biz.officers), "profile": business_records.profile_of(biz.rank_score),
         # Found by a web lookup and not yet vouched for by any registry: shown labelled, never mixed into the fields above.
         "web_website": _web_site(biz),
+        # When a website, phone or email lookup last ran and found nothing: the table says "not found" instead of offering the untried button.
+        "missed": dict((biz.raw_data or {}).get("lookups_missed") or {}),
         # Only a phone the guardrail passed is shown. A lookup from before it existed (no `guardrail` mark) holds phones nobody checked.
         "web_phone": (lambda cw: str(next(iter(cw.get("phones") or []), "") or "") if cw.get("guardrail") else "")((biz.raw_data or {}).get("contacts_web") or {}),
     }

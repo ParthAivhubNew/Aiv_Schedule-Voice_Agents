@@ -420,3 +420,17 @@ def test_a_site_mentioning_the_official_company_number_is_verified(monkeypatch):
     assert out["emails"] == ["info@sentinelvero.com"]
     assert out["confidence"]["website"]["label"] == "high"
     assert out["ledger"]["outcome"] == "found"
+
+
+def test_a_lookup_that_found_nothing_is_remembered_and_cleared_when_something_turns_up():
+    from types import SimpleNamespace
+    from app.services import company_contacts as CC, lead_filters
+    biz = SimpleNamespace(raw_data={})
+    CC.note_lookup(biz, "email", False)
+    assert "email" in biz.raw_data["lookups_missed"] and biz.raw_data["lookups_missed"]["email"].endswith("Z")
+    CC.note_lookup(biz, "phone", False)
+    CC.note_lookup(biz, "email", True)
+    assert list(biz.raw_data["lookups_missed"]) == ["phone"]
+    before = biz.raw_data
+    CC.note_lookup(biz, "website", True)  # nothing to clear: no write
+    assert biz.raw_data is before

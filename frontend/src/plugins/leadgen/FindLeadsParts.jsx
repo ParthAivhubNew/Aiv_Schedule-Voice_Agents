@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
-import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Mail, Phone, Plus, X } from "lucide-react";
+import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Mail, Phone, Plus, X, XCircle } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -140,13 +140,23 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state }) {
+function Reach({ value, kind, onFind, web, state, missed }) {
   if (!value && web) {
     return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
   const busyHere = state === "busy"; // this cell's own lookup; the other cell in the row is never touched by it
   if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
-  if (!value && state === "none") return <span title="Looked on the web and found nothing. Nothing was charged" style={{ ...muted, fontSize: 12 }}>Not found</span>;
+  // A lookup that ran and found nothing is shown as that, also after a refresh. It stays a button: not finding it is not proof it is not there.
+  if (!value && (state === "none" || missed)) {
+    const on = missed ? new Date(missed) : null;
+    const date = on && !Number.isNaN(on.getTime()) ? ` on ${on.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}` : "";
+    return (
+      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={(e) => { e.stopPropagation(); onFind(); }}
+        title={`We looked${date} and found no ${kind}. That doesn't mean there isn't one. Try again to look once more. Nothing is charged for a miss.`}>
+        <XCircle size={13} color={C.red} aria-hidden="true" /> Not found
+      </button>
+    );
+  }
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const tip = kind === "email" ? "Open the profile to look for an email" : `Look for this company's ${kind}. 1 credit if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
@@ -219,9 +229,9 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[`${c.id}:website`]} onFind={() => onFindSite(c, "website")} />}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[`${c.id}:phone`]} onFind={() => onFindSite(c, "phone")} /></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" onFind={() => onOpen(c)} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" missed={(c.missed || {}).email} onFind={() => onOpen(c)} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>
                 </tr>

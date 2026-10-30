@@ -185,6 +185,21 @@ def _age_days(stamp: Any) -> float:
         return 1e9
 
 
+def note_lookup(biz: BusinessRecord, kind: str, found: bool) -> None:
+    """Remember that a lookup for `kind` (website, phone or email) ran and came back empty, and clear that once something turns up.
+    Without it a refreshed page shows the untried button again, as if nobody had looked."""
+    raw = dict(biz.raw_data or {})
+    missed = dict(raw.get("lookups_missed") or {})
+    if found:
+        if kind not in missed:
+            return
+        missed.pop(kind)
+    else:
+        missed[kind] = datetime.utcnow().isoformat() + "Z"
+    raw["lookups_missed"] = missed
+    biz.raw_data = raw
+
+
 async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False, want: str = "all") -> Dict[str, Any]:
     """A live web lookup for the company's website, phone and email. Stored on the record under raw_data['contacts_web'] -- NOT in the
     verified columns -- so a web finding never sits in a field the registry tier vouches for.

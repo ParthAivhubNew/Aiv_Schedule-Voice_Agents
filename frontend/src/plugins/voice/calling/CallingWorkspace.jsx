@@ -1073,6 +1073,8 @@ export function CallingWorkspace({
   const [checkFilter, setCheckFilter] = useState(""); // number-check result filter on the list
   const [histOpen, setHistOpen] = useState(false);
   const [listPane, setListPane] = useState("main"); // phones: the list or List AI, one at a time
+  const [listAiOpen, setListAiOpen] = useState(false); // List AI starts hidden, like the assistant in Leads; the header button opens it
+  const listAiShown = !assistantOpen && (listAiOpen || listPane === "side");
   // List AI's width: drag its left edge (double-click resets), or use the arrow keys on the edge. Kept for next time.
   const listAiDrag = useRef(null);
   const [listAiW, setListAiW] = useState(() => {
@@ -2868,6 +2870,7 @@ export function CallingWorkspace({
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            {page === "list" && !pluginLocked && !assistantOpen ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-pressed={listAiShown} title={listAiShown ? "Hide List AI" : "Open List AI: find companies and build a list by chatting"} onClick={() => { setListAiOpen(!listAiShown); setListPane("main"); }}><Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">List AI</span></button> : null}
             {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
@@ -2934,7 +2937,7 @@ export function CallingWorkspace({
             <PhoneLineSetup isAdmin={!!operator?.is_admin} onGetNumber={() => goPage("numbers")} style={{ marginBottom: 14 }} />
           )}
           {page === "list" && (
-            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: assistantOpen ? "minmax(0, 1fr)" : `minmax(0, 1fr) ${listAiW}px`, flex: 1, minHeight: 0 }}>
+            <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: listAiShown ? `minmax(0, 1fr) ${listAiW}px` : "minmax(0, 1fr)", flex: 1, minHeight: 0 }}>
               <PaneSwitch value={listPane} onChange={setListPane} panes={[{ id: "main", label: "Contacts", badge: rows.length || "" }, { id: "side", label: "List AI" }]} />
               <div
                 data-pane="main"
@@ -3641,7 +3644,7 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              <div data-pane="side" className="list-ai" style={{ display: assistantOpen ? "none" : "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
+              <div data-pane="side" className="list-ai" style={{ display: listAiShown ? "flex" : "none", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
                 <div
                   className="split-resize"
                   role="separator"
@@ -3668,6 +3671,9 @@ export function CallingWorkspace({
                   </button>
                   <button type="button" className="ui-icon-btn" title="Start a new chat. The current one is saved in Past chats" onClick={newChat}>
                     <SquarePen size={16} />
+                  </button>
+                  <button type="button" className="ui-icon-btn" title="Hide List AI" aria-label="Hide List AI" onClick={() => { setListAiOpen(false); setListPane("main"); }}>
+                    <X size={16} />
                   </button>
                 </div>
                 {findProgress ? (

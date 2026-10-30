@@ -445,6 +445,26 @@ def _like(term: str, *, prefix_only: bool = False, exact: bool = False) -> str:
     return safe if exact else (f"{safe}%" if prefix_only else f"%{safe}%")
 
 
+_NUMBER = re.compile(r"[A-Za-z]{0,2}\d{5,8}")
+
+
+def _number_forms(term: str) -> List[str]:
+    """A typed company number as the forms it can be stored in: Companies House pads to 8 characters (1234567 is 01234567; SC123456 stays)."""
+    t = str(term).strip().replace(" ", "")
+    if not _NUMBER.fullmatch(t):
+        return []
+    return [t.zfill(8)] if t.isdigit() else [t.upper()]
+
+
+def _by_name_or_number(term: str, *cols: Any) -> Any:
+    """The term in any of these columns, or, when it is a company number, the register's number exactly (uses the index)."""
+    hits = [c.ilike(_like(term), escape="\\") for c in cols]
+    forms = _number_forms(term)
+    if forms:
+        hits.append(BusinessRecord.registration_number.in_(forms))
+    return or_(*hits)
+
+
 def _as_list(value: Any) -> List[str]:
     if not value:
         return []
@@ -491,8 +511,7 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     if f["status"].lower() != "any":
         conds.append(func.lower(B.status) == f["status"].lower())
     if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the sector
-        conds.append(or_(*[or_(B.name.ilike(_like(t), escape="\\"), B.sic_text.ilike(_like(t), escape="\\"),
-                               B.industry.ilike(_like(t), escape="\\")) for t in f["keyword"]]))
+        conds.append(or_(*[_by_name_or_number(t, B.name, B.sic_text, B.industry) for t in f["keyword"]]))
     if f.get("sector"):
         conds.append(or_(*[or_(B.sic_text.ilike(_like(t), escape="\\"), B.industry.ilike(_like(t), escape="\\"))
                            for t in f["sector"]]))
@@ -520,7 +539,7 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     if f.get("max_age_years") is not None:  # no older than this
         conds.append(B.incorporated_on >= years_ago(f["max_age_years"]))
     if f.get("name_contains"):
-        conds.append(B.name.ilike(_like(f["name_contains"]), escape="\\"))
+        conds.append(_by_name_or_number(f["name_contains"], B.name))
     for key, col in (("has_website", B.website), ("has_email", B.email), ("has_phone", B.phone)):
         if f.get(key):
             conds.append(func.coalesce(col, "") != "")

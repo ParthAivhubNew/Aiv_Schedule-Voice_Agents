@@ -2957,6 +2957,7 @@ export function SocialWorkspace({
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
   const nav = useMobileNav(page);
   const [planPane, setPlanPane] = useState("main"); // phones: the calendar or Plan AI, one at a time
+  const [planAiOpen, setPlanAiOpen] = useState(false); // Plan AI starts hidden, like the assistant in Leads; the header button opens it
   // Phones: a tap shows that day's posts under the month (no pinning, no double-tap).
   const phone = usePhone();
   const [phoneDay, setPhoneDay] = useState(() => todayIso());
@@ -4371,7 +4372,7 @@ export function SocialWorkspace({
       const d = e.detail || {};
       if (d.page) goPage(d.page);
       if (d.prompt) setDraft(d.prompt);
-      if (page !== "assistant" && d.prompt) setAssistantOpen(false);
+      if (page !== "assistant" && d.prompt) { setAssistantOpen(false); setPlanAiOpen(true); }
     };
     window.addEventListener("aivhub:social-goto", on);
     return () => window.removeEventListener("aivhub:social-goto", on);
@@ -4439,6 +4440,7 @@ export function SocialWorkspace({
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <PluginHeader assistant={false} nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar}>
+          {(page === "plan" || page === "overview") && !pluginLocked && !assistantOpen ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-pressed={planAiOpen} title={planAiOpen ? "Hide Plan AI" : "Open Plan AI: plan and write posts by chatting"} onClick={() => { setPlanAiOpen((o) => !o); setPlanPane("main"); }}><Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">Plan AI</span></button> : null}
           {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
         </PluginHeader>
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
@@ -4888,7 +4890,7 @@ export function SocialWorkspace({
               minHeight: 0,
               overflow: "hidden",
               position: "relative",
-              ...(assistantOpen ? { display: "none" } : {}),
+              ...(assistantOpen || !(planAiOpen || planPane === "side") ? { display: "none" } : {}),
             }}
           >
             <div
@@ -4926,6 +4928,9 @@ export function SocialWorkspace({
               </button>
               <button type="button" onClick={newChat} title="New chat" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
                 <Plus size={14} />
+              </button>
+              <button type="button" onClick={() => { setPlanAiOpen(false); setPlanPane("main"); }} title="Hide Plan AI" aria-label="Hide Plan AI" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
+                <X size={14} />
               </button>
             </div>
             {voiceOpen ? <BrandVoicePanel onClose={() => setVoiceOpen(false)} onSaved={() => showToast("Brand voice saved. New posts and Plan AI use it.")} /> : null}

@@ -117,7 +117,11 @@ def domain_matches_name(domain: str, name: str) -> bool:
     if len(words) == 1:
         return words[0] in label
     hits = [w for w in words if w in label]
-    return len(hits) == len(words) or (words[0] in label and len(hits) * 2 >= len(words))
+    if len(hits) == len(words):
+        return True
+    if len(words) == 2:
+        return label == words[0]
+    return words[0] in label and len(hits) >= 2 and len(hits) * 2 >= len(words)
 
 
 def _place_hit(text: str, postcode: str, area: str) -> bool:
