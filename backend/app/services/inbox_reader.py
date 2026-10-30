@@ -74,14 +74,23 @@ async def _sent_message(db: AsyncSession, ids: List[str]) -> Optional[EmailMessa
                              .order_by(EmailMessage.sent_at.desc()))).scalars().first()
 
 
-async def _stop(db: AsyncSession, enrollment_id: str, status: str) -> None:
+async def _enrollment(db: AsyncSession, enrollment_id: str) -> Optional[EmailEnrollment]:
     if not enrollment_id:
+        return None
+    return (await db.execute(select(EmailEnrollment).where(EmailEnrollment.id == enrollment_id))).scalars().first()
+
+
+async def _stop(db: AsyncSession, enrollment_id: str, status: str, category: str = "") -> None:
+    """A reply ends the journey for that person; a hard bounce only ends the email steps (see services/journeys.py)."""
+    from app.services import journeys as J
+
+    enr = await _enrollment(db, enrollment_id)
+    if not enr or enr.status != "active":
         return
-    enr = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.id == enrollment_id))).scalars().first()
-    if enr and enr.status == "active":
-        enr.status = status
-        enr.next_action_at = None
-        enr.last_action_at = datetime.utcnow()
+    if status == "bounced":
+        await J.on_bounce(db, enr)
+    else:
+        await J.on_reply(db, enr, category or ("unsubscribe" if status == "unsubscribed" else "replied"))
 
 
 async def process(db: AsyncSession, org_id: str, mb: EmailMailbox, messages: List[T.Incoming]) -> Dict[str, Any]:
@@ -127,14 +136,19 @@ async def process(db: AsyncSession, org_id: str, mb: EmailMailbox, messages: Lis
             continue
         text = T.reply_text(inc.text)
         category = await classify(db, f"{inc.subject}\n{text}", inc.auto_submitted)
-        if category == "ooo":
-            continue  # an auto-reply: the sequence carries on
+        if category == "ooo":  # an auto-reply is not an answer: the journey waits a few days, then carries on
+            from app.services import journeys as J
+
+            ooo = await _enrollment(db, sent.enrollment_id)
+            if ooo:
+                await J.on_out_of_office(db, ooo)
+            continue
         sent.status = "replied"
         sent.replied_at = datetime.utcnow()
         sent.reply_category = category
         sent.reply_snippet = text[:2000]
         sent.reply_from = inc.from_addr
-        await _stop(db, sent.enrollment_id, "unsubscribed" if category == "unsubscribe" else "replied")
+        await _stop(db, sent.enrollment_id, "unsubscribed" if category == "unsubscribe" else "replied", category)
         if category == "unsubscribe":
             await suppress(db, org_id, inc.from_addr, "unsubscribe", "inbox_reader")
         log = await day_log(db, mb.id)

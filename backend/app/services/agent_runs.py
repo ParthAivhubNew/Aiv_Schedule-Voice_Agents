@@ -40,6 +40,10 @@ CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "check_list": {"kind": "gate", "does": "check a saved list's websites, phones and emails (costs credits; list_name)", "go": "#/leadgen/lists"},
         "start_campaign": {"kind": "gate", "does": "set up an email campaign to a list (list_name)", "go": "#/leadgen/outreach"},
         "search_web": {"kind": "gate", "does": "search public web pages for more businesses (costs credits; query)", "go": "#/leadgen/find_leads"},
+        "journey_draft": {"kind": "do", "does": "write a DRAFT journey of emails, calls and tasks from the business profile (goal, audience, emails, channels); free, nothing is sent"},
+        "journey_report": {"kind": "read", "does": "read how one journey is doing (journey)"},
+        "journey_people": {"kind": "gate", "does": "add a saved list to a journey (journey, list_name); the person confirms", "go": "#/leadgen/outreach"},
+        "journey_run": {"kind": "gate", "does": "start a journey (journey); the person presses Start", "go": "#/leadgen/outreach"},
     },
     "voice": {
         "call_results": {"kind": "read", "does": "read how calls went (days, outcome)"},
@@ -60,7 +64,9 @@ CATALOG: Dict[str, Dict[str, Dict[str, Any]]] = {
 }
 
 AGENT_PROMPT = (
-    " When the person wants a job with several steps, or one that needs more than one plugin, first talk it through: ask what is missing, suggest options and say the plan "
+    " When the person wants something to happen automatically every time something else happens (a call ends, someone replies or opens an email, a meeting is booked, a company is saved), "
+    "call create_workflow with it: you do not need a campaign or a journey for that, and the person turns it on from the card. "
+    "When the person wants a job with several steps, or one that needs more than one plugin, first talk it through: ask what is missing, suggest options and say the plan "
     "in plain words. When they agree (or tell you to go ahead), call propose_plan with the full ordered steps: nothing runs until they press Run on the plan. "
     "A step runs one tool of any plugin. Steps that cost credits, send or place something wait for the person to do them on their screen. "
     "After propose_plan say in one sentence that the plan is on screen and they can ask for changes or press Run. If they ask for a change call propose_plan again with the "

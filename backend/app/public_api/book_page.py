@@ -229,7 +229,7 @@ async def _fallback_mail(to: str, name: str, ev: Dict[str, Any], when: str, join
                  f"<b>When:</b> {_esc(when)}<br><b>Length:</b> {ev['length']} min<br><b>Where:</b> {_esc(ev['where'])}"]
         msg = mailer.render(f"Confirmed: {ev['title']}", lines, {"label": "Open the meeting link", "url": join_url} if join_url else None,
                             reason=f"You are getting this because a time was booked with {_esc(company_name)}.")
-        res = await mailer.send_system_email(to, f"Confirmed: {ev['title']}, {when}", msg["html"], msg["text"])
+        res = await mailer.send_account_email(to, f"Confirmed: {ev['title']}, {when}", msg["html"], msg["text"])
         return bool(res.get("ok"))
     except Exception:
         return False

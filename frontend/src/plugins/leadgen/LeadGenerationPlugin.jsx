@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   TrendingUp,
   LayoutGrid,
+  Route,
   Send,
   RefreshCw,
   Plus,
@@ -27,6 +28,7 @@ import {
   Bot,
   Users,
   FileSpreadsheet,
+  Workflow,
 } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
@@ -43,9 +45,11 @@ import { AssistantButton, AssistantPanel, assistantHasChat } from "./AssistantPa
 import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
 import { NewCampaign } from "./CampaignSimple";
+import { JourneysView } from "./JourneysView";
 import { ProfileBox } from "./EmailWriter";
 import { SavedPeople, SavedTabs, peopleOf } from "./SavedPeople";
 import { takeOpenLead } from "../../connections/ConnectedHome";
+import { openWorkflows } from "../../workflows/openWorkflows";
 import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
 
 
@@ -134,6 +138,10 @@ export default function LeadGenerationPlugin({
   const [toastMessage, setToastMessage] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
+  const [journeyId, setJourneyId] = useState(""); // a journey to open on the Journeys page (from the chat)
+  const [journeyList, setJourneyList] = useState(""); // a list to start a new journey with (from Lists)
+  const startJourney = (listId) => { setWizard(null); setJourneyId(""); setJourneyList(listId || ""); setView("outreach"); };
+  const openJourney = (id) => { setWizard(null); setJourneyList(""); setJourneyId(id); setView("outreach"); };
   const [importAsk, setImportAsk] = useState(0); // bumped to open the spreadsheet import inside Find Leads
   const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters }
 
@@ -175,8 +183,9 @@ export default function LeadGenerationPlugin({
     { id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, group: "Outreach", embedIds: ["assistant"] },
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "Lists", short: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach", embedIds: ["lists", "saved_people", "saved_companies"] }, // Companies and People are tabs on the same page
-    { id: "outreach", label: "Email campaigns", icon: Send, group: "Outreach" },
+    { id: "outreach", label: "Journeys", icon: Route, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
+    { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
   ], embedViews);
   const navGroups = ["Outreach", "Setup"].map((label) => ({
@@ -203,6 +212,10 @@ export default function LeadGenerationPlugin({
           showToast("Choose a plan or buy a top-up to unlock Leads.");
           return;
         }
+        if (item.id === "workflows") {  // one page for the whole company, not a Leads screen
+          openWorkflows({ from: "leads", event: "campaign.reply" });
+          return;
+        }
         if (item.id === "lists") {
           setView(SAVED_VIEWS.includes(view) ? view : "lists");
           return;
@@ -224,7 +237,7 @@ export default function LeadGenerationPlugin({
     saved_people: { title: "Lists · People", desc: "Every person at the companies you saved: who they are, how to reach them, and where each company stands." },
     saved_companies: { title: "Lists · Companies", desc: "Every company you saved or imported, whichever list it is in. Check and improve them, then start a campaign." },
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
-    outreach: { title: "Email campaigns", desc: "Email sequences sent to a list: set up in steps, with follow-ups, replies and results." },
+    outreach: { title: "Journeys", desc: "A path through emails, calls and tasks for each person: set it up once, and it stops when they reply, book or opt out." },
     mail: { title: "Inbox and sent", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
     mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
@@ -290,7 +303,7 @@ export default function LeadGenerationPlugin({
           {view === "assistant" && !embedViews && (
             <AssistantPanel page open onClose={() => goTo("find_leads")} onGo={goTo} store={store} onImport={goImport}
               lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
-              onOpenList={() => goTo("lists")} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }}
+              onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney}
               onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); }} />
           )}
 
@@ -302,15 +315,16 @@ export default function LeadGenerationPlugin({
 
           {view === "saved_people" && <SavedPeople store={store} onOpen={setOpenAccount} onGo={goTo} />}
 
-          {view === "saved_companies" && <AccountsView store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}
+          {view === "saved_companies" && <AccountsView store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
-          {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }} />}
+          {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
           {view === "outreach" && (wizard
             ? <NewCampaign store={store} listsStore={listsStore} outreach={outreach} initialListId={wizard.listId}
                 onOpenBusiness={() => { setWizard(null); setView("business"); }} onOpenMailboxes={() => { setWizard(null); setView("mailboxes"); }} onOpenLists={() => { setWizard(null); setView("lists"); }}
                 onCancel={() => setWizard(null)} onDone={() => { setWizard(null); outreach.reloadCampaigns(); }} />
-            : <CampaignsView outreach={outreach} onNew={() => setWizard({ listId: "" })} />)}
+            : <JourneysView outreach={outreach} listsStore={listsStore} onGo={goTo} onAskAssistant={() => setAssistantOpen(true)} onGuided={() => setWizard({ listId: "" })}
+                initialId={journeyId} initialListId={journeyList} onConsumed={() => setJourneyList("")} />)}
 
           {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
 
@@ -327,7 +341,7 @@ export default function LeadGenerationPlugin({
       {!isLocked && !embedViews && view !== "assistant" ? (
         <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
           lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
-          onOpenList={() => goTo("lists")} onCampaign={(listId) => { setWizard({ listId }); setView("outreach"); }}
+          onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney}
           onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
       ) : null}
 

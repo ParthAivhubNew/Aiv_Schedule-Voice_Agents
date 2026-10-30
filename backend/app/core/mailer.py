@@ -14,11 +14,15 @@ triggered it. When the mailbox is not configured yet, messages are logged as ski
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import html as _html
 import logging
 import os
 import smtplib
 import ssl
+from contextvars import ContextVar
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from typing import Any, Dict, Optional
@@ -145,7 +149,7 @@ def render(title: str, paragraphs: list, button: Optional[Dict[str, str]] = None
         '</td></tr></table></td></tr>'
         # footer
         f'<tr><td align="center" style="padding:26px 24px 8px;font-family:{_FONT};font-size:12px;line-height:1.7;color:#8A8F9C">'
-        f'{footer or "Sent by " + BRAND + "."}<br>{reason or "You are getting this because of activity on your " + BRAND + " account."}</td></tr>'
+        f'{footer or "Sent by Outreach."}<br>{reason or "You are getting this because of activity on your Outreach account."}<!--UNSUB--></td></tr>'
         '</table></td></tr></table></body></html>'
     )
     import re as _re
@@ -174,15 +178,84 @@ def render_owner(title: str, paragraphs: list, page: str = "dashboard", button_l
              'letter-spacing:0.08em;padding:4px 11px;border-radius:999px">OWNER PORTAL &middot; FOR THE SOFTWARE OWNER</span>')
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     button = {"label": button_label, "url": f"{base}/admin/{page}"} if base else None
-    return render(title, [badge, *paragraphs], button, footer="Sent from the Outreach owner portal by Aivhub.",
+    return render(title, [badge, *paragraphs], button, footer="Sent from the Outreach owner portal.",
                   note=note or "Sign in with your staff account. This email is for the software owner and staff admins only; companies never receive it.",
                   reason="You are getting this because you are a staff admin of the Outreach owner portal.")
+
+
+# ── Unsubscribe: every system email carries a link, and the List-Unsubscribe header mail apps show as their own button ──
+_essential: ContextVar[bool] = ContextVar("mail_essential", default=False)
+
+
+def _unsub_secret() -> bytes:
+    from app.config import settings
+
+    return hashlib.sha256(("system-mail-unsubscribe:" + (settings.SECRET_KEY or "")).encode()).digest()
+
+
+def unsubscribe_token(email: str) -> str:
+    body = base64.urlsafe_b64encode(email.strip().lower().encode()).decode().rstrip("=")
+    return f"{body}.{hmac.new(_unsub_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]}"
+
+
+def read_unsubscribe_token(token: str) -> Optional[str]:
+    try:
+        body, mac = str(token or "").rsplit(".", 1)
+        if not hmac.compare_digest(mac, hmac.new(_unsub_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]):
+            return None
+        addr = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
+        return addr if "@" in addr else None
+    except Exception:
+        return None
+
+
+def unsubscribe_url(email: str) -> str:
+    from app.config import settings
+
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    return f"{base}/api/mail/u/{unsubscribe_token(email)}" if base else ""
+
+
+async def _opted_out(email: str) -> bool:
+    try:
+        from app.database import AsyncSessionLocal
+        from app.models.models import SystemMailOptOut
+
+        async with AsyncSessionLocal() as db:
+            return (await db.get(SystemMailOptOut, email.strip().lower())) is not None
+    except Exception as err:  # a failed check never stops a mail that should go
+        logger.warning(f"[mailer] Could not check the unsubscribe list: {err}")
+        return False
+
+
+def _with_unsubscribe(html_body: str, text_body: str, url: str) -> tuple:
+    link = f'<a href="{_html.escape(url, quote=True)}" style="color:#8A8F9C;text-decoration:underline">Unsubscribe</a>'
+    if "<!--UNSUB-->" in html_body:
+        html_body = html_body.replace("<!--UNSUB-->", f"<br>{link}")
+    elif "</body>" in html_body:
+        html_body = html_body.replace("</body>", f'<p style="text-align:center;font-family:{_FONT};font-size:12px;color:#8A8F9C;margin:12px 0">{link}</p></body>', 1)
+    else:
+        html_body += f'<p style="text-align:center;font-size:12px;color:#8A8F9C">{link}</p>'
+    return html_body, text_body + "\n\nUnsubscribe: " + url
+
+
+async def send_account_email(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """An email the person asked for or needs to keep their account working (a password reset, a confirmation, a booking): it is sent even to an
+    address that unsubscribed from our notifications. It still carries the unsubscribe link."""
+    token = _essential.set(True)
+    try:
+        return await send_system_email(*args, **kwargs)
+    finally:
+        _essential.reset(token)
 
 
 async def send_system_email(to: str, subject: str, html_body: str, text_body: str, reply_to: Optional[str] = None) -> Dict[str, Any]:
     to = (to or "").strip()
     if not to or "@" not in to:
         return {"ok": False, "error": "No email address."}
+    if not _essential.get() and await _opted_out(to):
+        logger.info(f"[mailer] {to} unsubscribed; skipped '{subject}'.")
+        return {"ok": False, "skipped": True, "error": "This address unsubscribed from these emails."}
     if not configured():
         logger.info(f"[mailer] System mailbox not configured; skipped '{subject}' to {to}.")
         return {"ok": False, "skipped": True, "error": "System mailbox is not configured yet."}
@@ -194,6 +267,11 @@ async def send_system_email(to: str, subject: str, html_body: str, text_body: st
     msg["Message-ID"] = make_msgid(domain=sender.split("@")[-1] if "@" in sender else None)
     if reply_to:
         msg["Reply-To"] = reply_to
+    url = unsubscribe_url(to)
+    if url:
+        html_body, text_body = _with_unsubscribe(html_body, text_body, url)
+        msg["List-Unsubscribe"] = f"<{url}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
     if LOGO_SRC in html_body:

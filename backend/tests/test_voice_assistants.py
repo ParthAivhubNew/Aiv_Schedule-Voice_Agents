@@ -297,3 +297,21 @@ async def test_asked_not_to_be_called_again_blocks_the_number(db, fake, signed):
     await db.rollback()
     with org_scope("org_other"):  # only this company's list
         assert not await is_opted_out(db, "+447700900123")
+
+
+async def test_a_journey_calls_goal_and_talking_points_are_in_the_prompt_the_caller_reads(db, fake):
+    from app.core.tenancy import org_scope
+    from app.models.models import Prospect
+    from app.services import voice_assistants as VA
+
+    ann, _ = await make_user(db, "ann_brief", "Admin", org_id="org_brief")
+    with org_scope("org_brief"):
+        db.add(Prospect(id="p_brief", name="Jo", phone="+447700900123", call_brief="Goal of this call: book a 15 minute intro\nTalking points: mention the case study"))
+        await db.commit()
+        row = await VA.assistant_for(db, ann.id)
+        with_brief = await VA.build_brief(db, call_id="call_b1", direction="outbound", operator_id=ann.id, assistant_row_id=row.id, phone="+447700900123",
+                                          prospect_name="Jo", prospect_id="p_brief")
+        without = await VA.build_brief(db, call_id="call_b2", direction="outbound", operator_id=ann.id, assistant_row_id=row.id, phone="+447700900123", prospect_name="Jo")
+    script = with_brief["script"]
+    assert "Goal of this call: book a 15 minute intro" in script and "Talking points: mention the case study" in script
+    assert "Goal of this call" not in without["script"]  # a call with no journey behind it reads the standing prompt only

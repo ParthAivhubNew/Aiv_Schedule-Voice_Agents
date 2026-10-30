@@ -137,24 +137,25 @@ async def cost_preview(db: AsyncSession, calls: int) -> Dict[str, Any]:
     return out
 
 
-def prospect_row(lead: LeadAccount, hooks: Dict[str, str]) -> Dict[str, Any]:
+def prospect_row(lead: LeadAccount, hooks: Dict[str, str], briefs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     contact = (lead.contact_name or "").strip()
     return {
         "name": lead.name, "company": lead.name, "contact": contact, "prospect_name": contact or lead.name,
         "phone": lead_phone(lead), "website": lead.website or lead.domain or "", "sector": lead.industry or "General",
         "region": lead.region or "UK-wide", "lead_id": lead.id, "email": lead.email or "",
         "opening_hook": " ".join(x for x in ((hooks.get(lead.id) if hooks.get(lead.id) is not None else opening_line(lead)), routing_line(lead)) if x),
+        "call_brief": (briefs or {}).get(lead.id, ""),  # a journey step's goal and talking points, read by the caller before the standing rules
     }
 
 
 async def start_calls(db: AsyncSession, leads: List[LeadAccount], *, title: str, list_id: Optional[str] = None,
                       hooks: Optional[Dict[str, str]] = None, from_number: Optional[str] = None,
-                      concurrency: int = 2) -> Dict[str, Any]:
+                      concurrency: int = 2, briefs: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     from app.services.outbound_dial import launch_outbound_mission, resolve_from_number
 
     # A missing caller ID is found out now, before anything is queued, so a failed start leaves nothing behind.
     await resolve_from_number(db, from_number)
-    rows = [prospect_row(a, hooks or {}) for a in leads]
+    rows = [prospect_row(a, hooks or {}, briefs) for a in leads]
     result = await launch_outbound_mission(db, title=title, prospects=rows, concurrency=concurrency, from_number=from_number,
                                            source="leadgen", lead_list_id=list_id)
     for a in leads:

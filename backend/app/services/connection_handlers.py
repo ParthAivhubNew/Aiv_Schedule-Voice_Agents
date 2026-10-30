@@ -115,7 +115,10 @@ async def run_call_step(db: AsyncSession, org_id: str, enr: EmailEnrollment, ste
             why = next((LC.SKIP_WORDS[k] for k, v in plan["skipped"].items() if v), "cannot be called")
             await C.record_event(db, "note", lead_id=lead.id, ref_id=f"callskip:{enr.id}:{step.id}", summary=f"Planned call skipped: {why}")
             return "skipped", why
-        await LC.start_calls(db, [lead], title=f"Campaign call: {lead.name}", concurrency=1)
+        from app.services import journeys as J
+
+        brief = await J.call_brief(db, enr, step, lead)  # this step's goal, what was emailed, who to ask for, what to do on voicemail
+        await LC.start_calls(db, [lead], title=f"Campaign call: {lead.name}", concurrency=1, briefs={lead.id: brief})
         return "called", ""
     except Exception as err:
         logger.warning(f"[connections] call step for {getattr(enr, 'id', '?')} failed: {err}")
@@ -192,6 +195,9 @@ async def _call_finished(db: AsyncSession, call: LiveCall, log: CallLog, prospec
     if outcome == "callback_requested":
         await schedule_callback(db, lead, log)
 
+    from app.services import journeys as J
+
+    in_journey = await J.on_call_result(db, lead, phone, outcome)  # a journey waiting on this call carries on, retries, or ends
     await add_suggestions(db, lead, sig, call.id, auto=rules["auto_apply_suggestions"])
 
     # Optional follow-ups. Each needs the Leads plan (the email is paid from its wallet).
@@ -200,7 +206,7 @@ async def _call_finished(db: AsyncSession, call: LiveCall, log: CallLog, prospec
         return
     if outcome in ("callback_requested", "interested") and rules["interested_email"] and rules["interested_template"].strip():
         await send_lead_email(db, org, lead, "Following up on our call", fill(rules["interested_template"], lead), "interested")
-    elif outcome == "no_answer" and rules["no_answer_email"]:
+    elif outcome == "no_answer" and rules["no_answer_email"] and not in_journey:  # a journey writes its own follow-ups
         misses = await count_no_answers(db, lead.id)
         if misses >= max(1, int(rules["no_answer_after"])) and not await already_sent(db, lead.id, "missed_you"):
             body = f"Hi {_first_name(lead) or 'there'},\n\nSorry I missed you. I tried to ring about {lead.name}. " \
@@ -408,14 +414,12 @@ async def _meeting_booked(db: AsyncSession, meeting: Meeting) -> None:
 async def stop_sequences(db: AsyncSession, lead: LeadAccount) -> int:
     """The lead booked: remaining emails and queued calls to them stop."""
     n = 0
-    if lead.email:
-        for enr in (await db.execute(select(EmailEnrollment).where(
-                EmailEnrollment.email == lead.email.lower(), EmailEnrollment.status == "active"))).scalars().all():
-            enr.status, enr.next_action_at = "booked", None
-            n += 1
     for p in (await db.execute(select(Prospect).where(Prospect.lead_id == lead.id, Prospect.status == "queued"))).scalars().all():
         p.status, p.note = "meeting_booked", "Booked a meeting, so this call was cancelled"
         n += 1
+    from app.services import journeys as J
+
+    n += await J.exit_for_lead(db, lead, lead.email or "", "meeting_booked", status="booked")  # also cancels open tasks
     if n:
         await C.record_event(db, "note", lead_id=lead.id, ref_id=f"stop:{lead.id}:{n}", summary="Booked a meeting. Planned emails and calls stopped.")
     return n

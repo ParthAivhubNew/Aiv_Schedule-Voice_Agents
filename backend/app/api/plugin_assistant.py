@@ -27,6 +27,7 @@ from app.models.models import (CallList, CallLog, CallSchedule, CompanyProfile, 
                                VoiceAssistant)
 from app.core.auth_middleware import current
 from app.services import agent_runs, credits
+from app.services import workflows as WF
 from app.services.assistant_engine import Spec, Turn, events, tool
 
 logger = logging.getLogger("plugin_assistant")
@@ -260,7 +261,7 @@ SOCIAL = Spec(
 def _planning(spec: Spec, origin: str) -> None:
     """Every assistant can plan a job with the person and ask to switch to another plugin's assistant."""
     spec.system += agent_runs.AGENT_PROMPT
-    spec.tools += agent_runs.plan_tools()
+    spec.tools += agent_runs.plan_tools() + [WF.workflow_tool()]
 
     async def plan(t: Turn, args: Dict[str, Any]) -> None:
         await agent_runs.make_plan(t.db, t, args, origin)
@@ -268,8 +269,11 @@ def _planning(spec: Spec, origin: str) -> None:
     async def switch(t: Turn, args: Dict[str, Any]) -> None:
         await agent_runs.make_switch(t, args, origin)
 
-    spec.handlers.update({"propose_plan": plan, "use_plugin": switch})
-    spec.doing.update({"propose_plan": "Writing the plan", "use_plugin": "Checking the other plugin"})
+    async def workflow(t: Turn, args: Dict[str, Any]) -> None:
+        await WF.make_workflow_card(t, args)
+
+    spec.handlers.update({"propose_plan": plan, "use_plugin": switch, "create_workflow": workflow})
+    spec.doing.update({"propose_plan": "Writing the plan", "use_plugin": "Checking the other plugin", "create_workflow": "Writing the workflow"})
 
 
 _planning(VOICE, "voice")

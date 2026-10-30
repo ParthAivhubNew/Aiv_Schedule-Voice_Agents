@@ -146,7 +146,7 @@ def company_mail(company: str, title: str, paragraphs: List[str], button: Option
     from app.core.mailer import render
 
     name = _brand_name(company)
-    return render(title, paragraphs, button, footer=f"Sent for {html.escape(name)} by Outreach by Aivhub.", note=note,
+    return render(title, paragraphs, button, footer=f"Sent for {html.escape(name)}.", note=note,
                   preheader=preheader, extra_html=extra_html,
                   reason=f"You are getting this because you are an approver or contact for {html.escape(name)}.")
 

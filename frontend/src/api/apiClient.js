@@ -399,6 +399,10 @@ export const api = {
   backfillConnections: (dryRun = true) => apiRequest(`/together/backfill?dry_run=${dryRun}`, { method: 'POST', timeoutMs: 120000 }),
   getWorkflows: () => apiRequest('/together/workflows'),
   saveWorkflows: (workflows) => apiRequest('/together/workflows', { method: 'PUT', body: { workflows } }),
+  workflowRuns: (workflowId = '', status = '') => apiRequest(`/together/workflow-runs?limit=60${workflowId ? `&workflow_id=${encodeURIComponent(workflowId)}` : ''}${status ? `&status=${encodeURIComponent(status)}` : ''}`),
+  retryWorkflowRun: (id) => apiRequest(`/together/workflow-runs/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
+  cancelWorkflowRun: (id) => apiRequest(`/together/workflow-runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  testWorkflow: (workflow, leadId = '') => apiRequest('/together/workflows/test', { method: 'POST', body: { workflow, lead_id: leadId } }),
   getDoNotContact: () => apiRequest('/compliance/do-not-contact'),
   addDoNotContact: (body) => apiRequest('/compliance/do-not-contact', { method: 'POST', body }),
   removeDoNotContact: (id) => apiRequest(`/compliance/do-not-contact/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -657,6 +661,28 @@ export const api = {
   emailDeleteCampaign: (id) => apiRequest(`/email/campaigns/${id}`, { method: 'DELETE' }),
   emailAddLeads: (id, leads) => apiRequest(`/email/campaigns/${id}/leads`, { method: 'POST', body: { leads } }),
   emailRemoveLead: (id, leadId) => apiRequest(`/email/campaigns/${id}/leads/${leadId}`, { method: 'DELETE' }),
+  // Journeys: paths of emails, calls and tasks (the email campaign engine, plus manual steps and rules)
+  journeys: () => apiRequest('/journeys'),
+  journeyTemplates: () => apiRequest('/journeys/templates'),
+  journey: (id) => apiRequest(`/journeys/${id}`),
+  journeyCreate: (body) => apiRequest('/journeys', { method: 'POST', body }),
+  journeyFromTemplate: (key, name = '') => apiRequest('/journeys/from-template', { method: 'POST', body: { key, name } }),
+  journeyDraft: (body) => apiRequest('/journeys/draft', { method: 'POST', body, timeoutMs: 90000 }),
+  journeySteps: (id, steps) => apiRequest(`/journeys/${id}/steps`, { method: 'PUT', body: { steps } }),
+  journeySettings: (id, body) => apiRequest(`/journeys/${id}/settings`, { method: 'PATCH', body }),
+  journeyChanges: (id, changes) => apiRequest(`/journeys/${id}/changes`, { method: 'POST', body: { changes } }),
+  journeyStatus: (id, status) => apiRequest(`/journeys/${id}/status`, { method: 'POST', body: { status } }),
+  journeyPeople: (id, body) => apiRequest(`/journeys/${id}/people`, { method: 'POST', body }),
+  journeyRemovePerson: (id, enrollmentId) => apiRequest(`/journeys/${id}/people/${enrollmentId}`, { method: 'DELETE' }),
+  journeySuggestions: (id) => apiRequest(`/journeys/${id}/suggestions`),
+  journeyClone: (id) => apiRequest(`/journeys/${id}/clone`, { method: 'POST' }),
+  journeyDelete: (id) => apiRequest(`/journeys/${id}`, { method: 'DELETE' }),
+  journeyTasks: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== false));
+    return apiRequest(`/journeys/tasks${q.toString() ? `?${q}` : ''}`);
+  },
+  journeyTaskDone: (id, outcome = '') => apiRequest(`/journeys/tasks/${id}/done`, { method: 'POST', body: { outcome } }),
+  journeyTaskSkip: (id) => apiRequest(`/journeys/tasks/${id}/skip`, { method: 'POST' }),
   emailFind: (body) => apiRequest('/email/find', { method: 'POST', body, timeoutMs: 90000 }),
   emailSent: (params = {}) => {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== undefined));

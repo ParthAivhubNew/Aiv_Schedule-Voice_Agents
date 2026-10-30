@@ -82,11 +82,12 @@ async def _log(event: str, to: str, subject: str, res: dict) -> None:
 
 
 async def _send_all(event: str, emails: List[str], subject: str, lines: List[str], button: Optional[dict]) -> None:
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render, send_account_email, send_system_email
 
     msg = render(subject, lines, button)
+    send = send_account_email if event == "security" else send_system_email  # security notices are sent even to an address that unsubscribed
     for to in emails:
-        res = await send_system_email(to, subject, msg["html"], msg["text"])
+        res = await send(to, subject, msg["html"], msg["text"])
         await _log(event, to, subject, res)
 
 

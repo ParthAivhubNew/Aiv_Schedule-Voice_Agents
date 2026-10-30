@@ -415,16 +415,14 @@ def _check_campaign(body: CampaignBody) -> None:
 
 
 async def _save_steps(db: AsyncSession, camp: EmailCampaign, steps: List[StepBody]) -> None:
-    for old in (await db.execute(select(EmailSequenceStep).where(EmailSequenceStep.campaign_id == camp.id))).scalars().all():
-        await db.delete(old)
-    await db.flush()
-    for n, s in enumerate(steps, 1):
-        is_call = s.channel == "call"
-        db.add(EmailSequenceStep(id=f"st_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, step_number=n,
-                                 channel="voice_call" if is_call else "email", delay_days=max(0, s.delay_days if n > 1 else 0),
-                                 delay_hours=max(0, s.delay_hours if n > 1 else 0),
-                                 condition=s.condition if is_call else "always",
-                                 subject="" if is_call else s.subject.strip()[:300], body_template="" if is_call else s.body.strip()[:10000]))
+    """The campaign screen's own saving goes through Journeys, so editing a campaign never moves people part-way through it."""
+    from app.services import journeys as J
+
+    try:
+        await J.save_steps(db, camp, J.clean_steps([{"channel": s.channel, "delay_days": s.delay_days, "delay_hours": s.delay_hours, "subject": s.subject,
+                                                     "body": s.body, "condition": s.condition} for s in steps]))
+    except J.JourneyError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 async def _known_mailboxes(db: AsyncSession, ids: List[str]) -> List[str]:
@@ -884,10 +882,13 @@ async def email_opened(token: str):
                         msg.open_count = (msg.open_count or 0) + 1
                         msg.last_opened_at = datetime.utcnow()
                         lead = await C.lead_for(db, email=msg.recipient_email)
+                        first_open = (msg.open_count or 0) == 1
                         if lead:
                             await C.record_event(db, "email", lead_id=lead.id, registry_id=lead.registry_id or "",
                                                  ref_id=f"open:{msg.id}", summary=f"Opened: {msg.subject}"[:200])
                         await db.commit()
+                        if first_open:  # workflows hear about the first open of each email
+                            C.emit(org, "email.opened", {"id": msg.id, "lead_id": lead.id if lead else "", "email": msg.recipient_email, "subject": msg.subject}, f"open:{msg.id}")
         except Exception as err:  # a picture request must always answer
             logger.debug(f"open not recorded: {err}")
     return Response(content=_GIF, media_type="image/gif", headers={"Cache-Control": "no-store, max-age=0"})

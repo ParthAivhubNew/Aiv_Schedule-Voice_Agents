@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.models.models import EmailCampaign, EmailEnrollment, EmailMessage, LeadAccount, Meeting, ScheduleItem, SocialPost
+from app.models.models import EmailCampaign, EmailEnrollment, EmailMessage, JourneyTask, LeadAccount, Meeting, ScheduleItem, SocialPost
 
 ORDER = ("leads", "voice", "social")
 LABELS = {"leads": "Leads", "voice": "Voice", "social": "Social"}
@@ -108,6 +108,15 @@ async def _leads(db: AsyncSession, start: datetime, end: datetime, tz: str) -> L
     for cid, n, first in due:
         out.append(_item("leads", "campaign_emails", f"{n} email{'s' if n != 1 else ''} due: {names.get(cid, 'a campaign')}", time=_local_hhmm(first, tz),
                          detail="Sent inside the campaign's sending window", id_=cid, href="#/leadgen/outreach"))
+    # Manual steps of a journey: this day's tasks, and (when looking at today) the ones already overdue
+    now = datetime.utcnow()
+    viewing_today = start <= now < end
+    where = [JourneyTask.status == "open", JourneyTask.due_at < end] + ([] if viewing_today else [JourneyTask.due_at >= start])
+    for t in (await db.execute(select(JourneyTask).where(*where).order_by(JourneyTask.due_at).limit(60))).scalars().all():
+        late = t.due_at < start
+        out.append(_item("leads", "journey_task", t.title, time="" if late else _local_hhmm(t.due_at, tz),
+                         detail=" · ".join(x for x in (t.contact or t.company, names.get(t.campaign_id, "")) if x), status="Overdue" if late else "To do",
+                         id_=t.id, href="#/leadgen/outreach"))
     base = (EmailMessage.is_warmup.is_(False),)
     sent = (await db.execute(select(func.count(EmailMessage.id)).where(*base, EmailMessage.sent_at >= start, EmailMessage.sent_at < end))).scalar() or 0
     if sent:

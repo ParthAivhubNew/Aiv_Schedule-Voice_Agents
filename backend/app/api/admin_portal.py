@@ -1183,7 +1183,7 @@ async def delete_platform_mailbox(request: Request):
 @router.post("/platform-mailbox/test")
 async def test_platform_mailbox(request: Request):
     """Sends a test email from the platform mailbox to the signed-in staff member."""
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render, send_account_email as send_system_email
 
     to = _who(request).get("email") or ""
     parts = render("Platform mailbox works", ["This test was sent from Outreach's platform mailbox."])
@@ -1231,7 +1231,7 @@ class PartnerStatusBody(BaseModel):
 
 
 async def _mail_applicant(app_row, subject: str, lines: List[str]) -> None:
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render, send_account_email as send_system_email
     import html as _html
 
     if not app_row.contact_email:

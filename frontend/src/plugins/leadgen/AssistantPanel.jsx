@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUp, BarChart3, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, FileSpreadsheet, Globe, ListPlus, Mail, ArrowRight, Maximize2, Mic, PenLine, Plus, RotateCcw, Search, Send, ShieldCheck, Sparkles, Square, Trash2, Users, X } from "lucide-react";
+import { ArrowUp, BarChart3, Route, BookOpen, Brain, Building2, CalendarClock, Check, ChevronRight, Clock, FileSpreadsheet, Globe, ListPlus, Mail, ArrowRight, Maximize2, Mic, PenLine, Plus, RotateCcw, Search, Send, ShieldCheck, Sparkles, Square, Trash2, Users, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { Spinner } from "../../app/Loader";
 import { useSpeech } from "../../hooks/useSpeech";
 import { navigateHash } from "../../utils/route";
 import { PlanCard } from "../../agent/PlanCard";
+import { WorkflowCard } from "../../workflows/WorkflowCard";
 import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
+import { addedText } from "./journeyLogic";
 import { creditWord, useLeadCredits } from "./CreditsChip";
 
 // The AI assistant: a panel that sits to the right of any Leads page and pushes the page aside, opened from the dark button in the
@@ -56,7 +58,7 @@ const PLUGINS = {
   leads: {
     id: "leads", short: "Leads", name: "AI Assistant", history: "leadgen_assistant", memory: "leadgen_assistant_memory", leads: true,
     ask: (body, on, signal) => api.assistantStream(body, on, signal), goals: GOALS,
-    placeholder: "Find leads, ask about your pipeline, or type / for commands",
+    placeholder: "Ask about leads, or type / for commands",
     starters: ["Find cafes in Leeds", "Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"],
     foot: "Saving, checking and sending only happen when you press the button on a card.",
     get presets() { return PRESETS; },
@@ -183,7 +185,8 @@ const css = `
 .as-foot{flex:none;padding:10px 14px 12px;border-top:1px solid var(--ui-line,#E3E6EF);background:#fff}
 .as-box{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;padding:8px 8px 8px 12px;background:#fff;transition:border-color .15s,box-shadow .15s}
 .as-box:focus-within{border-color:var(--ui-accent,#3457D5);box-shadow:0 0 0 3px var(--ui-accent-soft,#EEF2FE)}
-.as-box textarea{all:unset;flex:1;min-width:0;font:13.5px/1.45 Inter,sans-serif;max-height:120px;overflow-y:auto;color:var(--ui-ink,#111827);white-space:pre-wrap}
+.as-box textarea{all:unset;flex:1;min-width:0;font:13.5px/1.45 Inter,sans-serif;max-height:120px;overflow-y:hidden;scrollbar-width:none;color:var(--ui-ink,#111827);white-space:pre-wrap}
+.as-box textarea::-webkit-scrollbar{display:none}
 .as-send{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;background:#111520;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:transform .12s var(--mo-ease,ease),opacity .15s}
 .as-send:not([disabled]):hover{transform:translateY(-1px)}.as-send:not([disabled]):active{transform:scale(.94)}
 .as-send[disabled]{opacity:.35;cursor:default}
@@ -293,7 +296,10 @@ function ProfileSetup({ onSaved, editable = false }) {
   const [base, setBase] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
   useEffect(() => { api.emailGetWritingProfile().then(setBase).catch(() => {}); }, []);
+  // In the Context center the saved profile is shown straight away, ready to read and edit.
+  useEffect(() => { if (editable && base && !fields) setFields({ ...(base.edit || {}) }); }, [editable, base]); // eslint-disable-line react-hooks/exhaustive-deps
   const canEdit = base ? base.can_edit !== false : true;
   const read = async () => {
     if (!url.trim() || busy) return;
@@ -308,16 +314,24 @@ function ProfileSetup({ onSaved, editable = false }) {
     setBusy(true); setError("");
     try {
       await api.emailSaveWritingProfile({ ...(base?.edit || {}), ...fields });
+      setBase((b) => ({ ...(b || {}), edit: { ...(b?.edit || {}), ...fields } }));
+      setSaved(true);
       onSaved();
     } catch (err) { setError(err.message || "Couldn't save."); }
     setBusy(false);
   };
-  const set = (k) => (e) => setFields((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k) => (e) => { setSaved(false); setFields((f) => ({ ...f, [k]: e.target.value })); };
   const small = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
   return (
     <div className="as-card" style={{ marginTop: 0 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink }}><Building2 size={16} aria-hidden="true" /> Tell me about your business</div>
-      <p style={{ ...small, margin: "4px 0 8px" }}>Give me your website and I will read it, so my answers fit what you sell.</p>
+      <p style={{ ...small, margin: "4px 0 8px" }}>{editable ? (fields && (fields.company || fields.sells) ? "This is what I know about your business. Every answer, search and email follows it. Change anything and press Save." : "I do not know your business yet. Type it below, or give me your website and I will read it for you to check.") : "Give me your website and I will read it, so my answers fit what you sell."}</p>
+      {editable && fields ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          <input className="ui-input" aria-label="Your website" placeholder="Fill it in from your website: yourcompany.com" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") read(); }} style={{ flex: 1, minWidth: 0 }} />
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy || !url.trim()} onClick={read}>{busy ? <Spinner size={13} /> : "Read it"}</button>
+        </div>
+      ) : null}
       {!fields ? (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {editable && base?.edit?.company ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setFields({ ...base.edit })}>Edit what I know: {base.edit.company}</button> : null}
@@ -333,7 +347,8 @@ function ProfileSetup({ onSaved, editable = false }) {
           ))}
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy || !canEdit || !fields.company?.trim() || !fields.sells?.trim()} onClick={save}>{busy ? <Spinner size={13} /> : "Save"}</button>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setFields(null)}>Back</button>
+            {!editable ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setFields(null)}>Back</button> : null}
+            {saved ? <span role="status" style={{ ...small, color: C.green }}>Saved. I will use this from now on.</span> : null}
             {!canEdit ? <span style={small}>Only an admin can save this.</span> : null}
           </div>
         </div>
@@ -343,7 +358,7 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onExpand, onImport, page = false, plugin = "leads" }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onExpand, onImport, page = false, plugin = "leads" }) {
   const cfg = PLUGINS[plugin] || PLUGINS.leads;
   const sh = storeFor(cfg.id);
   const [render, setRender] = useState(open);
@@ -405,6 +420,14 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   }, [busy]);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }, [messages, busy, acts]);
   useEffect(() => { if (open && view === "chat") setTimeout(() => boxRef.current?.focus(), 80); }, [open, view]);
+  // The box is one line until the text needs more, then grows to about six lines; past that it scrolls, with no scrollbar showing.
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    el.style.overflowY = el.scrollHeight > 120 ? "auto" : "hidden";
+  }, [input, view, render]);
 
   if (!render && !page) return null;
 
@@ -523,6 +546,30 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (p.kind === "go" || p.kind === "plan") { goTo(p.params.hash || "", p.params.prompt); if (!page) onClose?.(); return; }
     if (p.kind === "check_list") { onOpenList?.(p.params.list_id); return; }
     if (p.kind === "campaign") { onCampaign?.(p.params.list_id); return; }
+    if (p.kind === "journey_open") { onOpenJourney?.(p.params.journey_id); if (!page) onClose?.(); return; }
+    if (p.kind.startsWith("journey_")) {
+      // Everything the chat offers about a journey happens here, when the person presses the button: the same calls the Journeys page makes.
+      setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
+      try {
+        const id = p.params.journey_id;
+        let said = "";
+        if (p.kind === "journey_edit") { await api.journeyChanges(id, p.params.changes); said = "Changed. People part-way through keep their place."; }
+        else if (p.kind === "journey_people") { const out = await api.journeyPeople(id, { list_id: p.params.list_id, how_many: p.params.how_many }); said = `${addedText(out)} Nothing is sent until the journey is running.`; }
+        else if (p.kind === "journey_control") {
+          const status = { start: "running", pause: "paused", stop: "stopped" }[p.params.action];
+          await api.journeyStatus(id, status);
+          said = { start: "Started. The first step goes out in the next sending window.", pause: "Paused. Nobody loses their place.", stop: "Stopped." }[p.params.action];
+        } else if (p.kind === "journey_tasks") {
+          for (const tid of p.params.task_ids) { await (p.params.action === "skip" ? api.journeyTaskSkip(tid) : api.journeyTaskDone(tid)); }
+          said = `Marked ${p.params.task_ids.length} as ${p.params.action === "skip" ? "skipped" : "done"}.`;
+        }
+        setActs((a) => ({ ...a, [p.id]: { state: "done", text: said } }));
+        if (p.kind !== "journey_tasks") onOpenJourney?.(id);
+      } catch (err) {
+        setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "That didn't work. Nothing was changed." } }));
+      }
+      return;
+    }
     if (p.kind === "web_search") {
       setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
       try {
@@ -700,16 +747,17 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                   ) : null}
                   {(m.proposals || []).map((p) => {
                     if (p.kind === "plan_run") return <PlanCard key={p.id} plan={p.params.run} />;
+                    if (p.kind === "workflow") return <WorkflowCard key={p.id} rule={p.params.rule} />;
                     const a = acts[p.id] || {};
                     return (
                       <div key={p.id} className="as-card">
                         <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
-                          {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
+                          {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : p.kind.startsWith("journey_") ? <Route size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
                         </div>
                         <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>
-                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : "Set up the campaign"}
+                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : p.kind.startsWith("journey_") ? "Working" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : p.kind === "journey_open" ? "Open it" : p.kind === "journey_edit" ? (a.state === "error" ? "Try again" : "Make the change") : p.kind === "journey_people" ? (a.state === "error" ? "Try again" : "Add them") : p.kind === "journey_control" ? (a.state === "error" ? "Try again" : { start: "Start it", pause: "Pause it", stop: "Stop it" }[p.params.action]) : p.kind === "journey_tasks" ? (a.state === "error" ? "Try again" : "Mark them") : "Set up the campaign"}
                           </button>
                         )}
                         {(a.results || []).map((r, i) => {
@@ -760,7 +808,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 ))}
               </div>
             ) : chips.length ? (
-              <div className="as-chips" role="group" aria-label="Suggestions">
+              <div className="as-chips" role="group" aria-label="Suggestions" onWheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY; }}>
                 {chips.map((c) => <button key={c} type="button" className="as-chip" title={c} disabled={busy} onClick={() => send(c)}>{c}</button>)}
               </div>
             ) : null}

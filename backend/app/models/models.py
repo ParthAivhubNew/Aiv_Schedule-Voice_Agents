@@ -303,6 +303,7 @@ class Prospect(Base):
     email = Column(String, default="")  # from Leadgen's Find Work Email, when run
     lead_id = Column(String, nullable=True, index=True)  # the Lead Gen company this call target came from (soft reference)
     opening_hook = Column(Text, default="")  # Leadgen's AI-written icebreaker for this account
+    call_brief = Column(Text, default="")  # a journey call step's goal, talking points and what was emailed: read before the standing rules
     channel = Column(String, default="voice")
     fallback_channel = Column(String, nullable=True)
     note = Column(Text, default="")
@@ -1368,6 +1369,16 @@ class EmailCampaign(Base):
     min_delay_seconds = Column(Integer, default=60)
     max_delay_seconds = Column(Integer, default=300)
     mission_id = Column(String, ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, index=True)
+    # A Journey is this campaign plus the fields below (see services/journeys.py).
+    goal = Column(Text, default="")  # one sentence: what this journey is for; the call prompt and the chat read it
+    daily_cap = Column(Integer, default=0)  # most emails this journey sends a day across its mailboxes; 0 = only the mailboxes' own allowance
+    exit_rules = Column(JSON, nullable=True)  # which events end it for a person (see journeys.DEFAULT_RULES)
+    owner_id = Column(String, default="")
+    tags = Column(JSON, nullable=True)
+    cc = Column(String, default="")
+    bcc = Column(String, default="")
+    one_at_a_time = Column(Boolean, default=True)  # a person already in another running journey is not added to this one
+    template_key = Column(String, default="")  # the ready-made journey it started from, if any
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1393,7 +1404,17 @@ class EmailSequenceStep(Base):
     mission_id = Column(String, default="")
     # When a call step runs: always, no_reply (they have not answered the emails), opened_no_reply (opened, no reply).
     condition = Column(String, default="always")
-    
+    # Journeys: a step keeps its key when steps are edited, so people part-way through keep their place.
+    step_key = Column(String, default="", index=True)
+    title = Column(String, default="")  # a task step's headline, or a call step's label
+    notes = Column(Text, default="")  # a task's instructions, or a call's talking points
+    goal = Column(Text, default="")  # a call step: what this call is for
+    voicemail = Column(String, default="hang_up")  # a call step: hang_up | leave_message
+    retries = Column(Integer, default=0)  # a call step: more tries when nobody answers
+    retry_gap_hours = Column(Integer, default=24)
+    subject_b = Column(Text, default="")  # an email step's second version, for an A/B test
+    body_b = Column(Text, default="")
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -1418,7 +1439,41 @@ class EmailEnrollment(Base):
     status = Column(String, default="active")  # active, paused, completed, replied, bounced, unsubscribed
     last_action_at = Column(DateTime, nullable=True)
     next_action_at = Column(DateTime, nullable=True, index=True)
+    # Journeys
+    current_step_key = Column(String, default="")
+    waiting_on = Column(String, default="")  # "task:<id>" while a person does a manual step, "call" while a call is out
+    waiting_since = Column(DateTime, nullable=True)
+    finish_reason = Column(String, default="")  # why it ended: replied, meeting_booked, not_interested, unsubscribed, unresponsive, stage, ...
+    email_blocked = Column(Boolean, default=False)  # the address bounced: email steps are skipped, calls still go
+    call_blocked = Column(Boolean, default=False)  # wrong number or no number: call steps are skipped, emails still go
+    variant = Column(String, default="a")  # which version of an A/B step this person gets
+    retry_count = Column(Integer, default=0)  # tries so far at the current call step
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class JourneyTask(Base):
+    """A manual step of a journey, waiting for a person to do it: write an email, make a call, do a social or LinkedIn action."""
+    __tablename__ = "journey_tasks"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    campaign_id = Column(String, index=True, nullable=False)
+    enrollment_id = Column(String, index=True, nullable=False)
+    lead_id = Column(String, nullable=True, index=True)
+    step_key = Column(String, default="")
+    kind = Column(String, default="task")  # manual_email | call_task | task | social_task | linkedin_task
+    title = Column(String, default="")
+    notes = Column(Text, default="")
+    contact = Column(String, default="")
+    company = Column(String, default="")
+    email = Column(String, default="")
+    phone = Column(String, default="")
+    due_at = Column(DateTime, default=datetime.utcnow, index=True)
+    status = Column(String, default="open", index=True)  # open | done | skipped | cancelled
+    outcome = Column(String, default="")  # how a call task went: connected | interested | not_interested | no_answer | wrong_number | callback
+    assignee = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class PersonCache(Base):
@@ -2108,6 +2163,35 @@ class PartnerAudit(Base):
     action = Column(String, nullable=False)
     detail = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class WorkflowRun(Base):
+    """One go of a workflow for one lead: what ran, what each block said, and where it stands. A wait parks it until resume_at."""
+    __tablename__ = "workflow_runs"
+
+    id = Column(String, primary_key=True, default=lambda: f"wr_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    workflow_id = Column(String, index=True, nullable=False)
+    workflow_name = Column(String, default="")
+    event = Column(String, default="")
+    event_key = Column(String, index=True, default="")  # the same event never starts the same workflow twice for the same lead
+    lead_id = Column(String, index=True, default="")
+    lead_name = Column(String, default="")
+    status = Column(String, default="running", index=True)  # running | waiting | done | failed | stopped | skipped
+    queue = Column(JSON, default=list)  # the blocks still to do (after a wait, or the one that failed)
+    log = Column(JSON, default=list)  # [{at, label, result, ok}]
+    resume_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SystemMailOptOut(Base):
+    """An email address that unsubscribed from our system emails (notifications, reports, alerts). Emails a person asked for (a password reset,
+    a booking confirmation) are still sent. Not tied to one organisation: it is the address that said stop."""
+    __tablename__ = "system_mail_optouts"
+
+    email = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class AgentRun(Base):

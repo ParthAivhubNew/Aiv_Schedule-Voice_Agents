@@ -224,7 +224,7 @@ async def _seed_company(org_id: str, company: str) -> None:
 
 
 async def _send_verification(op: Operator, ret: str = "", partner_name: str = "") -> bool:
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render, send_account_email as send_system_email
 
     claims = {"typ": "verify_email", "sub": op.id, "email": (op.email or "").lower()}
     if ret:
@@ -241,7 +241,7 @@ async def _send_verification(op: Operator, ret: str = "", partner_name: str = ""
         ], {"label": "Confirm my email", "url": link},
             note="This link works for 3 days. If you didn't sign up, you can safely ignore this email.",
             preheader=f"Confirm your email to start using Outreach in {partner_name}.",
-            footer=f"Sent for {who} by {html.escape('Outreach by Aivhub')}.")
+            footer=f"Sent for {who}.")
     else:
         subject = "Confirm your email for Outreach by Aivhub"
         msg = render("Welcome aboard! One last step", [
@@ -366,7 +366,7 @@ class ForgotBody(BaseModel):
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotBody, request: Request, db: AsyncSession = Depends(get_db)):
-    from app.core.mailer import configured, render, send_system_email
+    from app.core.mailer import configured, render, send_account_email as send_system_email
 
     _limit("forgot", request)
     if not configured():

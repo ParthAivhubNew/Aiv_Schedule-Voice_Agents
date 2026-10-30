@@ -603,6 +603,7 @@ async def launch_outbound_mission(
             lead_id=p.get("lead_id") or None,
             email=p.get("email") or "",
             opening_hook=p.get("opening_hook") or "",
+            call_brief=p.get("call_brief") or "",
         )
         db.add(row)
         stored.append(row)

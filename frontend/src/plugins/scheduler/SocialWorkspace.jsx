@@ -1,6 +1,7 @@
 import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "../../app/Loader";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../leadgen/AssistantPanel";
+import { openWorkflows } from "../../workflows/openWorkflows";
 import { createPortal } from "react-dom";
 import {
   Bot,
@@ -37,6 +38,7 @@ import {
   Film,
   FlaskConical,
   Upload,
+  Workflow,
 } from "lucide-react";
 import { AppChrome } from "../../app/ui";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
@@ -4409,6 +4411,7 @@ export function SocialWorkspace({
         ] },
     ] },
     { label: "Setup", items: [
+      { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", onClick: () => openWorkflows({ from: "social", event: "post.published" }) },
       { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
     ] },
   ];

@@ -46,6 +46,7 @@ from app.api.lead_checks import router as lead_checks_router
 from app.api.lead_assistant import router as lead_assistant_router
 from app.api.plugin_assistant import router as plugin_assistant_router
 from app.api.agent import router as agent_router
+from app.api.mail_prefs import router as mail_prefs_router
 from app.api.lead_lists import router as lead_lists_router
 from app.api.connected import router as connected_router
 from app.api.connected_home import router as connected_home_router
@@ -65,6 +66,7 @@ from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
 from app.api.number_check import router as number_check_router
 from app.api.email_outreach import router as email_outreach_router
+from app.api.journeys import router as journeys_router
 from app.api.mail_client import router as mail_client_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
@@ -794,9 +796,12 @@ async def lifespan(app: FastAPI):
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
     find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
     call_schedule_task = asyncio.create_task(_call_schedule_loop())
+    from app.services.workflows import workflow_loop
+    workflow_task = asyncio.create_task(workflow_loop())
 
     yield
 
+    workflow_task.cancel()
     call_schedule_task.cancel()
     find_leads_warm_task.cancel()
     social_results_task.cancel()
@@ -928,6 +933,7 @@ app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(lead_assistant_router, prefix=settings.API_PREFIX)
 app.include_router(plugin_assistant_router, prefix=settings.API_PREFIX)
 app.include_router(agent_router, prefix=settings.API_PREFIX)
+app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)
@@ -952,6 +958,7 @@ app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
+app.include_router(journeys_router, prefix=settings.API_PREFIX)
 app.include_router(mail_client_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)

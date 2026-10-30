@@ -187,7 +187,11 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
     pool = [boxes[i] for i in (camp.mailbox_ids or []) if i in boxes]
     if not pool:
         return 0
+    from app.services import journeys as J
+
     steps = await _steps(db, camp.id)
+    rules = J.rules_of(camp)
+    cap_left = (camp.daily_cap - await J.sent_today(db, camp.id, now)) if camp.daily_cap else None  # the journey's own daily cap, on top of each mailbox's
     due = (await db.execute(select(EmailEnrollment).where(
         EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active",
         EmailEnrollment.next_action_at <= now).order_by(EmailEnrollment.next_action_at).limit(len(pool) * 2))).scalars().all()
@@ -198,6 +202,8 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             enr.status = "completed"
             enr.next_action_at = None
             continue
+        if await J.before_step(db, camp, enr, step, steps, rules, now):  # a stage that means stop, a manual step, a skipped channel, a call that never reported
+            continue
         if step.channel != "email":  # a call step: ring the lead through Voice when the plans and the condition allow it
             from app.services.connection_handlers import run_call_step
 
@@ -206,7 +212,15 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
                 enr.next_action_at = now + timedelta(minutes=30)
                 continue
             enr.last_action_at = now
+            if outcome == "called":  # the journey waits for the call's result, and carries on by itself if none comes
+                enr.waiting_on, enr.waiting_since, enr.next_action_at = "call", now, now + timedelta(hours=J.CALL_WAIT_HOURS)
+                continue
             await _advance(enr, steps, now)
+            continue
+        if await J.already_sent(db, enr.id, step.id):  # it went out before a restart: never twice
+            await _advance(enr, steps, now)
+            continue
+        if cap_left is not None and cap_left <= 0:  # the journey's daily cap is reached: the rest waits for tomorrow
             continue
         # A follow-up goes from the mailbox that sent the first email. If that one is blocked, paused or
         # failing, any other ready mailbox in the campaign takes over, so one bad mailbox never stalls the list.
@@ -215,8 +229,9 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         link = ""
         if re.search(r"\{\{\s*booking_?link\s*\}\}", (step.body_template or "") + (step.subject or ""), re.I):
             link = await booking_link_for(db, org_id, enr)  # empty without the Voice plan, so no broken link goes out
-        subject = render(step.subject, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
-        body = render(step.body_template, enr, link)
+        subject_tpl, body_tpl = J.pick_version(enr, step)
+        subject = render(subject_tpl, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
+        body = render(body_tpl, enr, link)
         from app.services.enrichment_waterfall import classify_pecr_entity
 
         res, mb = None, None
@@ -236,25 +251,29 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         enr.last_action_at = now
         if res["status"] == "sent":
             sent += 1
+            cap_left = None if cap_left is None else cap_left - 1
             enr.mailbox_id = mb.id
             enr.last_message_id = res["message_id"]
             enr.last_subject = enr.last_subject or subject
             await _advance(enr, steps, now)
         elif res["status"] in ("suppressed", "blocked_pecr"):
             enr.status = "suppressed" if res["status"] == "suppressed" else "blocked"
-            enr.next_action_at = None
+            enr.next_action_at, enr.finish_reason = None, res["status"]
         else:
             enr.next_action_at = now + RETRY_AFTER
+    await J.sweep_silent(db, camp, now)
     return sent
 
 
 async def _advance(enr: EmailEnrollment, steps: Dict[int, EmailSequenceStep], now: datetime) -> None:
+    enr.waiting_on, enr.retry_count = "", 0
     nxt = steps.get(enr.current_step + 1)
     if nxt is None:
         enr.status = "completed"
-        enr.next_action_at = None
+        enr.next_action_at, enr.finish_reason = None, "finished"
         return
     enr.current_step += 1
+    enr.current_step_key = nxt.step_key or nxt.id
     enr.next_action_at = now + timedelta(days=nxt.delay_days or 0, hours=nxt.delay_hours or 0)
 
 

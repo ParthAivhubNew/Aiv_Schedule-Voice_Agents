@@ -125,7 +125,7 @@ def _fake_http(monkeypatch, status, payload, sent):
 
         async def post(self, url, headers=None, json=None):
             sent.append({"url": url, "headers": headers, "json": json})
-            return SimpleNamespace(status_code=status, json=lambda: payload)
+            return SimpleNamespace(status_code=status, json=lambda: payload, text="")
 
     monkeypatch.setattr("app.services.enrichment_service.httpx.AsyncClient", Client)
 
@@ -185,46 +185,7 @@ async def test_staff_can_tick_the_deepseek_box(db):
     assert (await _get_doc(db, "web_search_settings")) == {"deepseek": False}
 
 
-# ── Web data must belong to the company ─────────────────────────────────────
-
-async def test_web_contacts_drop_directory_sites_foreign_numbers_and_other_companies_emails(monkeypatch):
-    from app.services import company_contacts as CC
-
-    flushed = []
-
-    async def flush():
-        flushed.append(1)
-
-    db = SimpleNamespace(flush=flush)
-    biz = SimpleNamespace(name="PNP ENTERPRISES LTD", domain="", region="Leeds", raw_data={})
-
-    async def wrong(**k):  # what an unfiltered search brought back for this name
-        return {"domain": "https://www.yell.com/biz/pnp", "phones": ["+27 11 555 0100", "0113 555 0101"],
-                "emails": ["info@pnp.co.za"], "team": [{"name": "A. Person", "title": "Owner", "email": "a@pnp.co.za", "phone": "+27 82 000 0000"}],
-                "citations": ["https://www.yell.com/biz/pnp"]}
-
-    monkeypatch.setattr("app.services.enrichment_service.enrich_prospect_intelligence", wrong)
-    out = await CC.web_contacts(db, biz)
-    assert out["website"] == "" and out["emails"] == [] and out["phones"] == ["0113 555 0101"]  # the +27 number and the foreign emails are gone
-    assert out["team"][0]["email"] == "" and out["team"][0]["phone"] == ""  # the person stays, their foreign details do not
-
-    async def nothing(**k):
-        return {"domain": "", "phones": ["+27 11 555 0100"], "emails": ["x@y.co.za"], "team": []}
-
-    monkeypatch.setattr("app.services.enrichment_service.enrich_prospect_intelligence", nothing)
-    biz2 = SimpleNamespace(name="Empty Ltd", domain="", region="", raw_data={})
-    miss = await CC.web_contacts(db, biz2)
-    assert miss["found"] is False and "contacts_web" not in biz2.raw_data  # nothing that belongs to it: nothing is shown or saved
-
-    async def good(**k):
-        return {"domain": "https://www.acme-plumbing.test/about", "phones": ["+44 113 555 0102"], "emails": ["hello@acme-plumbing.test", "x@gmail.com"],
-                "team": [], "citations": []}
-
-    monkeypatch.setattr("app.services.enrichment_service.enrich_prospect_intelligence", good)
-    biz3 = SimpleNamespace(name="Acme Plumbing Ltd", domain="", region="Leeds", raw_data={})
-    ok = await CC.web_contacts(db, biz3)
-    assert ok["found"] is True and ok["emails"] == ["hello@acme-plumbing.test"] and ok["phones"] == ["+44 113 555 0102"]
-    assert biz3.raw_data["contacts_web"]["website"].endswith("acme-plumbing.test/about") or "acme-plumbing.test" in biz3.raw_data["contacts_web"]["website"]
+# The checks that a website, phone and email belong to the company (directory sites, foreign numbers, other companies' emails) are the guardrail's now: see test_company_lookup.py.
 
 
 # ── Sign-in limits ──────────────────────────────────────────────────────────

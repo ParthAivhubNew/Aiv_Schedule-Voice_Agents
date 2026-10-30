@@ -1,10 +1,11 @@
-import { ArrowRight, Smartphone } from "lucide-react";
+import { ArrowRight, Smartphone, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { C, FONT_BODY } from "../app/constants";
 import { AppChrome } from "../app/ui";
 import { api } from "../api/apiClient";
 import { fmt, money } from "../team/CreditsTab";
 import { navigateHash } from "../utils/route";
+import { openWorkflows } from "../workflows/openWorkflows";
 import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
@@ -188,6 +189,13 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
           {APPS.map(card)}
         </div>
+        <button type="button" onClick={() => openWorkflows({})} className="ui-card" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%", marginTop: 16, padding: "16px 18px", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14 }}>
+          <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.cobaltSoft, color: C.cobalt, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Workflow size={20} /></span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 600, fontSize: 15, color: C.ink }}>Workflows</span>
+            <span style={{ display: "block", fontSize: 13, color: C.slate, marginTop: 2 }}>Do things automatically across your apps: when a call ends, someone replies or a meeting is booked.</span>
+          </span>
+        </button>
         {billing && rest.length > 0 && (
           <p style={{ fontSize: 13, color: C.slateLight, margin: "16px 0 0" }}>
             Each app has its own plan. You can open any app to try it before you buy.

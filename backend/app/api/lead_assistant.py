@@ -28,6 +28,8 @@ from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import CompanyProfile, EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, LeadAccount
 from app.services.assistant_engine import clean_reply, proposal_reply
+from app.services import workflows as WF
+from app.services import journey_assistant as JA
 from app.services import agent_runs, business_records, credits, lead_filters, llm_gateway, phrase_understanding
 from app.services.safe_fetch import FetchRefused, fetch_text
 
@@ -40,7 +42,7 @@ TOP = 8
 THIN = 3  # a register search with this many results or fewer is "thin": the web is worth offering
 
 _FILTER_PROPS = {k: v for k, v in lead_filters._SCHEMA["properties"].items() if k not in ("action", "remove_names", "keyword")}
-_TOPICS = ["pipeline", "campaigns", "replies", "mailboxes", "follow_ups", "customer_profile"]
+_TOPICS = ["pipeline", "campaigns", "replies", "mailboxes", "follow_ups", "customer_profile", *JA.TOPICS]
 _OLD_TOPIC = {"my_pipeline": "pipeline", "my_campaigns": "campaigns", "reply_breakdown": "replies", "mailbox_health": "mailboxes",
               "follow_ups_due": "follow_ups", "my_customer_profile": "customer_profile"}
 
@@ -56,7 +58,7 @@ TOOLS = [
                               "instead of a list. Free. DO NOT use for the person's own saved companies (use my_data) or for businesses outside the register.",
           {**_FILTER_PROPS, "count_only": {"type": "boolean", "description": "Only size the audience; do not list companies."}}),
     _tool("my_data", "USE for any question about the person's OWN account: pipeline (saved companies by stage), campaigns, replies (how replies were sorted), "
-                     "mailboxes (deliverability), follow_ups (due in 7 days) or customer_profile (sectors and towns of their best companies, for lookalikes; "
+                     "mailboxes (deliverability), follow_ups (due in 7 days), journeys (their journeys and how they are doing), tasks (open journey tasks) or customer_profile (sectors and towns of their best companies, for lookalikes; "
                      "then call search_companies with what it returns). Free. DO NOT use to find new companies.",
           {"topic": {"type": "string", "enum": _TOPICS}}, ["topic"]),
     _tool("show_credits", "USE when the person asks how many credits they have. Free."),
@@ -64,8 +66,9 @@ TOOLS = [
                          "Free. They confirm on screen. Needs a search first.", {"list_name": {"type": "string"}, "how_many": {"type": "integer", "description": "1 to 200, default 25"}}, ["list_name"]),
     _tool("check_list", "USE to offer checking a saved list: fixing its websites, phones and emails and finding contacts. It costs credits, so it is only offered; "
                         "the person sees the price before anything is charged.", {"list_name": {"type": "string"}}, ["list_name"]),
-    _tool("start_campaign", "USE to offer starting an email campaign to one of the person's lists.", {"list_name": {"type": "string"}}, ["list_name"]),
+    *JA.tools(),
     *agent_runs.plan_tools(),
+    WF.workflow_tool(),
 ]
 
 WEB_TOOL = _tool("search_web", "USE only when the register search found nothing or too few, or the person asks for businesses that are not in the register "
@@ -88,6 +91,7 @@ _SYSTEM = (
     "and say they can set it up under Outreach. When asked which companies fit best, explain only with the fields a search returned. "
     "If the business profile is not filled in and the request needs it, ask what the business sells and who buys it before guessing. "
     "If the message is not about finding, saving or contacting companies, answer it directly without a tool."
+    + JA.SYSTEM
     + agent_runs.AGENT_PROMPT
 )
 
@@ -304,6 +308,8 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
 
 async def _tool_my_data(db: AsyncSession, t: _Turn, topic: str) -> None:
     t0 = time.time()
+    if await JA.my_data(db, t, topic):
+        return
     if topic == "pipeline":
         p = await _pipeline(db)
         t.notes.append("The person has no saved companies yet, so there is no pipeline to report." if not p["total"] else
@@ -391,10 +397,14 @@ async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any])
                                 "detail": "You set it up and review it before anything is sent.", "params": {"list_id": hit["id"]}})
         t.steps.append({"label": "Found your list", "detail": hit["name"], "ms": _ms(t0)})
         t.notes.append(f"A proposal for the list '{hit['name']}' is on screen, waiting for the person.")
+    elif name in JA.NAMES or name in JA.ALIASES:
+        await JA.run(db, t, name, args)
     elif name == "propose_plan":
         await agent_runs.make_plan(db, t, args, "leads")
     elif name == "use_plugin":
         await agent_runs.make_switch(t, args, "leads")
+    elif name == "create_workflow":
+        await WF.make_workflow_card(t, args)
     elif name == "show_credits":
         line = await _credits_line(db)
         t.steps.append({"label": "Read your credits", "detail": line, "ms": _ms(t0)})
@@ -412,7 +422,7 @@ def _prompt_for(context: str, notes: List[str]) -> str:
 
 
 _DOING = {"search_companies": "Searching the company register", "my_data": "Reading your account", "show_credits": "Checking your credits",
-          "propose_plan": "Writing the plan", "use_plugin": "Checking the other plugin", "add_to_list": "Preparing the list", "check_list": "Finding your list", "start_campaign": "Finding your list", "search_web": "Preparing a web search"}
+          "create_workflow": "Writing the workflow", "propose_plan": "Writing the plan", "use_plugin": "Checking the other plugin", "add_to_list": "Preparing the list", "check_list": "Finding your list", "start_campaign": "Finding your list", "journeys": "Working on your journeys", "search_web": "Preparing a web search"}
 
 
 async def _guard(db: AsyncSession) -> None:
@@ -430,6 +440,7 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
     context = (await _business_line(db, request)
                + f"\nFilters in use now: {json.dumps(body.filters or {})}"
                + f"\nThe person's lists: {', '.join(x['name'] for x in lists) or 'none yet'}"
+               + "\n" + await JA.context_line(db)
                + f"\nWeb search switch: {'ON, you may offer search_web' if body.web_search else 'OFF, you have no web search; if the register is not enough, say they can switch Web search on'}")
     last = body.state if isinstance(body.state, dict) else {}
     names = [str(n)[:80] for n in (last.get("last_names") or [])[:TOP] if str(n).strip()]

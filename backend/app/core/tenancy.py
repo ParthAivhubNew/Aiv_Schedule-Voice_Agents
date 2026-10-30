@@ -45,10 +45,10 @@ TENANT_TABLES: List[str] = [
     "email_mailboxes", "email_send_logs", "email_messages", "email_campaigns", "email_sequence_steps",
     "email_enrollments", "mail_messages", "billing_events", "enrichment_attempts", "lead_accounts", "number_checks",
     "public_api_idempotency", "public_api_audit", "public_objects", "meeting_providers",
-    "contact_events", "do_not_contact", "connection_rules", "social_engagers",
+    "contact_events", "do_not_contact", "connection_rules", "social_engagers", "journey_tasks",
     "social_post_metrics", "social_account_stats", "social_media", "social_links", "social_link_clicks",
     "social_reports", "social_report_runs", "social_listen_topics", "social_mentions", "social_video_jobs",
-    "agent_runs",
+    "agent_runs", "workflow_runs",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.

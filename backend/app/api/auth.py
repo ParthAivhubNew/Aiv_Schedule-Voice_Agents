@@ -175,7 +175,7 @@ async def _keep_one_admin(db: AsyncSession, org_id: str, losing: str) -> None:
 async def _email_temp_password(op: Operator, password: str, welcome: bool, by: str = "") -> bool:
     """Send the sign-in details from the platform mailbox. Never fails the request."""
     from app.config import settings
-    from app.core.mailer import render, send_system_email
+    from app.core.mailer import render, send_account_email as send_system_email
     import html as _h
 
     link = (settings.PUBLIC_BASE_URL or "").rstrip("/") + "/"

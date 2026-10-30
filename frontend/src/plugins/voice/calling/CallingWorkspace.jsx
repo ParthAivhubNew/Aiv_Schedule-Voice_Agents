@@ -53,6 +53,7 @@ import {
   SquarePen,
   ListChecks,
   Bot,
+  Workflow,
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
@@ -63,6 +64,7 @@ import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
+import { openWorkflows } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
@@ -2790,6 +2792,8 @@ export function CallingWorkspace({
               </React.Fragment>
             );
           })}
+          <div className="ui-nav-label">Automation</div>
+          <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: false, onClick: () => openWorkflows({ from: "voice", event: "call.completed" }) }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}

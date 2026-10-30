@@ -365,8 +365,27 @@ async def merge(body: MergeIn, request: Request, db: AsyncSession = Depends(get_
 # ── Workflow rules (X-8) ────────────────────────────────────────────────────
 @router.get("/together/workflows")
 async def get_workflows(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    return {"workflows": await W.get_workflows(db), "events": W.EVENTS, "actions": W.ACTIONS, "stages": W.STAGES,
-            "call_outcomes": W.CALL_OUTCOMES, "reply_kinds": W.REPLY_KINDS}
+    from sqlalchemy import func
+
+    from app.models.models import WorkflowRun
+
+    counts: Dict[str, Dict[str, Any]] = {}
+    for wid, status, n, last in (await db.execute(select(WorkflowRun.workflow_id, WorkflowRun.status, func.count(), func.max(WorkflowRun.created_at))
+                                                   .group_by(WorkflowRun.workflow_id, WorkflowRun.status))).all():
+        c = counts.setdefault(wid, {"runs": 0, "failed": 0, "waiting": 0, "last": None})
+        if status != "skipped":
+            c["runs"] += n
+        c["failed"] += n if status == "failed" else 0
+        c["waiting"] += n if status == "waiting" else 0
+        c["last"] = max([x for x in (c["last"], last) if x], default=None)
+
+    def stats(wid: str) -> Dict[str, Any]:
+        c = counts.get(wid) or {"runs": 0, "failed": 0, "waiting": 0, "last": None}
+        return {**c, "last": (c["last"].isoformat() + "Z") if c["last"] else None}
+
+    return {"workflows": [{**w, "stats": stats(w["id"])} for w in await W.get_workflows(db)],
+            "events": W.EVENTS, "actions": W.ACTIONS, "stages": W.STAGES, "call_outcomes": W.CALL_OUTCOMES, "reply_kinds": W.REPLY_KINDS,
+            "event_info": W.EVENT_INFO, "action_info": W.ACTION_INFO, "condition_fields": W.CONDITION_FIELDS, "templates": W.TEMPLATES}
 
 
 class WorkflowsIn(BaseModel):
@@ -379,6 +398,74 @@ async def put_workflows(body: WorkflowsIn, db: AsyncSession = Depends(get_db)) -
     if len(clean) < len(body.workflows[: W.MAX_RULES]):
         raise HTTPException(status_code=400, detail="One of the rules isn't complete. Each needs an event and at least one action with its value.")
     return {"workflows": clean}
+
+
+def _run_out(r: Any) -> Dict[str, Any]:
+    return {"id": r.id, "workflow_id": r.workflow_id, "workflow_name": r.workflow_name, "event": r.event, "lead_id": r.lead_id, "lead_name": r.lead_name,
+            "status": r.status, "log": r.log or [], "resume_at": (r.resume_at.isoformat() + "Z") if r.resume_at else None,
+            "created_at": (r.created_at.isoformat() + "Z") if r.created_at else None}
+
+
+@router.get("/together/workflow-runs")
+async def workflow_runs(workflow_id: str = "", status: str = "", limit: int = 50, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """The newest runs, optionally of one workflow or one status: what ran, what each block said, and why something was skipped."""
+    from app.models.models import WorkflowRun
+
+    q = select(WorkflowRun).order_by(WorkflowRun.created_at.desc()).limit(min(max(limit, 1), 200))
+    if workflow_id:
+        q = q.where(WorkflowRun.workflow_id == workflow_id)
+    if status:
+        q = q.where(WorkflowRun.status == status)
+    return {"runs": [_run_out(r) for r in (await db.execute(q)).scalars().all()]}
+
+
+async def _run_or_404(db: AsyncSession, run_id: str) -> Any:
+    from app.models.models import WorkflowRun
+
+    run = await db.get(WorkflowRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="That run was not found.")
+    return run
+
+
+@router.post("/together/workflow-runs/{run_id}/retry")
+async def retry_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    run = await _run_or_404(db, run_id)
+    if run.status != "failed":
+        raise HTTPException(status_code=409, detail="Only a run that stopped on a failed step can be retried.")
+    await W.continue_run(db, run)
+    await db.commit()
+    return {"run": _run_out(run)}
+
+
+@router.post("/together/workflow-runs/{run_id}/cancel")
+async def cancel_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    run = await _run_or_404(db, run_id)
+    if run.status not in ("waiting", "failed"):
+        raise HTTPException(status_code=409, detail="That run is not waiting.")
+    run.status, run.queue, run.resume_at = "stopped", [], None
+    run.log = list(run.log or []) + [W._line("Stopped", "You stopped it.")]
+    await db.commit()
+    return {"run": _run_out(run)}
+
+
+class WorkflowTestIn(BaseModel):
+    workflow: Dict[str, Any]
+    lead_id: str = ""
+
+
+@router.post("/together/workflows/test")
+async def test_workflow(body: WorkflowTestIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Try a workflow on one of your companies: says what each block would do. Nothing is changed or sent."""
+    from app.core.tenancy import current_org
+
+    lead = await db.get(LeadAccount, body.lead_id) if body.lead_id else (await db.execute(select(LeadAccount).order_by(LeadAccount.created_at.desc()).limit(1))).scalars().first()
+    if lead is None:
+        raise HTTPException(status_code=400, detail="Save a company first, then try the workflow on it.")
+    try:
+        return {"lead": {"id": lead.id, "name": lead.name}, "log": await W.test_run(db, current_org(), body.workflow, lead)}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 # ── Meetings that did not happen (LC-6, VC-3) ───────────────────────────────

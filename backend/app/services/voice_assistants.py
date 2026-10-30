@@ -313,6 +313,14 @@ async def build_brief(db, *, call_id: str, direction: str, operator_id: str, ass
     if hook:  # what Lead Gen's research found about them: a first line the user can edit before the call
         script += ("\n\nWhat we know about them: " + hook + " You may use this naturally in your first sentence "
                    "to show you did your homework. Never read it out word for word, and never invent more.")
+    brief = ""
+    if prospect_id:  # a journey's call step: its goal, talking points and what was emailed, saved on the prospect when the call was queued
+        from app.models.models import Prospect
+
+        row = await db.get(Prospect, prospect_id)
+        brief = (getattr(row, "call_brief", "") or "").strip()
+    if brief:
+        extra = (extra + "\n\n" if extra.strip() else "") + brief
     if extra.strip():  # this call's own goal, questions and instructions (public API), read before the standing rules
         script += "\n\n" + extra.strip()
     script += "\n\n" + agent_studio.rules_block(studio, company_row)

@@ -609,6 +609,31 @@ async def _business_record_people_checked(conn: AsyncConnection) -> None:
     await conn.execute(text("UPDATE business_records SET people_checked_at = now() WHERE officers IS NOT NULL AND people_checked_at IS NULL"))
 
 
+async def _journeys(conn: AsyncConnection) -> None:
+    """Journeys: the email campaign engine plus manual steps, exit rules, tasks and a call brief. Columns are added empty; existing campaigns
+    keep working as they were, and every existing step and person gets a step key so edits cannot move anyone."""
+    add = {
+        "email_campaigns": [("goal", "TEXT DEFAULT ''"), ("daily_cap", "INTEGER DEFAULT 0"), ("exit_rules", "JSON"), ("owner_id", "VARCHAR DEFAULT ''"),
+                            ("tags", "JSON"), ("cc", "VARCHAR DEFAULT ''"), ("bcc", "VARCHAR DEFAULT ''"), ("one_at_a_time", "BOOLEAN DEFAULT TRUE"),
+                            ("template_key", "VARCHAR DEFAULT ''")],
+        "email_sequence_steps": [("step_key", "VARCHAR DEFAULT ''"), ("title", "VARCHAR DEFAULT ''"), ("notes", "TEXT DEFAULT ''"), ("goal", "TEXT DEFAULT ''"),
+                                 ("voicemail", "VARCHAR DEFAULT 'hang_up'"), ("retries", "INTEGER DEFAULT 0"), ("retry_gap_hours", "INTEGER DEFAULT 24"),
+                                 ("subject_b", "TEXT DEFAULT ''"), ("body_b", "TEXT DEFAULT ''")],
+        "email_enrollments": [("current_step_key", "VARCHAR DEFAULT ''"), ("waiting_on", "VARCHAR DEFAULT ''"), ("waiting_since", "TIMESTAMP"),
+                              ("finish_reason", "VARCHAR DEFAULT ''"), ("email_blocked", "BOOLEAN DEFAULT FALSE"), ("call_blocked", "BOOLEAN DEFAULT FALSE"),
+                              ("variant", "VARCHAR DEFAULT 'a'"), ("retry_count", "INTEGER DEFAULT 0")],
+        "prospects": [("call_brief", "TEXT DEFAULT ''")],
+    }
+    for table, cols in add.items():
+        for col, ddl in cols:
+            await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_sequence_steps_step_key ON email_sequence_steps (step_key)"))
+    await conn.execute(text("UPDATE email_sequence_steps SET step_key = id WHERE COALESCE(step_key, '') = ''"))
+    await conn.execute(text(
+        "UPDATE email_enrollments e SET current_step_key = s.step_key FROM email_sequence_steps s "
+        "WHERE s.campaign_id = e.campaign_id AND s.step_number = e.current_step AND COALESCE(e.current_step_key, '') = ''"))
+
+
 async def _business_record_search_indexes(conn: AsyncConnection) -> None:
     """GIN trigram indexes so searching business_records (name/domain/reg number/industry/
     region/email/phone, all ILIKE '%term%') stays fast once there are millions of rows -- a plain
@@ -926,6 +951,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_17_clear_directory_websites", _clear_directory_websites),
     ("2026_11_18_companies_house_people_fields", _companies_house_people_fields),
     ("2026_11_19_business_record_people_checked", _business_record_people_checked),
+    ("2026_11_20_journeys", _journeys),
 ]
 
 

@@ -6,6 +6,8 @@ import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL
 import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
 import { AppChrome } from "./app/ui";
 import { AgentWidget } from "./agent/AgentWidget";
+import { WorkflowsPage } from "./workflows/WorkflowsPage";
+import { OPEN_EVENT as OPEN_WORKFLOWS } from "./workflows/openWorkflows";
 import { Loader } from "./app/Loader";
 import { SessionGuard } from "./hub/SessionGuard";
 import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
@@ -212,6 +214,14 @@ function MainApp({ onSignedOut }) {
 
   // Refresh who I am and what I can see (roles may have changed since sign-in).
   const operatorId = operator && operator.id;
+  // The Workflows page opens over whatever is on screen (from the hub, a plugin's sidebar or the assistant) and closes back to it.
+  const [workflowsCtx, setWorkflowsCtx] = useState(() => (window.location.pathname === "/workflows" ? {} : null));
+  useEffect(() => {
+    const open = (e) => setWorkflowsCtx(e.detail || {});
+    window.addEventListener(OPEN_WORKFLOWS, open);
+    if (window.location.pathname === "/workflows") window.history.replaceState(null, "", "/");
+    return () => window.removeEventListener(OPEN_WORKFLOWS, open);
+  }, []);
   // Only Outreach's own organisation manages AI and carrier keys; clients never see those screens.
   const platformOrg = Boolean(operator && operator.is_platform_org);
   useEffect(() => {
@@ -804,6 +814,7 @@ function MainApp({ onSignedOut }) {
       <SessionGuard onTimeout={handleLogout} busy={liveCalls.length > 0} />
       <ListHandoffPrompt plugin={plugin} />
       <AgentWidget />
+      {workflowsCtx ? <WorkflowsPage context={workflowsCtx} canEdit={Boolean(operator?.is_admin || (operator?.permissions || {}).company === "full")} onClose={() => setWorkflowsCtx(null)} /> : null}
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome

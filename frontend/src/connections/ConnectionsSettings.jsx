@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Loader } from "../app/Loader";
 import { Ban, Database, Lock, Plus, Repeat, Trash2, Workflow, X } from "lucide-react";
 import { api } from "../api/apiClient";
+import { openWorkflows } from "../workflows/openWorkflows";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { openPlans, useConnections, PLUGIN_NAME } from "../hooks/useConnections";
 
@@ -113,89 +114,15 @@ function Switches({ rules, plugins, onChange, busy }) {
 }
 
 // ── Your own rules ──────────────────────────────────────────────────────────
-function RuleEditor({ meta, rule, onSave, onCancel, onDelete }) {
-  const [r, setR] = useState(rule);
-  const outcomes = r.event === "call.completed" ? meta.call_outcomes : r.event === "campaign.reply" ? meta.reply_kinds : [];
-  const setStep = (i, patch) => setR({ ...r, do: r.do.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+function RulesTab() {
   return (
-    <div className="ui-card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-      <input className="ui-input" placeholder="Name this rule" value={r.name} maxLength={80} onChange={(e) => setR({ ...r, name: e.target.value })} />
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={muted}>When</span>
-        <select className="ui-input" style={{ width: "auto" }} value={r.event} onChange={(e) => setR({ ...r, event: e.target.value, when: {} })}>
-          {Object.entries(meta.events).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-        {outcomes.length ? (
-          <select className="ui-input" style={{ width: "auto" }} value={r.when?.outcome || ""} onChange={(e) => setR({ ...r, when: e.target.value ? { outcome: e.target.value } : {} })}>
-            <option value="">any result</option>
-            {outcomes.map((o) => <option key={o} value={o}>{o.replace(/_/g, " ")}</option>)}
-          </select>
-        ) : null}
-      </div>
-      {r.do.map((s, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <span style={muted}>{i === 0 ? "Then" : "and"}</span>
-          <select className="ui-input" style={{ width: "auto" }} value={s.action} onChange={(e) => setStep(i, { action: e.target.value, value: "" })}>
-            {Object.entries(meta.actions).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-          </select>
-          {s.action === "set_stage" ? (
-            <select className="ui-input" style={{ width: "auto" }} value={s.value} onChange={(e) => setStep(i, { value: e.target.value })}>
-              <option value="">choose…</option>
-              {meta.stages.map((x) => <option key={x} value={x}>{x.replace(/_/g, " ")}</option>)}
-            </select>
-          ) : s.action === "add_dnc" ? null : (
-            <>
-              {s.action === "send_email" ? <input className="ui-input" style={{ width: 200 }} placeholder="Subject" value={s.subject || ""} onChange={(e) => setStep(i, { subject: e.target.value })} /> : null}
-              <input className="ui-input" style={{ flex: 1, minWidth: 200 }} maxLength={2000}
-                placeholder={s.action === "add_to_list" ? "List name" : s.action === "send_email" ? "Message. {{first_name}} and {{company}} work here" : "Text. {{first_name}} and {{company}} work here"}
-                value={s.value} onChange={(e) => setStep(i, { value: e.target.value })} />
-            </>
-          )}
-          {r.do.length > 1 ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Remove this action" onClick={() => setR({ ...r, do: r.do.filter((_, j) => j !== i) })}><X size={13} /></button> : null}
-        </div>
-      ))}
-      {r.do.length < 5 ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => setR({ ...r, do: [...r.do, { action: "add_note", value: "" }] })}><Plus size={13} /> Another action</button> : null}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => onSave(r)}>Save rule</button>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
-        <span style={{ flex: 1 }} />
-        {onDelete ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onDelete}><Trash2 size={13} /> Delete</button> : null}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={muted}>Your rules now live on the Workflows page, with filters, waits, if/else, a run history and ready-made templates. Rules you made here are already there.</div>
+      <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => openWorkflows({})}>Open Workflows</button>
     </div>
   );
 }
 
-function RulesTab({ toast }) {
-  const [data, setData] = useState(null);
-  const [editing, setEditing] = useState(null); // index, or "new"
-  const load = useCallback(() => api.getWorkflows().then(setData).catch((e) => toast(e.message || "Couldn't load your rules.")), [toast]);
-  useEffect(() => { load(); }, [load]);
-  if (!data) return <Loader compact label="Loading" />;
-  const save = async (list) => {
-    try { const r = await api.saveWorkflows(list); setData({ ...data, workflows: r.workflows }); setEditing(null); toast("Saved."); } catch (e) { toast(e.message || "Couldn't save."); }
-  };
-  const blank = { name: "", enabled: true, event: "call.completed", when: { outcome: "meeting_booked" }, do: [{ action: "add_note", value: "" }] };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={muted}>“When this happens, do that.” A rule runs on the company behind the call, booking or reply. A step that needs a plan you don't have is skipped, and the timeline says so.</div>
-      {data.workflows.map((w, i) => (editing === i ? (
-        <RuleEditor key={w.id} meta={data} rule={w} onCancel={() => setEditing(null)} onSave={(r) => save(data.workflows.map((x, j) => (j === i ? r : x)))} onDelete={() => save(data.workflows.filter((_, j) => j !== i))} />
-      ) : (
-        <div key={w.id} className="ui-card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="checkbox" checked={w.enabled} aria-label={`${w.name} is on`} onChange={(e) => save(data.workflows.map((x, j) => (j === i ? { ...x, enabled: e.target.checked } : x)))} />
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>{w.name}</div>
-            <div style={muted}>When {data.events[w.event].toLowerCase()}{w.when?.outcome ? ` (${w.when.outcome.replace(/_/g, " ")})` : ""}: {w.do.map((s) => data.actions[s.action].toLowerCase()).join(", then ")}</div>
-          </div>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setEditing(i)}>Edit</button>
-        </div>
-      )))}
-      {editing === "new" ? <RuleEditor meta={data} rule={blank} onCancel={() => setEditing(null)} onSave={(r) => save([...data.workflows, r])} /> : (
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ alignSelf: "flex-start" }} disabled={data.workflows.length >= 30} onClick={() => setEditing("new")}><Plus size={13} /> New rule</button>
-      )}
-    </div>
-  );
-}
 
 // ── Do not contact ──────────────────────────────────────────────────────────
 function BlockTab({ toast }) {
@@ -393,7 +320,7 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
           </div>
           <div className="cx-body ui-scroll">
             {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <Loader compact label="Loading" />) : null}
-            {tab === "rules" ? <RulesTab toast={toast} /> : null}
+            {tab === "rules" ? <RulesTab /> : null}
             {tab === "block" ? <BlockTab toast={toast} /> : null}
             {tab === "data" ? <DataTab toast={toast} plugins={plugins} /> : null}
           </div>

@@ -119,6 +119,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/legal/"), None),  # public notice and opt-out pages
     (re.compile(r"^/docs/partners"), None),  # public partner guides
     (re.compile(r"^/email"), "email"),
+    (re.compile(r"^/journeys(/|$)"), "email"),  # a journey sends email, so it follows the email section
     (re.compile(r"^/calcom"), "calcom"),
     (re.compile(r"^/profile/org$"), "company"),
     (re.compile(r"^/profile/notifications$"), None),
@@ -126,7 +127,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     # Working together (Lead Gen + Voice + Social). Reading what is available is open to every signed-in user;
     # the screens and handlers ask for the section of whatever they show.
     (re.compile(r"^/together/(availability|leads|pipeline|next-actions|agenda|agenda-month|search|inbox|checklist|weekly-summary)$"), None),
-    (re.compile(r"^/together/(rules|workflows|backfill|weekly-summary/send|failed-events)"), "company"),
+    (re.compile(r"^/together/(rules|workflows|workflow-runs|backfill|weekly-summary/send|failed-events)"), "company"),
     (re.compile(r"^/compliance/"), "company"),
     (re.compile(r"^/contacts/"), "leadgen"),
     (re.compile(r"^/social/"), "scheduler"),

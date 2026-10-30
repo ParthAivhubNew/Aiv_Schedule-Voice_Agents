@@ -731,6 +731,11 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         row.updated_at = datetime.utcnow()
         updated.append(row)
     await db.commit()
+    from app.core.tenancy import current_org
+    from app.services import connections as _C
+
+    for a in added[:200]:  # workflows hear about each company saved (the first 200 of a big import)
+        _C.emit(current_org(), "lead.created", {"id": a.id, "lead_id": a.id}, a.id)
     out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "accounts": [_out(a) for a in added],
                            "updated": [_out(a) for a in updated]}
     if body.list_id or body.list_name.strip():

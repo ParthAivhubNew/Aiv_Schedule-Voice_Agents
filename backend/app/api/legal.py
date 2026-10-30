@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.config import settings
-from app.core.mailer import send_system_email
+from app.core.mailer import send_account_email as send_system_email
 from app.core.tenancy import system_scope
 from app.database import AsyncSessionLocal
 from app.models.models import DataSource
