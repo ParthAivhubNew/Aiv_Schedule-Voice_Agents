@@ -406,3 +406,17 @@ def test_the_sites_found_are_read_at_the_same_time_and_every_step_is_timed(monke
     assert took < 0.85  # two sites at 0.3 s each, and their contact pages together: well under the one-after-another total of 1.8 s
     steps = [t["step"] for t in out["ledger"]["timings"]]
     assert any(x.startswith("search by") for x in steps) and any(x.startswith("read ") for x in steps) and out["ledger"]["seconds"] >= 0.3
+
+
+def test_a_site_mentioning_the_official_company_number_is_verified(monkeypatch):
+    sentinel_site = {"url": "https://www.sentinelvero.com/", "title": "Sentinel Vero | Cyber & Physical Security",
+                     "snippet": "Sentinel Vero provides bespoke security solutions across the UK.", "score": 0.88}
+    _web(monkeypatch, {"Official website": [sentinel_site]},
+         pages={sentinel_site["url"]: ("Sentinel Vero", "Sentinel Vero Ltd. Registered in England & Wales No. 17492624. Contact info@sentinelvero.com")})
+    facts = {"name": "SENTINEL VERO LTD", "region": "London", "company_number": "17492624", "status": "active"}
+    out = run(H.find_company(None, name=facts["name"], place=facts["region"], facts=facts, want="all"))
+    assert out["found"] is True
+    assert out["website"] == "https://www.sentinelvero.com"
+    assert out["emails"] == ["info@sentinelvero.com"]
+    assert out["confidence"]["website"]["label"] == "high"
+    assert out["ledger"]["outcome"] == "found"

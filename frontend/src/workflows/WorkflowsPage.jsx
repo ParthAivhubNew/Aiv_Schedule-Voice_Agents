@@ -25,6 +25,7 @@ const css = `
 .wf-link{all:unset;cursor:pointer;color:#3457D5;font-size:12.5px;font-weight:600}
 .wf-pill{display:inline-block;font-size:11px;font-weight:700;color:#fff;border-radius:6px;padding:1px 7px}
 .wf-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.wf-bar{position:sticky;bottom:0;z-index:1;margin:0 -14px -12px;padding:10px 14px;background:#fff;border-top:1px solid #E3E6EB;border-radius:0 0 12px 12px}
 @media (prefers-reduced-motion:reduce){.wf *{transition:none!important;animation:none!important}}
 `;
 
@@ -139,22 +140,24 @@ function Editor({ meta, initial, onSave, onCancel, canEdit }) {
   const [trial, setTrial] = useState(null);
   const info = meta.event_info[w.event];
   const set = (patch) => { setError(""); setTrial(null); setW((x) => ({ ...x, ...patch })); };
-  const why = problem(w, meta);
+  // A blank name falls back to what starts the workflow, so saving never needs typing.
+  const named = (x) => (x.name.trim() ? x : { ...x, name: info?.label || "" });
+  const why = problem(named(w), meta);
   const tryIt = async () => {
     setBusy("try"); setError(""); setTrial(null);
-    try { setTrial(await api.testWorkflow(w)); } catch (err) { setError(err.message || "I could not try that."); }
+    try { setTrial(await api.testWorkflow(named(w))); } catch (err) { setError(err.message || "I could not try that."); }
     setBusy("");
   };
   const save = async () => {
     if (why) { setError(why); return; }
     setBusy("save"); setError("");
-    try { await onSave(w); } catch (err) { setError(err.message || "Could not save."); setBusy(""); }
+    try { await onSave(named(w)); } catch (err) { setError(err.message || "Could not save."); setBusy(""); }
   };
   const byPlugin = ["voice", "leads", "social"].map((p) => [p, Object.entries(meta.event_info).filter(([, v]) => v.plugin === p)]);
   return (
     <div className="wf-card" style={{ display: "grid", gap: 16 }}>
       <label className="wf-label">Name
-        <input className="ui-input" aria-label="Workflow name" value={w.name} maxLength={80} placeholder="For example: Callback requested, plan the call back" onChange={(e) => set({ name: e.target.value })} />
+        <input className="ui-input" aria-label="Workflow name" value={w.name} maxLength={80} placeholder={info?.label || "Name this workflow"} onChange={(e) => set({ name: e.target.value })} />
       </label>
 
       <section aria-label="When this happens" style={{ display: "grid", gap: 8 }}>
@@ -205,7 +208,7 @@ function Editor({ meta, initial, onSave, onCancel, canEdit }) {
         </div>
       ) : null}
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-      <div className="wf-row">
+      <div className="wf-row wf-bar">
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!!busy || !canEdit} onClick={save}>{busy === "save" ? <Spinner size={13} /> : "Save workflow"}</button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!!busy || !!why} onClick={tryIt} title={why || "See what it would do for your latest saved company, without changing anything"}>{busy === "try" ? <Spinner size={13} /> : "Try it on a company"}</button>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
@@ -255,6 +258,23 @@ function RunsTab({ meta, workflowId, setWorkflowId, canEdit }) {
   );
 }
 
+// A ready-made workflow. "Turn on" saves it as it is; "Change it" opens it first.
+function TemplateCard({ t, meta, canEdit, onTurnOn, onChange }) {
+  const plug = meta.event_info[t.event]?.plugin;
+  const ready = !problem({ ...blankWorkflow(t.event), name: t.name, do: t.do, conditions: [] }, meta);
+  return (
+    <div className="wf-card" style={{ display: "grid", gap: 6, alignContent: "start" }}>
+      <span className="wf-pill" style={{ background: PLUGIN_COLOR[plug], justifySelf: "start" }}>{PLUGIN_NAME[plug]}</span>
+      <div style={{ ...text, fontWeight: 600 }}>{t.name}</div>
+      <div style={muted}>{t.about}</div>
+      <div className="wf-row">
+        {ready ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!canEdit} onClick={() => onTurnOn(t)}>Turn on</button> : null}
+        <button type="button" className={`ui-btn ui-btn--${ready ? "ghost" : "secondary"} ui-btn--sm`} disabled={!canEdit} onClick={() => onChange(t)}>{ready ? "Change it" : "Set it up"}</button>
+      </div>
+    </div>
+  );
+}
+
 // ── The page ────────────────────────────────────────────────────────────────
 export function WorkflowsPage({ context, onClose, canEdit = true }) {
   const [meta, setMeta] = useState(null);
@@ -272,6 +292,25 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [editing, onClose]);
 
+  // The plugin's own menu stays visible and usable: the page starts where the menu ends, and choosing a menu item closes the page.
+  const [left, setLeft] = useState(0);
+  useEffect(() => {
+    const side = document.querySelector(".app-sidebar");
+    const measure = () => setLeft(side ? Math.max(0, Math.round(side.getBoundingClientRect().right)) : 0);
+    measure();
+    const ro = typeof ResizeObserver === "function" && side ? new ResizeObserver(measure) : null;
+    ro?.observe(side);
+    window.addEventListener("resize", measure);
+    const onPick = (e) => {
+      const item = e.target.closest?.(".app-sidebar button, .app-sidebar a, .app-sidebar [role='button']");
+      if (!item || item.classList.contains("sidebar-toggle")) return;
+      const label = `${item.textContent} ${item.getAttribute("title") || ""} ${item.getAttribute("aria-label") || ""}`;
+      if (!/workflows/i.test(label)) onClose();
+    };
+    document.addEventListener("click", onPick, true);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); document.removeEventListener("click", onPick, true); };
+  }, [onClose]);
+
   const persist = async (list) => {
     const r = await api.saveWorkflows(list.map(({ stats, ...rest }) => rest));
     if ((r.workflows || []).length < list.length) throw new Error("One of the workflows is not complete.");
@@ -280,11 +319,14 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   const strip = (w) => { const { stats, ...rest } = w; return rest; };
   const shown = useMemo(() => (meta ? meta.workflows.filter((w) => !plugin || meta.event_info[w.event]?.plugin === plugin) : []), [meta, plugin]);
   const templates = useMemo(() => (meta ? meta.templates.filter((t) => !plugin || meta.event_info[t.event]?.plugin === plugin) : []), [meta, plugin]);
-  const startFrom = (t) => setEditing({ index: -1, workflow: { ...blankWorkflow(t?.event), ...(t ? { name: t.name, when: t.when || {}, do: JSON.parse(JSON.stringify(t.do)) } : {}) } });
+  const fromTemplate = (t) => ({ ...blankWorkflow(t?.event), ...(t ? { name: t.name, when: t.when || {}, do: JSON.parse(JSON.stringify(t.do)) } : {}) });
+  const startFrom = (t) => setEditing({ index: -1, workflow: fromTemplate(t) });
+  const turnOn = (t) => persist([...meta.workflows.map(strip), fromTemplate(t)]).then(() => { setTab("workflows"); setError(""); }).catch((e) => setError(e.message || "Could not turn that on."));
+  const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(min(100%,290px),1fr))", gap: 12 };
   const event = context?.event;
 
   return (
-    <div className="wf" role="dialog" aria-modal="true" aria-label="Workflows">
+    <div className="wf" role="dialog" aria-modal="false" aria-label="Workflows" style={{ left }}>
       <style>{css}</style>
       <div className="wf-top">
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Back"><ArrowLeft size={15} /> Back</button>
@@ -328,24 +370,21 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
                   </div>
                 );
               }) : (
-                <div className="wf-card" style={{ display: "grid", gap: 8 }}>
-                  <div style={{ ...text, fontWeight: 600 }}>{meta.workflows.length ? "Nothing here for that plugin yet." : "No workflows yet."}</div>
-                  <div style={muted}>Start from a ready-made one, or build your own. A workflow does nothing until you save it and leave it switched on.</div>
-                  <div className="wf-row"><button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => setTab("templates")}>Browse templates</button>{canEdit ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => startFrom(null)}>Build my own</button> : null}</div>
-                </div>
+                <>
+                  <div className="wf-row" style={{ justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ ...text, fontWeight: 600 }}>{meta.workflows.length ? "Nothing here for that plugin yet." : "No workflows yet."}</div>
+                      <div style={muted}>Turn one on with a click, or build your own. A workflow does nothing until it is saved and switched on.</div>
+                    </div>
+                    {canEdit ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => startFrom(null)}>Build my own</button> : null}
+                  </div>
+                  <div style={grid}>{templates.slice(0, 6).map((t) => <TemplateCard key={t.id} t={t} meta={meta} canEdit={canEdit} onTurnOn={turnOn} onChange={startFrom} />)}</div>
+                  {templates.length > 6 ? <button type="button" className="wf-link" style={{ justifySelf: "start" }} onClick={() => setTab("templates")}>See all {templates.length} templates</button> : null}
+                </>
               )
             ) : null}
             {tab === "templates" ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(min(100%,290px),1fr))", gap: 12 }}>
-                {templates.map((t) => (
-                  <div key={t.id} className="wf-card" style={{ display: "grid", gap: 6, alignContent: "start" }}>
-                    <span className="wf-pill" style={{ background: PLUGIN_COLOR[meta.event_info[t.event]?.plugin], justifySelf: "start" }}>{PLUGIN_NAME[meta.event_info[t.event]?.plugin]}</span>
-                    <div style={{ ...text, fontWeight: 600 }}>{t.name}</div>
-                    <div style={muted}>{t.about}</div>
-                    <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ justifySelf: "start" }} disabled={!canEdit} onClick={() => startFrom(t)}>Use this</button>
-                  </div>
-                ))}
-              </div>
+              <div style={grid}>{templates.map((t) => <TemplateCard key={t.id} t={t} meta={meta} canEdit={canEdit} onTurnOn={turnOn} onChange={startFrom} />)}</div>
             ) : null}
             {tab === "runs" ? <RunsTab meta={meta} workflowId={runsFor} setWorkflowId={setRunsFor} canEdit={canEdit} /> : null}
           </>

@@ -99,9 +99,11 @@ async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]
 
 def _facts(name: str, place: str, facts: Dict[str, Any]) -> Dict[str, Any]:
     postcode = str(facts.get("postcode") or "").strip()
-    return {"name": name, "region": place, "postcode": postcode, "area": R.area_of(place, postcode), "industry": facts.get("industry") or "",
+    company_number = str(facts.get("company_number") or "").strip()
+    address = str(facts.get("address") or "").strip()
+    return {"name": name, "region": place, "postcode": postcode, "area": R.area_of(place or address, postcode), "industry": facts.get("industry") or "",
             "website": facts.get("website") or "", "domain": facts.get("domain") or "", "phone": facts.get("phone") or "",
-            "email": facts.get("email") or "", "trading_as": facts.get("trading_as") or "", "status": facts.get("status") or ""}
+            "email": facts.get("email") or "", "trading_as": facts.get("trading_as") or "", "status": facts.get("status") or "", "company_number": company_number, "address": address}
 
 
 def _closed(status: str) -> bool:

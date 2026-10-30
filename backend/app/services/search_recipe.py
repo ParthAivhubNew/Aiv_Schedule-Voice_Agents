@@ -24,6 +24,7 @@ EXCLUDE_DOMAINS: List[str] = [
     "tripadvisor.co.uk", "tripadvisor.com", "trustpilot.com", "192.com", "thomsonlocal.com", "cylex-uk.co.uk", "hotfrog.co.uk",
     "scoot.co.uk", "freeindex.co.uk", "checkatrade.com", "companieshouse.gov.uk", "find-and-update.company-information.service.gov.uk",
     "endole.co.uk", "opencorporates.com", "dnb.com", "companycheck.co.uk", "ratings.food.gov.uk", "wikipedia.org", "gov.uk",
+    "scamadviser.com", "scamdoc.com", "trustprofile.com", "just-eat.co.uk", "deliveroo.co.uk", "ubereats.com",
 ]
 
 MAX_SEARCHES = 6  # per lookup, the retries included

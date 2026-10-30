@@ -429,6 +429,13 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     el.style.overflowY = el.scrollHeight > 120 ? "auto" : "hidden";
   }, [input, view, render]);
 
+  // A page can hand the assistant a message ("Ask AI" on a company): it is sent once, when the panel is open.
+  // Kept above the early return so the hook count never changes between renders.
+  const lastSeed = useRef(0);
+  useEffect(() => {
+    if (seed && seed.id !== lastSeed.current && open && !busy) { lastSeed.current = seed.id; send(seed.text); }
+  });
+
   if (!render && !page) return null;
 
   const remember = (list) => {
@@ -501,11 +508,6 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
   const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
   const stop = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setLive({ status: "", steps: [] }); };
-  // A page can hand the assistant a message ("Ask AI" on a company): it is sent once, when the panel is open.
-  const lastSeed = useRef(0);
-  useEffect(() => {
-    if (seed && seed.id !== lastSeed.current && open && !busy) { lastSeed.current = seed.id; send(seed.text); }
-  });
   const fresh = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");

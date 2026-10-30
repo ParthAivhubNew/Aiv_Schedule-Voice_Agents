@@ -49,6 +49,19 @@ def squash(text: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
+def company_number_in(number: str, text: str) -> bool:
+    """True if a UK company registration number (e.g. 17492624, 01234567, SC123456)
+    is found in the text, allowing for optional leading zero differences."""
+    raw = str(number or "").strip().lower()
+    if not raw or len(raw) < 5:
+        return False
+    if re.search(r"\b" + re.escape(raw) + r"\b", text, re.I):
+        return True
+    # Whole tokens only: squashing the page into one run of characters would match inside phone numbers and order references.
+    stripped = raw.lstrip("0")
+    return len(stripped) >= 6 and bool(re.search(r"(?<![\w+])0*" + re.escape(stripped) + r"(?!\w)", text, re.I))
+
+
 def national(raw: Any) -> str:
     """A UK number as digits without the country code or the leading zero, so +44 113 496 0123 and 0113 496 0123 are the same."""
     d = re.sub(r"\D", "", str(raw or ""))
@@ -127,13 +140,17 @@ def _conflicts(text: str, postcode: str, area: str) -> bool:
 def prepare_sources(raw: List[Dict[str, Any]], facts: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The search results as sources the guardrail can reason about: domain, directory or not, and whether the page fits the place."""
     name, postcode, area = facts.get("name") or "", facts.get("postcode") or "", facts.get("area") or ""
+    company_num = str(facts.get("company_number") or "").strip()
     out = []
     for r in raw:
         url = r.get("url") or ""
         text = f"{r.get('title') or ''}\n{r.get('text') or r.get('snippet') or ''}"
+        matched_reg = bool(company_num and company_number_in(company_num, text))
         out.append({"url": url, "domain": registered_domain(url), "title": r.get("title") or "", "text": r.get("text") or r.get("snippet") or "",
                     "score": float(r.get("score") or 0.0), "listing": site_check.is_listing_host(url, name), "read": bool(r.get("read")),
-                    "conflict": _conflicts(text, postcode, area), "place": _place_hit(text, postcode, area)})
+                    "conflict": False if matched_reg else _conflicts(text, postcode, area),
+                    "place": True if matched_reg else _place_hit(text, postcode, area),
+                    "matched_reg": matched_reg})
     return out
 
 
@@ -227,9 +244,14 @@ def score(cands: List[Dict[str, Any]], sources: List[Dict[str, Any]], facts: Dic
         elif c["field"] == "website":
             # a page we read from this site that shows a phone or email our own records already hold for the company
             known_phone, known_email = national(facts.get("phone")), str(facts.get("email") or "").lower().strip()
+            known_num = str(facts.get("company_number") or "").strip()
             read = [s for s in src if s["read"]]
-            if any((known_phone and known_phone in numbers_in(s["text"])) or (known_email and known_email in s["text"].lower()) for s in read):
+            matches_num = bool(known_num and any(company_number_in(known_num, s["text"]) for s in read))
+            matches_contact = bool(read and any((known_phone and known_phone in numbers_in(s["text"])) or (known_email and known_email in s["text"].lower()) for s in read))
+            if matches_num or matches_contact:
                 pts["matches_register"] = POINTS["matches_register"]
+            if matches_num and not pts.get("place_on_page"):
+                pts["place_on_page"] = POINTS["place_on_page"]
         best = max((s["score"] for s in src), default=0.0)
         if best >= 0.7:
             pts["relevance"] = min(POINTS["relevance"], round(10 * best))
