@@ -18,7 +18,7 @@ import { creditWord, useLeadCredits } from "./CreditsChip";
 
 const GOALS = [
   { id: "prospects", Icon: Sparkles, title: "Find ideal prospects", note: "Companies that fit your business, and why", prompt: "Find the best companies for my business and explain why they fit." },
-  { id: "list", Icon: ListPlus, title: "Build a company list", note: "Say who you want, for example cafes in Leeds", prefill: "Find " },
+  { id: "list", Icon: ListPlus, title: "Build a company list", note: "Say who you want, for example software companies in Leeds", prefill: "Find " },
   { id: "campaign", Icon: Send, title: "Write an email campaign", note: "Pick a list, write the emails, send", go: "outreach" },
   { id: "leads", Icon: BarChart3, title: "How are my leads doing?", note: "Your saved companies by stage", prompt: "How are my leads doing?" },
   { id: "perf", Icon: Users, title: "Analyze campaign performance", note: "Sent, replied and bounced, per campaign", prompt: "How are my campaigns doing?" },
@@ -59,7 +59,7 @@ const PLUGINS = {
     id: "leads", short: "Leads", name: "AI Assistant", history: "leadgen_assistant", memory: "leadgen_assistant_memory", leads: true,
     ask: (body, on, signal) => api.assistantStream(body, on, signal), goals: GOALS,
     placeholder: "Ask about leads, or type / for commands",
-    starters: ["Find cafes in Leeds", "Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"],
+    starters: ["Find software companies in Leeds","Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"],
     foot: "Saving, checking and sending only happen when you press the button on a card.",
     get presets() { return PRESETS; },
   },

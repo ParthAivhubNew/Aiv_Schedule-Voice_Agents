@@ -850,7 +850,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           ) : null}
           <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")}>
             <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
-              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="cafe, restaurant, or a company name" /></label>
+              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, construction, or a company name" /></label>
             <label style={field} title="Leave out companies whose name or sector has any of these words"><span style={label}>Leave out</span>
               <input className="ui-input" value={form.notSector} onChange={(e) => setField("notSector", e.target.value)} placeholder="franchise, holdings" /></label>
           </FilterGroup>
