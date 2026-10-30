@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronRight } from "lucide-react";
 import { useRailTip } from "./RailTip";
+import { subscribeWorkflowsOpen, workflowsOpenNow } from "../workflows/openWorkflows";
 
 const touchOnly = () => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none)").matches;
 
@@ -14,7 +15,8 @@ export function NavItem({ item, current, children: extra }) {
   const row = useRef(null);
   const timer = useRef(0);
   const Icon = item.icon;
-  const active = item.active;
+  const onWorkflows = useSyncExternalStore(subscribeWorkflowsOpen, workflowsOpenNow, () => false);  // the page sits over the screen: only its own item is current
+  const active = onWorkflows ? item.id === "workflows" : item.active;
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -55,7 +57,7 @@ export function NavItem({ item, current, children: extra }) {
       <>
         {button}
         {active ? subs.map((s) => (
-          <button key={s.id} type="button" className="ui-nav-item ui-nav-sub" title={s.title} onClick={s.onClick} aria-current={s.active ? "page" : undefined}>
+          <button key={s.id} type="button" className="ui-nav-item ui-nav-sub" title={s.title} onClick={s.onClick} aria-current={s.active && !onWorkflows ? "page" : undefined}>
             <span>{s.label}</span>
           </button>
         )) : null}
@@ -72,7 +74,7 @@ export function NavItem({ item, current, children: extra }) {
           {subs.map((s) => {
             const SubIcon = s.icon;
             return (
-              <button key={s.id} type="button" role="menuitem" className="ui-nav-flyout-item" title={s.title} aria-current={s.active ? "page" : undefined}
+              <button key={s.id} type="button" role="menuitem" className="ui-nav-flyout-item" title={s.title} aria-current={s.active && !onWorkflows ? "page" : undefined}
                 onClick={() => { setOpen(false); s.onClick(); }}>
                 {SubIcon ? <SubIcon size={15} strokeWidth={1.75} /> : null}
                 <span>{s.label}</span>

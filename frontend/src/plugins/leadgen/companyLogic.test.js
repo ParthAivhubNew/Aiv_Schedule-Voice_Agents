@@ -22,7 +22,7 @@ describe("contact details", () => {
     expect(rows.map((r) => r.kind)).toEqual(["website", "phone", "email"]);
     expect(rows[0]).toMatchObject({ shown: "bright.co.uk", href: "https://www.bright.co.uk/", sourceWord: "Register", canFind: false });
     expect(rows[1]).toMatchObject({ href: "tel:01134960123", sourceWord: "Web" });
-    expect(rows[2]).toMatchObject({ href: "", sourceWord: "Not known", canFind: false });  // an email is found per person, not for the company
+    expect(rows[2]).toMatchObject({ href: "", sourceWord: "Not known", canFind: true });
   });
 
   it("offers to find a missing website or phone", () => {
@@ -51,7 +51,8 @@ describe("why now, people and filings", () => {
   });
 
   it("counts the people on the register", () => {
-    expect(peopleCount({ officers: [1, 2], controllers: [1] })).toBe(3);
+    expect(peopleCount({ officers: [{ first_name: "Ann", last_name: "Lee" }, { first_name: "Bo", last_name: "Hu" }], controllers: [{ name: "Ms Cy Dee" }] })).toBe(3);
+    expect(peopleCount({ officers: [{ first_name: "Martin", last_name: "Zawadzki" }], controllers: [{ name: "Mr Martin Richard Zawadzki" }] })).toBe(1);
     expect(peopleCount(undefined)).toBe(0);
   });
 });

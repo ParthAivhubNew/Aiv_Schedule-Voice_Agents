@@ -6,8 +6,8 @@ import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
 import { domainOf } from "./AccountsViews";
 import { CompanyAvatar, ProfileBadge } from "./FindLeadsParts";
 import { asAccount } from "./FindLeadsView";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe, Mail, Phone, Plus, Route, Search } from "lucide-react";
-import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, personName, shortDate, subLine } from "./companyLogic";
+import { ArrowLeft, Bot, Check, ExternalLink, Globe, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
+import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
@@ -39,7 +39,9 @@ function Fact({ label, children, warn }) {
 
 // The people on the register, one row each, with the reason they are worth a look and a way to find their email.
 function People({ c, onFindEmail, found }) {
-  const { officers, leavers, controllers, read, from_registry: fromRegistry } = c.people;
+  const { officers, leavers, read, from_registry: fromRegistry } = c.people;
+  const controllers = c.people.controllers;
+  const alsoDirector = (p) => sameOfficer(p, officers);
   const domain = domainOf(c.contact.website.value);
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -72,7 +74,7 @@ function People({ c, onFindEmail, found }) {
           <div style={{ padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>Who owns or controls it</div>
           {controllers.map((p) => (
             <div key={p.name} style={{ padding: "10px 14px", borderTop: `1px solid ${C.borderLight}` }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}{p.since ? <span style={{ fontWeight: 400, color: C.slate }}> · since {p.since.slice(0, 4)}</span> : null}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}{p.since ? <span style={{ fontWeight: 400, color: C.slate }}> · since {p.since.slice(0, 4)}</span> : null}{alsoDirector(p) ? <span style={{ fontWeight: 400, color: C.slate }}> · also a director</span> : null}</div>
               <div style={small}>{[...p.controls, p.nationality, p.country_of_residence ? `lives in ${p.country_of_residence}` : ""].filter(Boolean).join(" · ")}</div>
             </div>
           ))}
@@ -192,8 +194,8 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                 {k.value ? <a href={k.href} target={k.kind === "website" ? "_blank" : undefined} rel="noreferrer" style={{ color: C.cobalt, fontSize: 13, overflowWrap: "anywhere" }}>{k.shown}</a>
                   : <span style={{ fontSize: 13, color: C.slate }}>{k.kind === "website" ? "Website" : k.kind === "phone" ? "Phone" : "Email"}</span>}
                 {k.value || !k.canFind ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
-                {k.canFind ? <button type="button" style={{ ...btn(false, busy === "phone" || busy === "website"), padding: "3px 9px", minHeight: 28 }} disabled={busy === "phone" || busy === "website"} onClick={() => find(k.kind)}>
-                  {busy === k.kind ? <Spinner size={12} /> : <Search size={12} />} Find · 1 credit if found</button> : null}
+                {k.canFind ? <button type="button" style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
+                  {busy === k.kind ? <Spinner size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {k.missed ? "Not found · try again" : "Find · 1 credit if found"}</button> : null}
               </div>
             );
           })}

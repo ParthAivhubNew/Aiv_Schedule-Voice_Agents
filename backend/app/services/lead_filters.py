@@ -123,6 +123,7 @@ def card(biz) -> Dict[str, Any]:
         # When a website, phone or email lookup last ran and found nothing: the table says "not found" instead of offering the untried button.
         "missed": dict((biz.raw_data or {}).get("lookups_missed") or {}),
         # Only a phone the guardrail passed is shown. A lookup from before it existed (no `guardrail` mark) holds phones nobody checked.
+        "web_email": (lambda cw: str(next(iter(cw.get("emails") or []), "") or "") if cw.get("guardrail") else "")((biz.raw_data or {}).get("contacts_web") or {}),
         "web_phone": (lambda cw: str(next(iter(cw.get("phones") or []), "") or "") if cw.get("guardrail") else "")((biz.raw_data or {}).get("contacts_web") or {}),
     }
 

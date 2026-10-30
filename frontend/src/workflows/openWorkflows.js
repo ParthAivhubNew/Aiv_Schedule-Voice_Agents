@@ -9,3 +9,14 @@ export function openWorkflows(context = {}) {
     // a browser without custom events just does not open it
   }
 }
+
+// Whether the page is open, so a plugin's sidebar can highlight Workflows instead of the screen underneath it.
+let isOpen = false;
+const listeners = new Set();
+export function setWorkflowsOpen(on) {
+  if (isOpen === on) return;
+  isOpen = on;
+  listeners.forEach((fn) => fn());
+}
+export const subscribeWorkflowsOpen = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+export const workflowsOpenNow = () => isOpen;

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, ChevronDown, ChevronRight, Plus, RotateCcw, Square, Trash2, Workflow, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Plus, RotateCcw, Square, Trash2, Workflow, X } from "lucide-react";
 import { api } from "../api/apiClient";
 import { Loader, Spinner } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
 import { PLUGIN_COLOR, PLUGIN_NAME, STATUS_LABEL, blankAction, blankWorkflow, blockText, opLabel, problem, summary, when } from "./workflowModel";
+import { setWorkflowsOpen } from "./openWorkflows";
 
 // Workflows: "when this happens, do that", for the whole company. Opened from the hub or from a plugin's sidebar; it is one page, so a workflow can
 // use Leads, Voice and Social together and nothing is kept per plugin.
@@ -293,6 +294,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   }, [editing, onClose]);
 
   // The plugin's own menu stays visible and usable: the page starts where the menu ends, and choosing a menu item closes the page.
+  useEffect(() => { setWorkflowsOpen(true); return () => setWorkflowsOpen(false); }, []);
   const [left, setLeft] = useState(0);
   useEffect(() => {
     const side = document.querySelector(".app-sidebar");
@@ -329,7 +331,6 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
     <div className="wf" role="dialog" aria-modal="false" aria-label="Workflows" style={{ left }}>
       <style>{css}</style>
       <div className="wf-top">
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Back"><ArrowLeft size={15} /> Back</button>
         <Workflow size={18} aria-hidden="true" />
         <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>Workflows</h1>
         <span style={{ ...muted, flex: 1 }} className="hide-mobile">When something happens in Leads, Voice or Social, do something automatically.</span>

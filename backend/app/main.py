@@ -556,6 +556,13 @@ async def lifespan(app: FastAPI):
             logger.warning(f"{stopped} assistant run(s) were mid-step when the server stopped; they are marked interrupted and can be resumed.")
     except Exception as run_err:
         logger.warning(f"Could not check interrupted assistant runs: {run_err}")
+    try:
+        from app.services.data_sources import recover_after_restart
+        resumed = await recover_after_restart()
+        if resumed:
+            logger.warning(f"{resumed} company-people run(s) were running when the server stopped; carrying on from where they left off.")
+    except Exception as run_err:
+        logger.warning(f"Could not recover data-source runs: {run_err}")
     from app.services.telnyx_client import refresh_saved_key
     await refresh_saved_key()
     from app.services.platform_mailbox import refresh as refresh_platform_mailbox

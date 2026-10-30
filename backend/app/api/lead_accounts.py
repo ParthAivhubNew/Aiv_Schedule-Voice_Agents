@@ -479,6 +479,8 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
 
     if body.kind == "phone":
         return await _find_phone(db, biz)
+    if body.kind == "email":
+        return await _find_email(db, biz)
     if lead_filters.card(biz)["website"]:
         return {"found": True, "source": "stored", "charged": 0, "note": "", "company": lead_filters.card(biz)}
     await _can_research(db)
@@ -615,6 +617,34 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
                  "do_not_email": "It is on your do-not-email list.", "in_another_journey": "It is already in another running journey.", "no_contact": "It has no contact details."}
         raise HTTPException(status_code=400, detail=words.get(why, "It couldn't be added."))
     return {"added": out["added"], "journey": camp.name}
+
+
+async def _find_email(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
+    """The Find email button on a company: the web lookup's email for the company itself (1 credit if it finds one, nothing for a miss)."""
+    from app.services import company_contacts as CC, lead_filters
+
+    have = lead_filters.card(biz)
+    if have["email"] or have["web_email"]:
+        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": have}
+    await _can_research(db)
+    try:
+        web = await CC.web_contacts(db, biz, want="all")
+        if web.get("cached") and not web.get("emails"):
+            web = await CC.web_contacts(db, biz, refresh=True, want="all")
+    except Exception:
+        return {"found": False, "source": "", "charged": 0, "company": have, "note": "The web lookup didn't finish just now. Nothing was charged."}
+    if web.get("closed"):
+        return {"found": False, "source": "", "charged": 0, "company": have,
+                "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
+    got = bool(web.get("emails"))
+    CC.note_lookup(biz, "email", got)
+    await db.commit()
+    charged = 0
+    if got and not web.get("cached"):
+        await _charge_leads(db, 1, f"Email for {biz.name}")
+        charged = 1
+    return {"found": got, "source": "web" if got else "", "charged": charged, "company": lead_filters.card(biz),
+            "note": "" if got else "No email found on the web for this company. Nothing was charged."}
 
 
 async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:

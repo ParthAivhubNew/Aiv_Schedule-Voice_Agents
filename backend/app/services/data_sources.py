@@ -403,6 +403,31 @@ async def stop_run(db: AsyncSession, source: DataSource) -> Optional[DataSourceR
     return run
 
 
+async def recover_after_restart() -> int:
+    """A run lives in this process, so a restart or rebuild ends it while the database still says "running" (it would sit there for
+    STUCK_AFTER, then be flagged stuck). A people run keeps a checkpoint on every company it reads, so it carries on by itself; a
+    batch or bulk run is paused for Resume instead of starting a long download unasked."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+
+    again = 0
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            runs = (await db.execute(select(DataSourceRun).where(DataSourceRun.status == "running"))).scalars().all()
+            for run in runs:
+                if (run.cursor or {}).get("people"):
+                    again += 1
+                    spawn(run_people(run.id))
+                    continue
+                run.status = "paused"
+                source = (await db.execute(select(DataSource).where(DataSource.id == run.source_id))).scalars().first()
+                if source:
+                    source.run_state = "paused"
+                    source.last_error = "The server restarted while this was running. Press Resume to carry on."
+            await db.commit()
+    return again
+
+
 BULK_STUCK_AFTER = timedelta(hours=3)  # one file alone can take a while to download with no commit in between
 
 

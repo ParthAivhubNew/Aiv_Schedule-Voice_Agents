@@ -170,8 +170,12 @@ def _contact(card: Dict[str, Any]) -> Dict[str, Any]:
         if web:
             return {"value": web, "source": "web", "label": "Found on the web: check before you use it"}
         return {"value": "", "source": "missing", "label": "Not known yet"}
-    return {"website": one(card.get("website") or "", card.get("web_website") or ""), "phone": one(card.get("phone") or "", card.get("web_phone") or ""),
-            "email": one(card.get("email") or "", "")}
+    out = {"website": one(card.get("website") or "", card.get("web_website") or ""), "phone": one(card.get("phone") or "", card.get("web_phone") or ""),
+           "email": one(card.get("email") or "", card.get("web_email") or "")}
+    for kind, when in (card.get("missed") or {}).items():
+        if kind in out and not out[kind]["value"]:
+            out[kind]["missed"] = when
+    return out
 
 
 async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:

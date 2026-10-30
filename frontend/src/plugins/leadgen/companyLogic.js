@@ -23,7 +23,7 @@ export function contactRows(contact) {
   return ["website", "phone", "email"].map((kind) => {
     const c = (contact && contact[kind]) || { value: "", source: "missing", label: "Not known yet" };
     const shown = kind === "website" ? c.value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : c.value;
-    return { kind, value: c.value, shown, href: c.value ? link[kind](c.value) : "", source: c.source, sourceWord: SOURCE_WORDS[c.source] || c.source, label: c.label, canFind: c.source === "missing" && kind !== "email" };
+    return { kind, value: c.value, shown, href: c.value ? link[kind](c.value) : "", source: c.source, sourceWord: SOURCE_WORDS[c.source] || c.source, label: c.label, canFind: c.source === "missing", missed: c.missed || "" };
   });
 }
 
@@ -53,8 +53,15 @@ export function filingRows(c) {
   return rows;
 }
 
-// A plain count for the People tab label.
-export const peopleCount = (people) => (people ? (people.officers || []).length + (people.controllers || []).length : 0);
+// An owner who is also a director is one person: "Mr Martin Richard Zawadzki" is officer Martin Zawadzki.
+const words = (t) => String(t || "").toLowerCase().replace(/\b(mr|mrs|ms|miss|dr|sir|dame|prof)\b\.?/g, " ").split(/[^a-z']+/).filter(Boolean);
+export function sameOfficer(controller, officers) {
+  const w = words(controller.name);
+  return (officers || []).some((o) => { const f = words(o.first_name)[0], l = words(o.last_name).pop(); return f && l && w.includes(f) && w[w.length - 1] === l; });
+}
+
+// A plain count for the People tab label: each person once, even when they are both a director and an owner.
+export const peopleCount = (people) => (people ? (people.officers || []).length + (people.controllers || []).filter((c) => !sameOfficer(c, people.officers)).length : 0);
 
 // What happened, when: newest first, with a plain "5 Nov" style date.
 export function activityRows(activity) {
