@@ -172,7 +172,7 @@ def _contact(card: Dict[str, Any]) -> Dict[str, Any]:
         if own:
             return {"value": own, "source": "register", "label": own_word}
         if web:
-            return {"value": web, "source": "web", "label": "Found on the web: check before you use it"}
+            return {"value": web, "source": "web", "label": "Found on the web"}
         return {"value": "", "source": "missing", "label": "Not known yet"}
     out = {"website": one(card.get("website") or "", card.get("web_website") or "", kind="website"), "phone": one(card.get("phone") or "", card.get("web_phone") or "", kind="phone"),
            "email": one(card.get("email") or "", card.get("web_email") or "", kind="email")}

@@ -181,7 +181,7 @@ function ContactsPanel({ company }) {
         <>
           <div>
             <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
-              <Users size={13} /> People on the registry <span style={{ fontWeight: 400, color: C.green }}>(verified)</span>
+              <Users size={13} /> People on the public register {data.officers.length ? <span style={{ fontWeight: 400, color: C.green }}>(verified)</span> : null}
             </div>
             {data.officers.length ? data.officers.map((o) => {
               const e = emails[o.name] || {};
@@ -206,7 +206,7 @@ function ContactsPanel({ company }) {
                 Left in the last year: {data.recent_leavers.map((l) => `${l.name.includes(",") ? l.name.split(",").reverse().map((x) => x.trim()).join(" ") : l.name} (${l.role}, ${l.resigned_on})`).join("; ")}
               </div>
             ) : null}
-            {domain ? <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>Looking for emails on {domain}.</div> : null}
+            {domain ? <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>Work emails are looked up on {domain}.</div> : null}
           </div>
           {(data.controllers || []).length ? (
             <div>
@@ -225,11 +225,11 @@ function ContactsPanel({ company }) {
             <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Contact details</div>
             {data.stored.website || data.stored.phone || data.stored.email ? (
               <div style={{ ...muted, fontSize: 12.5 }}>{[data.stored.website, data.stored.phone, data.stored.email].filter(Boolean).join(" · ")} <TierBadge tier={data.stored.tier} /></div>
-            ) : <div style={{ ...muted, fontSize: 12.5 }}>The registry doesn't publish a website, phone or email for this company.</div>}
+            ) : <div style={{ ...muted, fontSize: 12.5 }}>{data.web && data.web.found !== false ? "Not held on the public register. What the web found is below." : "The public register holds no website, phone or email for this company."}</div>}
             {data.web ? (
               data.web.found === false ? <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>The web search found no website, phone or email we could tie to this company, so nothing is shown and nothing was charged.</div> : (
                 <div style={{ marginTop: 8, padding: "8px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 8, background: "#fff", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, display: "flex", alignItems: "center", gap: 5 }}><Globe size={12} /> Found on the web · check before you use it</div>
+                  <div style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, display: "flex", alignItems: "center", gap: 5 }}><Globe size={12} /> Found on the web</div>
                   {data.web.website ? <WebRow label="Website"><a href={/^https?:/.test(data.web.website) ? data.web.website : `https://${data.web.website}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{domainOf(data.web.website) || data.web.website}</a></WebRow> : null}
                   {(data.web.phones || []).map((ph) => <WebRow key={ph} label="Phone"><a href={`tel:${ph.replace(/\s+/g, "")}`} style={{ color: C.textInk }}>{ph}</a></WebRow>)}
                   {(data.web.emails || []).map((em) => <WebRow key={em} label="Email"><a href={`mailto:${em}`} style={{ color: C.textInk }}>{em}</a></WebRow>)}

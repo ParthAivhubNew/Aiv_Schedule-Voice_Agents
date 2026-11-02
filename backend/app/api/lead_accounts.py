@@ -458,7 +458,7 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
         "recent_leavers": CC.recent_leavers(biz.officers),
         "officers_note": "" if officers else (
             "The registry lists no current officers for this company." if (biz.officers or registry_checked)
-            else "Couldn't reach the registry to read this company's officers just now."),
+            else "Couldn't reach the public register to read this company's people just now. Try again later."),
         "stored": await _stored(db, biz),
         "web": web,
     }
