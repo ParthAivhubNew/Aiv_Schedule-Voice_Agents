@@ -235,6 +235,13 @@ def score(cands: List[Dict[str, Any]], sources: List[Dict[str, Any]], facts: Dic
                 pts["own_site"] = POINTS["own_site"]
         elif own_backed[id(c)]:
             pts["own_site"] = POINTS["own_site"]
+        if c["field"] == "website":
+            label = squash(registered_domain(c["key"]).split(".")[0])
+            ws = words_of(name)
+            if label and ws and (label == "".join(ws) or (len(ws[0]) >= 4 and label == ws[0])):  # the site is just the brand's name
+                pts["brand_domain"] = 10
+            if registered_domain(c["key"]).endswith((".co.uk", ".uk")):  # these are UK companies: their own site is usually a UK one
+                pts["uk_domain"] = 8
         if any(s["place"] for s in src):
             pts["place_on_page"] = POINTS["place_on_page"]
         if c["field"] == "website":

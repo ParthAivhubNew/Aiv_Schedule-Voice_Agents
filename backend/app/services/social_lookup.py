@@ -86,12 +86,19 @@ def score(row: Dict[str, Any], name: str, postcode: str, area: str) -> int:
     if " uk " in f" {text} " or "unitedkingdom" in text:
         pts += 3
     pts += 10 * float(row.get("score") or 0)  # the search engine's own relevance
+    from app.services import search_recipe as R
+
+    if slug and slug == G.squash(R.plain_name(name)):  # the address is exactly the brand name
+        pts += 15
+    pts += LI.region_points(f"{row.get('title') or ''} {row.get('snippet') or ''} {row.get('summary') or ''}")
     if joined and slug.startswith(joined):
         rest = slug[len(joined):]
         if rest in _HOME:
             pts += 15
         elif rest in _ABROAD:  # the same brand's page for another country
             pts -= 15
+        else:
+            pts += LI.extra_words_penalty(slug, joined)
     if in_slug == 0:  # a page whose address does not carry the name is never offered: it is a post or another business
         pts = min(pts, 28)
     return int(max(0, min(100, pts)))
@@ -139,7 +146,7 @@ async def find(db: Any, biz: Any, network: str, *, refresh: bool = False, hint: 
 
     plain = R.plain_name(biz.name) or biz.name
     # The registered town often is not where the brand's page is, so the first search is the name alone; the town is added only if that finds nothing usable.
-    queries = [f"{plain} {cfg['label']}"] + ([f"{plain} {biz.region} {cfg['label']}"] if biz.region else [])
+    queries = [f"{plain} UK {cfg['label']}"] + ([f"{plain} {biz.region} {cfg['label']}"] if biz.region else [])
     cands: List[Dict[str, Any]] = []
     try:
         for q in queries:

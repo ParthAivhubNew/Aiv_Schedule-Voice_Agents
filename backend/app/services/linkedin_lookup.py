@@ -41,6 +41,28 @@ def _flat(text: str) -> str:
     return G.squash(text)
 
 
+_UK = re.compile(r"\b(uk|united kingdom|england|scotland|wales|london|britain|british)\b", re.I)
+_ELSEWHERE = re.compile(r"\b(usa|u\.s\.|united states|america|australia|south africa|singapore|malaysia|uae|dubai|canada|india|new zealand|mauritius|botswana|kenya|nigeria|germany|france|italy|spain)\b", re.I)
+
+
+_OK_REST = {"plc", "ltd", "limited", "uk", "gb", "uki", "official", "group", "unitedkingdom", "britain", "ukofficial", "officialuk", "company", "co"}
+
+
+def extra_words_penalty(slug: str, joined: str) -> int:
+    """-12 when the page's address is the brand plus other words (greggsfoundation, nandoscareersuk): a different arm of the business, not the business."""
+    if joined and slug.startswith(joined):
+        rest = slug[len(joined):]
+        if rest and rest not in _OK_REST:
+            return -12
+    return 0
+
+
+def region_points(text: str) -> int:
+    """+8 when the result talks about the UK only, -10 when it talks about another country only: the same brand has a page per country."""
+    uk, away = bool(_UK.search(text or "")), bool(_ELSEWHERE.search(text or ""))
+    return 8 if uk and not away else -10 if away and not uk else 0
+
+
 def score_company(row: Dict[str, Any], name: str, postcode: str, area: str) -> int:
     """0-100: how likely this LinkedIn company page is the company. The name words in the page title and address are most of it."""
     words = G.words_of(name)
@@ -61,6 +83,15 @@ def score_company(row: Dict[str, Any], name: str, postcode: str, area: str) -> i
     if G.squash(name) and G.squash(name) in text:
         pts += 5
     pts += 8 * float(row.get("score") or 0)  # the search engine's own relevance
+    from app.services import search_recipe as R
+
+    squashed = G.squash((urlparse(row["url"]).path or "").split("/")[-1])
+    pts += extra_words_penalty(slug, "".join(words))
+    if squashed and squashed == G.squash(name):  # greggs-plc for GREGGS PLC: the page named exactly as the register names the company
+        pts += 35
+    elif squashed and squashed == G.squash(R.plain_name(name)):
+        pts += 15
+    pts += region_points(f"{row.get('title') or ''} {row.get('snippet') or ''} {row.get('summary') or ''}")
     return int(max(0, min(100, pts)))
 
 
@@ -151,7 +182,7 @@ async def find(db: Any, biz: Any, person: Optional[Dict[str, str]] = None, *, re
     else:
         from app.services import search_recipe as R
 
-        query = f'{R.plain_name(biz.name) or biz.name} LinkedIn company page'.strip()  # the registered town is often not where the page is
+        query = f'{R.plain_name(biz.name) or biz.name} UK LinkedIn company page'.strip()  # the registered town is often not where the page is
     if hint:
         query = f"{query} {hint}"
     try:

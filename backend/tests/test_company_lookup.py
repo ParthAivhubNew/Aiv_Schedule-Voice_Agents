@@ -144,7 +144,7 @@ def test_scenario_a_a_clear_match_shows_one_website_phone_and_email_with_reasons
     assert out["found"] and out["website"] == "https://www.teddybears-preschool.co.uk"
     assert out["phones"] == ["01462 123456"] and out["emails"] == ["hello@teddybears-preschool.co.uk"]
     # one domain's evidence is "good" (own site, place, name in the title, relevance = 74); a phone a second source repeats is "high" (94)
-    assert out["confidence"]["website"] == {"score": 74, "label": "good"}
+    assert out["confidence"]["website"] == {"score": 82, "label": "good"}
     assert out["confidence"]["phone"]["label"] == "high" and out["confidence"]["phone"]["score"] >= G.HIGH
     assert out["ledger"]["outcome"] == "found" and out["ledger"]["searches"] <= R.MAX_SEARCHES and out["audit"]
 
