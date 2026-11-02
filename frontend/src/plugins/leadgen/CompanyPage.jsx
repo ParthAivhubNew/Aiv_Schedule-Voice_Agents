@@ -6,7 +6,10 @@ import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
 import { domainOf } from "./AccountsViews";
 import { CompanyAvatar, ProfileBadge } from "./FindLeadsParts";
 import { asAccount } from "./FindLeadsView";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
+import { OrgChart } from "./OrgChart";
+import { PersonPage } from "./PersonPage";
+import { PickOptions, SOCIAL } from "./PickOptions";
+import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
@@ -37,15 +40,26 @@ function Fact({ label, children, warn }) {
   );
 }
 
+const personCard = (o) => ({ key: `officer:${o.name}`, kind: "officer", name: `${o.first_name} ${o.last_name}`.trim(), raw: o, role: o.role || "Officer", meta: personMeta(o), reason: o.reason || "", alsoOwner: false, ownership: "" });
+
 // The people on the register, one row each, with the reason they are worth a look and a way to find their email.
-function People({ c, onFindEmail, found }) {
+function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
+  const [view, setView] = useState("chart");
   const { officers, leavers, read, from_registry: fromRegistry } = c.people;
   const controllers = c.people.controllers;
   const alsoDirector = (p) => sameOfficer(p, officers);
   const domain = domainOf(c.contact.website.value);
+  const hasPeople = officers.length > 0 || controllers.length > 0;
+  const showChart = hasPeople && view === "chart";
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {officers.length ? (
+      {hasPeople ? (
+        <div role="group" aria-label="How to show people" style={{ display: "flex", gap: 6 }}>
+          {[["chart", "Org chart"], ["list", "List"]].map(([k, w]) => <button key={k} type="button" aria-pressed={view === k} style={btn(view === k)} onClick={() => setView(k)}>{w}</button>)}
+        </div>
+      ) : null}
+      {showChart ? <OrgChart c={c} onOpenPerson={onOpenPerson} onOverview={onOverview} /> : null}
+      {showChart ? null : officers.length ? (
         <div style={{ ...card, padding: 0 }}>
           <div style={{ padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>Directors and officers <span style={{ ...small, fontWeight: 500 }}>verified from the register</span></div>
           {officers.map((o) => {
@@ -57,6 +71,7 @@ function People({ c, onFindEmail, found }) {
                   {personMeta(o) ? <div style={small}>{personMeta(o)}</div> : null}
                 </div>
                 {o.reason ? <Pill tone={o.reason === "New in role" ? "green" : "slate"}>{o.reason}</Pill> : null}
+                <button type="button" style={btn(false)} onClick={() => onOpenPerson(personCard(o))}>Open profile</button>
                 {f.email ? <span style={{ fontSize: 12.5, color: C.green }}>{f.email} ({f.status})</span>
                   : f.none ? <span style={small}>No email found. Nothing charged.</span>
                   : f.error ? <span style={{ ...small, color: C.red }}>{f.error}</span>
@@ -67,9 +82,9 @@ function People({ c, onFindEmail, found }) {
           })}
         </div>
       ) : (
-        <div style={{ ...card, ...small }}>{!fromRegistry ? "This kind of organisation has no directors on Companies House." : read ? "The register lists no current officers for this company." : "The people on the register haven't been read yet."}</div>
+        <div style={{ ...card, ...small }}>{!fromRegistry ? "This kind of organisation has no directors on the public register." : read ? "The register lists no current officers for this company." : "The people on the register haven't been read yet."}</div>
       )}
-      {controllers.length ? (
+      {!showChart && controllers.length ? (
         <div style={{ ...card, padding: 0 }}>
           <div style={{ padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>Who owns or controls it</div>
           {controllers.map((p) => (
@@ -94,6 +109,10 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const [menu, setMenu] = useState(false);
   const [journeys, setJourneys] = useState(null);
   const [found, setFound] = useState({});
+  const [pick, setPick] = useState(null); // {kind, person, options}: a lookup that was not sure, waiting for the person to choose
+  const [waiting, setWaiting] = useState({}); // kind -> the matches the person has not chosen from yet
+  const [person, setPerson] = useState(null); // the person whose own page is open
+  const [li, setLi] = useState(""); // "busy" while the company's LinkedIn lookup runs
 
   const load = useCallback(async () => {
     try { const r = await api.companyProfile(id); setC(r.company); setErr(""); } catch (e) { setErr(e.message || "Couldn't open this company."); }
@@ -115,9 +134,39 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const first = c.sic[0];
   const say = (text, error = false) => setMsg({ text, error });
   const find = async (kind) => {
+    if (waiting[kind]) { setPick({ kind, person: "", anchor: kind, options: waiting[kind] }); return; }
     setBusy(kind);
-    try { const r = await api.findCompanyWebsite(c.id, kind); say(r.found ? `Found the ${kind}.${r.charged ? ` ${r.charged} credit used.` : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
+    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}.${r.charged ? ` ${r.charged} credit used.` : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
     setBusy("");
+  };
+  // Opens one contact our registry holds. Free, once. It never searches for anything.
+  const open = async (kind) => {
+    setBusy(`open:${kind}`);
+    try { await api.revealContact(c.id, kind); say(`Opened the ${kind}. It stays visible from now on.`); await load(); } catch (e) { say(e.message || "Couldn't open that.", true); }
+    setBusy("");
+  };
+  const NETS = { linkedin: "LinkedIn page", facebook: "Facebook page", x: "X profile", instagram: "Instagram profile" };
+  const findNetwork = async (network) => {
+    if (waiting[network]) { setPick({ kind: network, person: "", anchor: network, options: waiting[network] }); return; }
+    setLi(network);
+    try {
+      const r = await api.findSocial(c.id, network);
+      if (!r.found) { setPick({ kind: network, person: "", anchor: network, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [network]: r.options })); }
+      say(r.found ? `Found the ${NETS[network]}.` : (r.options || []).length ? "Pick the right one from the closest matches." : r.note || "We couldn't find it right now. Try again later.");
+      await load();
+    } catch (e) { say(e.message || "The lookup didn't finish. Try again later.", true); }
+    setLi("");
+  };
+  const findPersonLinkedin = async (o) => {
+    const key = `li:${o.name}`;
+    if ((found[key]?.options || []).length) { setPick({ kind: "linkedin", person: `${o.first_name} ${o.last_name}`.trim(), names: { first_name: o.first_name, last_name: o.last_name }, anchor: key, options: found[key].options }); return; }
+    setFound((m) => ({ ...m, [key]: { busy: true } }));
+    try {
+      const r = await api.findLinkedin(c.id, { first_name: o.first_name, last_name: o.last_name });
+      if (!r.found) setPick({ kind: "linkedin", person: `${o.first_name} ${o.last_name}`.trim(), names: { first_name: o.first_name, last_name: o.last_name }, anchor: key, options: r.options || [] });
+      setFound((m) => ({ ...m, [key]: r.found ? { url: r.url } : (r.options || []).length ? { options: r.options } : { none: true } }));
+      if (r.found) await load();
+    } catch (e) { setFound((m) => ({ ...m, [key]: { error: e.message || "Couldn't look that up." } })); }
   };
   const save = async () => {
     setBusy("save");
@@ -149,8 +198,40 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     } catch (e) { setFound((m) => ({ ...m, [o.name]: { error: e.message || "Couldn't look that up." } })); }
   };
 
+  const pickEl = pick ? <PickOptions kind={pick.kind} company={name} options={pick.options} anchorKey={pick.anchor} onClose={() => setPick(null)}
+    onRetry={async (hint) => {
+      const k = pick.kind;
+      const r = pick.names ? await api.findLinkedin(c.id, { ...pick.names, hint })
+        : SOCIAL.includes(k) ? await api.findSocial(c.id, k, hint) : await api.findCompanyWebsite(c.id, k, hint);
+      const matches = !r.found && (r.options || []).length ? r.options : [];
+      setWaiting((w) => ({ ...w, [k]: matches.length ? matches : null }));
+      if (pick.anchor?.startsWith("li:")) setFound((m) => ({ ...m, [pick.anchor]: r.found ? { url: r.url } : matches.length ? { options: matches } : { none: true } }));
+      if (r.found) { say(`Found the ${k === "website" ? "website" : (NETS[k] || k)}.`); await load(); }
+      return { done: Boolean(r.found), options: matches };
+    }}
+    onPick={async (o) => {
+      await api.chooseContact(c.id, { kind: pick.kind, value: o.value, person: pick.person });
+      setWaiting((w) => ({ ...w, [pick.kind]: null }));
+      if (pick.anchor?.startsWith("li:")) setFound((m) => ({ ...m, [pick.anchor]: {} }));
+      say("Saved. It will show for this company from now on.");
+      await load();
+    }} /> : null;
+  if (person) {
+    // the person's own page keeps the register facts fresh: the officer record is read again from the loaded company
+    const live = (c.people.officers || []).find((x) => x.name === person.raw.name);
+    const shown = live ? { ...person, raw: live } : person;
+    return (
+      <>
+        {pickEl}
+        <PersonPage person={shown} company={c} found={found} onBack={() => setPerson(null)} onOpenCompany={() => { setPerson(null); setTab("overview"); }}
+          onFindEmail={findEmail} onFindLinkedin={findPersonLinkedin} onAskAi={onAskAi} />
+      </>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
+      {pickEl}
       <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
 
       <header style={{ ...card, display: "grid", gap: 12, padding: 16 }}>
@@ -189,16 +270,28 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
           {contacts.map((k) => {
             const Icon = ICON[k.kind];
             return (
-              <div key={k.kind} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff", maxWidth: "100%" }}>
+              <div key={k.kind} data-reach={k.kind} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff", maxWidth: "100%" }}>
                 <Icon size={14} color={C.slate} aria-hidden="true" />
                 {k.value ? <a href={k.href} target={k.kind === "website" ? "_blank" : undefined} rel="noreferrer" style={{ color: C.cobalt, fontSize: 13, overflowWrap: "anywhere" }}>{k.shown}</a>
                   : <span style={{ fontSize: 13, color: C.slate }}>{k.kind === "website" ? "Website" : k.kind === "phone" ? "Phone" : "Email"}</span>}
-                {k.value || !k.canFind ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
+                {k.closed ? <button type="button" style={{ ...btn(true, busy === `open:${k.kind}`), padding: "3px 9px", minHeight: 28 }} disabled={busy === `open:${k.kind}`} title="We hold this. Open it once and it stays visible. Free." onClick={() => open(k.kind)}>
+                  {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
+                {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
                 {k.canFind ? <button type="button" style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
-                  {busy === k.kind ? <Spinner size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {k.missed ? "Not found · try again" : "Find · 1 credit if found"}</button> : null}
+                  {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Not found · try later" : "Find · 1 credit if found"}</button> : null}
               </div>
             );
           })}
+        </div>
+        <div style={{ ...row, gap: 10 }}>
+          {Object.entries(NETS).map(([network, label]) => (
+            <div key={network} data-reach={network} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff" }}>
+              <Link2 size={14} color={C.slate} aria-hidden="true" />
+              {(c.links || {})[network] ? <a href={c.links[network]} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontSize: 13 }}>{label}</a>
+                : <button type="button" style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>
+                  {li === network ? <Spinner size={12} /> : <Search size={12} />} {waiting[network] ? "Check matches" : `Find ${label}`}</button>}
+            </div>
+          ))}
         </div>
         <Note error={msg.error}>{msg.text}</Note>
       </header>
@@ -259,7 +352,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             </div>
           ) : null}
 
-          {tab === "people" ? <People c={c} onFindEmail={findEmail} found={found} /> : null}
+          {tab === "people" ? <People c={c} onFindEmail={findEmail} onOpenPerson={setPerson} found={found} onOverview={() => setTab("overview")} /> : null}
 
           {tab === "filings" ? (
             <div style={{ display: "grid", gap: 12 }}>

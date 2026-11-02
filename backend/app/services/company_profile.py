@@ -164,14 +164,18 @@ def summary(biz: BusinessRecord, ch: Dict[str, str], today: date) -> str:
 
 def _contact(card: Dict[str, Any]) -> Dict[str, Any]:
     """Website, phone and email, each with where it came from: the register, a web lookup that passed the checks, or missing."""
-    def one(own: str, web: str, own_word: str = "On the register") -> Dict[str, str]:
+    closed = card.get("closed") or {}
+
+    def one(own: str, web: str, own_word: str = "On the register", kind: str = "") -> Dict[str, str]:
+        if kind and closed.get(kind):  # held by our registry and not opened yet: shown as held, never as missing
+            return {"value": "", "source": "register", "label": "We hold this. Open it to see it", "closed": True}
         if own:
             return {"value": own, "source": "register", "label": own_word}
         if web:
             return {"value": web, "source": "web", "label": "Found on the web: check before you use it"}
         return {"value": "", "source": "missing", "label": "Not known yet"}
-    out = {"website": one(card.get("website") or "", card.get("web_website") or ""), "phone": one(card.get("phone") or "", card.get("web_phone") or ""),
-           "email": one(card.get("email") or "", card.get("web_email") or "")}
+    out = {"website": one(card.get("website") or "", card.get("web_website") or "", kind="website"), "phone": one(card.get("phone") or "", card.get("web_phone") or "", kind="phone"),
+           "email": one(card.get("email") or "", card.get("web_email") or "", kind="email")}
     for kind, when in (card.get("missed") or {}).items():
         if kind in out and not out[kind]["value"]:
             out[kind]["missed"] = when
@@ -205,8 +209,15 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         o["reason"] = person_reason(o)
     leavers = CC.recent_leavers(biz.officers)
     controllers = CC.controllers(biz.significant_control)
-    card = lead_filters.card(biz)
+    from app.services import reveals as RV
+    from app.services.social_lookup import links_of
+
+    card = await RV.mask_one(db, lead_filters.card(biz))
     contact = _contact(card)
+    linked = (biz.raw_data or {}).get("linkedin") or {}
+    for o in officers:
+        li = (linked.get("people") or {}).get(f"{o.get('first_name', '')} {o.get('last_name', '')}".strip()) or {}
+        o["linkedin"], o["linkedin_title"], o["linkedin_note"] = li.get("url", ""), li.get("title", ""), li.get("note", "")
     born = biz.incorporated_on or _date(biz.incorporation_date)
     previous = [{"name": ch.get(f"PreviousName_{i}.CompanyName"), "until": _human(_date(ch.get(f"PreviousName_{i}.CONDATE")))} for i in range(1, 11) if ch.get(f"PreviousName_{i}.CompanyName")]
     sic = []
@@ -221,7 +232,8 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         "id": biz.id, "name": biz.name, "registration_number": biz.registration_number or "", "status": biz.status or "", "status_tone": status_tone(biz.status or ""),
         "type": biz.company_category or "", "incorporated": _human(born), "age": age_words(born, today), "size": SIZE_WORDS.get(biz.size_band or "", ""),
         "region": biz.region or "", "postcode": biz.postcode or "", "address": biz.address or "", "sic": sic,
-        "profile": business_records.profile_of(biz.rank_score), "contact": contact,
+        "profile": business_records.profile_of(biz.rank_score), "contact": contact, "linkedin": (linked.get("company") or {}).get("url", ""),
+        "links": links_of(biz.raw_data),
         "missing": [k for k in ("website", "phone", "email") if contact[k]["source"] == "missing"],
         "accounts": accounts, "confirmation": {"last": _human(_date(ch.get("ConfStmtLastMadeUpDate"))), "next_due": _human(_date(ch.get("ConfStmtNextDueDate")))},
         "charges": {"outstanding": _num(ch.get("Mortgages.NumMortOutstanding")), "satisfied": _num(ch.get("Mortgages.NumMortSatisfied")), "total": _num(ch.get("Mortgages.NumMortCharges"))},

@@ -112,7 +112,8 @@ def _closed(status: str) -> bool:
 
 
 async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[Dict[str, Any]] = None, scope: str = "leadgen",
-                       threshold: int = G.THRESHOLD, margin: int = G.MARGIN, want: str = "all") -> Dict[str, Any]:
+                       threshold: int = G.THRESHOLD, margin: int = G.MARGIN, want: str = "all",
+                       boosts: Optional[Dict[str, Dict[str, int]]] = None, hint: str = "") -> Dict[str, Any]:
     """{website, phones, emails, sources, found, via, confidence, audit, ledger, reason}. Never raises: a failed step finds less."""
     F = _facts(name, place, facts or {})
     meter: Dict[str, Any] = {"searches": 0, "tavily_credits": 0.0, "extract_pages": 0, "timings": []}
@@ -133,6 +134,10 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         return out
 
     steps = R.plan(F)
+    hint = " ".join(str(hint or "").split())[:300]
+    if hint:  # what the person told us (a town, a trading name, what the business does) goes onto the first searches
+        for s in steps[:2]:
+            s["query"] = f"{s['query']} {hint}"
     must = list(G.words_of(name))
     raw: List[Dict[str, Any]] = []
     seen_urls: set = set()
@@ -158,6 +163,16 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
             added += 1
         return added
 
+    def _boost(cands: List[Dict[str, Any]], field: str) -> None:
+        """A candidate people confirmed as the correct one for this company gets points for each organisation that did. A candidate the checks
+        rejected stays rejected."""
+        for value, points in ((boosts or {}).get(field) or {}).items():
+            for c in cands:
+                same = G.registered_domain(c["value"]) == G.registered_domain(value) if field == "website" else c["value"] == value
+                if same and not c["rejected"]:
+                    c["score"] += points
+                    c["points"] = {**c.get("points", {}), "confirmed_by_users": points}
+
     def evaluate() -> Dict[str, Any]:
         src = G.prepare_sources(raw, F)
         wc = G.website_candidates(src, F)
@@ -165,11 +180,14 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
             if read_domains.get(c["key"]) is False:
                 c["rejected"] = c["rejected"] or "dead site: the page could not be loaded"
         G.score(wc, src, F, [])
+        _boost(wc, "website")
         win_w, why_w = G.decide(wc, threshold, margin)
         own = [win_w["key"]] if win_w else [c["key"] for c in wc if not c["rejected"] and G.domain_matches_name(c["key"], name)]
         pc, ec = G.phone_candidates(src), G.email_candidates(src, own)
         G.score(pc, src, F, own)
         G.score(ec, src, F, own)
+        _boost(pc, "phone")
+        _boost(ec, "email")
         win_p, why_p = G.decide(pc, threshold, margin)
         win_e, why_e = G.decide(ec, threshold, margin)
         return {"src": src, "cands": wc + pc + ec, "w": win_w, "p": win_p, "e": win_e, "why": {"website": why_w, "phone": why_p, "email": why_e}}
@@ -258,6 +276,12 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         out["emails"] = [e["value"]]
         out["confidence"]["email"] = {"score": e["score"], "label": G.label(e["score"])}
     out["found"] = bool(out["website"] or out["phones"] or out["emails"])
+    # No clear winner for a field: the best few candidates, so the person can pick (and the pick teaches the next lookup)
+    from app.services import contact_choices as CH
+
+    out["options"] = {f: CH.options_from([c for c in state["cands"] if c["field"] == f], src, win)
+                      for f, win, asked in (("website", w, ask_site), ("phone", p, ask_contact and want in ("all", "phone")),
+                                            ("email", e, ask_contact and want in ("all", "email"))) if asked}
     out["audit"] = G.audit_of(state["cands"], src)
     out["reason"] = "" if out["found"] else "; ".join(f"{k}: {v}" for k, v in state["why"].items() if v)
     meter["outcome"] = "found" if out["found"] else ("no_web_search" if not raw else "not_found")

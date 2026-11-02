@@ -2870,7 +2870,6 @@ export function CallingWorkspace({
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {page === "list" && !pluginLocked && !assistantOpen ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-pressed={listAiShown} title={listAiShown ? "Hide List AI" : "Open List AI: find companies and build a list by chatting"} onClick={() => { setListAiOpen(!listAiShown); setListPane("main"); }}><Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">List AI</span></button> : null}
             {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
@@ -2938,7 +2937,6 @@ export function CallingWorkspace({
           )}
           {page === "list" && (
             <div className="list-grid pane-root" data-active={listPane} style={{ display: "grid", gridTemplateColumns: listAiShown ? `minmax(0, 1fr) ${listAiW}px` : "minmax(0, 1fr)", flex: 1, minHeight: 0 }}>
-              <PaneSwitch value={listPane} onChange={setListPane} panes={[{ id: "main", label: "Contacts", badge: rows.length || "" }, { id: "side", label: "List AI" }]} />
               <div
                 data-pane="main"
                 className="list-main ui-scroll"

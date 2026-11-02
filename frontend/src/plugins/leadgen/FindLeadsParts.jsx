@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
-import { BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Mail, Phone, Plus, X, XCircle } from "lucide-react";
+import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, Plus, Search, X, XCircle } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -140,27 +140,74 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state, missed }) {
+function Reach({ value, kind, onFind, web, state, missed, closed, onOpen }) {
+  if (!value && closed) {
+    const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
+    return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title={`We hold this company's ${kind}. Open it once and it stays visible. Free.`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onOpen(); }}><Icon size={13} /> {state === "busy" ? "Opening…" : `Open ${kind} · free`}</button>;
+  }
   if (!value && web) {
     return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
   const busyHere = state === "busy"; // this cell's own lookup; the other cell in the row is never touched by it
   if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
+  // The search found close matches and the person has not chosen yet: reopen them, no new search.
+  if (!value && state === "options") return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Check the closest matches and choose the right one" onClick={(e) => { e.stopPropagation(); onFind(); }}><Search size={13} /> Check matches</button>;
   // A lookup that ran and found nothing is shown as that, also after a refresh. It stays a button: not finding it is not proof it is not there.
   if (!value && (state === "none" || missed)) {
     const on = missed ? new Date(missed) : null;
     const date = on && !Number.isNaN(on.getTime()) ? ` on ${on.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}` : "";
     return (
       <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={(e) => { e.stopPropagation(); onFind(); }}
-        title={`We looked${date} and found no ${kind}. That doesn't mean there isn't one. Try again to look once more. Nothing is charged for a miss.`}>
-        <XCircle size={13} color={C.red} aria-hidden="true" /> Not found
+        title={`We looked${date} and couldn't find a ${kind} right now. That doesn't mean there isn't one. Try again later.`}>
+        <XCircle size={13} color={C.red} aria-hidden="true" /> Not found · try later
       </button>
     );
   }
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
-  const tip = kind === "email" ? "Open the profile to look for an email" : `Look for this company's ${kind}. 1 credit if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
+  const tip = kind === "email" ? "Look for this company's email. 1 credit if found. Nothing is charged for a miss" : `Look for this company's ${kind}. 1 credit if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
-  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}{kind !== "email" ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span> : null}</button>;
+  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}<span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span></button>;
+}
+
+const FbIcon = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.8v3h2.6V21h3.1z" /></svg>;
+const XIcon = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M17.8 3h3.1l-6.8 7.7L22 21h-6.3l-4.9-6.4L5.2 21H2.1l7.3-8.3L2 3h6.4l4.4 5.9L17.8 3zm-1.1 16.2h1.7L7.3 4.7H5.5l11.2 14.5z" /></svg>;
+
+const IgIcon = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3.5" y="3.5" width="17" height="17" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.2" cy="6.8" r="0.8" fill="currentColor" /></svg>;
+
+const NETWORKS = [
+  { k: "website", label: "Website", Icon: Link2 },
+  { k: "linkedin", label: "LinkedIn page", Icon: Briefcase },
+  { k: "facebook", label: "Facebook page", Icon: FbIcon },
+  { k: "x", label: "X profile", Icon: XIcon },
+  { k: "instagram", label: "Instagram profile", Icon: IgIcon },
+];
+
+// Every public page we hold for the company, as icons: a link when we have it, a faint button that looks for just that page when we do not.
+// Each icon works on its own: the website never searches for LinkedIn, and LinkedIn never searches for Facebook.
+function LinksCell({ c, onFind, onReveal, lookups }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 9, alignItems: "center" }}>
+      {NETWORKS.map(({ k, label, Icon }) => {
+        const url = k === "website" ? c.website || c.web_website : (c.links || {})[k];
+        const state = (lookups || {})[`${c.id}:${k}`];
+        const href = url && (/^https?:/i.test(url) ? url : `https://${url}`);
+        const wrap = { display: "inline-flex", alignItems: "center" };
+        const anchor = k === "website" ? {} : { "data-reach": `${c.id}:${k}` };
+        if (href) return <span key={k} {...anchor} style={wrap}><a href={href} target="_blank" rel="noreferrer" title={label} aria-label={label} onClick={(e) => e.stopPropagation()} style={{ color: C.ink, display: "inline-flex" }}><Icon size={17} /></a></span>;
+        if (k === "website" && (c.closed || {}).website) return <span key={k} style={wrap}><button type="button" title="We hold this company's website. Open it once, free" aria-label="Open website" disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onReveal(c, "website"); }} style={{ all: "unset", cursor: "pointer", color: C.cobalt, display: "inline-flex" }}><Icon size={17} /></button></span>;
+        const pending = state === "options";
+        const tip = state === "busy" ? "Looking…" : pending ? "Check the closest matches and choose the right one" : state === "none" || (c.missed || {})[k] ? `Not found right now. Try again later` : `Find the ${label.toLowerCase()}`;
+        return (
+          <span key={k} {...anchor} style={wrap}>
+            <button type="button" title={tip} aria-label={pending ? `Check matches for the ${label}` : `Find the ${label}`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onFind(c, k); }}
+              style={{ all: "unset", cursor: "pointer", display: "inline-flex", color: pending ? C.cobalt : C.slate, opacity: pending ? 1 : state === "busy" ? 0.6 : 0.35, borderBottom: pending ? `2px solid ${C.cobalt}` : "2px solid transparent" }}>
+              <Icon size={17} />
+            </button>
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function SaveCell({ saved, onSave }) {
@@ -181,9 +228,9 @@ function Divider({ profile, count, cols }) {
   );
 }
 
-export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, lookups, busy }) {
+export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, lookups, busy }) {
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
-  const cols = 9;
+  const cols = 10;
   const seen = new Set();
   return (
     <>
@@ -199,6 +246,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
             <th style={th}>Website</th>
             <th style={th}>Phone</th>
             <th style={th}>Email</th>
+            <th style={th} title="Website, LinkedIn, Facebook and X. A faint icon means we have not found that page yet: click it to look.">Links</th>
             <th style={th} title="From the company's filed accounts, not headcount">Size (accounts)</th>
             <th style={{ ...th, textAlign: "right" }} aria-label="Actions" />
           </tr>
@@ -229,9 +277,10 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.phone} kind="phone" web={c.web_phone} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><Reach value={c.email} kind="email" missed={(c.missed || {}).email} onFind={() => onOpen(c)} /></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} kind="phone" web={c.web_phone} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>
                 </tr>

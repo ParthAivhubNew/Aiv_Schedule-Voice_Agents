@@ -462,7 +462,7 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
                     meter["tavily_credits"] = meter.get("tavily_credits", 0) + float(credits)
                 for item in data.get("results", [])[:max_results]:
                     url = item.get("url") or ""
-                    if url and not _is_junk_web_host(url):
+                    if url and (include_domains or not _is_junk_web_host(url)):  # a site the caller asked for by name (a social network) is never "junk"
                         results.append({"title": item.get("title") or "", "snippet": item.get("content") or "", "url": url,
                                         "score": float(item.get("score") or 0.0), "engine": "tavily"})
             else:

@@ -153,6 +153,8 @@ async def _business_line(db: AsyncSession, request: Request) -> str:
 
 
 async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services import reveals as RV
+
     filters = business_records.normalize_filters(args)
     try:
         found, _ = await phrase_understanding.widen_if_empty(
@@ -160,7 +162,7 @@ async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     except ValueError as err:
         return {"needs": str(err), "filters": filters, "total": 0, "top": []}
     return {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"],
-            "top": [lead_filters.card(r) for r in found["rows"]]}
+            "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
 
 
 async def _pipeline(db: AsyncSession) -> Dict[str, Any]:

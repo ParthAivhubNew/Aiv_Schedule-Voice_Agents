@@ -23,7 +23,7 @@ export function contactRows(contact) {
   return ["website", "phone", "email"].map((kind) => {
     const c = (contact && contact[kind]) || { value: "", source: "missing", label: "Not known yet" };
     const shown = kind === "website" ? c.value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : c.value;
-    return { kind, value: c.value, shown, href: c.value ? link[kind](c.value) : "", source: c.source, sourceWord: SOURCE_WORDS[c.source] || c.source, label: c.label, canFind: c.source === "missing", missed: c.missed || "" };
+    return { kind, value: c.value, shown, href: c.value ? link[kind](c.value) : "", source: c.source, sourceWord: SOURCE_WORDS[c.source] || c.source, label: c.label, canFind: c.source === "missing", missed: c.missed || "", closed: Boolean(c.closed) };
   });
 }
 
@@ -80,4 +80,29 @@ export function personName(raw) {
 export function shortDate(iso) {
   const d = new Date(`${String(iso || "").slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime()) ? String(iso || "") : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// The people as an org chart: one column per kind of role. The register gives no reporting lines, so columns are by role, not by boss.
+// An owner who is also a director stays on the director's card ("also an owner") instead of appearing twice.
+export function orgGroups(people, query = "") {
+  const officers = (people && people.officers) || [];
+  const controllers = (people && people.controllers) || [];
+  const q = String(query || "").trim().toLowerCase();
+  const card = (kind, p) => {
+    const name = kind === "officer" ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : personName(p.name);
+    return {
+      key: `${kind}:${p.name || name}`, kind, name, raw: p,
+      role: kind === "officer" ? p.role || "Officer" : (p.controls || []).join(", ") || "Owner or controller",
+      meta: kind === "officer" ? personMeta(p) : [p.since ? `since ${p.since.slice(0, 4)}` : "", p.nationality, p.country_of_residence ? `lives in ${p.country_of_residence}` : ""].filter(Boolean).join(" · "),
+      reason: p.reason || "", alsoOwner: kind === "officer" && controllers.some((c) => sameOfficer(c, [p])),
+      ownership: kind === "officer" ? ((controllers.find((c) => sameOfficer(c, [p])) || {}).controls || []).join(", ") : (p.controls || []).join(", "),
+    };
+  };
+  const secretary = (o) => /secretar/i.test(o.role || "");
+  const groups = [
+    { key: "directors", title: "Directors", tone: "green", people: officers.filter((o) => !secretary(o)).map((o) => card("officer", o)) },
+    { key: "secretaries", title: "Secretaries", tone: "blue", people: officers.filter(secretary).map((o) => card("officer", o)) },
+    { key: "owners", title: "Owners and controllers", tone: "orange", people: controllers.filter((c) => !sameOfficer(c, officers)).map((c) => card("controller", c)) },
+  ];
+  return groups.map((g) => ({ ...g, people: q ? g.people.filter((p) => `${p.name} ${p.role}`.toLowerCase().includes(q)) : g.people })).filter((g) => g.people.length);
 }

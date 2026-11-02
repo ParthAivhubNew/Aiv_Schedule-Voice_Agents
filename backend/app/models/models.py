@@ -2276,3 +2276,30 @@ class CallSchedule(Base):
     created_by = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ContactReveal(Base):
+    """A company's website, phone or email that our registry holds and this organisation has opened once. Free; after that it stays visible."""
+    __tablename__ = "contact_reveals"
+    __table_args__ = (UniqueConstraint("org_id", "business_id", "kind", name="uq_contact_reveal"),)
+
+    id = Column(String, primary_key=True, default=lambda: f"cr_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    business_id = Column(String, index=True, nullable=False)
+    kind = Column(String, nullable=False)  # website | phone | email
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ContactChoice(Base):
+    """What users picked as the right answer when a lookup was not sure. Public facts about a company, so it is shared across organisations
+    (like the company store): a value that enough different organisations picked is trusted for the next person. Holds only organisation ids."""
+    __tablename__ = "contact_choices"
+    __table_args__ = (UniqueConstraint("business_id", "kind", "value", name="uq_contact_choice"),)
+
+    id = Column(String, primary_key=True, default=lambda: f"cc_{uuid.uuid4().hex[:14]}")
+    business_id = Column(String, index=True, nullable=False)
+    kind = Column(String, nullable=False)  # website | phone | email | linkedin | linkedin:<person name>
+    value = Column(String, nullable=False)
+    picks = Column(Integer, default=0)
+    orgs = Column(JSON, default=list)  # the organisations that picked it, each once
+    updated_at = Column(DateTime, default=datetime.utcnow)

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Plus, RotateCcw, Square, Trash2, Workflow, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, Plus, RotateCcw, Square, Trash2, Workflow, X } from "lucide-react";
 import { api } from "../api/apiClient";
 import { Loader, Spinner } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
@@ -331,6 +331,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
     <div className="wf" role="dialog" aria-modal="false" aria-label="Workflows" style={{ left }}>
       <style>{css}</style>
       <div className="wf-top">
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={editing ? () => setEditing(null) : onClose} aria-label={editing ? "Back to your workflows" : "Back"}><ArrowLeft size={14} aria-hidden="true" /> Back</button>
         <Workflow size={18} aria-hidden="true" />
         <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>Workflows</h1>
         <span style={{ ...muted, flex: 1 }} className="hide-mobile">When something happens in Leads, Voice or Social, do something automatically.</span>

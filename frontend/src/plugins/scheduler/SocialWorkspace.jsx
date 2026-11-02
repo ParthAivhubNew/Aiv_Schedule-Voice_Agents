@@ -4440,7 +4440,6 @@ export function SocialWorkspace({
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <PluginHeader assistant={false} nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar}>
-          {(page === "plan" || page === "overview") && !pluginLocked && !assistantOpen ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-pressed={planAiOpen} title={planAiOpen ? "Hide Plan AI" : "Open Plan AI: plan and write posts by chatting"} onClick={() => { setPlanAiOpen((o) => !o); setPlanPane("main"); }}><Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">Plan AI</span></button> : null}
           {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
         </PluginHeader>
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
@@ -4628,7 +4627,6 @@ export function SocialWorkspace({
           </div>
         ) : null}
         <div className="split-view pane-root" data-active={planPane} style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <PaneSwitch value={planPane} onChange={setPlanPane} panes={[{ id: "main", label: "Calendar" }, { id: "side", label: "Plan AI" }]} />
           <div data-pane="main" className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

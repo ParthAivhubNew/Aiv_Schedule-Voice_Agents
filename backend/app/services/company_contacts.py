@@ -200,7 +200,7 @@ def note_lookup(biz: BusinessRecord, kind: str, found: bool) -> None:
     biz.raw_data = raw
 
 
-async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False, want: str = "all") -> Dict[str, Any]:
+async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool = False, want: str = "all", hint: str = "") -> Dict[str, Any]:
     """A live web lookup for the company's website, phone and email. Stored on the record under raw_data['contacts_web'] -- NOT in the
     verified columns -- so a web finding never sits in a field the registry tier vouches for.
 
@@ -209,30 +209,49 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     (no `guardrail` mark) is stale at once, because its phones and emails were never checked."""
     cached = (biz.raw_data or {}).get("contacts_web")
     fresh = bool(cached) and bool(cached.get("guardrail")) and _age_days(cached.get("fetched_at")) <= CACHE_DAYS
-    if cached and not refresh and fresh:
+    if cached and not refresh and fresh and not hint:  # extra words from the person always mean a new search
         if cached.get("audit") and _age_days(cached.get("fetched_at")) > AUDIT_DAYS:
             raw = dict(biz.raw_data or {})
             raw["contacts_web"] = {k: v for k, v in cached.items() if k != "audit"}
             biz.raw_data = raw
             await db.flush()
         return {**cached, "cached": True}
+    taught = None if hint else await _taught(db, biz, want)
+    if taught:
+        return taught
     from app.services import web_harness
 
     facts = {"address": biz.address, "postcode": biz.postcode, "industry": (biz.sic_text or biz.industry or "").split(" | ")[0],
              "company_number": biz.registration_number, "website": biz.website or biz.domain, "phone": biz.phone, "email": biz.email,
              "status": biz.status}
     try:
-        got = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts, want=want)
+        from app.services import contact_choices as CH
+
+        try:
+            boosts = await CH.boosts_for(db, biz.id, [k for k in ("website", "phone", "email") if want in ("all", k)])
+        except Exception as err:  # what users confirmed only improves a lookup; it must never stop one
+            logger.warning("confirmed-answer boost unavailable for %s: %s", biz.name, err)
+            boosts = {}
+        got = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts, want=want, boosts=boosts, hint=hint)
     except Exception as err:
         logger.warning("web lookup failed for %s: %s", biz.name, err)
         raise
     stamp = datetime.utcnow().isoformat() + "Z"
+    options = await _remember_options(db, biz, got.get("options") or {})
     if got.get("ledger", {}).get("outcome") == "closed":
         return {"website": "", "phones": [], "emails": [], "team": [], "sources": [], "source": "web", "verified": False, "found": False, "cached": False,
                 "closed": True, "reason": got.get("reason", ""), "fetched_at": stamp}
     found = {"website": got["website"], "phones": got["phones"][:1], "emails": got["emails"][:1], "team": [], "sources": got["sources"][:8],
              "source": "web", "verified": False, "guardrail": True, "confidence": got["confidence"], "audit": got["audit"], "ledger": got["ledger"],
              "fetched_at": stamp}
+    # One button looks for one thing: whatever else the search turned up on the way is dropped, never stored or shown without its own click.
+    if want in ("website", "phone", "email"):
+        if want != "website":
+            found["website"] = ""
+        if want != "phone":
+            found["phones"] = []
+        if want != "email":
+            found["emails"] = []
     if cached and cached.get("guardrail"):  # a refresh adds to what an earlier checked lookup found; it never throws that away
         found["website"] = found["website"] or cached.get("website") or ""
         found["phones"] = found["phones"] or list(cached.get("phones") or [])[:1]
@@ -248,10 +267,49 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
             biz.raw_data = raw
             business_records.refresh_rank(biz)
             await db.flush()
-        return {**found, "found": False, "cached": False, "reason": got.get("reason", "")}
+        return {**found, "found": False, "cached": False, "reason": got.get("reason", ""), "options": options}
     raw = dict(biz.raw_data or {})
     raw["contacts_web"] = found
     biz.raw_data = raw
     business_records.refresh_rank(biz)
     await db.flush()
-    return {**found, "found": True, "cached": False}
+    return {**found, "found": True, "cached": False, "options": options}
+
+
+async def _remember_options(db: AsyncSession, biz: BusinessRecord, options: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Keep the candidates a lookup could not decide between, with how many organisations picked each before, so the pick call can check a pick against them."""
+    from app.services import contact_choices as CH
+
+    shown: Dict[str, List[Dict[str, Any]]] = {}
+    for kind, opts in options.items():
+        shown[kind] = CH.annotate(opts, await CH.rows_for(db, biz.id, kind)) if opts else []
+    raw = dict(biz.raw_data or {})
+    raw["lookup_options"] = {**(raw.get("lookup_options") or {}), **{k: v for k, v in shown.items() if v}}  # a search that found nothing new keeps the earlier candidates
+    biz.raw_data = raw
+    await db.flush()
+    return shown
+
+
+async def _taught(db: AsyncSession, biz: BusinessRecord, want: str) -> Optional[Dict[str, Any]]:
+    """A value that enough different organisations picked for this company is used straight away, with no search. Only for one field at a time."""
+    from app.services import contact_choices as CH
+
+    if want not in ("website", "phone", "email"):
+        return None
+    value = CH.trusted(await CH.rows_for(db, biz.id, want))
+    if not value:
+        return None
+    found = {"website": value if want == "website" else "", "phones": [value] if want == "phone" else [], "emails": [value] if want == "email" else [],
+             "team": [], "sources": [], "source": "web", "verified": False, "guardrail": True, "by": "users", "confidence": {want: {"score": 100, "label": "high"}},
+             "audit": [], "ledger": {"outcome": "taught"}, "fetched_at": datetime.utcnow().isoformat() + "Z"}
+    cached = (biz.raw_data or {}).get("contacts_web") or {}
+    if cached.get("guardrail"):
+        found["website"] = found["website"] or cached.get("website") or ""
+        found["phones"] = found["phones"] or list(cached.get("phones") or [])[:1]
+        found["emails"] = found["emails"] or list(cached.get("emails") or [])[:1]
+    raw = dict(biz.raw_data or {})
+    raw["contacts_web"] = found
+    biz.raw_data = raw
+    business_records.refresh_rank(biz)
+    await db.flush()
+    return {**found, "found": True, "cached": False, "options": {}}

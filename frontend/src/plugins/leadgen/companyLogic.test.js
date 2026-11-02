@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, personName, shortDate, subLine } from "./companyLogic";
+import { contactRows, filingRows, orgGroups, niceName, orderSignals, peopleCount, personMeta, personName, shortDate, subLine } from "./companyLogic";
 
 describe("how a company is named and described", () => {
   it("makes an all-capitals register name readable and leaves mixed case alone", () => {
@@ -67,5 +67,22 @@ describe("names and dates from the register", () => {
   it("shows a date the way people say it", () => {
     expect(shortDate("2026-08-31")).toBe("31 Aug 2026");
     expect(shortDate("not a date")).toBe("not a date");
+  });
+});
+
+describe("the people org chart", () => {
+  const people = {
+    officers: [{ name: "A", first_name: "Ann", last_name: "Lee", role: "Director" }, { name: "B", first_name: "Bo", last_name: "Ray", role: "Company Secretary" }],
+    controllers: [{ name: "Mr Ann Lee", controls: ["owns 25-50%"] }, { name: "Cy Fox", controls: [] }],
+  };
+  it("groups by role and keeps an owner-director once", () => {
+    const g = orgGroups(people);
+    expect(g.map((x) => x.key)).toEqual(["directors", "secretaries", "owners"]);
+    expect(g[0].people[0].alsoOwner).toBe(true);
+    expect(g[2].people.map((p) => p.name)).toEqual(["Cy Fox"]);
+  });
+  it("filters by name or role and drops empty columns", () => {
+    expect(orgGroups(people, "secretary").map((x) => x.key)).toEqual(["secretaries"]);
+    expect(orgGroups(null)).toEqual([]);
   });
 });

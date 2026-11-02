@@ -181,7 +181,7 @@ async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_onl
     await db.commit()
     ids = {r.name: r.id for r in (await BR.search_filtered(db, {"towns": ["Leeds"]}))["rows"]}
 
-    async def fake_web(_db, biz, refresh=False, want="all"):
+    async def fake_web(_db, biz, refresh=False, want="all", hint=""):
         if biz.name == "Web Cafe Ltd":
             found = {"found": True, "cached": False, "website": "webcafe.co.uk", "phones": ["0113 000 111"], "emails": [], "team": []}
             biz.raw_data = {**(biz.raw_data or {}), "contacts_web": found}  # the real lookup keeps what it finds here
@@ -210,14 +210,15 @@ async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_onl
 
         r = await c.post(f"/api/leads/companies/{ids['Deep Cafe Ltd']}/find-website")
         deep = r.json()
-        assert deep["found"] and deep["source"] == "deep" and deep["company"]["website"] == "https://deepcafe.co.uk" and deep["company"]["phone"] == "0113 222 333"
+        assert deep["found"] and deep["source"] == "deep" and deep["company"]["website"] == "https://deepcafe.co.uk"
+        assert deep["company"]["phone"] == "" and deep["company"]["held"]["phone"] is True  # the website button opens the website only; the phone it turned up on the way stays closed
 
         with org_scope("org_acme"):
             before = await K.wallet_balance(db, "leadgen")
         miss_r = await c.post(f"/api/leads/companies/{ids['Hidden Cafe Ltd']}/find-website")
         assert miss_r.status_code == 200, miss_r.text
         miss = miss_r.json()
-        assert not miss["found"] and miss["charged"] == 0 and "Nothing was charged" in miss["note"]
+        assert not miss["found"] and miss["charged"] == 0 and "Try again later" in miss["note"]
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == before
 
@@ -301,7 +302,7 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
     ids = {r.name: r.id for r in (await BR.search_filtered(db, {"towns": ["Leeds"]}))["rows"]}
     calls = []
 
-    async def fake_web(_db, biz, refresh=False, want="all"):
+    async def fake_web(_db, biz, refresh=False, want="all", hint=""):
         calls.append(biz.name)
         if biz.name == "Phone Cafe Ltd":
             found = {"found": True, "cached": False, "website": "", "phones": ["0113 496 0123"], "emails": [], "team": [], "guardrail": True}
@@ -327,7 +328,7 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
         with org_scope("org_acme"):
             before = await K.wallet_balance(db, "leadgen")
         miss = (await c.post(f"/api/leads/companies/{ids['Silent Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
-        assert not miss["found"] and miss["charged"] == 0 and "Nothing was charged" in miss["note"]
+        assert not miss["found"] and miss["charged"] == 0 and "Try again later" in miss["note"]
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == before
 

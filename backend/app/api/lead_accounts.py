@@ -21,6 +21,8 @@ from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_sea
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import business_lookup, business_records, site_check
+from app.services import reveals as RV
+from app.services import social_lookup as SL
 from app.services.person_record import is_person_account, is_role_inbox
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
 
@@ -241,7 +243,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
             if hit and time.monotonic() - hit[0] < hit[2]:
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
-                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in cached["companies"]]}
+                shown = await RV.mask(db, cached["companies"])
+                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown]}
             out, understood = await phrase_understanding.widen_if_empty(
                 db, body.filters, body.drop_terms,
                 lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
@@ -259,7 +262,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         chips.append("Inside the area drawn on the map")
     cards = [lead_filters.card(r) for r in out["rows"]]
     mine = await business_records.saved_ids(db, [c["id"] for c in cards])
-    answer = {"companies": [{**c, "saved": c["id"] in mine} for c in cards], "total": out["total"],
+    shown = await RV.mask(db, cards)  # the page cache below keeps the unmasked cards: it is shared, each organisation is masked on the way out
+    answer = {"companies": [{**c, "saved": c["id"] in mine} for c in shown], "total": out["total"],
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
               "next_scan": out.get("next_scan"), "understood": understood,
               "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
@@ -337,8 +341,9 @@ async def search_people(body: SearchIn, db: AsyncSession = Depends(get_db)):
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
     mine = await business_records.saved_ids(db, [p["company"].id for p in out["people"]])
+    masked = {c["id"]: c for c in await RV.mask(db, [lead_filters.card(co) for co in {p["company"].id: p["company"] for p in out["people"]}.values()])}
     people = [{"id": f'{p["company"].id}:{p["name"]}', "name": p["name"], "first_name": p.get("first_name", ""), "last_name": p.get("last_name", ""),
-               "role": p["role"], "appointed_on": p["appointed_on"], "company": {**lead_filters.card(p["company"]), "saved": p["company"].id in mine}}
+               "role": p["role"], "appointed_on": p["appointed_on"], "company": {**masked[p["company"].id], "saved": p["company"].id in mine}}
               for p in out["people"]]
     return {"people": people, "companies_total": out["companies_total"], "total_capped": out["total_capped"],
             "filters": out["filters"], "chips": lead_filters.describe(out["filters"]), "fill_ids": out["fill_ids"]}
@@ -447,21 +452,21 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
         await _charge_leads(db, 1, f"Contacts for {biz.name}")
     officers = CC.active_officers(biz.officers)
     return {
-        "company": lead_filters.card(biz),
+        "company": await RV.mask_one(db, lead_filters.card(biz)),
         "officers": officers,
         "controllers": CC.controllers(biz.significant_control),
         "recent_leavers": CC.recent_leavers(biz.officers),
         "officers_note": "" if officers else (
             "The registry lists no current officers for this company." if (biz.officers or registry_checked)
             else "Couldn't reach the registry to read this company's officers just now."),
-        "stored": {"website": biz.website or biz.domain or "", "phone": biz.phone or "", "email": biz.email or "",
-                   "tier": biz.confidence_tier or "scraped"},
+        "stored": await _stored(db, biz),
         "web": web,
     }
 
 
 class FindIn(BaseModel):
     kind: str = "website"  # "website" or "phone": each button looks for its own thing and is charged only when it finds that
+    hint: str = ""  # extra words from the person when the first search could not be sure; searched again with them
 
 
 @router.post("/companies/{company_id}/find-website")
@@ -478,22 +483,22 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     from app.services import site_check
 
     if body.kind == "phone":
-        return await _find_phone(db, biz)
+        return await _find_phone(db, biz, body.hint)
     if body.kind == "email":
-        return await _find_email(db, biz)
+        return await _find_email(db, biz, body.hint)
     if lead_filters.card(biz)["website"]:
-        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": lead_filters.card(biz)}
+        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, lead_filters.card(biz))}
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
-        web = await CC.web_contacts(db, biz, want="website")
+        web = await CC.web_contacts(db, biz, want="website", hint=body.hint)
         if web.get("cached") and not web.get("website"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="website")  # an earlier lookup found a phone but no site: look again for the site
+            web = await CC.web_contacts(db, biz, refresh=True, want="website", hint=body.hint)  # an earlier lookup found a phone but no site: look again for the site
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
     if web and web.get("closed"):
-        return {"found": False, "source": "", "charged": 0, "company": lead_filters.card(biz),
+        return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, lead_filters.card(biz)),
                 "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     if web and web.get("website") and not web.get("guardrail") and not site_check.plausible_site(biz.name, web["website"]):
         web = {**web, "website": ""}  # a lookup stored before the guardrail may hold a register or directory page
@@ -533,6 +538,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
                 source = "deep"
+                await RV.open_one(db, biz.id, "website")  # paid for by the deeper search, so it is shown without another click
             except ValueError:
                 pass
     await db.refresh(biz)
@@ -542,10 +548,14 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         CC.note_lookup(biz, "website", got)
         await db.commit()
         card = lead_filters.card(biz)
-    if not got and not note:
-        note = "No website found for this company." + _closest(web) + " Nothing was charged."
+    if not got and ((web or {}).get("options") or {}).get("website") and not (web or {}).get("cached"):
+        await _charge_leads(db, 1, f"Website suggestions for {biz.name}")  # the search found close matches: they are shown to choose from
+        charged += 1
+    if not got and not note and not _options(biz, "website", got):
+        note = "We couldn't find a website for this company right now. Try again later." + _closest(web)
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
-    return {"found": got, "source": source, "charged": charged, "note": note, "company": card}
+    return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
+            "options": _options(biz, "website", got)}
 
 
 def _closest(web: Optional[Dict[str, Any]]) -> str:
@@ -619,22 +629,22 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
     return {"added": out["added"], "journey": camp.name}
 
 
-async def _find_email(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
+async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> Dict[str, Any]:
     """The Find email button on a company: the web lookup's email for the company itself (1 credit if it finds one, nothing for a miss)."""
     from app.services import company_contacts as CC, lead_filters
 
     have = lead_filters.card(biz)
     if have["email"] or have["web_email"]:
-        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": have}
+        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, have)}
     await _can_research(db)
     try:
-        web = await CC.web_contacts(db, biz, want="all")
+        web = await CC.web_contacts(db, biz, want="email", hint=hint)
         if web.get("cached") and not web.get("emails"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="all")
+            web = await CC.web_contacts(db, biz, refresh=True, want="email", hint=hint)
     except Exception:
-        return {"found": False, "source": "", "charged": 0, "company": have, "note": "The web lookup didn't finish just now. Nothing was charged."}
+        return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, have), "note": "The web lookup didn't finish just now. Nothing was charged."}
     if web.get("closed"):
-        return {"found": False, "source": "", "charged": 0, "company": have,
+        return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, have),
                 "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     got = bool(web.get("emails"))
     CC.note_lookup(biz, "email", got)
@@ -643,28 +653,32 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     if got and not web.get("cached"):
         await _charge_leads(db, 1, f"Email for {biz.name}")
         charged = 1
-    return {"found": got, "source": "web" if got else "", "charged": charged, "company": lead_filters.card(biz),
-            "note": "" if got else "No email found on the web for this company. Nothing was charged."}
+    elif not got and (web.get("options") or {}).get("email") and not web.get("cached"):
+        await _charge_leads(db, 1, f"Email suggestions for {biz.name}")
+        charged = 1
+    shown = _options(biz, "email", got)
+    return {"found": got, "source": "web" if got else "", "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
+            "note": "" if got or shown else "We couldn't find an email for this company right now. Try again later."}
 
 
-async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
+async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> Dict[str, Any]:
     """The Find phone button: look for this company's phone only. A number we already hold is returned free. Otherwise the web lookup
     (1 credit if it finds a UK number), then the deeper search (its own price, only if it finds one). A miss costs nothing."""
     from app.services import company_contacts as CC, lead_filters
 
     if lead_filters.card(biz)["phone"] or lead_filters.card(biz)["web_phone"]:
-        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": lead_filters.card(biz)}
+        return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, lead_filters.card(biz))}
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
-        web = await CC.web_contacts(db, biz, want="phone")
+        web = await CC.web_contacts(db, biz, want="phone", hint=hint)
         if web.get("cached") and not web.get("phones"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="phone")  # the earlier lookup was for a website: this one is for a phone
+            web = await CC.web_contacts(db, biz, refresh=True, want="phone", hint=hint)  # the earlier lookup was for a website: this one is for a phone
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
     if web and web.get("closed"):
-        return {"found": False, "source": "", "charged": 0, "company": lead_filters.card(biz),
+        return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, lead_filters.card(biz)),
                 "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     if web and web.get("phones"):
         source = "web"
@@ -700,6 +714,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
                 source = "deep"
+                await RV.open_one(db, biz.id, "phone")
             except ValueError:
                 pass
     await db.refresh(biz)
@@ -709,10 +724,163 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
         CC.note_lookup(biz, "phone", got)
         await db.commit()
         card = lead_filters.card(biz)
-    if not got and not note:
-        note = "No phone number found for this company. Nothing was charged."
+    if not got and (web or {}).get("options", {}).get("phone") and not (web or {}).get("cached"):
+        await _charge_leads(db, 1, f"Phone suggestions for {biz.name}")
+        charged += 1
+    if not got and not note and not _options(biz, "phone", got):
+        note = "We couldn't find a phone number for this company right now. Try again later."
     _PAGE_CACHE.clear()
-    return {"found": got, "source": source, "charged": charged, "note": note, "company": card}
+    return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
+            "options": _options(biz, "phone", got)}
+
+
+def _options(biz: BusinessRecord, kind: str, got: bool) -> List[Dict[str, Any]]:
+    """The candidates the last lookup could not decide between, for the person to pick from. None once something was found."""
+    return [] if got else list(((biz.raw_data or {}).get("lookup_options") or {}).get(kind) or [])
+
+
+def lead_filters_card(biz: BusinessRecord) -> Dict[str, Any]:
+    from app.services import lead_filters
+
+    return lead_filters.card(biz)
+
+
+async def _stored(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
+    card = await RV.mask_one(db, lead_filters_card(biz))
+    return {"website": card["website"], "phone": card["phone"], "email": card["email"], "tier": biz.confidence_tier or "scraped",
+            "closed": card["closed"], "held": card["held"]}
+
+
+class RevealIn(BaseModel):
+    kind: str
+
+
+@router.post("/companies/{company_id}/reveal")
+async def reveal_contact(company_id: str, body: RevealIn, db: AsyncSession = Depends(get_db)):
+    """Open a website, phone or email our registry holds. Free, once; it stays visible to this organisation after that."""
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    card = lead_filters_card(biz)
+    if body.kind not in RV.KINDS or not card.get(body.kind):
+        raise HTTPException(status_code=404, detail="We don't hold that for this company.")
+    await RV.open_one(db, biz.id, body.kind)
+    return {"company": await RV.mask_one(db, card)}
+
+
+class ChooseIn(BaseModel):
+    kind: str  # website | phone | email | linkedin
+    value: str
+    person: str = ""  # linkedin only: the person's name, empty for the company's page
+
+
+@router.post("/companies/{company_id}/choose")
+async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Depends(get_db)):
+    """The person checked the suggestions and confirmed the correct one. It is kept as the answer and counted: more confirmations raise its score,
+    until the next lookup uses it without asking. Free: the search that found the suggestions was already charged."""
+    from app.services import company_contacts as CC, contact_choices as CH, linkedin_lookup as LI
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    value = (body.value or "").strip()
+    if body.kind == "linkedin":
+        if not LI.allowed(biz, body.person, value):
+            raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
+        LI.chosen(biz, body.person, value)
+        kind_key = LI.entry_key(body.person)
+    elif body.kind in SL.NETWORKS:
+        if not SL.allowed(biz, body.kind, value):
+            raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
+        SL.chosen(biz, body.kind, value)
+        kind_key = body.kind
+    elif body.kind in RV.KINDS:
+        shown = ((biz.raw_data or {}).get("lookup_options") or {}).get(body.kind) or []
+        if value not in [o.get("value") for o in shown]:
+            raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
+        raw = dict(biz.raw_data or {})
+        cw = dict(raw.get("contacts_web") or {})
+        cw.update({"guardrail": True, "source": "web", "verified": False, "by": "pick", "fetched_at": datetime.utcnow().isoformat() + "Z"})
+        cw.setdefault("website", "")
+        cw.setdefault("phones", [])
+        cw.setdefault("emails", [])
+        if body.kind == "website":
+            cw["website"] = value
+        elif body.kind == "phone":
+            cw["phones"] = [value]
+        else:
+            cw["emails"] = [value]
+        raw["contacts_web"] = cw
+        raw["lookup_options"] = {**(raw.get("lookup_options") or {}), body.kind: []}
+        biz.raw_data = raw
+        business_records.refresh_rank(biz)
+        CC.note_lookup(biz, body.kind, True)
+        kind_key = body.kind
+    else:
+        raise HTTPException(status_code=422, detail="Pick a website, phone, email or LinkedIn page.")
+    await db.commit()
+    picked_by = await CH.record(db, biz.id, kind_key, value)
+    _PAGE_CACHE.clear()
+    return {"found": True, "charged": 0, "picked_by": picked_by, "company": await RV.mask_one(db, lead_filters_card(biz))}
+
+
+class LinkedinIn(BaseModel):
+    first_name: str = ""
+    last_name: str = ""  # both empty: the company's own page
+    hint: str = ""
+
+
+@router.post("/companies/{company_id}/find-linkedin")
+async def find_linkedin(company_id: str, body: LinkedinIn = LinkedinIn(), db: AsyncSession = Depends(get_db)):
+    """Look for the company's (or one person's) public LinkedIn page through a web search limited to linkedin.com. 1 Leads credit only when a page
+    is found; a page already found is shown again free. When no result is clearly right, `options` holds the best few to pick from."""
+    from app.services import linkedin_lookup as LI
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    person = {"first_name": body.first_name.strip(), "last_name": body.last_name.strip()} if (body.first_name or body.last_name) else None
+    if person and not (person["first_name"] and person["last_name"]):
+        raise HTTPException(status_code=422, detail="Both a first and a last name are needed to look for a person.")
+    await _can_research(db)
+    r = await LI.find(db, biz, person, hint=body.hint)
+    await db.commit()
+    charged = 0
+    if (r["url"] or r["options"]) and r.get("searched"):
+        await _charge_leads(db, 1, f"LinkedIn for {biz.name}")
+        charged = 1
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "We couldn't find a LinkedIn page right now. Try again later.")
+    _PAGE_CACHE.clear()  # the rows remembered for searches carry the links
+    return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note}
+
+
+class SocialIn(BaseModel):
+    network: str = "linkedin"  # linkedin | facebook | x: each icon in the Links column looks for its own page
+    hint: str = ""
+
+
+@router.post("/companies/{company_id}/find-social")
+async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depends(get_db)):
+    """Look for one public page of the company: LinkedIn, Facebook or X. Only that network is searched. 1 Leads credit when a page or close matches
+    are found; a page already found is shown again free. Close matches (`options`) are for the person to choose from."""
+    from app.services import linkedin_lookup as LI
+
+    if body.network not in ("linkedin", *SL.NETWORKS):
+        raise HTTPException(status_code=422, detail="Choose LinkedIn, Facebook or X.")
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    await _can_research(db)
+    r = await (LI.find(db, biz, hint=body.hint) if body.network == "linkedin" else SL.find(db, biz, body.network, hint=body.hint))
+    await db.commit()
+    charged = 0
+    if (r["url"] or r["options"]) and r.get("searched"):
+        await _charge_leads(db, 1, f"{body.network.title()} for {biz.name}")
+        charged = 1
+    label = "a LinkedIn page" if body.network == "linkedin" else f"{'an' if SL.NETWORKS[body.network]['label'][0] in 'AEIOUX' else 'a'} {SL.NETWORKS[body.network]['label']}"
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"We couldn't find {label} right now. Try again later.")
+    _PAGE_CACHE.clear()
+    return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note, "company": await RV.mask_one(db, lead_filters_card(biz))}
 
 
 @router.get("/accounts")

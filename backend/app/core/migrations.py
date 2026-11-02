@@ -606,9 +606,13 @@ async def _business_record_people_checked(conn: AsyncConnection) -> None:
     only the companies not read yet). The column is added empty and instantly; the index takes a minute on a few million rows."""
     await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS people_checked_at TIMESTAMP"))
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo ON business_records (rank_score DESC NULLS LAST) WHERE people_checked_at IS NULL"))
-    # Millions of companies share one rank_score, so the sort needs `id` in the index or it reads the whole tie (30s per batch on 6.7M rows).
-    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo2 ON business_records (rank_score DESC NULLS LAST, id) WHERE people_checked_at IS NULL"))
     await conn.execute(text("UPDATE business_records SET people_checked_at = now() WHERE officers IS NOT NULL AND people_checked_at IS NULL"))
+
+
+async def _people_todo_index_with_id(conn: AsyncConnection) -> None:
+    """Millions of companies share one rank_score, so the people job's "next unread, best-ranked first" lookup needs `id` in the index
+    or it reads the whole tie (30 s per batch on 6.7M rows). Built in the background step of startup; takes a few minutes."""
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo2 ON business_records (rank_score DESC NULLS LAST, id) WHERE people_checked_at IS NULL"))
 
 
 async def _journeys(conn: AsyncConnection) -> None:
@@ -954,6 +958,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_18_companies_house_people_fields", _companies_house_people_fields),
     ("2026_11_19_business_record_people_checked", _business_record_people_checked),
     ("2026_11_20_journeys", _journeys),
+    ("2026_11_21_people_todo_index_with_id", _people_todo_index_with_id),
 ]
 
 

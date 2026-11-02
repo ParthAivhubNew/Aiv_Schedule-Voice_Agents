@@ -119,6 +119,8 @@ def domain_matches_name(domain: str, name: str) -> bool:
     hits = [w for w in words if w in label]
     if len(hits) == len(words):
         return True
+    if len(words[0]) >= 4 and label == words[0]:  # a brand's own site is often just its first word: pret.co.uk for Pret A Manger (Europe)
+        return True
     if len(words) == 2:
         return label == words[0]
     return words[0] in label and len(hits) >= 2 and len(hits) * 2 >= len(words)

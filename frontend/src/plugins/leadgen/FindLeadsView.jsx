@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
 import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
@@ -156,9 +157,8 @@ function ContactsPanel({ company }) {
     const key = o.name;
     setEmails((m) => ({ ...m, [key]: { busy: true } }));
     try {
-      // The company's website is our job to find, not the user's: look it up first when it isn't known yet.
-      let site = domain;
-      if (!site) site = await load(true, true);
+      // This button looks for an email only. It never searches for the website: that has its own button.
+      const site = domain;
       if (!site) { setEmails((m) => ({ ...m, [key]: { nosite: true } })); return; }
       const r = await api.emailFind({ first_name: o.first_name, last_name: o.last_name, company_name: company.name, domain: site });
       setEmails((m) => ({ ...m, [key]: r.found ? { email: r.email, status: r.verification_status } : { none: true } }));
@@ -193,7 +193,7 @@ function ContactsPanel({ company }) {
                   </span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
                     : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person at that website. Nothing charged.</span>
-                    : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>We couldn't find this company's website, so there's nowhere to look for an email. Nothing charged.</span>
+                    : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>{data.stored?.closed?.website ? "Open this company's website first (free), then look for the email. Nothing charged." : "This company's website isn't known yet. Find the website first, then look for the email. Nothing charged."}</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
                     : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
                         {e.busy ? <Spinner size={13} /> : null} Find email · 1 credit if found
@@ -734,16 +734,35 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const saveOne = (c) => store.save([asAccount(c)]);
   // One click on an empty website or phone: look on the web (and, if that finds no website, the deeper search), fill the row.
   const [lookups, setLookups] = useState({}); // `${company id}:${website|phone}` -> "busy" | "none": each button has its own lookup
-  const findSite = async (c, kind = "website") => {
+  const [pick, setPick] = useState(null); // {company, kind, options}: a lookup that was not sure, waiting for the person to choose
+  const [waiting, setWaiting] = useState({}); // `${company id}:${kind}` -> the matches the person has not chosen from yet
+  const applyCompany = (id, company) => {
+    if (!company) return;
+    setCompanies((rows) => rows.map((x) => (x.id === id ? { ...x, ...company, saved: x.saved } : x)));
+    setOpenCo((o) => (o && o.id === id ? { ...o, ...company, saved: o.saved } : o));
+  };
+  // Opens one contact our registry holds. Free, once; it stays visible after that. It never searches for anything.
+  const reveal = async (c, kind) => {
     const key = `${c.id}:${kind}`;
     if (lookups[key] === "busy") return;
     setLookups((m) => ({ ...m, [key]: "busy" }));
+    try { const r = await api.revealContact(c.id, kind); applyCompany(c.id, r.company); } catch (err) { store.toast(err.message || "Couldn't open that."); }
+    setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
+  };
+  const findSite = async (c, kind = "website") => {
+    const key = `${c.id}:${kind}`;
+    if (lookups[key] === "busy") return;
+    if (lookups[key] === "options" && waiting[key]) { setPick({ company: c, kind, options: waiting[key] }); return; }
+    setLookups((m) => ({ ...m, [key]: "busy" }));
     try {
-      const r = await api.findCompanyWebsite(c.id, kind);
+      const r = SOCIAL.includes(kind) ? await api.findSocial(c.id, kind) : await api.findCompanyWebsite(c.id, kind);
       if (r.company) setCompanies((rows) => rows.map((x) => (x.id === c.id ? { ...x, ...r.company, saved: x.saved } : x)));
       setOpenCo((o) => (o && o.id === c.id && r.company ? { ...o, ...r.company, saved: o.saved } : o));
-      setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = "none"; return n; });
-      store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
+      setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches ? "options" : "none"; return n; });
+      const matches = !r.found && (r.options || []).length ? r.options : null;
+      if (!r.found) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
+      if (matches) setWaiting((w) => ({ ...w, [key]: matches }));
+      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
     } catch (err) {
       setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
       store.toast(err.message || "The lookup didn't finish. Nothing was charged.");
@@ -820,6 +839,20 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   return (
     <div className="pane-root fl-root" data-active={pane} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
+      {pick ? <PickOptions kind={pick.kind} company={pick.company.name} options={pick.options} anchorKey={`${pick.company.id}:${pick.kind}`} onClose={() => setPick(null)}
+        onRetry={async (hint) => {
+          const { company: co, kind } = pick;
+          const key = `${co.id}:${kind}`;
+          const r = SOCIAL.includes(kind) ? await api.findSocial(co.id, kind, hint) : await api.findCompanyWebsite(co.id, kind, hint);
+          if (r.company) setCompanies((rows) => rows.map((x) => (x.id === co.id ? { ...x, ...r.company, saved: x.saved } : x)));
+          const matches = !r.found && (r.options || []).length ? r.options : [];
+          setWaiting((w) => ({ ...w, [key]: matches.length ? matches : null }));
+          setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches.length ? "options" : "none"; return n; });
+          if (r.found) store.toast(`Found the ${kind} for ${co.name}.`);
+          return { done: Boolean(r.found), options: matches };
+        }}
+        onPick={async (o) => { const r = await api.chooseContact(pick.company.id, { kind: pick.kind, value: o.value }); applyCompany(pick.company.id, r.company);
+          setLookups((m) => { const n = { ...m }; delete n[`${pick.company.id}:${pick.kind}`]; return n; }); store.toast("Saved. It will show for this company from now on."); }} /> : null}
       <PaneSwitch value={pane} onChange={setPane}
         panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       <style>{CHAT_CSS}</style>
@@ -1109,7 +1142,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 <CompaniesTable busy={busy} rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
                   onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
-                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} lookups={lookups} />
+                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} lookups={lookups} />
               ) : searched && !inArea && !busy ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
               ) : null}
