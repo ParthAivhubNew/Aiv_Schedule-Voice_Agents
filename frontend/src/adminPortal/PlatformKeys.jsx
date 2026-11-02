@@ -666,13 +666,13 @@ function DataSources({ canEdit }) {
                     <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
                   </>
                 )}
-                {s.runState === "paused" && (
+                {(s.runState === "paused" || s.runState === "stuck") && (
                   <>
                     <button type="button" style={btn(false)} onClick={() => control(s, "resume")}>Resume</button>
                     <button type="button" style={btn(false)} onClick={() => control(s, "stop")}>Stop</button>
                   </>
                 )}
-                {s.runState !== "running" && s.runState !== "paused" && (
+                {s.runState !== "running" && s.runState !== "paused" && s.runState !== "stuck" && (
                   isBulk(s) ? (
                     <button type="button" style={btn(true)} onClick={() => {
                       if (window.confirm(`Import ${s.name}'s whole published dataset? This runs in the background and can take a while -- Pause/Stop work the same as any other run.`)) startRun(s);
@@ -772,6 +772,7 @@ function PeopleJob({ source, canEdit, latest, onStarted }) {
         <div style={{ fontSize: 12 }}>
           This run: <b>{job.recordsFound.toLocaleString()}</b> of {job.total.toLocaleString()} read · {job.recordsNew.toLocaleString()} had people · {(job.recordsUpdated || 0).toLocaleString()} had none
           {job.failed ? ` · ${job.failed} failed` : ""}{job.waiting ? ` · waiting for ${job.waiting}` : ""}{job.currentQuery ? ` · latest: ${job.currentQuery}` : ""}
+          {job.note && <div style={{ color: "#64748b", marginTop: 2 }}>Registry: {job.note}</div>}
         </div>
       )}
       {canEdit && !busy && (

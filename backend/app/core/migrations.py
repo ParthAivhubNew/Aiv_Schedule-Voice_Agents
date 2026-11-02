@@ -606,6 +606,8 @@ async def _business_record_people_checked(conn: AsyncConnection) -> None:
     only the companies not read yet). The column is added empty and instantly; the index takes a minute on a few million rows."""
     await conn.execute(text("ALTER TABLE business_records ADD COLUMN IF NOT EXISTS people_checked_at TIMESTAMP"))
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo ON business_records (rank_score DESC NULLS LAST) WHERE people_checked_at IS NULL"))
+    # Millions of companies share one rank_score, so the sort needs `id` in the index or it reads the whole tie (30s per batch on 6.7M rows).
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_business_records_people_todo2 ON business_records (rank_score DESC NULLS LAST, id) WHERE people_checked_at IS NULL"))
     await conn.execute(text("UPDATE business_records SET people_checked_at = now() WHERE officers IS NOT NULL AND people_checked_at IS NULL"))
 
 

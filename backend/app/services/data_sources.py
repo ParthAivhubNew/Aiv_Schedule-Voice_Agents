@@ -224,7 +224,7 @@ async def run_bulk(run_id: str) -> None:
 
 
 # ── The people job: read each company's directors (and owners) from the registry in the background ──────────────
-PEOPLE_BATCH = 10
+PEOPLE_BATCH = 25
 PEOPLE_MAX_LIMIT = 6_000_000
 REGISTRY_CALLS_PER_5_MIN = 600  # Companies House's own limit for one key
 
@@ -304,6 +304,7 @@ async def run_people(run_id: str) -> None:
         done, with_people, none_found, failed = int(run.records_found or 0), int(run.records_new or 0), int(run.records_updated or 0), int(cursor.get("failed") or 0)
         skip: set = set()
         in_a_row = 0
+        note = str(cursor.get("note") or "")  # the registry's latest reply that mattered, shown on the page
 
         async def _finish(status: str, error: str = "") -> None:
             async with AsyncSessionLocal() as fdb:
@@ -330,6 +331,7 @@ async def run_people(run_id: str) -> None:
                         got = await connector.fetch_people(source, biz.registration_number, owners=owners)
                     except connector.RateLimited as err:
                         wait = err.wait
+                        note = f"{datetime.utcnow():%H:%M} UTC: the registry said slow down (429), waiting {int(err.wait)}s"
                         break
                     except connector.KeyRejected as err:
                         fatal = str(err)
@@ -338,6 +340,7 @@ async def run_people(run_id: str) -> None:
                         failed += 1
                         in_a_row += 1
                         skip.add(biz.id)
+                        note = f"{datetime.utcnow():%H:%M} UTC: {biz.registration_number} failed: {str(err)[:120]}"
                         logger.warning(f"[data_sources] people run {run_id}: {biz.registration_number} failed: {err}")
                         if in_a_row >= 10:
                             fatal = f"Ten calls in a row failed, so the job stopped. Last error: {err}"
@@ -359,18 +362,18 @@ async def run_people(run_id: str) -> None:
                     if spare > 0:
                         await asyncio.sleep(spare)
                 live.records_found, live.records_new, live.records_updated = done, with_people, none_found
-                live.cursor = {**cursor, "failed": failed, "current": last or (cursor.get("current") or ""), "waiting": "the registry's limit" if wait else ""}
+                live.cursor = {**cursor, "failed": failed, "current": last or (cursor.get("current") or ""), "waiting": "the registry's limit" if wait else "", "note": note}
                 live.updated_at = datetime.utcnow()
                 await db.commit()
             if fatal:
-                logger.error(f"[data_sources] people run {run_id} stopped: {fatal}")
+                logger.error(f"[data_sources] people run {run_id} stopped after {done} read: {fatal}")
                 await _finish("error", fatal)
                 return
             if wait:
-                logger.info(f"[data_sources] people run {run_id}: at the registry's limit, waiting {wait:.0f}s")
+                logger.warning(f"[data_sources] people run {run_id}: at the registry's limit, waiting {wait:.0f}s")
                 await asyncio.sleep(wait)
             if done and done % 1000 < PEOPLE_BATCH:
-                logger.info(f"[data_sources] people run {run_id}: {done} of {limit} read")
+                logger.warning(f"[data_sources] people run {run_id}: {done} of {limit} read")
         await _finish("done")
         logger.info(f"[data_sources] people run {run_id}: done -- {done} read, {with_people} with people, {none_found} with none, {failed} failed.")
 
@@ -385,7 +388,7 @@ async def pause_run(db: AsyncSession, source: DataSource) -> Optional[DataSource
 
 async def resume_run(db: AsyncSession, source: DataSource) -> Optional[DataSourceRun]:
     run = await latest_run(db, source.id)
-    if run and run.status == "paused":
+    if run and run.status in ("paused", "stuck"):  # stuck = the loop died; the per-company mark means it carries on where it left off
         run.status = "running"
         source.run_state = "running"
         await db.flush()
@@ -396,7 +399,7 @@ async def resume_run(db: AsyncSession, source: DataSource) -> Optional[DataSourc
 
 async def stop_run(db: AsyncSession, source: DataSource) -> Optional[DataSourceRun]:
     run = await latest_run(db, source.id)
-    if run and run.status in ACTIVE_STATUSES:
+    if run and (run.status in ACTIVE_STATUSES or run.status == "stuck"):
         run.status = "done"
         run.finished_at = datetime.utcnow()
         source.run_state = "idle"

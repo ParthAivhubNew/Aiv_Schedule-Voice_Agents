@@ -2116,7 +2116,7 @@ async def list_data_source_runs(source_id: str, request: Request, limit: int = 2
         "id": r.id, "status": r.status, "recordsFound": r.records_found, "recordsNew": r.records_new,
         "recordsUpdated": r.records_updated, "errorMessage": r.error_message or "",
         "total": (r.cursor or {}).get("total") or 0, "currentQuery": (r.cursor or {}).get("current") or "",
-        "job": (r.cursor or {}).get("job") or "", "failed": (r.cursor or {}).get("failed") or 0, "waiting": (r.cursor or {}).get("waiting") or "",
+        "job": (r.cursor or {}).get("job") or "", "failed": (r.cursor or {}).get("failed") or 0, "waiting": (r.cursor or {}).get("waiting") or "", "note": (r.cursor or {}).get("note") or "",
         "owners": bool((r.cursor or {}).get("owners")),
         "startedAt": r.started_at.isoformat() + "Z" if r.started_at else None,
         "finishedAt": r.finished_at.isoformat() + "Z" if r.finished_at else None,
