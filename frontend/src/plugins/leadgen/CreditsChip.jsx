@@ -26,6 +26,24 @@ export function useLeadCredits(wallet = "leadgen") {
   return c;
 }
 
+// What one web lookup (a website, phone or email for a company) costs, read once from the price list so no button promises a wrong number.
+let lookupPrice = null;
+let lookupPricePending = null;
+export function useLookupPrice() {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (lookupPrice != null) return;
+    if (!lookupPricePending) {
+      lookupPricePending = api.getLeadCredits().then((c) => { lookupPrice = c?.rates?.lead_lookup?.credits ?? null; }).catch(() => {});
+    }
+    lookupPricePending.then(() => bump((n) => n + 1));
+  }, []);
+  return lookupPrice == null ? "" : creditWord(lookupPrice).toLowerCase();
+}
+
+// "5 credits if found", for a button label.
+export const LookupCost = () => <>{useLookupPrice() || "Charged"} if found</>;
+
 // "1 credit", "2.5 credits", "Free".
 export const creditWord = (n) => (!n ? "Free" : `${n} credit${n === 1 ? "" : "s"}`);
 

@@ -14,6 +14,7 @@ import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CompanyAvatar, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
+import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 
 const FAVOURITES = "Favourites";
 const CHECK_TIPS = {
@@ -111,7 +112,7 @@ export function asAccount(c) {
 }
 
 // One company's contacts on demand. Registry officers are verified and free; the web lookup is a
-// separate, labelled step; an email is found for one named person at a time (1 credit, only when found).
+// separate, labelled step; an email is found for one named person at a time (only charged when found).
 function WebRow({ label, children }) {
   return (
     <div style={{ display: "flex", gap: 10, fontSize: 12.5, ...text, color: C.textInk, alignItems: "baseline" }}>
@@ -196,7 +197,7 @@ function ContactsPanel({ company }) {
                     : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>{data.stored?.closed?.website ? "Open this company's website first (free), then look for the email. Nothing charged." : "This company's website isn't known yet. Find the website first, then look for the email. Nothing charged."}</span>
                     : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
                     : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
-                        {e.busy ? <Spinner size={13} /> : null} Find email · 1 credit if found
+                        {e.busy ? <Spinner size={13} /> : null} Find email · <LookupCost />
                       </button>}
                 </div>
               );
@@ -238,7 +239,7 @@ function ContactsPanel({ company }) {
               )
             ) : (
               <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 8 }}>
-                {busy ? <Spinner size={13} /> : <Globe size={13} />} Look for website &amp; phone on the web · 1 credit if found
+                {busy ? <Spinner size={13} /> : <Globe size={13} />} Look for website &amp; phone on the web · <LookupCost />
               </button>
             )}
           </div>
@@ -762,7 +763,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       const matches = !r.found && (r.options || []).length ? r.options : null;
       if (!r.found) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
       if (matches) setWaiting((w) => ({ ...w, [key]: matches }));
-      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? `. ${r.charged} ${r.charged === 1 ? "credit" : "credits"} used` : ""}.` : r.note || "Nothing found.");
+      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? ". Credits used for this find" : ""}.` : r.note || "Nothing found.");
     } catch (err) {
       setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
       store.toast(err.message || "The lookup didn't finish. Nothing was charged.");
@@ -852,7 +853,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           return { done: Boolean(r.found), options: matches };
         }}
         onPick={async (o) => { const r = await api.chooseContact(pick.company.id, { kind: pick.kind, value: o.value }); applyCompany(pick.company.id, r.company);
-          setLookups((m) => { const n = { ...m }; delete n[`${pick.company.id}:${pick.kind}`]; return n; }); store.toast("Saved. It will show for this company from now on."); }} /> : null}
+          setLookups((m) => { const n = { ...m }; delete n[`${pick.company.id}:${pick.kind}`]; return n; }); if (r.charged) announceCreditsChanged(); store.toast(r.charged ? "Saved. Credits used for this find. It will show for this company from now on." : "Saved. It will show for this company from now on."); }} /> : null}
       <PaneSwitch value={pane} onChange={setPane}
         panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       <style>{CHAT_CSS}</style>

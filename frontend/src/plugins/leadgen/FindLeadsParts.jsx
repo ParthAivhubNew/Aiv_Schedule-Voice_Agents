@@ -4,6 +4,7 @@ import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, E
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
+import { useLookupPrice } from "./CreditsChip";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -141,6 +142,7 @@ function link(url) {
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
 function Reach({ value, kind, onFind, web, state, missed, closed, onOpen }) {
+  const price = useLookupPrice();
   if (!value && closed) {
     const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
     return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title={`We hold this company's ${kind}. Open it once and it stays visible. Free.`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onOpen(); }}><Icon size={13} /> {state === "busy" ? "Opening…" : `Open ${kind} · free`}</button>;
@@ -164,9 +166,10 @@ function Reach({ value, kind, onFind, web, state, missed, closed, onOpen }) {
     );
   }
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
-  const tip = kind === "email" ? "Look for this company's email. 1 credit if found. Nothing is charged for a miss" : `Look for this company's ${kind}. 1 credit if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
+  const cost = price || "credits";
+  const tip = kind === "email" ? `Look for this company's email. ${cost} if found. Nothing is charged for a miss` : `Look for this company's ${kind}. ${cost} if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
-  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}<span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· 1 credit if found</span></button>;
+  return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}<span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· {price ? `${price} if found` : "charged if found"}</span></button>;
 }
 
 const FbIcon = ({ size = 16 }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.2H7.8v3h2.6V21h3.1z" /></svg>;

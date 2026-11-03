@@ -485,7 +485,7 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
         async with ctx.deep_sem:
             from app.services.enrichment_service import search_google_places
 
-            place = await search_google_places(f"{row['name']} {row.get('region', '')}".strip())
+            place = await search_google_places(f"{row['name']} {row.get('region', '')}".strip(), name=row["name"], postcode=str(row.get("postcode") or ""))
         stages.append("deep_search")
         spent["deep"] = 1 if place else 0
         ev["deep"] = ({"found": True, "business_status": place.get("business_status", ""), "phone": place.get("phone", ""),

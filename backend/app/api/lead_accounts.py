@@ -24,7 +24,7 @@ from app.services import business_lookup, business_records, site_check
 from app.services import reveals as RV
 from app.services import social_lookup as SL
 from app.services.person_record import is_person_account, is_role_inbox
-from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_google_places
+from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_deeper, search_google_places
 
 logger = logging.getLogger("lead_accounts")
 
@@ -512,7 +512,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     if not (lead_filters.card(biz)["website"] or (web or {}).get("website")):
         try:
             await _can_deep_search(db)
-            place = await search_google_places(f"{biz.name} {biz.region or ''}".strip())
+            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "")
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
@@ -524,16 +524,13 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
                         "returned nothing or is not switched on")
         from app.services import web_harness
 
-        confirmed = await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {}
+        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {})
         if place and not confirmed:
             logger.info("find-website: the deeper search named a site for %r but it could not be confirmed on the site itself", biz.name)
         if confirmed.get("website"):
             try:
                 # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
-                await business_records.upsert(
-                    db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
-                    data={"name": biz.name, "registration_number": biz.registration_number, "website": confirmed.get("website"),
-                          "phone": confirmed.get("phone"), "region": biz.region})
+                await _keep_place(db, biz, place, confirmed)
                 await db.commit()
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
@@ -548,9 +545,6 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         CC.note_lookup(biz, "website", got)
         await db.commit()
         card = lead_filters.card(biz)
-    if not got and ((web or {}).get("options") or {}).get("website") and not (web or {}).get("cached"):
-        await _charge_leads(db, 1, f"Website suggestions for {biz.name}")  # the search found close matches: they are shown to choose from
-        charged += 1
     if not got and not note and not _options(biz, "website", got):
         note = "We couldn't find a website for this company right now. Try again later." + _closest(web)
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
@@ -653,12 +647,41 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     if got and not web.get("cached"):
         await _charge_leads(db, 1, f"Email for {biz.name}")
         charged = 1
-    elif not got and (web.get("options") or {}).get("email") and not web.get("cached"):
-        await _charge_leads(db, 1, f"Email suggestions for {biz.name}")
-        charged = 1
     shown = _options(biz, "email", got)
     return {"found": got, "source": "web" if got else "", "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
             "note": "" if got or shown else "We couldn't find an email for this company right now. Try again later."}
+
+
+def _vouched(place: Optional[Dict[str, Any]], confirmed: Dict[str, Any]) -> Dict[str, Any]:
+    """What the deeper search may keep. Normally only what the company's own site shows. When Google's listing has the same name AND is
+    at the postcode our register holds, it is this company, so its website and UK phone are kept as well."""
+    from app.services import company_contacts as CC
+
+    out = dict(confirmed or {})
+    if place and place.get("postcode_match"):
+        if not out.get("website") and place.get("website"):
+            out["website"] = place["website"]
+        if not out.get("phone") and place.get("phone") and CC.is_uk_phone(place["phone"]):
+            out["phone"] = place["phone"]
+    return out
+
+
+async def _keep_place(db: AsyncSession, biz: BusinessRecord, place: Dict[str, Any], confirmed: Dict[str, Any]) -> None:
+    """Save what the company's own site confirmed from a deeper search. It goes on the company the person is looking at: the shared
+    record the search is filed under is matched by name and postcode, and a register row without a registration number would
+    otherwise get a second, separate record while its own row stayed empty."""
+    shared = await business_records.upsert(
+        db, source_id=f"{place.get('via') or 'google_places'}:{place['place_id']}", source_type=place.get("via") or "google_places", confidence_tier="scraped",
+        data={"name": biz.name, "registration_number": biz.registration_number, "postcode": biz.postcode, "website": confirmed.get("website"),
+              "phone": confirmed.get("phone"), "region": biz.region})
+    if shared.id != biz.id:
+        if confirmed.get("website") and not (biz.website or "").strip():
+            biz.website = _clean(confirmed.get("website"), 300)
+            if not biz.domain:
+                biz.domain = _domain(biz.website)
+        if confirmed.get("phone") and not (biz.phone or "").strip():
+            biz.phone = _phone(confirmed.get("phone"))
+        biz.updated_at = datetime.utcnow()
 
 
 async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> Dict[str, Any]:
@@ -689,7 +712,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     else:
         try:
             await _can_deep_search(db)
-            place = await search_google_places(f"{biz.name} {biz.region or ''}".strip())
+            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "")
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
@@ -701,15 +724,13 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
                         biz.name, bool(web and web.get("found")))
         from app.services import web_harness
 
-        confirmed = await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {}
+        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {})
         if place and not confirmed.get("phone"):
-            logger.info("find-phone: the deeper search had a phone for %r but the company's own site does not show it", biz.name)
+            logger.info("find-phone: the deeper search matched %r but %s", biz.name,
+                        "its listing has no phone" if not place.get("phone") else "the number is not confirmed (no postcode match, and the company's own site does not show it)")
         if confirmed.get("phone"):
             try:
-                await business_records.upsert(
-                    db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
-                    data={"name": biz.name, "registration_number": biz.registration_number, "website": confirmed.get("website"),
-                          "phone": confirmed.get("phone"), "region": biz.region})
+                await _keep_place(db, biz, place, confirmed)
                 await db.commit()
                 await _charge_deep_search(db, f"Deeper search: {biz.name}")
                 charged += 1
@@ -724,9 +745,6 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         CC.note_lookup(biz, "phone", got)
         await db.commit()
         card = lead_filters.card(biz)
-    if not got and (web or {}).get("options", {}).get("phone") and not (web or {}).get("cached"):
-        await _charge_leads(db, 1, f"Phone suggestions for {biz.name}")
-        charged += 1
     if not got and not note and not _options(biz, "phone", got):
         note = "We couldn't find a phone number for this company right now. Try again later."
     _PAGE_CACHE.clear()
@@ -777,13 +795,15 @@ class ChooseIn(BaseModel):
 @router.post("/companies/{company_id}/choose")
 async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Depends(get_db)):
     """The person checked the suggestions and confirmed the correct one. It is kept as the answer and counted: more confirmations raise its score,
-    until the next lookup uses it without asking. Free: the search that found the suggestions was already charged."""
+    until the next lookup uses it without asking. A website, phone or email pick is charged here, once: showing suggestions is free, so a
+    search that ends with nothing chosen costs nothing."""
     from app.services import company_contacts as CC, contact_choices as CH, linkedin_lookup as LI
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     value = (body.value or "").strip()
+    charged = 0
     if body.kind == "linkedin":
         if not LI.allowed(biz, body.person, value):
             raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
@@ -816,12 +836,15 @@ async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Dep
         business_records.refresh_rank(biz)
         CC.note_lookup(biz, body.kind, True)
         kind_key = body.kind
+        await db.commit()
+        await _charge_leads(db, 1, f"{body.kind.title()} for {biz.name}")
+        charged = 1
     else:
         raise HTTPException(status_code=422, detail="Pick a website, phone, email or LinkedIn page.")
     await db.commit()
     picked_by = await CH.record(db, biz.id, kind_key, value)
     _PAGE_CACHE.clear()
-    return {"found": True, "charged": 0, "picked_by": picked_by, "company": await RV.mask_one(db, lead_filters_card(biz))}
+    return {"found": True, "charged": charged, "picked_by": picked_by, "company": await RV.mask_one(db, lead_filters_card(biz))}
 
 
 class LinkedinIn(BaseModel):
@@ -1116,14 +1139,14 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
         return _out(row, await _registry_for(db, account_id))  # the company has ended, or this is a person: nothing found would be about a company
     await _apply_shared_record(db, row)
     await _can_deep_search(db)
-    place = await search_google_places(f"{row.name} {row.region}".strip())
+    place = await search_deeper(f"{row.name} {row.region}".strip(), name=row.name, postcode=getattr(row, "postcode", "") or "", domain=getattr(row, "domain", "") or "")
     if not place:
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
     from app.services import web_harness
 
     # Google's answer is a lead: only what the company's own site confirms is kept (and its address and rating are not stored).
-    confirmed = await web_harness.confirm_place(row.name, "", place)
+    confirmed = _vouched(place, await web_harness.confirm_place(row.name, getattr(row, "postcode", "") or "", place))
     if not confirmed:
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
@@ -1134,7 +1157,7 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
         row.domain = _domain(row.website)
     try:
         shared_row = await business_records.upsert(
-            db, source_id=f"google_places:{place['place_id']}", source_type="google_places", confidence_tier="scraped",
+            db, source_id=f"{place.get('via') or 'google_places'}:{place['place_id']}", source_type=place.get("via") or "google_places", confidence_tier="scraped",
             data={"name": row.name, "domain": row.domain, "website": row.website, "phone": _phone(confirmed.get("phone"))},
         )
         row.business_record_id = row.business_record_id or shared_row.id

@@ -376,7 +376,32 @@ async def google_places_key() -> str:
     return getattr(settings, "GOOGLE_PLACES_API_KEY", None) or os.getenv("GOOGLE_PLACES_API_KEY", "")
 
 
-async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
+def _best_place(places: List[Dict[str, Any]], name: str, postcode: str) -> Dict[str, Any]:
+    """Of the businesses Google returned, the one that is our company: its name matches ours, and where we know the postcode,
+    its address is in the same postcode (or at least the same postcode area). With no name to check against, the first one."""
+    from app.services import site_check
+
+    def title(p: Dict[str, Any]) -> str:
+        return (p.get("displayName") or {}).get("text") or ""
+
+    def squash(v: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(v or "").lower())
+
+    pc, district = squash(postcode), squash(str(postcode or "").split(" ")[0])
+    named = [p for p in places if site_check.same_business(name, title(p))] if name else list(places)
+    if not named:
+        return places[0]
+    if pc:
+        for p in named:
+            if pc in squash(p.get("formattedAddress")):
+                return p
+        for p in named:
+            if district and district in squash(p.get("formattedAddress")):
+                return p
+    return named[0]
+
+
+async def search_google_places(query: str, *, name: str = "", postcode: str = "") -> Optional[Dict[str, Any]]:
     """The platform's "Deep web search": one Google Places lookup (Text Search then Place
     Details) for the best-matching business. Never shown to the user as "Google" -- callers
     label this action "Deep web search" so no API/vendor name reaches the output. None when no
@@ -384,37 +409,136 @@ async def search_google_places(query: str) -> Optional[Dict[str, Any]]:
     key = await google_places_key()
     if not key or not query.strip():
         return None
+    # The postcode we hold pins the search to the right street; the name is what the answer is checked against.
+    if postcode and postcode.replace(" ", "").lower() not in query.replace(" ", "").lower():
+        query = f"{query} {postcode}".strip()
+    # Places API (New): one request returns the match and its phone, website and status.
+    fields = ("places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,"
+              "places.websiteUri,places.rating,places.businessStatus")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://maps.googleapis.com/maps/api/place/textsearch/json",
-                params={"query": query, "region": "uk", "key": key},
+            resp = await client.post(
+                "https://places.googleapis.com/v1/places:searchText",
+                headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields},
+                json={"textQuery": query, "regionCode": "GB", "pageSize": 5},
             )
             await _bump_vendor_call("google_places")
-            data = resp.json() if resp.status_code == 200 else {}
-            candidates = data.get("results") or []
-            if not candidates:
+            if resp.status_code != 200:
+                logger.warning(f"[google_places] lookup refused ({resp.status_code}): {resp.text[:200]}")
                 return None
-            place_id = candidates[0].get("place_id")
-            if not place_id:
-                return None
-            fields = "name,formatted_address,international_phone_number,website,rating,url,business_status"
-            details = await client.get(
-                "https://maps.googleapis.com/maps/api/place/details/json",
-                params={"place_id": place_id, "fields": fields, "key": key},
-            )
-            result = (details.json() if details.status_code == 200 else {}).get("result") or {}
+            found = (resp.json().get("places") or [])
     except Exception as err:
         logger.debug(f"[google_places] search failed for '{query}': {err}")
         return None
-    if not result.get("name"):
+    if not found:
+        return None
+    place = _best_place(found, name, postcode)
+    found_name = (place.get("displayName") or {}).get("text") or ""
+    if not found_name:
         return None
     return {
-        "name": result.get("name") or "", "address": result.get("formatted_address") or "",
-        "phone": result.get("international_phone_number") or "", "website": result.get("website") or "",
-        "rating": result.get("rating"), "place_id": place_id,
-        "business_status": result.get("business_status") or "",  # OPERATIONAL, CLOSED_TEMPORARILY, CLOSED_PERMANENTLY
+        "name": found_name, "address": place.get("formattedAddress") or "",
+        "phone": place.get("internationalPhoneNumber") or "", "website": place.get("websiteUri") or "",
+        "rating": place.get("rating"), "place_id": place.get("id") or "",
+        "business_status": place.get("businessStatus") or "",  # OPERATIONAL, CLOSED_TEMPORARILY, CLOSED_PERMANENTLY
+        # True when Google's address is in the postcode we hold for the company: name and postcode both agree, so it is the same business.
+        "postcode_match": bool(postcode) and re.sub(r"[^a-z0-9]", "", postcode.lower()) in re.sub(r"[^a-z0-9]", "", str(place.get("formattedAddress") or "").lower()),
     }
+
+
+async def apollo_key() -> str:
+    """The Apollo key staff saved under Platform Keys -> Leads -> Business Discovery (a key named "Apollo.io"),
+    falling back to the APOLLO_API_KEY environment variable."""
+    from sqlalchemy.future import select
+
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    try:
+        with org_scope(platform_org_id()):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(select(Connection).where(Connection.group_name == "Business Discovery"))).scalars().all()
+        for c in rows:
+            if "apollo" in (c.name or "").lower():
+                key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token")
+                if key:
+                    return key.strip()
+    except Exception as err:
+        logger.debug(f"[apollo] saved key not read: {err}")
+    return os.getenv("APOLLO_API_KEY", "")
+
+
+def _is_uk(org: Dict[str, Any]) -> bool:
+    """Our companies are UK companies: an Apollo record in another country is a different business with the same name."""
+    return str(org.get("country") or "").strip().lower() in ("", "united kingdom", "uk", "gb", "great britain")
+
+
+def _squash_pc(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> Optional[Dict[str, Any]]:
+    """One company lookup on Apollo's company data (works on the free plan: no people, no emails). By website domain when we hold one,
+    otherwise by name, taking the result whose name matches ours and, where we know the postcode, whose address is in it.
+    Returns the same shape as search_google_places, or None. Never raises."""
+    from app.services import site_check
+
+    key = await apollo_key()
+    if not key or not (name or domain):
+        return None
+    headers = {"x-api-key": key, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            org: Dict[str, Any] = {}
+            if domain:
+                r = await client.get("https://api.apollo.io/api/v1/organizations/enrich", params={"domain": domain}, headers=headers)
+                await _bump_vendor_call("apollo")
+                if r.status_code == 200:
+                    org = r.json().get("organization") or {}
+            if not org and name and postcode:
+                # By name only a company at the postcode we hold is taken: the same name in another town is another business.
+                short = re.sub(r"\b(practice|limited|ltd|plc|llp|the|group|services|uk)\b", " ", name, flags=re.I).strip()
+                for q in dict.fromkeys([name, " ".join(short.split())]):
+                    if not q:
+                        continue
+                    r = await client.post("https://api.apollo.io/api/v1/organizations/search", headers=headers,
+                                          json={"q_organization_name": q, "per_page": 10})
+                    await _bump_vendor_call("apollo")
+                    if r.status_code != 200:
+                        logger.warning(f"[apollo] lookup refused ({r.status_code}): {r.text[:160]}")
+                        return None
+                    found = r.json().get("organizations") or r.json().get("accounts") or []
+                    pc = _squash_pc(postcode)
+                    org = next((o for o in found if _is_uk(o) and _squash_pc(o.get("postal_code")) == pc
+                                and site_check.same_business(name, o.get("name") or "")), None) or {}
+                    if org:
+                        break
+    except Exception as err:
+        logger.debug(f"[apollo] search failed for '{name}': {err}")
+        return None
+    if not org or not (org.get("name") or "").strip():
+        return None
+    if (name and not site_check.same_business(name, org.get("name") or "")) or not _is_uk(org):
+        return None
+    phone = str(org.get("phone") or org.get("sanitized_phone") or ((org.get("primary_phone") or {}).get("number")) or "")
+    return {
+        "name": org.get("name") or "", "address": org.get("raw_address") or "", "phone": phone,
+        "website": org.get("website_url") or "", "rating": None, "place_id": f"apollo_{org.get('id') or ''}", "via": "apollo",
+        "business_status": "",
+        "postcode_match": bool(postcode) and _squash_pc(postcode) == _squash_pc(org.get("postal_code")),
+    }
+
+
+async def search_deeper(query: str, *, name: str = "", postcode: str = "", domain: str = "") -> Optional[Dict[str, Any]]:
+    """The deeper search: Google's listing first; when that gives no phone or website, Apollo's company data. Shown to the
+    user only as "Deep web search"."""
+    place = await search_google_places(query, name=name, postcode=postcode)
+    if place and (place.get("phone") or place.get("website")):
+        return place
+    return (await search_apollo(name or query, postcode=postcode, domain=domain)) or place
 
 
 _TAVILY_WHY = {

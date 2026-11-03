@@ -11,6 +11,7 @@ import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
+import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
@@ -76,7 +77,7 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
                   : f.none ? <span style={small}>No email found. Nothing charged.</span>
                   : f.error ? <span style={{ ...small, color: C.red }}>{f.error}</span>
                   : <button type="button" style={btn(false, f.busy)} disabled={f.busy} title={domain ? "Look for this person's work email. 1 Leads credit only if one is found" : "Find the company's website first"}
-                      onClick={() => onFindEmail(o)}>{f.busy ? <Spinner size={12} /> : <Mail size={13} />} Find email · 1 credit if found</button>}
+                      onClick={() => onFindEmail(o)}>{f.busy ? <Spinner size={12} /> : <Mail size={13} />} Find email · <LookupCost /></button>}
               </div>
             );
           })}
@@ -136,7 +137,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const find = async (kind) => {
     if (waiting[kind]) { setPick({ kind, person: "", anchor: kind, options: waiting[kind] }); return; }
     setBusy(kind);
-    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}.${r.charged ? ` ${r.charged} credit used.` : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
+    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
     setBusy("");
   };
   // Opens one contact our registry holds. Free, once. It never searches for anything.
@@ -210,10 +211,11 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
       return { done: Boolean(r.found), options: matches };
     }}
     onPick={async (o) => {
-      await api.chooseContact(c.id, { kind: pick.kind, value: o.value, person: pick.person });
+      const picked = await api.chooseContact(c.id, { kind: pick.kind, value: o.value, person: pick.person });
+      if (picked?.charged) announceCreditsChanged();
       setWaiting((w) => ({ ...w, [pick.kind]: null }));
       if (pick.anchor?.startsWith("li:")) setFound((m) => ({ ...m, [pick.anchor]: {} }));
-      say("Saved. It will show for this company from now on.");
+      say(picked?.charged ? "Saved. Credits used for this find. It will show for this company from now on." : "Saved. It will show for this company from now on.");
       await load();
     }} /> : null;
   if (person) {
@@ -278,7 +280,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                   {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
                 {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
                 {k.canFind ? <button type="button" style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
-                  {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Not found · try later" : "Find · 1 credit if found"}</button> : null}
+                  {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Not found · try later" : <>Find · <LookupCost /></>}</button> : null}
               </div>
             );
           })}
