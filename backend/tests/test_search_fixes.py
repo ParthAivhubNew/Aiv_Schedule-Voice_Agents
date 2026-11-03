@@ -174,3 +174,41 @@ def test_the_company_search_route_refuses_wildcards_and_negative_ages_before_the
             _refuse_bad_filters(bad)
         assert err.value.status_code == 422
     _refuse_bad_filters({"keyword": ["accountancy"], "towns": ["Leeds"]})
+
+
+def test_schools_and_community_places_are_left_out_unless_asked_for():
+    q = sql({"keyword": ["dentist"], "towns": ["Manchester"]})
+    assert "registration_number" in q and "school" in q and "community" in q
+    assert "school" not in sql({"keyword": ["dentist"], "include_non_business": True})  # the toggle includes them
+    assert "school" not in sql({"keyword": ["nursery"]})  # searching for one means wanting them
+
+
+def test_a_slip_in_a_town_is_offered_the_right_town():
+    from app.services import search_towns as ST
+
+    assert ST.suggest(["Leds"]) == {"Leds": "Leeds"} and ST.suggest(["Mancester"]) == {"Mancester": "Manchester"}
+    assert ST.suggest(["Leeds"]) == {} and ST.suggest(["Zzzzz"]) == {}
+
+
+@pytest.mark.db
+async def test_main_activity_first_no_community_centres_and_honest_labels(db):
+    from app.models.models import BusinessRecord
+    from app.services import lead_filters
+
+    def rec(i, name, industry, sic, sic_text, regno=""):
+        return BusinessRecord(id=f"mo{i}", identity_hash=f"mh{i}", name=name, registration_number=regno, status="Active", postcode="RG2 7AA", sic_codes=sic, sic_text=sic_text,
+                              industry=industry, region="READING", website="", email="", phone="", confidence_tier="verified_registry", rank_score=50 if i == 1 else 10)
+
+    db.add_all([rec(1, "Used Cars Ltd", "Sale of used cars", "|45112|69201|", "45112 - Sale of used cars | 69201 - Accounting", regno="01234567"),
+                rec(2, "Smith Accountants Ltd", "Accounting", "|69201|", "69201 - Accounting and auditing activities", regno="07654321"),
+                rec(3, "Wythenshawe Forum", "Community services - Healthcare", "|99999|", "dentist services"),
+                rec(4, "Reading Dental Practice", "Dentist", "|86230|", "86230 - Dental practice activities")])
+    await db.commit()
+    first = [r.name for r in (await BR.search_filtered(db, {"keyword": ["accountants"]}, limit=5, stats=False, sort="newest"))["rows"]]
+    best = (await BR.search_filtered(db, {"keyword": ["accountants"]}, limit=5, stats=False, sort="best"))["rows"]
+    assert [r.name for r in best] == ["Smith Accountants Ltd", "Used Cars Ltd"]  # main activity ahead of a side activity, though the side one ranks higher
+    assert "Wythenshawe Forum" not in [r.name for r in (await BR.search_filtered(db, {"keyword": ["dentist"]}, limit=5, stats=False))["rows"]]
+    assert "Wythenshawe Forum" in [r.name for r in (await BR.search_filtered(db, {"keyword": ["dentist"], "include_non_business": True}, limit=5, stats=False))["rows"]]
+    cards = {r.name: lead_filters.card(r) for r in (await BR.search_filtered(db, {"include_non_business": True}, limit=10, stats=False))["rows"]}
+    assert cards["Reading Dental Practice"]["tier"] == "premises_listing" and cards["Smith Accountants Ltd"]["tier"] == "verified_registry"
+    assert cards["Smith Accountants Ltd"]["region"] == "Reading"

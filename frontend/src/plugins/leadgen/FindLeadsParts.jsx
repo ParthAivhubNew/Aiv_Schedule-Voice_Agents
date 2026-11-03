@@ -271,7 +271,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
-                          {c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web, unverified</span> : null}
+                          {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web, unverified</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
                         <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{[c.company_category, c.registration_number && `No. ${c.registration_number}`].filter(Boolean).join(" · ")}</div>

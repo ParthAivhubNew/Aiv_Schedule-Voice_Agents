@@ -111,14 +111,20 @@ def card(biz) -> Dict[str, Any]:
     (nothing computed by a model), and `tier` says how far to trust it."""
     from app.services.social_lookup import links_of
 
-    sic_first = (biz.sic_text or biz.industry or "").split(" | ")[0]
+    sic_first = (biz.sic_text or biz.industry or "").split(" | ")[0].replace("|", ", ")  # one format: "Homecare agencies, Supported living"
+    tier = biz.confidence_tier or "scraped"
+    if tier == "verified_registry" and not (biz.registration_number or "").strip():
+        tier = "premises_listing"  # listed as a premises (a food register, say), not matched to a company number: never shown as "verified"
+    region = biz.region or ""
+    if region.isupper() and len(region) > 3:
+        region = region.title()
     return {
         "id": biz.id, "name": biz.name, "registration_number": biz.registration_number or "",
         "status": biz.status or "", "industry": sic_first, "sic_text": biz.sic_text or "",
-        "region": biz.region or "", "postcode": biz.postcode or "", "address": biz.address or "",
+        "region": region, "postcode": biz.postcode or "", "address": biz.address or "",
         "company_category": biz.company_category or "", "incorporation_date": biz.incorporation_date or "",
         "size_band": biz.size_band or "", "website": _own_site(biz), "phone": biz.phone or "",
-        "email": biz.email or "", "tier": biz.confidence_tier or "scraped", "source_count": len(biz.sources or []),
+        "email": biz.email or "", "tier": tier, "source_count": len(biz.sources or []),
         "has_officers": bool(biz.officers), "profile": business_records.profile_of(biz.rank_score),
         # Found by a web lookup and not yet vouched for by any registry: shown labelled, never mixed into the fields above.
         "web_website": _web_site(biz),

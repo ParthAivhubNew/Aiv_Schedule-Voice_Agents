@@ -458,7 +458,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
-               "not_keyword", "not_towns", "not_company_category", "saved")
+               "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business")
 COUNT_CAP = 10_000
 DIRECTORY_SITES = ("food.gov.uk", "facebook.com", "yell.com", "tripadvisor.", "linkedin.com", "instagram.com", "twitter.com", "companieshouse.gov.uk",
                    "company-information.service.gov.uk", "google.com/maps", "192.com", "yelp.")
@@ -534,7 +534,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business"):
         if (filters or {}).get(key):
             out[key] = True
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
@@ -542,6 +542,19 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     # Exactly "Active" unless the caller deliberately asks for something else or "any".
     out["status"] = out.get("status") or "Active"
     return out
+
+
+_NB_INDUSTRY = r"(school|college|university|nursery|pre-school|preschool|childcare|caring premises|care home|hospital|community|church|place of worship|chapel|mosque|temple|charity|food ?bank)"
+_NB_NAME = r"\m(school|academy|church|nursery|college|community centre|food ?bank|primary|chapel|mosque)\M"
+_NB_WORDS = re.compile(r"school|college|university|nursery|childcare|care|hospital|community|church|charity|food ?bank|academy|chapel|mosque|temple|place of worship", re.I)
+
+
+def _wants_non_business(f: Dict[str, Any]) -> bool:
+    """Schools, churches and community places are left out unless the person asks for them, or searches for one of those words."""
+    if f.get("include_non_business"):
+        return True
+    typed = " ".join(list(f.get("keyword") or []) + list(f.get("sector") or []) + [str(f.get("name_contains") or "")])
+    return bool(_NB_WORDS.search(typed))
 
 
 def _postcode_match(prefix: str) -> Any:
@@ -636,6 +649,9 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
         conds.append(~or_(*[func.coalesce(B.company_category, "").ilike(_like(t), escape="\\") for t in f["not_company_category"]]))
+    if not _wants_non_business(f):  # a school, nursery, church or community place without a company number is not a business lead
+        conds.append(~and_(func.coalesce(B.registration_number, "") == "",
+                           or_(func.coalesce(B.industry, "").op("~*")(_NB_INDUSTRY), B.name.op("~*")(_NB_NAME))))
     if f.get("saved"):
         from app.models.models import LeadAccount
 
@@ -647,7 +663,20 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
 SORTS = ("best", "newest", "name")
 
 
-def _order(sort: str) -> list:
+def _primary_trade_first(f: Dict[str, Any]) -> list:
+    """A company whose first (main) SIC code is the trade searched for comes before one that only lists it as a side activity."""
+    from app.services import search_synonyms
+
+    codes: List[str] = [re.sub(r"\D", "", c) for c in (f.get("sic_codes") or [])]
+    for t in list(f.get("keyword") or []) + list(f.get("sector") or []):
+        codes += search_synonyms.expand(t)[1]
+    codes = [c for c in dict.fromkeys(codes) if c]
+    if not codes:
+        return []
+    return [case((or_(*[BusinessRecord.sic_codes.like(f"|{c}%") for c in codes]), 0), else_=1)]
+
+
+def _order(sort: str, f: Optional[Dict[str, Any]] = None) -> list:
     """Best match: filled-in, well-known companies first (see rank_score_of); the others re-order the same results."""
     B = BusinessRecord
     if sort == "name":
@@ -656,7 +685,7 @@ def _order(sort: str) -> list:
         # Plain DESC (empty dates first, there are almost none) is the order the existing date index can walk; NULLS LAST is not,
         # and would read and sort every company.
         return [B.incorporated_on.desc(), B.id]
-    return [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
+    return _primary_trade_first(f or {}) + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 
 
 _RANKING: List[Any] = [0.0, True]  # [when checked, ready]
@@ -781,7 +810,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     total = await _capped_count(db, where)
     t2 = time.monotonic()
     rows = (await db.execute(
-        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest")).limit(limit).offset(max(0, int(offset or 0)))
+        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest", f)).limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
     t3 = time.monotonic()
     timing = {"ready": int((t1 - t0) * 1000), "count": int((t2 - t1) * 1000), "page": int((t3 - t2) * 1000)}

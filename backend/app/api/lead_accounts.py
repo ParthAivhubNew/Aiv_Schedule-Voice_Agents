@@ -279,6 +279,11 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
               "next_scan": out.get("next_scan"), "understood": understood,
               "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
               "timing_ms": out.get("timing_ms")}
+    from app.services import search_towns
+
+    guess = search_towns.suggest((body.filters or {}).get("towns") or [])
+    if guess:
+        answer["did_you_mean"] = guess  # {"Leds": "Leeds"}: the screen offers the right town
     if not body.area and not body.exclude_ids and not understood and cards:  # an empty answer is never remembered
         import time
 

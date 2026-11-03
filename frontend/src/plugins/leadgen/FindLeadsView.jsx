@@ -20,6 +20,7 @@ import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 const FAVOURITES = "Favourites";
 const CHECK_TIPS = {
   hasWebsite: "Only companies we already hold a website for",
+  includeNonBusiness: "Also show schools, nurseries, churches and community places (hidden by default)",
   hasPhone: "Only companies we already hold a phone number for",
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
@@ -28,7 +29,7 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
+const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
 const FIRST_KEY = "aivhub_find_first";
 const GROUP_KEYS = { name: ["name"], industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
@@ -71,6 +72,7 @@ function formToFilters(f) {
   if (f.includeClosed) out.status = "any";
   if (f.category.trim()) out.company_category = f.category.trim();
   if (f.hasWebsite) out.has_website = true;
+  if (f.includeNonBusiness) out.include_non_business = true;
   if (f.hasPhone) out.has_phone = true;
   if (f.hasEmail) out.has_email = true;
   if (splitList(f.notSector).length) out.not_keyword = splitList(f.notSector);
@@ -91,7 +93,7 @@ function filtersToForm(fl) {
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
-    hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
+    includeNonBusiness: !!fl.include_non_business, hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
     notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
     saved: fl.saved || "", title: "",
   };
@@ -99,6 +101,7 @@ function filtersToForm(fl) {
 
 function TierBadge({ tier }) {
   const verified = tier === "verified_registry";
+  if (tier === "premises_listing") return <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, color: C.slate }}><Globe size={12} /> Premises listing</span>;
   return (
     <span title={verified ? "Read from an official registry record" : tier === "scraped" ? "Collected from a website" : "Found by a web search, not verified"}
       style={{ ...text, fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, color: verified ? C.green : C.slate }}>
@@ -368,6 +371,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   // Every search can be cancelled: a newer run id makes the older one's answer be ignored when it arrives.
   const runId = useRef(0);
   const runSig = useRef(""); // the search now running
+  const [didYouMean, setDidYouMean] = useState({}); // a mistyped town and the town it probably meant
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
 
@@ -478,6 +482,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       if (!(r.understood || []).length) loadSummary(formToFilters(f));
       setApplied(r.filters);
       setChips(r.chips || []);
+      setDidYouMean(r.did_you_mean || {});
       setUnderstood(r.understood || []);
       setSearched(true);
       setBusy(false);
@@ -575,8 +580,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const searchPeople = async (e, overrideForm, offset = 0, sortOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
-    if (busy) return;
-    setBusy(true);
+    setBusy(true);  // a new search replaces one still running (the older answer is dropped by the run id)
     setError("");
     const myRun = ++runId.current;
     setPeople([]);
@@ -926,7 +930,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {check("includeClosed", "Include closed / dissolved")}
           </FilterGroup>
           <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
-            {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
+            {check("includeNonBusiness", "Include schools & community places")}{check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
           </FilterGroup>
           <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -983,6 +987,15 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {searched ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Stop this search" onClick={cancelSearch}><X size={13} /> Cancel</button> : null}
           </div>
           <TableSkeleton rows={12} cols={tab === "people" ? 6 : 7} label={tab === "people" ? "Finding the people at matching companies" : "Searching the company register"} />
+        </div>
+      ) : null}
+      {!busy && Object.keys(didYouMean).length ? (
+        <div role="status" style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          Did you mean {Object.values(didYouMean).join(", ")}?
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => {
+            const next = { ...form, town: splitList(form.town).map((t) => didYouMean[t] || t).join(", ") };
+            setForm(next); setDidYouMean({}); search(null, next, 0, null, undefined, undefined, true);
+          }}>Use {Object.values(didYouMean).join(", ")}</button>
         </div>
       ) : null}
       {error ? (
