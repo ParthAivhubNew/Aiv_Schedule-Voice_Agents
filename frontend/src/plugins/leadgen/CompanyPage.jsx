@@ -6,6 +6,7 @@ import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
 import { domainOf } from "./AccountsViews";
 import { CompanyAvatar, ProfileBadge } from "./FindLeadsParts";
 import { asAccount } from "./FindLeadsView";
+import { ContactPoints } from "./ContactPoints";
 import { OrgChart } from "./OrgChart";
 import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
@@ -310,6 +311,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             <Fact label="Address">{c.address ? (
               <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
           </Facts>
+          <ContactPoints id={c.id} stamp={`${c.phone || ""}|${c.email || ""}|${c.website || ""}|${JSON.stringify(c.links || {})}`} />
           <Facts title="In your account">
             {c.saved ? (
               <>

@@ -10,7 +10,7 @@ import { SearchStatus } from "./SearchStatus";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
-import { applyMapping, withPeople } from "./importMapping";
+import { applyMapping, quarantineCsv, withPeople } from "./importMapping";
 import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LOCK_TIP, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
@@ -1329,6 +1329,28 @@ async function parseImportFile(file) {
 const IMPORT_BATCH = 500;
 
 // What an import did, in plain terms, and what to do next.
+function QuarantineBox({ rows }) {
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([quarantineCsv(rows)], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "not-imported.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <b style={{ ...text, fontSize: 13.5 }}>Not saved ({rows.length.toLocaleString()})</b>
+        <span style={{ ...muted, fontSize: 12.5 }}>Nothing here was added to your lists. Fix the rows and import them again.</span>
+        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginLeft: "auto" }} onClick={download}>Download these rows</button>
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 180, overflowY: "auto", ...muted, fontSize: 12.5 }}>
+        {rows.slice(0, 50).map((r, i) => <li key={i}><b>{r.name}</b>: {(r.reasons || []).join(" ")}</li>)}
+        {rows.length > 50 ? <li>…and {(rows.length - 50).toLocaleString()} more in the download.</li> : null}
+      </ul>
+    </div>
+  );
+}
+
 function ImportReport({ done, onGo, onClose, onToast }) {
   const call = useCallDialog(onToast);
   const stat = (n, label, tip) => (n ? (
@@ -1354,7 +1376,10 @@ function ImportReport({ done, onGo, onClose, onToast }) {
         {stat(done.filled, "filled from our records (free)", "The registry record was found, so its website, size and sector were added where yours were blank")}
         {stat(done.repeats, "repeats, kept once", "The same company on more than one row")}
         {stat(done.unnamed, "left out: no name or website", "Rows with nothing to identify the company")}
+        {stat((done.quarantined || []).length, "not saved: failed a check", "Rows with a bad email, phone, website or similar. They are listed below with the reason")}
+        {stat(done.warned, "saved with a warning", "Saved, but worth a look: a personal mailbox, a shared inbox, a mobile, or no Ltd in the name")}
       </div>
+      {(done.quarantined || []).length ? <QuarantineBox rows={done.quarantined} /> : null}
       {!done.added && !done.matched ? <div style={{ ...muted, fontSize: 13 }}>Nothing was added.</div> : null}
       {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", ...muted, fontSize: 12.5 }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
       {gaps.length || done.custom?.length ? (
@@ -1455,7 +1480,7 @@ export function ImportView({ store, onGo, onAskAi }) {
     setBusy(true);
     const name = listName.trim() || "Unsorted";
     const rows = usable.map((x) => ({ ...x, source: "import" }));
-    const total = { added: 0, matched: 0, repeats: 0, unnamed: fields.length - usable.length, list: null, rows: rows.length, file: file?.name || "", blanks: blanks(rows), custom: customColumns(fields) };
+    const total = { added: 0, matched: 0, repeats: 0, quarantined: [], warned: 0, unnamed: fields.length - usable.length, list: null, rows: rows.length, file: file?.name || "", blanks: blanks(rows), custom: customColumns(fields) };
     try {
       // In batches, so a big file shows how far it has got and never hits the size limit of one request.
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
@@ -1463,7 +1488,7 @@ export function ImportView({ store, onGo, onAskAi }) {
         const r = await store.save(rows.slice(i, i + IMPORT_BATCH), name, { quiet: true, onExisting });
         if (r && r.accounts) total.newIds = [...(total.newIds || []), ...r.accounts.map((a) => a.id)];
         if (!r) throw new Error(`Stopped after ${i.toLocaleString()} of ${rows.length.toLocaleString()} rows. What was imported so far is in the list ${name}.`);
-        total.added += r.added; total.matched += r.matched || 0; total.repeats += r.repeats || 0; total.unnamed += r.unnamed || 0; total.list = r.list || total.list;
+        total.added += r.added; total.matched += r.matched || 0; total.repeats += r.repeats || 0; total.unnamed += r.unnamed || 0; total.warned += r.warned || 0; total.quarantined = [...total.quarantined, ...(r.quarantined || [])]; total.list = r.list || total.list;
       }
       setDone(total);
       if (fillFree && total.newIds?.length) fillFromRecords(total.newIds.slice(0, 300));

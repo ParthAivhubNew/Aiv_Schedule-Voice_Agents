@@ -72,6 +72,26 @@ function Wheel({ label, children }) {
 }
 
 // ── One step: a row you can open and change where it is ─────────────────────
+// Puts a link to one of the person's published forms into the email text. Each recipient gets their own link when it is sent.
+function FormPicker({ onPick }) {
+  const [forms, setForms] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.listInboundForms().then((r) => { if (alive) setForms((r.forms || r || []).filter((f) => f.status === "published")); }).catch(() => { if (alive) setForms([]); });
+    return () => { alive = false; };
+  }, []);
+  if (!forms) return null;
+  if (!forms.length) return <div style={small}>To send a form in this email, publish one under Inbound, Forms first.</div>;
+  return (
+    <label style={{ ...small, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>Send a form in this email
+      <select aria-label="Insert form link" style={{ ...input, width: "auto", maxWidth: 260 }} value="" onChange={(e) => { if (e.target.value) onPick(e.target.value); }}>
+        <option value="">Insert form link…</option>
+        {forms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove, callOk }) {
   const Icon = ICONS[step.channel] || Mail;
   const [fg, bg] = ACCENT[step.channel] || ACCENT.task;
@@ -107,6 +127,7 @@ function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove,
                 <textarea style={{ ...input, minHeight: 110, resize: "vertical" }} value={step.body} onChange={set("body")} placeholder={"Hi {{first_name}},\n\n"} />
               </label>
               <div style={small}>Use {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"} and {"{{personal_line}}"}.</div>
+              <FormPicker onPick={(id) => onChange({ ...step, body: [(step.body || "").trimEnd(), "{{form_link:" + id + "}}"].filter(Boolean).join(String.fromCharCode(10, 10)) })} />
               {step.channel === "email" ? (
                 second ? (
                   <div style={{ display: "grid", gap: 8, padding: 10, background: C.paperSoft, borderRadius: 10 }}>
@@ -219,7 +240,7 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
   const s = j.settings;
   const [draft, setDraft] = useState(() => ({
     mailbox_ids: s.mailbox_ids || [], days_of_week: s.days_of_week || [], sending_window_start: s.sending_window_start, sending_window_end: s.sending_window_end,
-    daily_cap: s.daily_cap || 0, one_at_a_time: s.one_at_a_time !== false, on_not_interested: s.rules.on_not_interested !== false, unresponsive_days: s.rules.unresponsive_days,
+    daily_cap: s.daily_cap || 0, one_at_a_time: s.one_at_a_time !== false, on_not_interested: s.rules.on_not_interested !== false, on_form: s.rules.on_form !== false, unresponsive_days: s.rules.unresponsive_days,
     skip_stages: s.rules.skip_stages || [],
   }));
   const [more, setMore] = useState(false);
@@ -230,7 +251,7 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
   const sentence = days
     ? `Emails go out ${days}, between ${draft.sending_window_start} and ${draft.sending_window_end}${draft.daily_cap ? `, at most ${draft.daily_cap} a day` : ""}${from.length ? `, from ${from.join(", ")}` : ""}.`
     : "Pick the days emails may go out.";
-  const stopValue = [...ALWAYS_STOP, ...(draft.on_not_interested ? ["not_interested"] : [])];
+  const stopValue = [...ALWAYS_STOP, ...(draft.on_not_interested ? ["not_interested"] : []), ...(draft.on_form ? ["form"] : [])];
   return (
     <div>
       <InfoNote tone={days && from.length ? undefined : "warn"}>{from.length ? sentence : `${sentence} Choose an email account to send from.`}</InfoNote>
@@ -250,8 +271,8 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
         <Field label="Most emails a day" hint="0 means no extra limit."><input type="number" min="0" aria-label="Most emails a day" style={timeInput} value={draft.daily_cap} onChange={(e) => set({ daily_cap: Number(e.target.value) || 0 })} /></Field>
       </FieldRow>
       <Field label="Stop for a person when they" hint="Replying, booking a meeting and opting out always stop it, so nobody who answers is written to again.">
-        <Chips options={[{ id: "reply", label: "Reply" }, { id: "booking", label: "Book a meeting" }, { id: "optout", label: "Opt out" }, { id: "not_interested", label: "Say they are not interested" }]}
-          value={stopValue} onChange={(v) => set({ on_not_interested: v.includes("not_interested") })} />
+        <Chips options={[{ id: "reply", label: "Reply" }, { id: "booking", label: "Book a meeting" }, { id: "optout", label: "Opt out" }, { id: "not_interested", label: "Say they are not interested" }, { id: "form", label: "Send back a form" }]}
+          value={stopValue} onChange={(v) => set({ on_not_interested: v.includes("not_interested"), on_form: v.includes("form") })} />
       </Field>
       <div style={{ marginBottom: 14 }}>
         <button type="button" aria-expanded={more} style={secBtn} onClick={() => setMore((m) => !m)}>{more ? "Fewer options" : "More options"}</button>
@@ -271,7 +292,7 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
       ) : null}
       <button type="button" style={{ ...priBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={() => onSave({
         mailbox_ids: draft.mailbox_ids, days_of_week: draft.days_of_week, sending_window_start: draft.sending_window_start, sending_window_end: draft.sending_window_end,
-        daily_cap: draft.daily_cap, one_at_a_time: draft.one_at_a_time, rules: { on_not_interested: draft.on_not_interested, unresponsive_days: draft.unresponsive_days, skip_stages: draft.skip_stages },
+        daily_cap: draft.daily_cap, one_at_a_time: draft.one_at_a_time, rules: { on_not_interested: draft.on_not_interested, on_form: draft.on_form, unresponsive_days: draft.unresponsive_days, skip_stages: draft.skip_stages },
       })}>{saving ? <><Spinner size={13} /> Saving</> : "Save"}</button>
     </div>
   );
@@ -365,8 +386,8 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               <button type="button" aria-label="More" aria-haspopup="menu" aria-expanded={menu} style={{ ...btn(false), padding: "0 9px" }} onClick={() => setMenu((m) => !m)}><MoreHorizontal size={16} /></button>
               {menu ? (
                 <>
-                  <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
-                  <div className="ui-menu" role="menu" style={{ zIndex: 80 }}>
+                  <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 95 }} />
+                  <div className="ui-menu" role="menu" style={{ zIndex: 100 }}>
                     <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); run(async () => { const r = await api.journeyClone(j.id); onChanged?.(r.journey.id); }, "Copied as a draft."); }}>Make a copy</button>
                     <button type="button" role="menuitem" className="ui-menu-item" onClick={async () => { setMenu(false); setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }}>Results and advice</button>
                     {j.status !== "completed" && j.status !== "draft" ? (

@@ -18,6 +18,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.services.form_links import has_bare_tag
 from app.models.models import (EmailCampaign, EmailEnrollment, EmailMessage, EmailSequenceStep, JourneyTask, LeadAccount, Prospect)
 
 logger = logging.getLogger("journeys")
@@ -36,11 +37,12 @@ MAX_STEPS = 12
 DEFAULT_RULES: Dict[str, Any] = {
     "on_reply": True, "on_meeting": True, "on_unsubscribe": True,  # always on: a person who answers, books or opts out is never written to again
     "on_not_interested": True,
+    "on_form": True,  # a person who returns the form sent in a step is not written to again
     "unresponsive_days": 7,  # days after the last step with no answer before they are marked unresponsive; 0 = never
     "skip_stages": ["won", "lost", "do_not_contact"],
 }
 LOCKED_RULES = ("on_reply", "on_meeting", "on_unsubscribe")
-EXIT_STATUS = {"replied": "replied", "meeting_booked": "booked", "unsubscribed": "unsubscribed", "unresponsive": "unresponsive", "bounced": "bounced"}
+EXIT_STATUS = {"replied": "replied", "meeting_booked": "booked", "unsubscribed": "unsubscribed", "unresponsive": "unresponsive", "bounced": "bounced", "form_returned": "form_returned"}
 
 
 class JourneyError(ValueError):
@@ -80,6 +82,8 @@ def clean_steps(raw: Any) -> List[Dict[str, Any]]:
             raise JourneyError(f"Step {i} needs a wait after the step before it.")
         if ch in EMAIL_LIKE and not d["body"]:
             raise JourneyError(f"Step {i} is an email with nothing in it.")
+        if ch in EMAIL_LIKE and any(has_bare_tag(t) for t in (d["subject"], d["body"], d["subject_b"], d["body_b"])):
+            raise JourneyError(f"Step {i} has a form link with no form chosen. Use Insert form to pick one.")
         if ch in EMAIL_LIKE and i == 1 and not d["subject"]:
             raise JourneyError("The first email needs a subject.")
         if ch in TASK_KINDS and ch != "manual_email" and not d["title"]:
@@ -161,6 +165,7 @@ def rules_of(camp: EmailCampaign) -> Dict[str, Any]:
     for k in LOCKED_RULES:
         r[k] = True
     r["on_not_interested"] = bool(r["on_not_interested"])
+    r["on_form"] = bool(r["on_form"])
     r["unresponsive_days"] = _int(r["unresponsive_days"], 0, 60, 7)
     r["skip_stages"] = [s for s in dict.fromkeys(r.get("skip_stages") or []) if s in STAGES]
     return r
@@ -287,10 +292,12 @@ async def start_task_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrol
     """A manual step is due: it becomes a task and the person waits for it."""
     from app.services.email_worker import render
 
+    from app.services import form_links as FL
+
     kind = step.channel
     notes = render(step.notes or "", enr)
     if kind == "manual_email":
-        body = render(step.body_template or "", enr)
+        body = render(await FL.resolve(db, camp.org_id, enr, step.body_template or ""), enr)
         notes = (f"Subject: {render(step.subject or '', enr)}\n\n{body}" + (f"\n\n{notes}" if notes else "")).strip()
     return await make_task(db, camp, enr, kind=kind, title=render(step.title or TASK_KINDS.get(kind, "Task"), enr), notes=notes,
                            step_key=step.step_key or step.id, now=now)

@@ -1,3 +1,4 @@
+import JobDock from "./hub/JobDock";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
@@ -17,6 +18,7 @@ import { UniversalCallNotificationBanner } from "./hub/PluginHub";
 import { ProfilePage } from "./hub/ProfilePage";
 import { AccountBar } from "./hub/AccountBar";
 import { ListHandoffPrompt } from "./hub/ListHandoffPrompt";
+import { DuplicatesNotice } from "./hub/DuplicatesNotice";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
@@ -439,7 +441,14 @@ function MainApp({ onSignedOut }) {
     window.addEventListener("focus", onVisibilityChange);
 
     // Fallback sync every 3s
-    const interval = setInterval(refreshLiveCalls, 3000);
+    // Only while the page is visible, and only every 30 s while the live connection is healthy.
+    let tick = 0;
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      tick += 1;
+      if (ws && ws.readyState === 1 && tick % 10 !== 0) return;
+      refreshLiveCalls();
+    }, 3000);
 
     return () => {
       if (ws) ws.close();
@@ -813,6 +822,7 @@ function MainApp({ onSignedOut }) {
     <OrgSettingsProvider>
       <SessionGuard onTimeout={handleLogout} busy={liveCalls.length > 0} />
       <ListHandoffPrompt plugin={plugin} />
+      <DuplicatesNotice />
       <AgentWidget />
       {workflowsCtx ? <WorkflowsPage context={workflowsCtx} canEdit={Boolean(operator?.is_admin || (operator?.permissions || {}).company === "full")} onClose={() => setWorkflowsCtx(null)} /> : null}
       {!plugin && (
@@ -924,6 +934,7 @@ function MainApp({ onSignedOut }) {
           </Suspense>
         </div>
       ))}
+      {operator ? <JobDock /> : null}
 
       {/* Universal Floating Incoming Call Banner across ALL Plugins */}
       <UniversalCallNotificationBanner

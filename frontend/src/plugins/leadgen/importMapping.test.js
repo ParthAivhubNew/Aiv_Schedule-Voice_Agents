@@ -107,3 +107,13 @@ describe("people without a company", () => {
     expect(warn.some((w) => /nothing to save/.test(w))).toBe(false);
   });
 });
+
+describe("quarantineCsv", () => {
+  it("lists the refused rows with the reason and keeps a formula inert", async () => {
+    const { quarantineCsv } = await import("./importMapping");
+    const csv = quarantineCsv([{ name: "=SUM(A1)", email: "a@example.com", phone: "", website: "", reasons: ["The email address is an example or test address."] }]);
+    expect(csv.split("\n")[0]).toBe("name,email,phone,website,why");
+    expect(csv.split("\n")[1].startsWith("'=SUM(A1),a@example.com")).toBe(true);
+    expect(csv).toContain("example or test address");
+  });
+});

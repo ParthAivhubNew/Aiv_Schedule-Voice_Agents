@@ -9,12 +9,12 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.models import LeadAccount
-from app.services import company_check_job as job
+from app.services import check_picks, company_check_job as job
 
 router = APIRouter(prefix="/leads/checks", tags=["Leads"])
 
@@ -98,6 +98,37 @@ async def accept_fixes(body: AcceptIn, db: AsyncSession = Depends(get_db)) -> Di
     applied = sum(check_fixes.accept(a, body.fields) for a in rows)
     await db.commit()
     return {"applied": applied}
+
+
+class PickIn(BaseModel):
+    field: str
+    value: str = ""
+    skip: bool = False
+
+
+@router.get("/picks")
+async def list_picks(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Every company where a check found several options and is waiting for the person to choose."""
+    rows = (await db.execute(select(LeadAccount).where(cast(LeadAccount.verification, Text).like('%"pick"%')))).scalars().all()
+    cards = check_picks.as_cards(rows)
+    return {"picks": cards, "count": len(cards)}
+
+
+@router.post("/picks/{account_id}")
+async def answer_pick(account_id: str, body: PickIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    acc = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
+    if not acc or body.field not in check_picks.FIELDS:
+        raise HTTPException(status_code=404, detail="That company or field isn't here any more.")
+    try:
+        if body.skip:
+            check_picks.skip(acc, body.field)
+            chosen = ""
+        else:
+            chosen = check_picks.choose(acc, body.field, body.value)
+    except check_picks.PickError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    await db.commit()
+    return {"ok": True, "chosen": chosen}
 
 
 @router.get("/latest")

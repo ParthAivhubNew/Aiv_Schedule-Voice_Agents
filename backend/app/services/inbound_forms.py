@@ -90,8 +90,8 @@ def clean_domain_list(values: Any) -> List[str]:
 # ── The fields of a form ─────────────────────────────────────────────────────────────────────
 def default_fields() -> List[Dict[str, Any]]:
     return [
-        {"id": "name", "type": "name", "label": "Name", "placeholder": "Full name", "required": True, "maps_to": "contact_name", "options": []},
-        {"id": "email", "type": "email", "label": "Email", "placeholder": "you@company.com", "required": True, "maps_to": "email", "options": []},
+        {"id": "name", "type": "name", "label": "Name", "placeholder": "Full name", "required": True, "maps_to": "contact_name", "options": [], "share_to_company": False},
+        {"id": "email", "type": "email", "label": "Email", "placeholder": "you@company.com", "required": True, "maps_to": "email", "options": [], "share_to_company": False},
     ]
 
 
@@ -132,6 +132,8 @@ def clean_fields(raw: Any) -> List[Dict[str, Any]]:
             "id": fid, "type": ftype, "label": clean_text(f.get("label"), 80) or ftype.title(),
             "placeholder": clean_text(f.get("placeholder"), 120), "required": bool(f.get("required")) or ftype == "email",
             "maps_to": maps, "options": opts,
+            # Only a phone or website can go on the shared company record, and only when the customer turns it on for that question.
+            "share_to_company": bool(f.get("share_to_company")) and maps in ("phone", "website"),
         })
     emails = [f for f in out if f["type"] == "email"]
     if len(emails) != 1:

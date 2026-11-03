@@ -118,9 +118,9 @@ async def test_a_person_with_no_company_can_be_saved_by_their_name(db):
 async def test_two_people_at_one_company_are_two_records_and_the_same_person_is_not_repeated(db):
     _, token = await make_user(db, "imp3", "Admin", org_id="org_imp3")
     async with _client(token) as c:
-        rows = [{"name": "AIVHUB LTD", "contact_name": "Hemant Mehta", "phone": "1", "source": "import"},
-                {"name": "AIVHUB LTD", "contact_name": "Jitendra Mehta", "phone": "2", "source": "import"},
-                {"name": "AIVHUB LTD", "contact_name": "hemant mehta", "phone": "1", "source": "import"}]
+        rows = [{"name": "AIVHUB LTD", "contact_name": "Hemant Mehta", "phone": "0113 496 0101", "source": "import"},
+                {"name": "AIVHUB LTD", "contact_name": "Jitendra Mehta", "phone": "0113 496 0102", "source": "import"},
+                {"name": "AIVHUB LTD", "contact_name": "hemant mehta", "phone": "0113 496 0101", "source": "import"}]
         r = (await c.post("/api/leads/accounts", json={"list_name": "People", "accounts": rows})).json()
         assert r["added"] == 2 and r["repeats"] == 1 and r["list"]["count"] == 2
         again = (await c.post("/api/leads/accounts", json={"list_name": "People", "accounts": rows})).json()

@@ -141,14 +141,14 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state, missed, closed, onOpen }) {
+function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed }) {
   const price = useLookupPrice();
   if (!value && closed) {
     const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
     return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title={`We hold this company's ${kind}. Open it once and it stays visible. Free.`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onOpen(); }}><Icon size={13} /> {state === "busy" ? "Opening…" : `Open ${kind} · free`}</button>;
   }
   if (!value && web) {
-    return <span title="Found by a web search for this company" style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
+    return <span title={confirmed ? "Confirmed by the business, through a form we emailed it" : "Found by a web search for this company"} style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
   const busyHere = state === "busy"; // this cell's own lookup; the other cell in the row is never touched by it
   if (!value && busyHere) return <span style={{ ...muted, fontSize: 12 }}>Looking…</span>;
@@ -280,8 +280,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" web={c.web_website} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} kind="phone" web={c.web_phone} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
@@ -377,13 +377,17 @@ export function SelectionBar({ count, onClear, children }) {
 // The profile of one company, sliding in from the right.
 export function Drawer({ open, title, sub, onClose, actions, avatar, children }) {
   const ref = useRef(null);
+  // The parent passes a new onClose on every render, and it re-renders on a timer. Depending on it here re-ran this effect and
+  // pulled focus back to the drawer in the middle of typing, so the text box stopped taking input. Read it through a ref instead.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return undefined;
-    const esc = (e) => { if (e.key === "Escape") onClose(); };
+    const esc = (e) => { if (e.key === "Escape") closeRef.current(); };
     window.addEventListener("keydown", esc);
     ref.current?.focus();
     return () => window.removeEventListener("keydown", esc);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <>

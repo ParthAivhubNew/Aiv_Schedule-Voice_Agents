@@ -14,7 +14,7 @@ export const TASK_CHANNELS = ["manual_email", "call_task", "task", "social_task"
 export const STATUS_WORDS = { draft: "Draft", running: "Running", paused: "Paused", completed: "Finished" };
 export const STATUS_TONES = { draft: "slate", running: "green", paused: "amber", completed: "blue" };
 export const PERSON_WORDS = {
-  active: "In progress", replied: "Replied", booked: "Booked", completed: "Finished", finished: "Finished", unresponsive: "No answer",
+  active: "In progress", replied: "Replied", booked: "Booked", completed: "Finished", finished: "Finished", unresponsive: "No answer", form_returned: "Sent the form back",
   bounced: "Bounced", unsubscribed: "Opted out", suppressed: "Opted out", blocked: "Blocked",
 };
 export const FINISH_WORDS = {

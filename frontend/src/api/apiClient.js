@@ -7,6 +7,7 @@ import {
   clearSession,
 } from "./authStore";
 import { postEventStream } from "./sseStream";
+import { announceDuplicates } from "../utils/duplicateNotice";
 
 const API_BASE = "/api";
 
@@ -356,7 +357,9 @@ export const api = {
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload, timeoutMs: 90000 }),
   // Leads saved accounts (stored per company on the server)
   listLeadAccounts: () => apiRequest('/leads/accounts'),
-  saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } }),
+  getContactPoints: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/contact-points?_=${Date.now()}`),
+  saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } })
+    .then((r) => { if (r && r.duplicates_total > 0) announceDuplicates({ kind: 'save', total: r.duplicates_total, pairs: r.duplicates || [] }); return r; }),
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
@@ -382,12 +385,16 @@ export const api = {
   checkLeadAccount: (id) => apiRequest(`/leads/checks/account/${encodeURIComponent(id)}`, { method: 'POST', timeoutMs: 120000 }),
   startCompanyCheck: (body) => apiRequest('/leads/checks', { method: 'POST', body, timeoutMs: 30000 }),
   latestCompanyCheck: () => apiRequest('/leads/checks/latest'),
+  checkPicks: () => apiRequest('/leads/checks/picks'),
+  activeJobs: () => apiRequest('/jobs/active'),
+  answerCheckPick: (accountId, body) => apiRequest(`/leads/checks/picks/${encodeURIComponent(accountId)}`, { method: 'POST', body }),
   getCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}`),
   pauseCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
   listLeadLists: () => apiRequest('/leads/lists'),
   createLeadList: (name, ids) => apiRequest('/leads/lists', { method: 'POST', body: { name, ids } }),
-  updateLeadList: (id, changes) => apiRequest(`/leads/lists/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+  updateLeadList: (id, changes) => apiRequest(`/leads/lists/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes })
+    .then((r) => { if (r && r.already > 0) announceDuplicates({ kind: 'list', total: r.already, items: r.already_items || [] }); return r; }),
   // Inbound: web forms
   listInboundForms: () => apiRequest('/inbound/forms'),
   createInboundForm: (name) => apiRequest('/inbound/forms', { method: 'POST', body: { name } }),

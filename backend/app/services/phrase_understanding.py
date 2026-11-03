@@ -48,7 +48,7 @@ _SYSTEM = (
 
 
 def _phrase_key(phrase: str) -> str:
-    return _KEY + hashlib.sha1(phrase.encode("utf-8")).hexdigest()[:20]
+    return _KEY + "v2:" + hashlib.sha1(phrase.encode("utf-8")).hexdigest()[:20]  # v2: earlier answers matched taxi firms for "tax"
 
 
 def normalise_phrase(phrase: Any) -> str:
@@ -164,6 +164,13 @@ async def widen_if_empty(db: AsyncSession, filters: Dict[str, Any], drop_terms: 
     were enough, which is the usual case and costs no AI call at all."""
     typed = business_records.normalize_filters(filters or {})
     out = await run(typed)
+    if not out.get("total") and typed.get("sector") and not typed.get("keyword"):
+        # The trade words were put in "sector" and matched nothing (a typo, or a word the register spells another way):
+        # read them as the keyword, which can be widened, instead of giving up with only the other filters.
+        as_keyword = {**filters, "keyword": typed["sector"], "sector": []}
+        typed = business_records.normalize_filters(as_keyword)
+        filters = as_keyword
+        out = await run(typed)
     if out.get("total") or not typed.get("keyword"):
         return out, []
     wide, reading = await apply(db, filters, drop_terms, scope=scope)

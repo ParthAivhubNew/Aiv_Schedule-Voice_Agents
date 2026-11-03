@@ -112,6 +112,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/enrichment"), "leadgen"),
     (re.compile(r"^/leads(/|$)"), "leadgen"),
     (re.compile(r"^/inbound(/|$)"), "leadgen"),
+    (re.compile(r"^/jobs(/|$)"), None),  # filtered inside by what the organisation has bought
     (re.compile(r"^/scheduler"), "scheduler"),
     (re.compile(r"^/agent/"), None),  # a person's own plans: the handlers check each step against what they may use
     (re.compile(r"^/assistant/voice(/|$)"), "calling"),

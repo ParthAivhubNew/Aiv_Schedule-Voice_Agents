@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import urllib.parse
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
@@ -524,11 +525,19 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
     if (name and not site_check.same_business(name, org.get("name") or "")) or not _is_uk(org):
         return None
     phone = str(org.get("phone") or org.get("sanitized_phone") or ((org.get("primary_phone") or {}).get("number")) or "")
+    # The whole useful answer, kept under Apollo's own source on the company record (not only the phone and website that are shown).
+    keep = ("id", "name", "website_url", "primary_domain", "linkedin_url", "facebook_url", "twitter_url", "phone", "sanitized_phone", "industry",
+            "estimated_num_employees", "founded_year", "short_description", "raw_address", "street_address", "city", "state", "postal_code", "country", "keywords")
+    payload = {k: org.get(k) for k in keep if org.get(k) not in (None, "", [])}
+    if org.get("technology_names"):
+        payload["technology_names"] = list(org["technology_names"])[:80]
+    payload["fetched_at"] = datetime.utcnow().isoformat() + "Z"
     return {
         "name": org.get("name") or "", "address": org.get("raw_address") or "", "phone": phone,
         "website": org.get("website_url") or "", "rating": None, "place_id": f"apollo_{org.get('id') or ''}", "via": "apollo",
         "business_status": "",
         "postcode_match": bool(postcode) and _squash_pc(postcode) == _squash_pc(org.get("postal_code")),
+        "raw": payload,
     }
 
 

@@ -1966,6 +1966,27 @@ class BusinessRecord(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CompanyContactPoint(Base):
+    """Every way to reach or find a company that any source gave us: websites, phones, emails and its pages on LinkedIn, Facebook, X, Instagram and
+    so on, one row each, with which source found it and how sure we are. Shared across organisations like BusinessRecord (public facts about
+    businesses, no org_id). It is a searchable index over what the company record already holds in its sources, so nothing is stored only here:
+    `norm` is the value in one comparable form (a phone as digits, a page address without https, www or a trailing slash), which is what finds
+    the same contact on two company records."""
+    __tablename__ = "company_contact_points"
+    __table_args__ = (UniqueConstraint("business_record_id", "kind", "norm", name="uq_contact_point"),)
+
+    id = Column(String, primary_key=True)
+    business_record_id = Column(String, ForeignKey("business_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False, index=True)  # website, phone, email, linkedin, facebook, x, instagram, youtube, tiktok
+    value = Column(String, nullable=False)  # as the source gave it
+    norm = Column(String, nullable=False, index=True)
+    owner = Column(String, default="")  # a named person it belongs to, when the source said so
+    source = Column(String, default="")  # register, web, linkedin, social, research, apollo, google_places, picked, ...
+    confidence = Column(String, default="found")  # register (a register published it), confirmed (checked on the company's own site), found, picked (a person chose it)
+    found_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+
+
 class PlatformOptOut(Base):
     """A person who asked, on our public opt-out page or through staff, to be left out of the shared business data. Kept
     on purpose after their details are removed: it is how a later import is stopped from putting them back. Not

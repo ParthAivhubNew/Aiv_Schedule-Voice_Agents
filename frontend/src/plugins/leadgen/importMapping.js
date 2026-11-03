@@ -177,3 +177,15 @@ export function rememberMapping(headers, mapping) {
     localStorage.setItem(STORE, JSON.stringify(all));
   } catch (_) {}
 }
+
+// The rows an import refused (each {name, email, phone, website, codes, reasons}) as a CSV the person can fix and bring back.
+// Cells that start like a spreadsheet formula get a leading apostrophe, so opening the file can never run one.
+export function quarantineCsv(rows) {
+  const cell = (v) => {
+    let s = String(v == null ? "" : v);
+    if (/^[=@]/.test(s) || /^[+-]\s*[A-Za-z(\[]/.test(s)) s = `'${s}`;
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const head = ["name", "email", "phone", "website", "why"];
+  return [head.join(","), ...(rows || []).map((r) => [r.name, r.email, r.phone, r.website, (r.reasons || []).join(" ")].map(cell).join(","))].join("\n");
+}

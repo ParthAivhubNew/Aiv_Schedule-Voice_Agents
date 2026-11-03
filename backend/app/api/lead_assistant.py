@@ -56,7 +56,8 @@ TOOLS = [
     _tool("search_companies", "USE to find, narrow or count companies in the UK company register. Give the FULL set of filters (keep the current ones the person "
                               "did not change). Set count_only for audience-size, TAM or how-many questions: it returns the size and how complete the profiles are "
                               "instead of a list. Free. DO NOT use for the person's own saved companies (use my_data) or for businesses outside the register.",
-          {**_FILTER_PROPS, "count_only": {"type": "boolean", "description": "Only size the audience; do not list companies."}}),
+          {**_FILTER_PROPS, "count_only": {"type": "boolean", "description": "Only size the audience; do not list companies."},
+           "limit": {"type": "integer", "description": "How many companies to list when the person asked for a number (\"give me 20\"). 1 to 50. Leave out if they gave none."}}),
     _tool("my_data", "USE for any question about the person's OWN account: pipeline (saved companies by stage), campaigns, replies (how replies were sorted), "
                      "mailboxes (deliverability), follow_ups (due in 7 days), journeys (their journeys and how they are doing), tasks (open journey tasks), company (ONE company from the register by name: what we hold, why to contact it now, its people and contact details; give the name in company) or customer_profile (sectors and towns of their best companies, for lookalikes; "
                      "then call search_companies with what it returns). Free. DO NOT use to find new companies.",
@@ -90,6 +91,7 @@ _SYSTEM = (
     "For lookalikes call my_data with customer_profile and then search_companies with what it returns. "
     "You can call several tools one after another: wait for a tool's result before choosing the next one. Do not repeat a call that already ran. "
     "If a request is missing something you need (what to find, where, or which list), ask ONE short question instead of guessing. "
+    "Never drop the trade the person asked for to get results: if nothing matches, say so and offer other words. When they ask for a number (\"give me 20\"), pass it as limit. "
     "When asked to write emails or a sequence, write them from the business profile with merge fields such as {{first_name}} and {{company}}, never invent facts about a recipient, "
     "and say they can set it up under Outreach. When asked which companies fit best, explain only with the fields a search returned. "
     "If the business profile is not filled in and the request needs it, ask what the business sells and who buys it before guessing. "
@@ -155,13 +157,18 @@ async def _business_line(db: AsyncSession, request: Request) -> str:
 async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services import reveals as RV
 
+    try:
+        asked = min(max(int(args.get("limit") or 0), 0), 50)
+    except (TypeError, ValueError):
+        asked = 0
+    shown = asked or TOP  # the number the person asked for, else a short preview
     filters = business_records.normalize_filters(args)
     try:
         found, _ = await phrase_understanding.widen_if_empty(
-            db, filters, None, lambda f: business_records.search_filtered(db, f, limit=TOP, exclude_ids=[], stats=False))
+            db, filters, None, lambda f: business_records.search_filtered(db, f, limit=shown, exclude_ids=[], stats=False))
     except ValueError as err:
         return {"needs": str(err), "filters": filters, "total": 0, "top": []}
-    return {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"],
+    return {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"], "asked": asked,
             "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
 
 
@@ -302,11 +309,18 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
         t.notes.append(f"The search needs more detail: {res['needs']}")
         t.steps.append({"label": "Tried the company register", "detail": res["needs"], "ms": _ms(t0)})
         return
+    before = (t.found or {}).get("filters") or {}
+    if (before.get("keyword") or before.get("sector")) and not (res["filters"].get("keyword") or res["filters"].get("sector")):
+        # A later search lost the trade the person asked for (it would show every company in the area): keep the earlier answer.
+        t.steps.append({"label": "Skipped a search that lost the trade", "detail": "It would have listed every company in the area", "ms": _ms(t0)})
+        t.notes.append("That search left out the trade the person asked for, so it was not used. Say plainly that nothing matched their trade, and offer to try other words. Never drop the trade to get results.")
+        return
     t.found = res
     t.filters = res["filters"]
     words = " · ".join(lead_filters.describe(res["filters"])) or "your filters"
     t.steps.append({"label": "Searched the company register", "detail": f"{words}: {res['total']:,}{'+' if res.get('capped') else ''} found", "ms": _ms(t0)})
-    t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies. Top results: "
+    t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies"
+                   + (f"; {len(res['top'])} are listed (the person asked for {res['asked']}). Say how many matched in all and how many you list" if res.get("asked") else "") + ". Top results: "
                    + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]) or "none")
                    + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else ""))
 
@@ -559,7 +573,7 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
         "reply": reply, "steps": turn.steps, "proposals": turn.proposals, "took_ms": int((time.time() - started) * 1000),
         "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(turn.proposals), lists=lists, has_profile=has_profile,
                                    asked=body.message, thin=thin, web=body.web_search),
-        "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"]} if found else None),
+        "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"], "asked": found.get("asked", 0)} if found else None),
         "state": {"last_total": found["total"] if found else last.get("last_total"),
                   "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}}
 

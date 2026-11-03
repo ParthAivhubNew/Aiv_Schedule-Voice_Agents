@@ -168,11 +168,18 @@ async def find(db: AsyncSession, *, registration_number: str = "", domain: str =
     return (await db.execute(select(BusinessRecord).where(BusinessRecord.identity_hash == ih))).scalars().first()
 
 
+def own_site(url: Any) -> str:
+    """The web address when it can be a company's own site; empty for a rating site, register or social page (never stored as the company's website)."""
+    u = str(url or "").strip()
+    return "" if u and any(d in u.lower() for d in DIRECTORY_SITES) else u
+
+
 async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confidence_tier: str, data: Dict[str, Any]) -> BusinessRecord:
     """Merge `data` into the shared record for the company it identifies, adding this source's
     citation. Only columns BusinessRecord actually has are ever read out of `data` -- anything
     else the caller passes (a user's own message text, an org's private notes, etc.) is simply
     never looked at, by construction, not by a check that could be skipped."""
+    data = {**data, "website": own_site(data.get("website"))}
     name = _clean(data.get("name"))
     registration_number = _clean(data.get("registration_number"), 60)
     domain = _clean(data.get("domain"), 200).lower()
@@ -228,6 +235,13 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
     except Exception as err:  # semantic search is a convenience; a record must still save without it
         logger.debug(f"[business_records] embedding skipped for {row.id}: {err}")
     await db.flush()
+    try:  # every website, phone, email and page the record now holds is also in the contact list
+        from app.services import contact_points
+
+        async with db.begin_nested():
+            await contact_points.sync(db, row)
+    except Exception as err:
+        logger.debug(f"[business_records] contact list not updated for {row.id}: {err}")
     return row
 
 
@@ -243,6 +257,7 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
     source already found." Skips the per-record embedding upsert() computes -- doing that for
     millions of rows one at a time isn't viable; semantic search still works for any of these
     records once something else (a live lookup, a chat answer) re-confirms them normally."""
+    rows = [({**r, "website": own_site(r.get("website"))} if r.get("website") else r) for r in rows]
     if not rows:
         return 0
     from app.services.optouts import strip_blocked
@@ -313,7 +328,15 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
     })
     # xmax = 0 is how Postgres marks a row this very statement inserted (vs. one it updated).
     stmt = stmt.on_conflict_do_update(index_elements=["identity_hash"], set_=update_cols).returning(literal_column("(xmax = 0)"))
-    return sum(1 for (inserted,) in (await db.execute(stmt)).all() if inserted)
+    new = sum(1 for (inserted,) in (await db.execute(stmt)).all() if inserted)
+    try:  # the contacts of this batch go in the contact list too, so a load never leaves companies out of it
+        from app.services import contact_points
+
+        async with db.begin_nested():
+            await contact_points.bulk_add(db, values)
+    except Exception as err:  # the list can always be rebuilt (scripts/sync_contact_points.py): it must never stop an import
+        logger.warning(f"[business_records] contact list not updated for a batch: {err}")
+    return new
 
 
 async def lookup_scrape(db: AsyncSession, *, query: str, scope: str = "leadgen") -> Optional[BusinessRecord]:
@@ -437,6 +460,8 @@ FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved")
 COUNT_CAP = 10_000
+DIRECTORY_SITES = ("food.gov.uk", "facebook.com", "yell.com", "tripadvisor.", "linkedin.com", "instagram.com", "twitter.com", "companieshouse.gov.uk",
+                   "company-information.service.gov.uk", "google.com/maps", "192.com", "yelp.")
 _NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
 
 
@@ -456,9 +481,21 @@ def _number_forms(term: str) -> List[str]:
     return [t.zfill(8)] if t.isdigit() else [t.upper()]
 
 
-def _by_name_or_number(term: str, *cols: Any) -> Any:
-    """The term in any of these columns, or, when it is a company number, the register's number exactly (uses the index)."""
-    hits = [c.ilike(_like(term), escape="\\") for c in cols]
+_SHORT_WORD = re.compile(r"[A-Za-z]{2,5}")
+
+
+def _whole_word(term: str, col: Any) -> Any:
+    """A short word must be a word on its own: "tax" is not "Stax" or "Taxi". Longer words keep the plain contains match."""
+    t = str(term).strip()
+    if _SHORT_WORD.fullmatch(t):
+        return col.op("~*")(r"\m" + t + r"\M")
+    return col.ilike(_like(term), escape="\\")
+
+
+def _by_name_or_number(term: str, *cols: Any, words: bool = False) -> Any:
+    """The term in any of these columns, or, when it is a company number, the register's number exactly (uses the index).
+    With `words`, a short term must match whole words in every column ("tax" is not "Taxi operation")."""
+    hits = [(_whole_word(term, c) if words else c.ilike(_like(term), escape="\\")) for c in cols]
     forms = _number_forms(term)
     if forms:
         hits.append(BusinessRecord.registration_number.in_(forms))
@@ -482,6 +519,8 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             values = [re.sub(r"\D", "", v) for v in values if re.sub(r"\D", "", v)]
         if key == "size_bands":
             values = [v for v in values if v in {"micro", "small", "medium_large", "dormant"}]
+        if key in ("keyword", "sector", "not_keyword"):
+            values = [v for v in values if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2]
         if values:
             out[key] = values
     for key in ("status", "company_category", "name_contains"):
@@ -505,22 +544,66 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _postcode_match(prefix: str) -> Any:
+    """LS1 means the LS1 district (LS1 4AB), never LS10 to LS19. A prefix with a space, or ending in a letter (LS, LS1 4), is read as typed."""
+    p = prefix.strip().upper()
+    if " " not in p and p[-1:].isdigit():
+        return or_(BusinessRecord.postcode == p, BusinessRecord.postcode.like(_like(p, exact=True) + " %", escape="\\"))
+    return BusinessRecord.postcode.like(_like(p, prefix_only=True), escape="\\")
+
+
+def check_filters(filters: Dict[str, Any]) -> None:
+    """Refuses a search that could only hang or mislead, with words the person can act on. Raises ValueError."""
+    raw = filters or {}
+    for key in ("keyword", "name_contains", "sector"):
+        given = _as_list(raw.get(key))
+        if given and not [t for t in given if len(re.sub(r"[^0-9A-Za-z]", "", t)) >= 2]:
+            raise ValueError("Type at least two letters or digits to search.")
+    lo, hi = raw.get("min_age_years"), raw.get("max_age_years")
+    for v in (lo, hi):
+        try:
+            if v not in (None, "") and float(v) < 0:
+                raise ValueError("A company's age can't be negative.")
+        except (TypeError, ValueError) as err:
+            if "negative" in str(err):
+                raise
+    try:
+        if lo not in (None, "") and hi not in (None, "") and float(lo) > float(hi):
+            raise ValueError("The youngest age is above the oldest. Swap them.")
+    except (TypeError, ValueError) as err:
+        if "youngest" in str(err):
+            raise
+
+
 def _filter_conditions(f: Dict[str, Any]) -> list:
     B = BusinessRecord
     conds = []
     if f["status"].lower() != "any":
         conds.append(func.lower(B.status) == f["status"].lower())
     if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the sector
-        conds.append(or_(*[_by_name_or_number(t, B.name, B.sic_text, B.industry) for t in f["keyword"]]))
+        from app.services import search_synonyms
+
+        clauses = []
+        for typed in f["keyword"]:
+            words, sics = search_synonyms.expand(typed)  # accountancy = accounting = accountants = the accounting SIC codes
+            clauses += [_by_name_or_number(w, B.name, B.sic_text, B.industry, words=True) for w in words]
+            clauses += [B.sic_codes.like(f"%|{c}%") for c in sics]
+        conds.append(or_(*clauses))
     if f.get("sector"):
-        conds.append(or_(*[or_(B.sic_text.ilike(_like(t), escape="\\"), B.industry.ilike(_like(t), escape="\\"))
-                           for t in f["sector"]]))
+        from app.services import search_synonyms
+
+        clauses = []
+        for typed in f["sector"]:
+            words, sics = search_synonyms.expand(typed)  # the same trade words and SIC codes as the keyword box
+            clauses += [or_(_whole_word(w, B.sic_text), _whole_word(w, B.industry)) for w in words]
+            clauses += [B.sic_codes.like(f"%|{c}%") for c in sics]
+        conds.append(or_(*clauses))
     if f.get("sic_codes"):
         conds.append(or_(*[B.sic_codes.like(f"%|{_like(c, exact=True)}%", escape="\\") for c in f["sic_codes"]]))
     if f.get("towns"):
         conds.append(or_(*[B.region.ilike(_like(t, exact=True), escape="\\") for t in f["towns"]]))
     if f.get("postcode_prefixes"):
-        conds.append(or_(*[B.postcode.like(_like(p.upper(), prefix_only=True), escape="\\") for p in f["postcode_prefixes"]]))
+        conds.append(or_(*[_postcode_match(p) for p in f["postcode_prefixes"]]))
     if f.get("company_category"):
         conds.append(B.company_category.ilike(_like(f["company_category"]), escape="\\"))
     if f.get("size_bands"):
@@ -543,10 +626,12 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
     for key, col in (("has_website", B.website), ("has_email", B.email), ("has_phone", B.phone)):
         if f.get(key):
             conds.append(func.coalesce(col, "") != "")
+    if f.get("has_website"):  # a rating site, register or social page saved as the "website" is not the company's own
+        conds.append(~or_(*[B.website.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
     # "Is none of": the same columns as the matching include filters, negated.
     if f.get("not_keyword"):
-        conds.append(~or_(*[or_(B.name.ilike(_like(t), escape="\\"), func.coalesce(B.sic_text, "").ilike(_like(t), escape="\\"),
-                                func.coalesce(B.industry, "").ilike(_like(t), escape="\\")) for t in f["not_keyword"]]))
+        conds.append(~or_(*[or_(_whole_word(t, B.name), _whole_word(t, func.coalesce(B.sic_text, "")),
+                                _whole_word(t, func.coalesce(B.industry, ""))) for t in f["not_keyword"]]))
     if f.get("not_towns"):
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
@@ -679,6 +764,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     least one narrowing filter (sector, SIC code, town, postcode or name) -- "every active company
     in the UK" is not a search. Returns the page, the (capped) total, and the normalised filters
     actually applied, so the caller can show them back to the user."""
+    check_filters(filters)
     f = normalize_filters(filters)
     conds = _filter_conditions(f)
     if exclude_ids:
@@ -712,6 +798,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
 async def search_summary(db: AsyncSession, filters: Dict[str, Any]) -> Dict[str, Any]:
     """The figures that sit beside a page of results but are slower to count: the real total (past 10,000), how many are Full,
     Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen."""
+    check_filters(filters)
     f = normalize_filters(filters)
     where = and_(*_filter_conditions(f))
     if db.get_bind().dialect.name == "postgresql":
@@ -733,6 +820,7 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     facts; emails and phones are never here, they are found (and charged) per person."""
     from app.services import company_contacts as CC
 
+    check_filters(filters)
     f = normalize_filters(filters)
     B = BusinessRecord
     base = and_(*_filter_conditions(f))
@@ -750,7 +838,7 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     people = []
     for biz in rows:
         for o in CC.active_officers(biz.officers):
-            if word and word not in (o["role"] or "").lower() and word not in o["name"].lower():
+            if word and not re.search(r"" + re.escape(word) + r"", (o["role"] or "").lower()) and word not in o["name"].lower():  # a whole word: "cto" is not "Director"
                 continue
             people.append({**o, "company": biz})
     fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*order).limit(25))).scalars().all()
@@ -786,7 +874,7 @@ async def districts_for_town(db: AsyncSession, town: str, include_closed: bool =
     if not include_closed:
         where.append(func.lower(B.status) == "active")
     if db.get_bind().dialect.name == "postgresql":
-        await db.execute(text("SET LOCAL statement_timeout = '15s'"))
+        await db.execute(text("SET LOCAL statement_timeout = '6s'"))
     rows = (await db.execute(select(code, func.count()).where(*where).group_by(code))).all()
     out = [{"district": d, "count": int(n)} for d, n in sorted(rows, key=lambda r: _natural(r[0])) if d]
     if len(_DISTRICTS) > 500:
@@ -803,6 +891,7 @@ async def _area_conditions(db: AsyncSession, filters: Dict[str, Any], poly, excl
     """The filter conditions plus 'in one of the districts this shape touches'; None when it touches none."""
     from app.services import geocoding
 
+    check_filters(filters)
     f = normalize_filters(filters)
     outcodes = await geocoding.outcodes_for_area(poly)
     if not outcodes:

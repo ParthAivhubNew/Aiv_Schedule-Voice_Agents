@@ -390,9 +390,11 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const endRef = useRef(null);
   const boxRef = useRef(null);
   const spoken = useRef({ base: "" }); // what was already in the box when the mic was turned on
-  const mic = useSpeech((said) => setInput(`${spoken.current.base}${spoken.current.base && said ? " " : ""}${said}`));
+  const typedOver = useRef(false); // once the person types while the mic is on, later speech results must not overwrite their text
+  const mic = useSpeech((said) => { if (!typedOver.current) setInput(`${spoken.current.base}${spoken.current.base && said ? " " : ""}${said}`); });
   const toggleMic = () => {
     if (mic.listening) { mic.stop(); return; }
+    typedOver.current = false;
     spoken.current.base = input.trim();
     mic.start();
     boxRef.current?.focus();
@@ -754,7 +756,8 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                   {m.found ? (
                     <div className="as-card">
                       <div style={{ ...text, fontWeight: 600 }}>{m.found.total.toLocaleString()}{m.found.capped ? "+" : ""} {m.found.total === 1 ? "company" : "companies"} found</div>
-                      {(m.found.top || []).slice(0, 5).map((c) => (
+                      {m.found.top && m.found.top.length < m.found.total ? <div style={{ ...muted, fontSize: 12.5 }}>Showing {m.found.top.length} of {m.found.total.toLocaleString()}{m.found.capped ? "+" : ""}</div> : null}
+                      {(m.found.top || []).slice(0, m.found.asked || 5).map((c) => (
                         <div key={c.id} className="as-hit">
                           <span style={{ ...text, fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
                           <span style={{ ...muted, flex: "none" }}>{c.region || ""}</span>
@@ -832,7 +835,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
             ) : null}
             <div className="as-box">
               <textarea ref={boxRef} rows={1} value={input} placeholder={cfg.placeholder} aria-label="Message the assistant"
-                onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} />
+                onChange={(e) => { if (mic.listening) { typedOver.current = true; mic.stop(); } setInput(e.target.value); }} onKeyDown={onKey} />
               {mic.supported ? <button type="button" className="as-mic" data-on={mic.listening} aria-pressed={mic.listening} aria-label={mic.listening ? "Stop listening" : "Speak your message"} title={mic.listening ? "Stop listening" : "Speak your message"} onClick={toggleMic}><Mic size={15} /></button> : null}
               {busy ? <button type="button" className="as-send" aria-label="Stop" title="Stop" onClick={stop}><Square size={13} fill="currentColor" /></button>
                 : <button type="button" className="as-send" aria-label="Send" disabled={!input.trim()} onClick={() => send()}><ArrowUp size={16} /></button>}

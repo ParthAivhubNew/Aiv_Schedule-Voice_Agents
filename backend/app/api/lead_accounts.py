@@ -20,7 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
+from app.services import lead_cleaner
 from app.services import business_lookup, business_records, site_check
+from app.services import contact_points as CP
 from app.services import reveals as RV
 from app.services import social_lookup as SL
 from app.services.person_record import is_person_account, is_role_inbox
@@ -547,6 +549,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         card = lead_filters.card(biz)
     if not got and not note and not _options(biz, "website", got):
         note = "We couldn't find a website for this company right now. Try again later." + _closest(web)
+    await CP.sync_safely(db, biz)  # every website, phone, email and page found is also listed, searchable, on its own
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
             "options": _options(biz, "website", got)}
@@ -647,6 +650,7 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     if got and not web.get("cached"):
         await _charge_leads(db, 1, f"Email for {biz.name}")
         charged = 1
+    await CP.sync_safely(db, biz)
     shown = _options(biz, "email", got)
     return {"found": got, "source": "web" if got else "", "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
             "note": "" if got or shown else "We couldn't find an email for this company right now. Try again later."}
@@ -670,10 +674,16 @@ async def _keep_place(db: AsyncSession, biz: BusinessRecord, place: Dict[str, An
     """Save what the company's own site confirmed from a deeper search. It goes on the company the person is looking at: the shared
     record the search is filed under is matched by name and postcode, and a register row without a registration number would
     otherwise get a second, separate record while its own row stayed empty."""
-    shared = await business_records.upsert(
-        db, source_id=f"{place.get('via') or 'google_places'}:{place['place_id']}", source_type=place.get("via") or "google_places", confidence_tier="scraped",
-        data={"name": biz.name, "registration_number": biz.registration_number, "postcode": biz.postcode, "website": confirmed.get("website"),
-              "phone": confirmed.get("phone"), "region": biz.region})
+    source_id = f"{place.get('via') or 'google_places'}:{place['place_id']}"
+    data = {"name": biz.name, "registration_number": biz.registration_number, "postcode": biz.postcode, "website": confirmed.get("website"),
+            "phone": confirmed.get("phone"), "region": biz.region}
+    if place.get("raw"):
+        data["raw"] = place["raw"]  # everything Apollo returned about the company is kept under its own source, not just the two details used
+    shared = await business_records.upsert(db, source_id=source_id, source_type=place.get("via") or "google_places", confidence_tier="scraped", data=data)
+    if shared.id != biz.id and place.get("raw"):
+        raw = dict(biz.raw_data or {})
+        raw[source_id] = place["raw"]
+        biz.raw_data = raw
     if shared.id != biz.id:
         if confirmed.get("website") and not (biz.website or "").strip():
             biz.website = _clean(confirmed.get("website"), 300)
@@ -747,6 +757,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         card = lead_filters.card(biz)
     if not got and not note and not _options(biz, "phone", got):
         note = "We couldn't find a phone number for this company right now. Try again later."
+    await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
             "options": _options(biz, "phone", got)}
@@ -843,8 +854,34 @@ async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Dep
         raise HTTPException(status_code=422, detail="Pick a website, phone, email or LinkedIn page.")
     await db.commit()
     picked_by = await CH.record(db, biz.id, kind_key, value)
+    await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": True, "charged": charged, "picked_by": picked_by, "company": await RV.mask_one(db, lead_filters_card(biz))}
+
+
+@router.get("/companies/{company_id}/contact-points")
+async def company_contact_points(company_id: str, db: AsyncSession = Depends(get_db)):
+    """Every website, phone, email and social page any source gave us for this company, with which source and how sure. A phone, email or
+    website the register holds stays hidden until it is opened (free, once), the same as in the company row. `shared_with` lists other
+    company records holding the same page, phone or email: usually the same company saved twice."""
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    points = await CP.for_company(db, company_id)
+    if not points:  # a company nobody has looked at since the list was introduced: fill it from what the record already holds
+        await CP.sync_safely(db, biz)
+        points = await CP.for_company(db, company_id)
+    seen = await RV.opened(db, [company_id])
+    out: List[Dict[str, Any]] = []
+    hidden = 0
+    for p in points:
+        if p["kind"] in RV.KINDS and p["source"] in ("record", "register") and (company_id, p["kind"]) not in seen:
+            hidden += 1
+            out.append({**p, "value": "", "hidden": True})
+        else:
+            out.append(p)
+    shared = [{**x, "value": x["value"] if x["kind"] in CP.PAGE_KINDS else ""} for x in await CP.shared_with(db, company_id)]
+    return {"points": out, "hidden": hidden, "shared_with": shared}
 
 
 class LinkedinIn(BaseModel):
@@ -873,6 +910,7 @@ async def find_linkedin(company_id: str, body: LinkedinIn = LinkedinIn(), db: As
         await _charge_leads(db, 1, f"LinkedIn for {biz.name}")
         charged = 1
     note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "We couldn't find a LinkedIn page right now. Try again later.")
+    await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()  # the rows remembered for searches carry the links
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note}
 
@@ -902,6 +940,7 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
         charged = 1
     label = "a LinkedIn page" if body.network == "linkedin" else f"{'an' if SL.NETWORKS[body.network]['label'][0] in 'AEIOUX' else 'a'} {SL.NETWORKS[body.network]['label']}"
     note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"We couldn't find {label} right now. Try again later.")
+    await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note, "company": await RV.mask_one(db, lead_filters_card(biz))}
 
@@ -929,6 +968,42 @@ def _place(region: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (region or "").lower()).strip()
 
 
+def phone_key(value: Any) -> str:
+    """A phone number as digits only, in one form, so "0113 496 0101" and "+44 113 496 0101" are the same number. "" when it is too short to mean anything."""
+    d = re.sub(r"\D", "", str(value or ""))
+    if d.startswith("0044"):
+        d = d[4:]
+    elif d.startswith("44") and len(d) >= 11:
+        d = d[2:]
+    d = d.lstrip("0")
+    return d if len(d) >= 9 else ""
+
+
+def _card(name: str, website: str, phone: str, email: str, contact: str, place: str) -> Dict[str, str]:
+    return {"name": name or "", "website": website or "", "phone": phone or "", "email": email or "", "contact": contact or "", "place": place or ""}
+
+
+def _duplicate_pairs(dups: List[tuple], added: List[LeadAccount], limit: int = 300) -> List[Dict[str, Any]]:
+    """What was not added because it is already saved: for each, the row that was sent and the saved company it matched, so the person
+    can see both. Only the first `limit` are listed (the count of all of them is `duplicates_total`)."""
+    return [{"duplicate": _card(it.name, it.website, it.phone, it.email, it.contact_name, it.region), "why": how, "original_id": hit}
+            for it, hit, how in dups[:limit]]
+
+
+@router.post("/accounts/check")
+async def check_accounts(body: AccountsIn):
+    """Checks imported rows without saving anything: which are clean, which carry warnings, which would be quarantined, and why."""
+    if len(body.accounts) > MAX_PER_REQUEST:
+        raise HTTPException(status_code=400, detail=f"Check at most {MAX_PER_REQUEST} rows at a time.")
+    rows = []
+    for i, item in enumerate(body.accounts):
+        v = lead_cleaner.check_row(item.model_dump())
+        rows.append({"row": i, "name": _clean(item.name), "status": "quarantined" if v["hard"] else "warnings" if v["warn"] else "clean",
+                     "hard": v["hard"], "warn": v["warn"], "reasons": lead_cleaner.explain(v["hard"] + v["warn"])})
+    return {"clean": sum(r["status"] == "clean" for r in rows), "warnings": sum(r["status"] == "warnings" for r in rows),
+            "quarantined": sum(r["status"] == "quarantined" for r in rows), "rows": rows}
+
+
 @router.post("/accounts")
 async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     """Save one or many accounts. A company already saved (same website, or same name when there
@@ -937,15 +1012,24 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     and a company that was only found by a search is now marked as imported, because it is in the user's file."""
     if len(body.accounts) > MAX_PER_REQUEST:
         raise HTTPException(status_code=400, detail=f"Save at most {MAX_PER_REQUEST} accounts at a time.")
-    existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region, LeadAccount.business_record_id, LeadAccount.contact_name))).all()
+    existing = (await db.execute(select(LeadAccount.id, LeadAccount.domain, LeadAccount.name, LeadAccount.region, LeadAccount.business_record_id, LeadAccount.contact_name,
+                                        LeadAccount.email, LeadAccount.phone))).all()
     # Each identity maps to every saved record that has it: one company can hold several people (a call list of contacts at the
     # same firm), and a name that is already saved for someone else is a different record, not a copy.
-    contact_of: Dict[str, str] = {i: (c or "").strip().lower() for i, _, _, _, _, c in existing}
+    contact_of: Dict[str, str] = {row[0]: (row[5] or "").strip().lower() for row in existing}
+    name_of: Dict[str, str] = {row[0]: (row[2] or "").strip().lower() for row in existing}
+    domain_of: Dict[str, str] = {row[0]: row[1] or "" for row in existing}
+    by_email: Dict[str, List[str]] = {}  # the same address is the same contact
+    by_phone: Dict[str, List[str]] = {}  # a number alone is not enough (a switchboard is shared): it needs the same company name too
     by_domain: Dict[Any, List[str]] = {}
     by_biz: Dict[Any, List[str]] = {}  # the registry record is the most exact identity a company has
     by_name: Dict[Any, List[str]] = {}
     no_site: Dict[Any, List[str]] = {}  # saved without a website
-    for i, d, n, r, b, _ in existing:
+    for i, d, n, r, b, _c, em, ph in existing:
+        if (em or "").strip():
+            by_email.setdefault(em.strip().lower(), []).append(i)
+        if phone_key(ph):
+            by_phone.setdefault(phone_key(ph), []).append(i)
         k = ((n or "").strip().lower(), _place(r))
         if d:
             by_domain.setdefault(d, []).append(i)
@@ -968,9 +1052,12 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     skipped = 0
     unnamed = 0  # rows with no name or website: nothing to save
     repeats = 0  # the same company twice in what was sent (e.g. a file listing it on two rows)
+    dups: List[tuple] = []  # (the row that was not added, the saved company it matched, why): shown to the person afterwards
     fresh: set = set()
     claimed = {i.business_record_id for i in body.accounts if i.business_record_id}
     known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
+    quarantined: List[Dict[str, Any]] = []  # imported rows that failed a hard check: not saved, listed with the reason
+    warned = 0
     for item in body.accounts:
         website = _clean(item.website)
         domain = _domain(website)
@@ -979,12 +1066,39 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             skipped += 1
             unnamed += 1
             continue
+        if item.source == "import":
+            verdict = lead_cleaner.check_row(item.model_dump())
+            if verdict["hard"]:
+                skipped += 1
+                quarantined.append({"name": name, "email": _clean(item.email, 200), "phone": _clean(item.phone, 60), "website": website,
+                                    "codes": verdict["hard"], "reasons": lead_cleaner.explain(verdict["hard"])})
+                continue
+            warned += bool(verdict["warn"])
         key = (name.lower(), _place(item.region))
         person = _clean(item.contact_name, 120).lower()
-        hit = (find(by_biz.get(item.business_record_id), person) if item.business_record_id else None) or find(by_domain.get(domain) if domain else by_name.get(key), person)
+        hit = (find(by_biz.get(item.business_record_id), person) if item.business_record_id else None)
+        how = "Same company on the register" if hit else ""
+        if not hit:
+            hit = find(by_domain.get(domain) if domain else by_name.get(key), person)
+            how = "Same website" if hit and domain else "Same name and place" if hit else ""
         if not hit and domain:
             hit = find(no_site.get(key), person)  # the same firm saved earlier without a website, now arriving with one
+            how = "Same company, saved earlier without a website" if hit else ""
+        email = _clean(item.email, 200).lower()
+        if not hit and email:
+            # An address that belongs to one person is the same contact wherever it turns up. A shared inbox (info@, sales@) only counts
+            # for the same company, because two different firms can both have one.
+            for cand in by_email.get(email, []):
+                if find([cand], person) and (not is_role_inbox(email) or name_of.get(cand) == name.lower() or (domain and domain_of.get(cand) == domain)):
+                    hit, how = cand, "Same email address"
+                    break
+        if not hit and phone_key(item.phone):
+            for cand in by_phone.get(phone_key(item.phone), []):
+                if find([cand], person) and name_of.get(cand) == name.lower():
+                    hit, how = cand, "Same phone number and company name"
+                    break
         if hit:
+            dups.append((item, hit, how))
             skipped += 1
             if hit in fresh or hit in matched:
                 repeats += 1
@@ -1006,6 +1120,12 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         added.append(row)
         fresh.add(row.id)
         contact_of[row.id] = person
+        name_of[row.id] = name.lower()
+        domain_of[row.id] = domain
+        if row.email:
+            by_email.setdefault(row.email, []).append(row.id)
+        if phone_key(row.phone):
+            by_phone.setdefault(phone_key(row.phone), []).append(row.id)
         if domain:
             by_domain.setdefault(domain, []).append(row.id)
         else:
@@ -1038,8 +1158,16 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
 
     for a in added[:200]:  # workflows hear about each company saved (the first 200 of a big import)
         _C.emit(current_org(), "lead.created", {"id": a.id, "lead_id": a.id}, a.id)
-    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "accounts": [_out(a) for a in added],
-                           "updated": [_out(a) for a in updated]}
+    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "quarantined": quarantined, "warned": warned, "accounts": [_out(a) for a in added],
+                           "updated": [_out(a) for a in updated], "duplicates": _duplicate_pairs(dups, added), "duplicates_total": len(dups)}
+    # The saved company each duplicate matched, so both are shown side by side.
+    want = {d["original_id"] for d in out["duplicates"]}
+    if want:
+        mine = {a.id: a for a in added}
+        saved = {r.id: r for r in (await db.execute(select(LeadAccount).where(LeadAccount.id.in_([i for i in want if i not in mine])))).scalars().all()}
+        for d in out["duplicates"]:
+            r = mine.get(d["original_id"]) or saved.get(d["original_id"])
+            d["original"] = _card(r.name, r.website, r.phone, r.email, r.contact_name, r.region) if r else None
     if body.list_id or body.list_name.strip():
         from app.api.lead_lists import put_in_list
 
@@ -1130,7 +1258,7 @@ async def quick_check_account(account_id: str, db: AsyncSession = Depends(get_db
 
 @router.post("/accounts/{account_id}/deep-search")
 async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db)):
-    """"Deep web search": one structured lookup against Google's places data (2 Leads credits
+    """"Deep web search": one structured lookup against Google's places data (5 Leads credits
     when it finds something -- shown to the user only as "Deep web search", never by vendor
     name). Checks our own shared store first, same as /research; whatever it finds is saved
     back to that store so the next lookup for this company is free."""

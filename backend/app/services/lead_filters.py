@@ -129,6 +129,9 @@ def card(biz) -> Dict[str, Any]:
         # Only a phone the guardrail passed is shown. A lookup from before it existed (no `guardrail` mark) holds phones nobody checked.
         "web_email": (lambda cw: str(next(iter(cw.get("emails") or []), "") or "") if cw.get("guardrail") else "")((biz.raw_data or {}).get("contacts_web") or {}),
         "web_phone": (lambda cw: str(next(iter(cw.get("phones") or []), "") or "") if cw.get("guardrail") else "")((biz.raw_data or {}).get("contacts_web") or {}),
+        # A phone or website the business itself gave through a form we emailed it (only where that question was marked to be shared).
+        "confirmed_phone": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("phone") or ""),
+        "confirmed_website": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("website") or ""),
     }
 
 

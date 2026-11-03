@@ -150,6 +150,12 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
                           {MAP_CHOICES.filter(([k]) => k !== "email").map(([k, name]) => <option key={k} value={k}>{name}</option>)}
                         </select></div>
                     ) : null}
+                    {f.maps_to === "phone" || f.maps_to === "website" ? (
+                      <label style={{ ...text, fontSize: 13, display: "flex", gap: 8, alignItems: "flex-start" }} htmlFor={`sh_${f.id}`}>
+                        <input id={`sh_${f.id}`} type="checkbox" style={{ marginTop: 3 }} checked={!!f.share_to_company} onChange={(e) => setField(f.id, { share_to_company: e.target.checked })} />
+                        <span>Add this answer to the company's details, shown as confirmed by the business. Only used when the form is opened from a link in an email you sent, and the form tells the person.</span>
+                      </label>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

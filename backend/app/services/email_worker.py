@@ -233,6 +233,9 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         if re.search(r"\{\{\s*booking_?link\s*\}\}", (step.body_template or "") + (step.subject or ""), re.I):
             link = await booking_link_for(db, org_id, enr)  # empty without the Voice plan, so no broken link goes out
         subject_tpl, body_tpl = J.pick_version(enr, step)
+        from app.services import form_links as FL  # {{form_link:ID}} becomes this person's own link to that form
+
+        subject_tpl, body_tpl = await FL.resolve(db, org_id, enr, subject_tpl), await FL.resolve(db, org_id, enr, body_tpl)
         subject = render(subject_tpl, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
         body = render(body_tpl, enr, link)
         from app.services.enrichment_waterfall import classify_pecr_entity

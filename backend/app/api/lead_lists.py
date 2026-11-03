@@ -166,8 +166,13 @@ async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_d
     hit["updated_at"] = datetime.utcnow().isoformat() + "Z"
     await _save(db, lists)
     # What really happened, so the screen never says "added 36" when 11 were already there and 2 are not saved companies.
+    already_ids = [i for i in wanted if i in real and i in before]
+    shown = already_ids[:300]
+    rows = {r.id: r for r in (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(shown)))).scalars().all()} if shown else {}
+    already_items = [{"id": i, "name": rows[i].name, "website": rows[i].website or "", "phone": rows[i].phone or "", "email": rows[i].email or "",
+                      "contact": rows[i].contact_name or "", "place": rows[i].region or ""} for i in shown if i in rows]
     return {"list": hit, "added": len([i for i in wanted if i in real and i not in before]),
-            "already": len([i for i in wanted if i in real and i in before]), "missing": len([i for i in wanted if i not in real])}
+            "already": len(already_ids), "missing": len([i for i in wanted if i not in real]), "already_items": already_items}
 
 
 @router.delete("/{list_id}")

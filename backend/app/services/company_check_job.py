@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 
 from app.core.tenancy import current_org, org_scope
-from app.services import check_fixes
+from app.services import check_fixes, check_picks
 from app.services import company_check as cc
 from app.services import credits as credit
 
@@ -291,7 +291,10 @@ async def _web_research(account_id: str, result: Dict[str, Any]) -> int:
             if not acc:
                 return 0
             await _apply_shared_record(db, acc)
+            before = {"phone": acc.phone or "", "email": acc.email or ""}
             found = await research_into(db, acc)
+            if found:
+                check_picks.add_picks(acc, before, result)  # several phones or emails: keep them for the person to choose
             await db.commit()
             return 1 if found else 0
     except Exception as err:

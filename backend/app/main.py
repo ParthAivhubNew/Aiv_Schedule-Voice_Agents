@@ -75,6 +75,7 @@ from app.api.partners import router as partners_router
 from app.api.embed import router as embed_router
 from app.api.embed_connect import router as embed_connect_router
 from app.api.v1_public import router as v1_public_router
+from app.api.jobs import router as jobs_router
 from app.api.inbound_forms import public_router as inbound_public_router, router as inbound_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
@@ -945,6 +946,7 @@ app.include_router(agent_router, prefix=settings.API_PREFIX)
 app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(inbound_router, prefix=settings.API_PREFIX)
+app.include_router(jobs_router, prefix=settings.API_PREFIX)
 app.include_router(inbound_public_router, prefix=settings.API_PREFIX)  # /api/f/<key>: a published web form, no sign-in
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)

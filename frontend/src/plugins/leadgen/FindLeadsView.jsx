@@ -1,3 +1,4 @@
+import { searchKey, skipRepeat } from "./searchGuard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
@@ -366,6 +367,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const dropFor = useRef("");
   // Every search can be cancelled: a newer run id makes the older one's answer be ignored when it arrives.
   const runId = useRef(0);
+  const runSig = useRef(""); // the search now running
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
 
@@ -435,7 +437,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (e) e.preventDefault();
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
-    if (busy && !force) return;
+    // A different search pressed while one is running replaces it (the old answer is dropped); only an exact repeat is ignored.
+    const sig = searchKey(formToFilters(f), offset, shape);
+    if (skipRepeat(busy, force, sig, runSig.current)) return;
+    runSig.current = sig;
     // New words start with a fresh reading; removing a word from the reading keeps the others as they are.
     let drop = dropOverride;
     if (drop === undefined) {
@@ -902,7 +907,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           <FilterGroup title="Size (filed accounts)" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
               {SIZE_OPTIONS.map(([id, name]) => (
-                <button key={id} type="button" title="Only companies of this size" className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
+                <button key={id} type="button" title={`Only ${name} companies`} aria-label={`Size: ${name}`} className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
                   style={form.sizes.includes(id) ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
               ))}
             </div>
@@ -920,7 +925,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             </div>
             {check("includeClosed", "Include closed / dissolved")}
           </FilterGroup>
-          <FilterGroup title="Contact details on file" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
+          <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
             {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
           </FilterGroup>
           <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")}>
@@ -1006,7 +1011,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
               ) : null}
             </div>
-            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="The best-first ranking of the register has not been prepared on the server yet, so the newest companies are shown first">Newest first (best-match ranking not ready)</span> : null}
+            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Sort

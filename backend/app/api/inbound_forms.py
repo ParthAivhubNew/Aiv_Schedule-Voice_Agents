@@ -202,7 +202,33 @@ async def _published(key: str) -> Optional[Dict[str, Any]]:
 
 
 def _public_fields(fields: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{k: f[k] for k in ("id", "type", "label", "placeholder", "required", "options")} for f in fields]
+    return [{**{k: f[k] for k in ("id", "type", "label", "placeholder", "required", "options")}, "share": bool(f.get("share_to_company"))} for f in fields]
+
+
+async def _link_context(f: Dict[str, Any], t: str) -> Optional[Dict[str, Any]]:
+    """What a personal link (from an email) says about the visitor: their email and name, and who sent it. None for a link
+    without a token, or one that was altered, expired, or belongs to another form."""
+    from app.services import form_links as FL
+
+    tok = FL.read_token(t) if t else None
+    if not tok or tok["form_id"] != f["id"] or tok["org_id"] != f["org_id"]:
+        return None
+    from sqlalchemy import text as sql
+
+    from app.models.models import EmailEnrollment
+
+    name = company = sender = ""
+    try:
+        with org_scope(f["org_id"]):
+            async with AsyncSessionLocal() as db:
+                enr = await db.get(EmailEnrollment, tok["enrollment_id"]) if tok["enrollment_id"] else None
+                if enr is not None:
+                    name, company = f"{enr.first_name or ''} {enr.last_name or ''}".strip(), enr.company or ""
+                row = (await db.execute(sql("SELECT name FROM organizations WHERE id = :i"), {"i": f["org_id"]})).first()
+                sender = (row[0] if row else "") or ""
+    except Exception:
+        pass  # the form still works without the pre-fill
+    return {"email": tok["email"], "name": name, "company": company, "sender": sender}
 
 
 def _client_ip(request: Request) -> str:
@@ -236,17 +262,35 @@ async def submit(key: str, request: Request):
     except ValueError:
         return JSONResponse({"detail": "That answer could not be read."}, status_code=400)
     thanks = f["settings"].get("thanks") or "Thanks, we got your details."
+    from app.services import form_links as FL
+
+    tok = None
+    token_raw = str(data.pop("_t", "") or "") if isinstance(data, dict) else ""
+    if token_raw:  # the form was opened from a personal link in an email
+        tok = FL.read_token(token_raw)
+        if not tok or tok["form_id"] != f["id"] or tok["org_id"] != f["org_id"]:
+            return JSONResponse({"detail": "This link has expired. Ask the sender for a new one."}, status_code=410)
     if isinstance(data, dict) and data.get(IF.HONEYPOT):
         return {"ok": True, "thanks": thanks}  # a bot: look like success, store nothing
     answers, errors = IF.validate_answer(f["fields"], f["settings"], data)
     if errors:
         return JSONResponse({"detail": "Please check the form.", "errors": errors}, status_code=422)
     email = IF.email_of(f["fields"], answers)
+    if tok:  # the address in the link is the one the email went to: the person cannot send an answer as someone else
+        email = tok["email"]
+        for fld in f["fields"]:
+            if fld["type"] == "email":
+                answers[fld["id"]] = email
     with org_scope(f["org_id"]):
         async with AsyncSessionLocal() as db:
             if await IF.submissions_today(db, f["id"]) >= int(f["settings"].get("daily_limit") or IF.DEFAULT_DAILY_LIMIT):
                 return JSONResponse({"detail": "This form is not taking answers right now. Please try again later."}, status_code=429)
-            same = (await db.execute(select(InboundSubmission.id).where(
+            if tok:  # one answer per person per personal link
+                done = (await db.execute(select(InboundSubmission.id).where(
+                    InboundSubmission.form_id == f["id"], InboundSubmission.email == email, InboundSubmission.reason == "email link"))).first()
+                if done:
+                    return {"ok": True, "thanks": thanks}
+            same = None if tok else (await db.execute(select(InboundSubmission.id).where(
                 InboundSubmission.form_id == f["id"], InboundSubmission.email == email,
                 InboundSubmission.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)))).first()
             if same:
@@ -254,6 +298,12 @@ async def submit(key: str, request: Request):
             sub = InboundSubmission(id=f"sub_{uuid.uuid4().hex[:16]}", form_id=f["id"], schema_version=f["version"], payload=answers,
                                     email=email, status="pending", ip_hash=IF.ip_hash(ip))
             db.add(sub)
+            if tok:  # it came from our own email: no email check, it goes straight to the lead it was sent to
+                await db.flush()
+                form = await db.get(InboundForm, f["id"])
+                await FL.attach(db, sub, form, tok)
+                await db.commit()
+                return {"ok": True, "thanks": thanks}
             await db.commit()
             sub_id = sub.id
     IF.start_review(f["org_id"], sub_id)
@@ -261,12 +311,14 @@ async def submit(key: str, request: Request):
 
 
 @public_router.get("/{key}/page")
-async def form_page(key: str):
+async def form_page(key: str, t: str = ""):
     f = await _published(key)
     if not f:
         return HTMLResponse("<!doctype html><meta charset=utf-8><title>Form not available</title><p style='font:16px system-ui;padding:24px'>This form is not available.</p>", status_code=404)
     page = _PAGE.replace("__TITLE__", html.escape(f["name"])).replace("__KEY__", json.dumps(key)).replace("__FIELDS__", json.dumps(_public_fields(f["fields"])).replace("</", "<\\/")) \
         .replace("__THANKS__", json.dumps(f["settings"].get("thanks", "")).replace("</", "<\\/")).replace("__HP__", IF.HONEYPOT)
+    ctx = await _link_context(f, t) if t else None
+    page = page.replace("__PREFILL__", json.dumps({**ctx, "t": t} if ctx else None).replace("</", "<\\/"))
     return HTMLResponse(page, headers={
         "Content-Security-Policy": IF.frame_ancestors(f["settings"]) + "; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'",
         "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
@@ -285,12 +337,13 @@ input:focus,select:focus{outline:2px solid #2b2926;outline-offset:1px}
 .chk{display:flex;gap:10px;align-items:flex-start;font-weight:400;margin-top:14px}.chk input{margin-top:4px}
 .err{color:#b4121f;font-size:13px;margin-top:4px}button{margin-top:20px;padding:12px 20px;border:0;border-radius:8px;background:#2b2926;color:#fff;font:inherit;font-weight:600;cursor:pointer;min-height:44px}
 button[disabled]{opacity:.6;cursor:default}.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.ok{padding:32px 16px;text-align:center;font-size:18px}
+.from{color:#6b6762;font-size:14px;margin:-8px 0 8px}
 </style></head><body>
 <form id="f" novalidate><h1>__TITLE__</h1><div id="fields"></div><div class="hp" aria-hidden="true"><label>Leave this empty<input type="text" name="__HP__" tabindex="-1" autocomplete="off"></label></div>
 <div class="err" id="top" role="alert"></div><button type="submit" id="go">Submit</button></form>
 <div class="ok" id="done" hidden role="status"></div>
 <script>
-var KEY=__KEY__,FIELDS=__FIELDS__,THANKS=__THANKS__;
+var KEY=__KEY__,FIELDS=__FIELDS__,THANKS=__THANKS__,PREFILL=__PREFILL__;
 var box=document.getElementById("fields"),form=document.getElementById("f");
 FIELDS.forEach(function(f){
   var w=document.createElement("div"),id="q_"+f.id,el;
@@ -301,10 +354,11 @@ FIELDS.forEach(function(f){
     el.id=id;w.appendChild(el);}
   var e=document.createElement("div");e.className="err";e.id="e_"+f.id;w.appendChild(e);box.appendChild(w);
 });
+if(PREFILL){FIELDS.forEach(function(f){var el=document.getElementById("q_"+f.id);if(!el)return;if(f.type==="email"){el.value=PREFILL.email;el.readOnly=true;}else if(f.type==="name"&&PREFILL.name){el.value=PREFILL.name;}if(f.share){var n=document.createElement("div");n.className="from";n.textContent="This will be added to the company details, shown as confirmed by you.";el.parentNode.appendChild(n);}});if(PREFILL.sender){var p=document.createElement("p");p.className="from";p.textContent="Sent to you by "+PREFILL.sender+".";var h=document.querySelector("h1");h.parentNode.insertBefore(p,h.nextSibling);}}
 form.addEventListener("submit",function(ev){
   ev.preventDefault();var body={},go=document.getElementById("go");
   FIELDS.forEach(function(f){var el=document.getElementById("q_"+f.id);body[f.id]=f.type==="checkbox"?el.checked:el.value;document.getElementById("e_"+f.id).textContent="";});
-  body["__HP__"]=form.elements["__HP__"].value;document.getElementById("top").textContent="";go.disabled=true;
+  body["__HP__"]=form.elements["__HP__"].value;if(PREFILL)body._t=PREFILL.t;document.getElementById("top").textContent="";go.disabled=true;
   fetch("/api/f/"+encodeURIComponent(KEY)+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){return{s:r.status,j:j};});}).then(function(x){
     if(x.s===200){form.hidden=true;var d=document.getElementById("done");d.textContent=x.j.thanks||THANKS||"Thanks.";d.hidden=false;return;}
     go.disabled=false;var er=x.j.errors||{};Object.keys(er).forEach(function(k){var t=document.getElementById("e_"+k);if(t)t.textContent=er[k];});
