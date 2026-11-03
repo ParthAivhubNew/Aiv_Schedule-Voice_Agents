@@ -54,6 +54,7 @@ import {
   ListChecks,
   Bot,
   Workflow,
+  PanelRightOpen,
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
@@ -62,9 +63,11 @@ import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
+import { BulkActions, CallListSummary, ContactPanel } from "./CallListTools";
+import { filterCalls, rowAsAccount } from "./callListLogic";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
-import { openWorkflows } from "../../../workflows/openWorkflows";
+import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
@@ -91,7 +94,8 @@ import { LiveCallCard, LIVE_CARD_KEYFRAMES } from "./LiveCallCard";
 import { CallSummary } from "./CallSummary";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../../utils/route";
 import { watchTooltips } from "../../../utils/autoTooltips";
-import { CALL_LIST_STAGED, peekCallList, setOpenList, takeCallList } from "../../../utils/leadToVoice";
+import { CALL_LIST_STAGED, peekCallList, setOpenList, stageCallList, takeCallList } from "../../../utils/leadToVoice";
+import { useConnection } from "../../../hooks/useConnections";
 import { openLead } from "../../../connections/ConnectedHome";
 
 // `section` = which permission section must be at least "view" to see the page.
@@ -1148,7 +1152,10 @@ export function CallingWorkspace({
   const chatHintTimer = useRef(null);
   const copiedTimer = useRef(null);
   const extras = useMemo(() => extraHeaders(headers), [headers]);
-  const shownRows = useMemo(() => filterRows(rows, checkFilter), [rows, checkFilter]);
+  const [statusFilter, setStatusFilter] = useState("all"); // the chips above the list: how each contact's last call went
+  const [search, setSearch] = useState("");
+  const [panelRowId, setPanelRowId] = useState(""); // the contact whose side panel is open
+  const shownRows = useMemo(() => filterCalls(filterRows(rows, checkFilter), { status: statusFilter, q: search }, rowPhone), [rows, checkFilter, statusFilter, search]);
   // The list is read a page at a time, so a long one is never one long scroll. The size is remembered in the browser.
   const ROW_PAGE_SIZES = [10, 15, 25, 50];
   const [rowPageSize, setRowPageSize] = useState(() => {
@@ -1158,11 +1165,12 @@ export function CallingWorkspace({
   const rowLastPage = Math.max(0, Math.ceil(shownRows.length / rowPageSize) - 1);
   const rowPage = Math.min(rowPageNo, rowLastPage);
   const pagedRows = useMemo(() => shownRows.slice(rowPage * rowPageSize, (rowPage + 1) * rowPageSize), [shownRows, rowPage, rowPageSize]);
-  useEffect(() => { setRowPageNo(0); }, [checkFilter, fileName]);
+  useEffect(() => { setRowPageNo(0); }, [checkFilter, fileName, statusFilter, search]);
+  useEffect(() => { setStatusFilter("all"); setSearch(""); setPanelRowId(""); }, [fileName]);
   // Phones show each contact as a card; this one has its fields open for editing.
   const [editRowId, setEditRowId] = useState("");
   const showChecks = useMemo(() => hasChecks(rows), [rows]);
-  useEffect(() => { if (checkFilter && rows.length && !shownRows.length) setCheckFilter(""); }, [checkFilter, rows.length, shownRows.length]);
+  useEffect(() => { if (checkFilter && rows.length && !filterRows(rows, checkFilter).length) setCheckFilter(""); }, [checkFilter, rows]);
   const activeCountryObj = useMemo(() => {
     return COUNTRY_CODES.find((c) => c.code === countryCode) || {
       code: countryCode,
@@ -1759,14 +1767,18 @@ export function CallingWorkspace({
     setEditText("");
   };
 
-  const tallyRow = (r, logRows) => {
+  // The calls in the log that were to this contact: the same last seven digits, or the same name.
+  const callsFor = (r, logRows) => {
     const d = digitsInPhone(rowPhone(r));
     const names = [r.company, r.contact, r.name].map((x) => String(x || "").toLowerCase()).filter((n) => n.length > 3);
-    const hits = (logRows || []).filter((l) => {
+    return (logRows || []).filter((l) => {
       const blob = `${logDisplayName(l)} ${l.canonicalName || ""} ${l.listedAs || ""} ${l.personListedAs || ""} ${l.mission || ""}`.toLowerCase();
       if (d && d.length >= 7 && blob.replace(/\D/g, "").includes(d.slice(-7))) return true;
       return names.some((n) => blob.includes(n.slice(0, 28)));
     });
+  };
+  const tallyRow = (r, logRows) => {
+    const hits = callsFor(r, logRows);
     return { callTimes: hits.length, lastOutcome: hits[0] ? String(hits[0].outcome || "") : (r.lastOutcome || "") };
   };
 
@@ -1845,6 +1857,13 @@ export function CallingWorkspace({
     });
     setRowPageNo(Number.MAX_SAFE_INTEGER); // clamped to the last page, where the new row is
     showToast("Row added — type into the cells.");
+  };
+
+  const removeRows = (ids) => {
+    const gone = new Set(ids);
+    setRows((prev) => prev.filter((r) => !gone.has(r.id)));
+    setSelectedIds(new Set());
+    showToast(`${ids.length} contact${ids.length === 1 ? "" : "s"} removed from this list.`);
   };
 
   const removeRow = (id) => {
@@ -1966,7 +1985,7 @@ export function CallingWorkspace({
   };
 
   const selectAllDialable = () => {
-    setSelectedIds(new Set(rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).map((r) => r.id)));
+    setSelectedIds(new Set(shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).map((r) => r.id)));
   };
 
   const clearSelection = () => setSelectedIds(new Set());
@@ -2103,6 +2122,38 @@ export function CallingWorkspace({
       showToast("Opened " + item.name);
     } catch (e) {
       showToast(e.message || "Could not open that list.");
+    }
+  };
+
+  // The company lists built in Leads, shown beside Voice's own. Opening one asks the server which of its companies can be called now (the same
+  // check Leads uses) and hands them to the call list the way "Review in Voice first" does.
+  const leadsLink = useConnection("call_leads");
+  const [leadLists, setLeadLists] = useState([]);
+  const [leadBusy, setLeadBusy] = useState("");
+  useEffect(() => {
+    if (!leadsLink.available) { setLeadLists([]); return undefined; }
+    let alive = true;
+    api.listLeadLists().then((r) => { if (alive) setLeadLists((r.lists || []).filter((l) => (l.ids || []).length)); }).catch(() => { if (alive) setLeadLists([]); });
+    return () => { alive = false; };
+  }, [leadsLink.available, page]);
+  const openLeadList = async (l) => {
+    setLeadBusy(l.id);
+    try {
+      const plan = await api.previewListCalls(l.id, {});
+      const people = plan.people || [];
+      if (!people.length) { showToast(plan.skipped_text ? `Nobody on “${l.name}” can be called right now: ${plan.skipped_text}.` : `Nobody on “${l.name}” can be called right now.`); return; }
+      const skipped = Object.values(plan.skipped || {}).reduce((n, ids) => n + (ids || []).length, 0);
+      const ok = stageCallList({
+        name: l.name,
+        headers: ["Company name", "Contact name", "Phone", "Email", "Website", "Lead ID"],
+        records: people.map((p) => ({ "Company name": p.name || "", "Contact name": p.contact || "", "Phone": p.phone || "", "Email": p.email || "", "Website": p.website || "", "Lead ID": p.id })),
+        skipped,
+      });
+      if (!ok) showToast("Couldn't open that list.");
+    } catch (e) {
+      showToast(e.message || "Couldn't open that list.");
+    } finally {
+      setLeadBusy("");
     }
   };
 
@@ -2479,7 +2530,7 @@ export function CallingWorkspace({
     const useSelected = selectedDialable >= 2;
     const pool = useSelected
       ? rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7)
-      : rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7);
+      : shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7);
     const prospects = pool.map((r) => {
       const phone = rowPhone(r);
       return {
@@ -2720,8 +2771,9 @@ export function CallingWorkspace({
   const activeLive = liveCalls.filter(liveActive);
   const recentEnded = liveCalls.filter((c) => !liveActive(c) && !String(c.id || "").includes("pending_")).slice(0, 8);
   const dialable = rows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).length;
+  const shownDialable = shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).length; // what "Call" starts when nothing is ticked: the contacts the filter shows
   const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7).length;
-  const allDialableSelected = dialable > 0 && selectedDialable === dialable;
+  const allDialableSelected = shownDialable > 0 && shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).every((r) => selectedIds.has(r.id));
   const filteredLogs = useMemo(() => {
     const q = logQuery.trim().toLowerCase();
     return (logs || []).filter((l) => {
@@ -2738,6 +2790,7 @@ export function CallingWorkspace({
   const logPageCount = Math.max(1, Math.ceil(filteredLogs.length / LOG_PAGE_SIZE));
   const logPageNo = Math.min(logPage, logPageCount);
   const pagedLogs = filteredLogs.slice((logPageNo - 1) * LOG_PAGE_SIZE, logPageNo * LOG_PAGE_SIZE);
+  const workflowsOn = useWorkflowsOpen();
   const titles = {
     assistant: ["AI Assistant", "Ask in plain words. It reads your calls, lists, schedule and numbers, and changes nothing: for that it takes you to the right screen."],
     list: ["Call list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
@@ -2794,7 +2847,6 @@ export function CallingWorkspace({
               </React.Fragment>
             );
           })}
-          <div className="ui-nav-label">Automation</div>
           <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: false, onClick: () => openWorkflows({ from: "voice", event: "call.completed" }) }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
@@ -2831,9 +2883,9 @@ export function CallingWorkspace({
           .calling-scroll::-webkit-scrollbar-thumb { background: #CBD1D9; border-radius: 99px; }
           .calling-scroll::-webkit-scrollbar-track { background: transparent; }
         `}</style>
-        <div style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
+        <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
           <MobileNavButton nav={nav} />
-          {page === "list" && !pluginLocked ? (
+          {page === "list" && !pluginLocked && !workflowsOn ? (
             <div style={{ position: "relative", flexShrink: 0 }}>
               <button type="button" className="ui-title-btn" onClick={() => setOpenMenu((m) => (m === "lists" ? "" : "lists"))} aria-haspopup="menu" aria-expanded={openMenu === "lists"} title="Saved lists">
                 {titles.list[0]} <ChevronDown size={16} />
@@ -2862,15 +2914,15 @@ export function CallingWorkspace({
               ) : null}
             </div>
           ) : (
-            <h1 style={{ margin: 0, fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em", color: C.textInk, whiteSpace: "nowrap" }}>{titles[page]?.[0] || titles.list[0]}</h1>
+            <h1 style={{ margin: 0, fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em", color: C.textInk, whiteSpace: "nowrap" }}>{workflowsOn ? WORKFLOWS_HEADER[0] : (titles[page]?.[0] || titles.list[0])}</h1>
           )}
           <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {page === "list"
+            {workflowsOn ? WORKFLOWS_HEADER[1] : page === "list"
               ? (rows.length ? `${fileName ? `${fileName} · ` : ""}${rows.length} contact${rows.length === 1 ? "" : "s"} · ${dialable} with a phone` : titles.list[1])
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
+            {page !== "assistant" && !pluginLocked && !workflowsOn ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
                 notifications={notifications}
@@ -3302,6 +3354,16 @@ export function CallingWorkspace({
                           <button type="button" className="ui-btn ui-btn--ghost" onClick={saveSelectedContacts}>
                             <Bookmark size={15} /> Save to contacts
                           </button>
+                          <BulkActions
+                            selected={rows.filter((r) => selectedIds.has(r.id))}
+                            phoneOf={rowPhone}
+                            leadsOn={leadsLink.available}
+                            leadLists={leadLists}
+                            listName={fileName}
+                            onToast={showToast}
+                            onRemove={removeRows}
+                            onLeadListsChanged={() => api.listLeadLists().then((r) => setLeadLists((r.lists || []).filter((l) => (l.ids || []).length))).catch(() => {})}
+                          />
                         </>
                       ) : (
                         <>
@@ -3341,7 +3403,7 @@ export function CallingWorkspace({
                           </div>
                         </>
                       )}
-                      {dialable > 0 ? (
+                      {shownDialable > 0 ? (
                         <button
                           type="button"
                           className="ui-btn ui-btn--primary"
@@ -3358,10 +3420,40 @@ export function CallingWorkspace({
                             ? "Placing…"
                             : selectedDialable
                               ? `Call ${selectedDialable} selected`
-                              : `Call ${dialable} contact${dialable === 1 ? "" : "s"}`}
+                              : `Call ${shownDialable} contact${shownDialable === 1 ? "" : "s"}`}
                         </button>
                       ) : null}
                     </div>
+                  ) : null}
+                  {panelRowId && rows.find((r) => r.id === panelRowId) ? (() => {
+                    const pr = rows.find((r) => r.id === panelRowId);
+                    const pPhone = rowPhone(pr);
+                    return (
+                      <ContactPanel
+                        row={pr}
+                        phone={pPhone}
+                        calls={callsFor(pr, logs)}
+                        leadsOn={leadsLink.available}
+                        needNumber={needNumber}
+                        onClose={() => setPanelRowId("")}
+                        onCall={() => callOneRow({ ...pr, phone: pPhone })}
+                        onText={() => openChannel("sms", pPhone, pr.contact || pr.name, pr.company || brandForMsg())}
+                        onWhatsApp={() => openChannel("whatsapp", pPhone, pr.contact || pr.name, pr.company || brandForMsg())}
+                        onToast={showToast}
+                        onAddToLeads={async () => {
+                          try {
+                            const res = await api.saveLeadAccounts([rowAsAccount(pr, pPhone)], fileName || "Call list");
+                            const id = res?.accounts?.[0]?.id;
+                            if (id) setRows((prev) => prev.map((x) => (x.id === pr.id ? { ...x, leadId: id } : x)));
+                            api.listLeadLists().then((r) => setLeadLists((r.lists || []).filter((l) => (l.ids || []).length))).catch(() => {});
+                            showToast(res?.added ? "Added to Leads." : "Already in Leads.");
+                          } catch (e) { showToast(e.message || "Couldn't add it to Leads."); }
+                        }}
+                      />
+                    );
+                  })() : null}
+                  {rows.length ? (
+                    <CallListSummary rows={rows} phoneOf={rowPhone} status={statusFilter} setStatus={setStatusFilter} q={search} setQ={setSearch} onToast={showToast} />
                   ) : null}
                   {rows.length ? (
                     <NumberCheckBar
@@ -3426,6 +3518,9 @@ export function CallingWorkspace({
 
                 {!rows.length ? (
                   <CallListsView
+                    leadLists={leadLists}
+                    leadBusy={leadBusy}
+                    onOpenLead={openLeadList}
                     lists={savedLists}
                     loading={listsLoading}
                     onOpen={(l) => loadList(l.id)}
@@ -3488,6 +3583,12 @@ export function CallingWorkspace({
                       );
                     })}
                   </div>
+                  {rows.length && !shownRows.length ? (
+                    <div role="status" style={{ padding: "18px 16px", fontSize: 13.5, color: C.slate }}>
+                      No contacts match{search ? ` “${search}”` : ""}{statusFilter !== "all" ? " in this status" : ""}.{" "}
+                      <button type="button" className="ui-link" onClick={() => { setStatusFilter("all"); setSearch(""); }}>Show everyone</button>
+                    </div>
+                  ) : null}
                   <GridTools id="voice-call-list" className="phone-gone" />
                   <div className="calling-scroll phone-gone" style={{ flex: 1, minHeight: 180 }}>
                     <table className="ui-table">
@@ -3608,6 +3709,9 @@ export function CallingWorkspace({
                                       </button>
                                     </>
                                   ) : null}
+                                  <button type="button" className="ui-icon-btn ui-icon-btn--sm" onClick={() => setPanelRowId(r.id)} title="Open this contact: calls, stage and notes" aria-label={`Open ${r.company || r.contact || "contact"}`}>
+                                    <PanelRightOpen size={15} />
+                                  </button>
                                   <button type="button" className="ui-icon-btn ui-icon-btn--sm" onClick={() => removeRow(r.id)} title="Remove row">
                                     <Trash2 size={15} />
                                   </button>

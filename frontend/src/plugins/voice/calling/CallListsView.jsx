@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { CardsSkeleton } from "../../../app/Loader";
-import { Copy, FileSpreadsheet, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Building2, Copy, FileSpreadsheet, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { C } from "../../../tokens";
 
 const PAGE_SIZE = 6;
@@ -16,7 +16,7 @@ function ago(iso) {
 }
 
 // The Call list screen when no list is open: every saved list as a card, and a way to bring in a new one.
-export function CallListsView({ lists, loading, onOpen, onImport, onNew, onRename, onDuplicate, onDelete, onFindWithAi }) {
+export function CallListsView({ lists, leadLists = [], leadBusy = "", onOpenLead, loading, onOpen, onImport, onNew, onRename, onDuplicate, onDelete, onFindWithAi }) {
   const [menu, setMenu] = useState("");
   const [pageNo, setPageNo] = useState(0);
   const pages = Math.max(1, Math.ceil(lists.length / PAGE_SIZE));
@@ -77,6 +77,36 @@ export function CallListsView({ lists, loading, onOpen, onImport, onNew, onRenam
       </div>
 
       {loading && !lists.length ? <CardsSkeleton count={4} label="Loading your lists" /> : null}
+
+      {leadLists.length ? (
+        <section aria-label="Company lists from Leads" style={{ display: "grid", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.textInk }}>Company lists from Leads</div>
+            <div style={{ fontSize: 12.5, color: C.slate }}>The lists you built in Leads. Open one to call the companies on it that can be called now.</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
+            {leadLists.map((l) => (
+              <div key={l.id} className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 6, display: "grid", placeItems: "center", background: "#F1ECFE", color: "#7C3AED", flexShrink: 0 }}>
+                    <Building2 size={16} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: C.textInk, overflowWrap: "anywhere" }}>{l.name}</div>
+                    <div style={{ fontSize: 12, color: C.slate }}>From Leads</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12.5, color: C.slate, fontVariantNumeric: "tabular-nums" }}>
+                  <strong style={{ color: C.textInk, fontWeight: 600 }}>{(l.ids || []).length.toLocaleString()}</strong> compan{(l.ids || []).length === 1 ? "y" : "ies"}
+                </div>
+                <button type="button" className="ui-btn ui-btn--secondary" style={{ marginTop: "auto" }} disabled={Boolean(leadBusy)} onClick={() => onOpenLead(l)} title={`Open ${l.name} here and call from it`}>
+                  {leadBusy === l.id ? "Opening..." : "Open"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {pages > 1 ? (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 12.5, color: C.slate }}>

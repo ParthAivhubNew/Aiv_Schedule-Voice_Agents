@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blankAction, blankWorkflow, problem, summary } from "./workflowModel";
+import { blankAction, blankWorkflow, chipText, problem, summary } from "./workflowModel";
 
 const meta = {
   event_info: { "call.completed": { label: "A call finished", hint: "When a call ends", lead: true, outcomes: ["no_answer"] }, "post.published": { label: "A post went live", hint: "When a post goes live", lead: false, outcomes: [] } },
@@ -34,5 +34,12 @@ describe("summary", () => {
   it("reads as one line: when, the result, then each block", () => {
     const w = ok({ when: { outcome: "no_answer" }, do: [{ type: "action", action: "follow_up", value: "x", days: 2 }, { type: "wait", hours: 48 }, { type: "if", cond: { field: "stage", op: "is", value: "new" }, then: [], else: [] }] });
     expect(summary(w, meta)).toBe("When a call ends: no answer → Plan a follow-up for the lead, then Wait 2 days, then If stage is new");
+  });
+});
+
+describe("chipText", () => {
+  it("shows what both paths of an if do", () => {
+    const b = { type: "if", cond: { field: "stage", op: "is", value: "new" }, then: [{ type: "action", action: "notify", value: "x" }], else: [{ type: "action", action: "set_stage", value: "won" }] };
+    expect(chipText(b, meta)).toBe("If stage is new: Send me a notification, otherwise Move the lead to a stage");
   });
 });

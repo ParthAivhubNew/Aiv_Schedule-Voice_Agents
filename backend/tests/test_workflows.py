@@ -270,7 +270,7 @@ async def test_the_page_gets_every_event_action_filter_and_template_and_each_wor
         await _fire(org, "call.completed", {"lead_id": "la_w1", "id": "c1"})
         meta = (await c.get("/api/together/workflows")).json()
     assert set(meta["event_info"]) >= {"call.completed", "meeting.booked", "campaign.reply", "email.opened", "lead.created", "post.published"}
-    assert {"follow_up", "webhook", "send_email"} <= set(meta["action_info"]) and "in_list" in meta["condition_fields"] and len(meta["templates"]) >= 10
+    assert {"follow_up", "webhook", "send_email"} <= set(meta["action_info"]) and "in_list" in meta["condition_fields"] and 6 <= len(meta["templates"]) <= 8
     assert meta["workflows"][0]["id"] == saved[0]["id"] and meta["workflows"][0]["stats"]["runs"] == 1 and meta["workflows"][0]["stats"]["last"].endswith("Z")
 
 
@@ -324,3 +324,36 @@ async def test_the_chat_writes_a_workflow_as_a_card_and_saves_nothing_until_it_i
         chat_fakes["plan"] = {"success": True, "reply": "", "tool_calls": [bad]}
         r = (await c.post("/api/assistant/voice/ask", json={"message": "x"})).json()
         assert [p for p in r["proposals"] if p["kind"] == "workflow"] == []
+
+
+async def test_a_second_meeting_for_the_same_lead_is_not_mistaken_for_a_repeat(db):
+    org = "org_wf_m"
+    await _lead(db, org, id="la_m")
+    await _save(db, org, _rule(name="Meeting", event="meeting.booked", do=[{"type": "action", "action": "add_note", "value": "Booked"}]))
+    await _fire(org, "meeting.booked", {"meeting": {"id": "m1", "lead_id": "la_m"}})
+    await _fire(org, "meeting.booked", {"meeting": {"id": "m2", "lead_id": "la_m"}})
+    await _fire(org, "meeting.booked", {"meeting": {"id": "m2", "lead_id": "la_m"}})  # the same one delivered twice
+    assert len(await _runs(db, org)) == 2
+
+
+async def test_a_workflow_that_fails_the_rules_cannot_delete_the_saved_ones(db):
+    org = "org_wf_s"
+    await _save(db, org, _rule(name="Keep me"))
+    _, token = await make_user(db, "wfs1", "Admin", org_id=org)
+    async with _client(token) as c:
+        before = (await c.get("/api/together/workflows")).json()["workflows"]
+        bad = _rule(name="Bad hook", do=[{"type": "action", "action": "notify", "value": ""}])
+        r = await c.put("/api/together/workflows", json={"workflows": [{k: v for k, v in before[0].items() if k != "stats"}, bad]})
+        assert r.status_code == 400 and "Bad hook" in r.json()["detail"]
+        after = (await c.get("/api/together/workflows")).json()["workflows"]
+    assert [w["name"] for w in after] == ["Keep me"] == [w["name"] for w in before]
+
+
+async def test_an_event_with_no_matching_company_leaves_a_skipped_run_that_says_why(db):
+    org = "org_wf_n"
+    await _save(db, org, _rule(name="Calls"))
+    await _fire(org, "call.completed", {"to": "+440000000000", "id": "c9"})
+    (status, lines, _), = await _runs(db, org)
+    assert status == "skipped" and "no company" in lines[0][1]
+    await _fire(org, "call.completed", {"to": "+440000000000", "id": "c9"})  # the same event again
+    assert len(await _runs(db, org)) == 1

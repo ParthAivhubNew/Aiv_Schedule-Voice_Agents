@@ -387,7 +387,9 @@ async def advance(db: AsyncSession, org_id: str, run: WorkflowRun, rule: Dict[st
 
 
 def _key(rule: Dict[str, Any], event: str, data: Dict[str, Any], lead: Optional[LeadAccount]) -> str:
-    return f"{rule['id']}:{event}:{data.get('id') or data.get('call_id') or ''}:{lead.id if lead else ''}"[:240]
+    # Meetings, campaigns and posts arrive nested ({"meeting": {...}}), so their id is one level down; without it a second one looked like a repeat.
+    nested = next((data[k].get("id") for k in ("meeting", "campaign", "post", "reply") if isinstance(data.get(k), dict) and data[k].get("id")), "")
+    return f"{rule['id']}:{event}:{data.get('id') or data.get('call_id') or nested or ''}:{lead.id if lead else ''}"[:240]
 
 
 async def _blocked_why(db: AsyncSession, rule: Dict[str, Any], lead: Optional[LeadAccount], key: str) -> str:
@@ -419,6 +421,14 @@ async def on_event(org_id: str, event: str, data: Dict[str, Any]) -> None:
         if EVENT_INFO.get(event, {}).get("lead"):
             lead = await C.lead_for(db, lead_id=str(data.get("lead_id") or (data.get("meeting") or {}).get("lead_id") or ""), phone=str(data.get("to") or ""), email=_email_of(event, data))
             if lead is None:
+                # No company matched (a call to a number we do not hold, say). Say so in Activity instead of showing nothing.
+                for rule in rules:
+                    key = _key(rule, event, data, None)
+                    if (await _blocked_why(db, rule, None, key)) == DUPLICATE:
+                        continue
+                    db.add(WorkflowRun(workflow_id=rule["id"], workflow_name=rule["name"], event=event, event_key=key, lead_id="", lead_name="", status="skipped",
+                                       queue=[], log=[_line("Skipped", "no company in your list matches this event", ok=True)]))
+                await db.commit()
                 return
         for rule in rules:
             key = _key(rule, event, data, lead)
@@ -536,31 +546,20 @@ def _a(action: str, value: str = "", **kw: Any) -> Dict[str, Any]:
 
 
 TEMPLATES: List[Dict[str, Any]] = [
-    {"id": "t_meeting", "name": "Meeting booked: move the lead and plan the prep", "about": "Moves the lead to Meeting and reminds you to prepare the day before.",
+    {"id": "t_meeting", "name": "Move to Meeting and plan the prep", "about": "Moves the lead to Meeting, reminds you to prepare the day before, and tells you.",
      "event": "meeting.booked", "when": {}, "do": [_a("set_stage", "meeting"), _a("follow_up", "Prepare for the meeting with {{company}}", days=1), _a("notify", "A meeting was booked with {{company}}.")]},
-    {"id": "t_interested", "name": "Interested reply: tell me and plan a follow-up", "about": "When someone replies interested, you are told at once and a follow-up is planned.",
-     "event": "campaign.reply", "when": {"outcome": "interested"}, "do": [_a("set_stage", "interested"), _a("notify", "{{company}} replied and is interested."), _a("follow_up", "Reply to {{company}}", days=1)]},
-    {"id": "t_notinterested", "name": "Not interested: close the lead", "about": "Moves a lead who said no to Lost and leaves a note.",
-     "event": "campaign.reply", "when": {"outcome": "not_interested"}, "do": [_a("set_stage", "lost"), _a("add_note", "Replied: not interested.")]},
-    {"id": "t_unsub", "name": "Unsubscribe: never contact again", "about": "Puts anyone who unsubscribes on the do-not-contact list.",
-     "event": "campaign.reply", "when": {"outcome": "unsubscribe"}, "do": [_a("add_dnc", "Unsubscribed")]},
-    {"id": "t_callback", "name": "Callback requested: plan the call back", "about": "Plans a callback for tomorrow and tells you.",
-     "event": "call.completed", "when": {"outcome": "callback_requested"}, "do": [_a("follow_up", "Call {{company}} back", days=1), _a("notify", "{{company}} asked for a callback.")]},
-    {"id": "t_noanswer", "name": "No answer: try again later", "about": "Plans another try in two days.",
-     "event": "call.completed", "when": {"outcome": "no_answer"}, "do": [_a("follow_up", "Try {{company}} again", days=2)]},
-    {"id": "t_dnc", "name": "Asked not to be called: stop contacting", "about": "Adds them to the do-not-contact list.",
-     "event": "call.completed", "when": {"outcome": "do_not_call"}, "do": [_a("add_dnc", "Asked not to be called")]},
-    {"id": "t_open", "name": "Email opened: tell me", "about": "A notification when a lead opens your email, so you can follow up quickly.",
-     "event": "email.opened", "when": {}, "do": [_a("notify", "{{company}} opened your email.")]},
-    {"id": "t_newlead", "name": "New company saved: add it to a list", "about": "Every company you save also goes into the list you choose.",
-     "event": "lead.created", "when": {}, "do": [_a("add_to_list", "New leads")]},
-    {"id": "t_followup", "name": "Meeting booked: check in the next day", "about": "Waits a day, and if the lead is still at Meeting, plans a check-in. Shows a wait and an if/else.",
-     "event": "meeting.booked", "when": {}, "do": [{"type": "wait", "hours": 24},
-                                                 {"type": "if", "cond": {"field": "stage", "op": "is", "value": "meeting"}, "then": [_a("follow_up", "Check in with {{company}} after the meeting", days=0)], "else": []}]},
-    {"id": "t_post", "name": "Post went live: tell me", "about": "A notification when a scheduled post is published.",
-     "event": "post.published", "when": {}, "do": [_a("notify", "A scheduled post just went live.")]},
-    {"id": "t_crm", "name": "Meeting booked: send it to my own system", "about": "Posts the lead's details to a web address you give (your CRM or a Zapier hook).",
+    {"id": "t_crm", "name": "Send it to my own system", "about": "Posts the lead's details to a web address you give (your CRM or a Zapier hook).",
      "event": "meeting.booked", "when": {}, "do": [_a("webhook", "")]},
+    {"id": "t_interested", "name": "Tell me and plan a follow-up", "about": "When someone replies interested, you are told at once and a follow-up is planned.",
+     "event": "campaign.reply", "when": {"outcome": "interested"}, "do": [_a("set_stage", "interested"), _a("notify", "{{company}} replied and is interested."), _a("follow_up", "Reply to {{company}}", days=1)]},
+    {"id": "t_unsub", "name": "Never contact them again", "about": "Puts anyone who unsubscribes on the do-not-contact list.",
+     "event": "campaign.reply", "when": {"outcome": "unsubscribe"}, "do": [_a("add_dnc", "Unsubscribed")]},
+    {"id": "t_callback", "name": "Plan the call back", "about": "Plans a callback for tomorrow and tells you.",
+     "event": "call.completed", "when": {"outcome": "callback_requested"}, "do": [_a("follow_up", "Call {{company}} back", days=1), _a("notify", "{{company}} asked for a callback.")]},
+    {"id": "t_noanswer", "name": "Try again in two days", "about": "Plans another try in two days.",
+     "event": "call.completed", "when": {"outcome": "no_answer"}, "do": [_a("follow_up", "Try {{company}} again", days=2)]},
+    {"id": "t_dnc", "name": "Stop contacting them", "about": "Adds anyone who asked not to be called to the do-not-contact list.",
+     "event": "call.completed", "when": {"outcome": "do_not_call"}, "do": [_a("add_dnc", "Asked not to be called")]},
 ]
 
 

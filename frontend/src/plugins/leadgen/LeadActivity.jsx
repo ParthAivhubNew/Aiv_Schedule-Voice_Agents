@@ -17,7 +17,7 @@ export const STAGES = [["new", "New"], ["contacted", "Contacted"], ["interested"
 const END_STAGES = { lost: "Not interested", do_not_contact: "Do not contact" };
 const KIND_FILTERS = [["", "All"], ["call", "Calls"], ["email", "Emails"], ["meeting", "Meetings"], ["post", "Posts"], ["note", "Notes"]];
 const KIND_WORD = { call: "Call", email: "Email", meeting: "Meeting", post: "Post", note: "Note", status: "Status" };
-const OUTCOME_WORD = {
+export const OUTCOME_WORD = {
   meeting_booked: "Meeting booked", callback_requested: "Asked for a call back", contacted: "Spoke with them", interested: "Interested",
   left_voicemail: "Left a voicemail", no_answer: "No answer", busy: "Busy", rejected: "Not interested", wrong_number: "Wrong number",
   do_not_call: "Asked not to be called", failed: "Did not connect", canceled: "Cancelled", operator_ended: "Ended by a person",

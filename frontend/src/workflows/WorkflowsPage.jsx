@@ -1,231 +1,73 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, ChevronDown, ChevronRight, Plus, RotateCcw, Square, Trash2, Workflow, X } from "lucide-react";
 import { api } from "../api/apiClient";
-import { Loader, Spinner } from "../app/Loader";
+import { Loader } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
-import { PLUGIN_COLOR, PLUGIN_NAME, STATUS_LABEL, blankAction, blankWorkflow, blockText, opLabel, problem, summary, when } from "./workflowModel";
+import { PLUGIN_NAME, STATUS_LABEL, blankWorkflow, chipText, conditionText, when } from "./workflowModel";
 import { setWorkflowsOpen } from "./openWorkflows";
+import { Select, WorkflowEditor, editorCss } from "./WorkflowEditor";
 
 // Workflows: "when this happens, do that", for the whole company. Opened from the hub or from a plugin's sidebar; it is one page, so a workflow can
 // use Leads, Voice and Social together and nothing is kept per plugin.
+//
+// Three screens: the list of workflows, the activity (every run, step by step), and the editor. Starting a new workflow begins by choosing what
+// triggers it; the ready-made examples for that trigger sit under it there, not on the main screen.
 
 const css = `
 .wf{position:fixed;inset:0;z-index:120;background:var(--ui-paper,#F6F7F9);overflow-y:auto;font-family:${FONT_BODY};color:#12141C}
 .wf-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;padding:12px clamp(16px,4vw,32px);background:#fff;border-bottom:1px solid #E3E6EB}
-.wf-main{width:100%;margin:0;padding:22px clamp(16px,3vw,32px) 72px;display:grid;gap:16px;align-content:start}
+.wf-main{width:100%;box-sizing:border-box;padding:20px 24px 64px;display:grid;gap:16px;align-content:start}
+@media (max-width:820px){.wf-main{padding:16px 16px 56px}}
 .wf-tabs{display:flex;gap:4px;border-bottom:1px solid #E3E6EB}
-.wf-tab{all:unset;cursor:pointer;padding:9px 14px;font-size:13.5px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px}
+.wf-tab{all:unset;cursor:pointer;padding:9px 14px;font-size:14px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-1px}
 .wf-tab[aria-selected="true"]{color:#12141C;border-bottom-color:#12141C}
-.wf-tab:focus-visible,.wf-chip:focus-visible,.wf-link:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
-.wf-card{background:#fff;border:1px solid #E3E6EB;border-radius:12px;padding:12px 14px}
-.wf-chip{all:unset;cursor:pointer;padding:5px 11px;border:1px solid #D5D9E0;border-radius:999px;font-size:12.5px;background:#fff}
-.wf-chip[aria-pressed="true"]{background:#111520;color:#fff;border-color:#111520}
-.wf-label{display:grid;gap:4px;font-size:12px;font-weight:600;color:#6B7280}
-.wf-step{border:1px solid #E3E6EB;border-radius:10px;padding:10px;display:grid;gap:8px;background:#FBFCFD}
-.wf-nest{margin-left:14px;border-left:2px solid #E3E6EB;padding-left:12px;display:grid;gap:8px}
-.wf-link{all:unset;cursor:pointer;color:#3457D5;font-size:12.5px;font-weight:600}
-.wf-pill{display:inline-block;font-size:11px;font-weight:700;color:#fff;border-radius:6px;padding:1px 7px}
+.wf-tab:focus-visible,.wf-link:focus-visible,.wf-pick:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+.wf-card{background:#fff;border:1px solid #E3E6EB;border-radius:10px;padding:16px 18px}
+.wf-link{all:unset;cursor:pointer;color:#3457D5;font-size:13px;font-weight:600}
 .wf-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.wf-bar{position:sticky;bottom:0;z-index:1;margin:0 -14px -12px;padding:10px 14px;background:#fff;border-top:1px solid #E3E6EB;border-radius:0 0 12px 12px}
+.wf-flow{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.wf-step{font-size:13px;padding:3px 9px;border-radius:6px;background:#EEF0F4;color:#12141C}
+.wf-step--trigger{background:#EEF2FE;color:#26409E;font-weight:600}
+.wf-group{display:grid;gap:6px}
+.wf-group h2{margin:8px 0 0;font-size:13px;font-weight:700;color:#12141C}
+.wf-switch{appearance:none;-webkit-appearance:none;flex:none;width:34px;height:20px;border-radius:999px;background:#C5CAD3;position:relative;cursor:pointer;margin:2px 0 0;transition:background .15s}
+.wf-switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.wf-switch:checked{background:#3457D5}
+.wf-switch:checked::after{transform:translateX(14px)}
+.wf-switch:disabled{opacity:.5;cursor:default}
+.wf-switch:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+.wf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:12px}
+.wf-event{background:#fff;border:1px solid #E3E6EB;border-radius:10px;display:grid;align-content:start;gap:8px;padding-bottom:12px}
+.wf-event:hover{border-color:#3457D5}
+.wf-pick{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 18px 4px}
+.wf-ex{display:flex;gap:6px 12px;flex-wrap:wrap;align-items:center;padding:0 18px;font-size:13px;color:#6B7280}
 @media (prefers-reduced-motion:reduce){.wf *{transition:none!important;animation:none!important}}
+${editorCss}
 `;
 
-const text = { fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink };
-const muted = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
+const text = { fontFamily: FONT_BODY, fontSize: 14, color: C.ink };
+const muted = { fontFamily: FONT_BODY, fontSize: 13, color: C.slate };
 
-function Select({ value, onChange, children, label, style }) {
-  return <select className="ui-input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} style={{ minWidth: 0, ...style }}>{children}</select>;
-}
-
-// ── The blocks of a flow ────────────────────────────────────────────────────
-function ConditionEditor({ cond, onChange, meta, label }) {
-  const spec = meta.condition_fields[cond.field] || {};
-  const setField = (field) => { const s = meta.condition_fields[field]; onChange({ field, op: s.ops[0], value: s.values ? s.values[0] : "" }); };
-  return (
-    <div className="wf-row" role="group" aria-label={label}>
-      <Select label="Filter on" value={cond.field} onChange={setField}>{Object.entries(meta.condition_fields).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
-      <Select label="Comparison" value={cond.op} onChange={(op) => onChange({ ...cond, op })}>{(spec.ops || []).map((o) => <option key={o} value={o}>{opLabel(o)}</option>)}</Select>
-      {spec.values ? (
-        <Select label="Value" value={cond.value} onChange={(value) => onChange({ ...cond, value })}>{spec.values.map((v) => <option key={v} value={v}>{v.replace(/_/g, " ")}</option>)}</Select>
-      ) : <input className="ui-input" aria-label="Value" placeholder={cond.field === "in_list" ? "List name" : "Text to look for"} value={cond.value} onChange={(e) => onChange({ ...cond, value: e.target.value })} style={{ minWidth: 140, flex: 1 }} />}
-    </div>
-  );
-}
-
-const newBlock = (type) => (type === "wait" ? { type: "wait", hours: 24 } : type === "stop" ? { type: "stop" }
-  : type === "if" ? { type: "if", cond: { field: "stage", op: "is", value: "new" }, then: [blankAction()], else: [] } : blankAction());
-
-function BlockEditor({ block, onChange, onRemove, meta, depth, index }) {
-  const set = (patch) => onChange({ ...block, ...patch });
-  const head = (
-    <div className="wf-row">
-      <span style={{ ...muted, fontWeight: 700, width: 18 }}>{index + 1}</span>
-      <Select label={`Step ${index + 1} kind`} value={block.type} onChange={(t) => onChange(newBlock(t))}>
-        <option value="action">Do something</option><option value="if">If… (two paths)</option><option value="wait">Wait</option><option value="stop">Stop here</option>
-      </Select>
-      <span style={{ flex: 1 }} />
-      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Remove step ${index + 1}`} onClick={onRemove}><Trash2 size={13} /></button>
-    </div>
-  );
-  if (block.type === "stop") return <div className="wf-step">{head}<div style={muted}>The workflow ends here for this company.</div></div>;
-  if (block.type === "wait") {
-    const days = block.hours % 24 === 0;
-    return (
-      <div className="wf-step">{head}
-        <div className="wf-row">
-          <input className="ui-input" type="number" min={1} aria-label="How long to wait" value={days ? block.hours / 24 : block.hours} onChange={(e) => set({ hours: Math.max(1, Number(e.target.value) || 1) * (days ? 24 : 1) })} style={{ width: 90 }} />
-          <Select label="Unit" value={days ? "days" : "hours"} onChange={(u) => set({ hours: u === "days" ? Math.max(1, Math.round(block.hours / 24)) * 24 : Math.max(1, block.hours % 24 === 0 ? block.hours / 24 : block.hours) })}>
-            <option value="hours">hours</option><option value="days">days</option>
-          </Select>
-          <span style={muted}>then carry on (up to 30 days)</span>
-        </div>
-      </div>
-    );
-  }
-  if (block.type === "if") {
-    return (
-      <div className="wf-step">{head}
-        <ConditionEditor cond={block.cond} onChange={(cond) => set({ cond })} meta={meta} label={`Step ${index + 1} condition`} />
-        <div style={{ ...muted, fontWeight: 700 }}>If yes</div>
-        <div className="wf-nest"><Flow blocks={block.then} onChange={(then) => set({ then })} meta={meta} depth={depth + 1} /></div>
-        <div style={{ ...muted, fontWeight: 700 }}>If no (leave empty to do nothing)</div>
-        <div className="wf-nest"><Flow blocks={block.else} onChange={(other) => set({ else: other })} meta={meta} depth={depth + 1} /></div>
-      </div>
-    );
-  }
-  const a = block.action;
-  return (
-    <div className="wf-step">{head}
-      <Select label={`Step ${index + 1} action`} value={a} onChange={(action) => set({ action, value: action === "set_stage" ? "interested" : "", days: action === "follow_up" ? 1 : undefined, subject: "" })}>
-        {Object.entries(meta.actions).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-      </Select>
-      {a === "set_stage" ? (
-        <Select label="Stage" value={block.value} onChange={(value) => set({ value })}>{meta.stages.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}</Select>
-      ) : a === "add_to_list" ? (
-        <input className="ui-input" aria-label="List name" placeholder="List name (made if it is new)" value={block.value} onChange={(e) => set({ value: e.target.value })} />
-      ) : a === "webhook" ? (
-        <input className="ui-input" aria-label="Web address" placeholder="https://your-system.example.com/hook" value={block.value} onChange={(e) => set({ value: e.target.value })} />
-      ) : a === "add_dnc" ? <div style={muted}>Stops every plugin from contacting this company again.</div> : (
-        <>
-          {a === "send_email" ? <input className="ui-input" aria-label="Subject" placeholder="Subject" value={block.subject || ""} onChange={(e) => set({ subject: e.target.value })} /> : null}
-          <textarea className="ui-input" rows={2} aria-label={a === "send_email" ? "Message" : "Text"} style={{ height: "auto", padding: 8, resize: "vertical" }}
-            placeholder={a === "follow_up" ? "What to do, e.g. Call {{company}} back" : "Text. {{first_name}} and {{company}} work here"} value={block.value} onChange={(e) => set({ value: e.target.value })} />
-        </>
-      )}
-      {a === "follow_up" ? (
-        <div className="wf-row"><span style={muted}>in</span><input className="ui-input" type="number" min={0} max={365} aria-label="Days until the follow-up" value={block.days ?? 1} onChange={(e) => set({ days: Math.max(0, Number(e.target.value) || 0) })} style={{ width: 80 }} /><span style={muted}>days</span></div>
-      ) : null}
-      {meta.action_info[a]?.needs_lead ? null : <div style={muted}>Works even when the event has no company behind it.</div>}
-    </div>
-  );
-}
-
-function Flow({ blocks, onChange, meta, depth = 0 }) {
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {blocks.map((b, i) => <BlockEditor key={i} block={b} index={i} depth={depth} meta={meta} onChange={(nb) => onChange(blocks.map((x, j) => (j === i ? nb : x)))} onRemove={() => onChange(blocks.filter((_, j) => j !== i))} />)}
-      <div className="wf-row">
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onChange([...blocks, blankAction()])}><Plus size={13} /> Step</button>
-        {depth < 2 ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onChange([...blocks, newBlock("if")])}><Plus size={13} /> If / else</button> : null}
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onChange([...blocks, newBlock("wait")])}><Plus size={13} /> Wait</button>
-      </div>
-    </div>
-  );
-}
-
-// ── Making or changing one ──────────────────────────────────────────────────
-function Editor({ meta, initial, onSave, onCancel, canEdit }) {
-  const [w, setW] = useState(initial);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [trial, setTrial] = useState(null);
+// The steps of a workflow as small chips, trigger first, so a row reads left to right the way it runs.
+function FlowChips({ w, meta }) {
   const info = meta.event_info[w.event];
-  const set = (patch) => { setError(""); setTrial(null); setW((x) => ({ ...x, ...patch })); };
-  // A blank name falls back to what starts the workflow, so saving never needs typing.
-  const named = (x) => (x.name.trim() ? x : { ...x, name: info?.label || "" });
-  const why = problem(named(w), meta);
-  const tryIt = async () => {
-    setBusy("try"); setError(""); setTrial(null);
-    try { setTrial(await api.testWorkflow(named(w))); } catch (err) { setError(err.message || "I could not try that."); }
-    setBusy("");
-  };
-  const save = async () => {
-    if (why) { setError(why); return; }
-    setBusy("save"); setError("");
-    try { await onSave(named(w)); } catch (err) { setError(err.message || "Could not save."); setBusy(""); }
-  };
-  const byPlugin = ["voice", "leads", "social"].map((p) => [p, Object.entries(meta.event_info).filter(([, v]) => v.plugin === p)]);
+  const trigger = `${info ? info.hint : w.event}${w.when?.outcome ? `: ${w.when.outcome.replace(/_/g, " ")}` : ""}`;
   return (
-    <div className="wf-card" style={{ display: "grid", gap: 16 }}>
-      <label className="wf-label">Name
-        <input className="ui-input" aria-label="Workflow name" value={w.name} maxLength={80} placeholder={info?.label || "Name this workflow"} onChange={(e) => set({ name: e.target.value })} />
-      </label>
-
-      <section aria-label="When this happens" style={{ display: "grid", gap: 8 }}>
-        <div style={{ ...text, fontWeight: 700 }}>1. When this happens</div>
-        <div className="wf-row">
-          <Select label="Event" value={w.event} onChange={(event) => set({ event, when: {} })} style={{ flex: "1 1 260px" }}>
-            {byPlugin.map(([p, list]) => <optgroup key={p} label={PLUGIN_NAME[p]}>{list.map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</optgroup>)}
-          </Select>
-          {info?.outcomes?.length ? (
-            <Select label="Only when the result is" value={w.when?.outcome || ""} onChange={(o) => set({ when: o ? { outcome: o } : {} })}>
-              <option value="">any result</option>{info.outcomes.map((o) => <option key={o} value={o}>{o.replace(/_/g, " ")}</option>)}
-            </Select>
-          ) : null}
-        </div>
-        {!info?.lead ? <div style={muted}>There is no company behind this event, so only steps that do not need one will run (a notification or a web address).</div> : null}
-        <div style={{ ...muted, fontWeight: 700 }}>Only for companies where (optional)</div>
-        {(w.conditions || []).map((c, i) => (
-          <div key={i} className="wf-row">
-            <div style={{ flex: 1, minWidth: 0 }}><ConditionEditor cond={c} meta={meta} label={`Filter ${i + 1}`} onChange={(nc) => set({ conditions: w.conditions.map((x, j) => (j === i ? nc : x)) })} /></div>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Remove filter ${i + 1}`} onClick={() => set({ conditions: w.conditions.filter((_, j) => j !== i) })}><X size={13} /></button>
-          </div>
-        ))}
-        {(w.conditions || []).length < 6 && info?.lead ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ justifySelf: "start" }} onClick={() => set({ conditions: [...(w.conditions || []), { field: "stage", op: "is", value: "new" }] })}><Plus size={13} /> Add a filter</button> : null}
-      </section>
-
-      <section aria-label="Then do this" style={{ display: "grid", gap: 8 }}>
-        <div style={{ ...text, fontWeight: 700 }}>2. Then do this</div>
-        <Flow blocks={w.do} onChange={(d) => set({ do: d })} meta={meta} />
-      </section>
-
-      <section aria-label="Settings" style={{ display: "grid", gap: 8 }}>
-        <div style={{ ...text, fontWeight: 700 }}>3. How often</div>
-        <div className="wf-row">
-          <Select label="Run for the same company" value={w.limits.reenroll} onChange={(reenroll) => set({ limits: { ...w.limits, reenroll } })}>
-            <option value="every">Every time it happens</option><option value="once">Only once per company</option><option value="days">At most once every few days</option>
-          </Select>
-          {w.limits.reenroll === "days" ? <><input className="ui-input" type="number" min={1} max={365} aria-label="Days between runs" value={w.limits.days} onChange={(e) => set({ limits: { ...w.limits, days: Math.max(1, Number(e.target.value) || 1) } })} style={{ width: 80 }} /><span style={muted}>days</span></> : null}
-          <span style={muted}>At most</span>
-          <input className="ui-input" type="number" min={1} max={1000} aria-label="Most runs a day" value={w.limits.per_day} onChange={(e) => set({ limits: { ...w.limits, per_day: Math.max(1, Number(e.target.value) || 1) } })} style={{ width: 90 }} />
-          <span style={muted}>runs a day</span>
-        </div>
-      </section>
-
-      {trial ? (
-        <div className="wf-card" role="status" aria-label="What would happen" style={{ background: "#F4F7FF" }}>
-          <div style={{ ...text, fontWeight: 700, marginBottom: 6 }}>What would happen for {trial.lead.name} <span style={muted}>(nothing was changed or sent)</span></div>
-          <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 3, ...text, fontSize: 12.5 }}>{trial.log.map((l, i) => <li key={i}><strong>{l.label}:</strong> {l.result}</li>)}</ol>
-        </div>
-      ) : null}
-      {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-      <div className="wf-row wf-bar">
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!!busy || !canEdit} onClick={save}>{busy === "save" ? <Spinner size={13} /> : "Save workflow"}</button>
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!!busy || !!why} onClick={tryIt} title={why || "See what it would do for your latest saved company, without changing anything"}>{busy === "try" ? <Spinner size={13} /> : "Try it on a company"}</button>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
-        {!canEdit ? <span style={muted}>Only people who can edit company settings can save.</span> : null}
-      </div>
+    <div className="wf-flow" aria-label="What this workflow does">
+      <span className="wf-step wf-step--trigger">{trigger}</span>
+      {(w.conditions || []).map((c, i) => <span key={`c${i}`} className="wf-step">Only if {conditionText(c, meta).toLowerCase()}</span>)}
+      {(w.do || []).map((b, i) => <React.Fragment key={i}><ChevronRight size={12} color="#9AA1AD" aria-hidden="true" /><span className="wf-step">{chipText(b, meta)}</span></React.Fragment>)}
     </div>
   );
 }
 
-// ── Runs ────────────────────────────────────────────────────────────────────
-function RunsTab({ meta, workflowId, setWorkflowId, canEdit }) {
+// ── Activity ────────────────────────────────────────────────────────────────
+function Activity({ meta, workflowId, setWorkflowId, canEdit }) {
   const [runs, setRuns] = useState(null);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState("");
   const [error, setError] = useState("");
-  const load = useCallback(() => api.workflowRuns(workflowId, status).then((r) => { setRuns(r.runs); setError(""); }).catch((e) => setError(e.message || "Could not load the runs.")), [workflowId, status]);
+  const load = useCallback(() => api.workflowRuns(workflowId, status).then((r) => { setRuns(r.runs); setError(""); }).catch((e) => setError(e.message || "Could not load the activity.")), [workflowId, status]);
   useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
   const act = async (fn) => { try { await fn(); await load(); } catch (e) { setError(e.message || "That did not work."); } };
   const tone = { done: C.green, failed: C.red, waiting: C.amber, stopped: C.slate, skipped: C.slate, running: C.cobalt };
@@ -236,7 +78,9 @@ function RunsTab({ meta, workflowId, setWorkflowId, canEdit }) {
         <Select label="Status" value={status} onChange={setStatus}><option value="">Any status</option>{Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
       </div>
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-      {!runs ? <Loader compact label="Loading" /> : !runs.length ? <div className="wf-card" style={muted}>No runs yet. They appear here the moment a workflow starts, with what each step did, and why one was skipped.</div> : runs.map((r) => (
+      {!runs ? <Loader compact label="Loading" /> : !runs.length ? (
+        <div className="wf-card" style={muted}>{meta.workflows.length ? "Nothing has run yet. Each time a workflow starts, it shows up here with what every step did, and why one was skipped." : "Nothing has run yet, and there are no workflows. Create one and its runs will show up here."}</div>
+      ) : runs.map((r) => (
         <div key={r.id} className="wf-card">
           <div className="wf-row">
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open === r.id} aria-label={`${open === r.id ? "Hide" : "Show"} what ${r.workflow_name} did`} onClick={() => setOpen(open === r.id ? "" : r.id)}>{open === r.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
@@ -250,7 +94,7 @@ function RunsTab({ meta, workflowId, setWorkflowId, canEdit }) {
           </div>
           {open === r.id ? (
             <ol style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
-              {r.log.map((l, i) => <li key={i} style={{ display: "flex", gap: 8, ...text, fontSize: 12.5 }}>{l.ok === false ? <X size={13} color={C.red} aria-label="failed" style={{ marginTop: 2 }} /> : <Check size={13} color={C.green} aria-label="ok" style={{ marginTop: 2 }} />}<span><strong>{l.label}</strong> <span style={{ color: C.slate }}>{l.result}</span></span></li>)}
+              {r.log.map((l, i) => <li key={i} style={{ display: "flex", gap: 8, ...text, fontSize: 12.5 }}>{l.ok === false ? <X size={13} color={C.red} aria-label="failed" style={{ marginTop: 2 }} /> : l.label === "Skipped" ? <Square size={11} color={C.slate} aria-label="skipped" style={{ marginTop: 3 }} /> : <Check size={13} color={C.green} aria-label="ok" style={{ marginTop: 2 }} />}<span><strong>{l.label}</strong> <span style={{ color: C.slate }}>{l.result}</span></span></li>)}
             </ol>
           ) : null}
         </div>
@@ -259,19 +103,36 @@ function RunsTab({ meta, workflowId, setWorkflowId, canEdit }) {
   );
 }
 
-// A ready-made workflow. "Turn on" saves it as it is; "Change it" opens it first.
-function TemplateCard({ t, meta, canEdit, onTurnOn, onChange }) {
-  const plug = meta.event_info[t.event]?.plugin;
-  const ready = !problem({ ...blankWorkflow(t.event), name: t.name, do: t.do, conditions: [] }, meta);
+// ── Starting a new one: choose what triggers it ─────────────────────────────
+function Start({ meta, first, canEdit, onPick, onTemplate }) {
+  const order = [first, ...["voice", "leads", "social"].filter((p) => p !== first)].filter(Boolean); // the plugin the person came from first, all of them listed
   return (
-    <div className="wf-card" style={{ display: "grid", gap: 6, alignContent: "start" }}>
-      <span className="wf-pill" style={{ background: PLUGIN_COLOR[plug], justifySelf: "start" }}>{PLUGIN_NAME[plug]}</span>
-      <div style={{ ...text, fontWeight: 600 }}>{t.name}</div>
-      <div style={muted}>{t.about}</div>
-      <div className="wf-row">
-        {ready ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!canEdit} onClick={() => onTurnOn(t)}>Turn on</button> : null}
-        <button type="button" className={`ui-btn ui-btn--${ready ? "ghost" : "secondary"} ui-btn--sm`} disabled={!canEdit} onClick={() => onChange(t)}>{ready ? "Change it" : "Set it up"}</button>
+    <div style={{ display: "grid", gap: 14 }}>
+      <div>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>What should start it?</h2>
+        <div style={muted}>Pick the event. You choose the steps next, or start from an example under it.</div>
       </div>
+      {order.map((p) => (
+        <div key={p} className="wf-group">
+          <h2>{PLUGIN_NAME[p]}</h2>
+          <div className="wf-grid">
+          {Object.entries(meta.event_info).filter(([, v]) => v.plugin === p).map(([k, v]) => {
+            const examples = meta.templates.filter((t) => t.event === k);
+            return (
+              <div key={k} className="wf-event">
+                <button type="button" className="wf-pick" disabled={!canEdit} onClick={() => onPick(k)}>
+                  <span style={{ flex: 1 }}><span style={{ ...text, fontWeight: 600, display: "block" }}>{v.label}</span><span style={muted}>{v.hint}</span></span>
+                  <ChevronRight size={14} aria-hidden="true" color="#9AA1AD" />
+                </button>
+                {examples.length ? (
+                  <div className="wf-ex"><span>Examples:</span>{examples.map((t) => <button key={t.id} type="button" className="wf-link" disabled={!canEdit} title={t.about} onClick={() => onTemplate(t)}>{t.name}</button>)}</div>
+                ) : null}
+              </div>
+            );
+          })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -280,28 +141,40 @@ function TemplateCard({ t, meta, canEdit, onTurnOn, onChange }) {
 export function WorkflowsPage({ context, onClose, canEdit = true }) {
   const [meta, setMeta] = useState(null);
   const [tab, setTab] = useState("workflows");
-  const [plugin, setPlugin] = useState(context?.from || "");
-  const [editing, setEditing] = useState(null); // {index, workflow}
+  const [plugin, setPlugin] = useState("");
+  const [mode, setMode] = useState("list"); // list | start | edit
+  const [editing, setEditing] = useState(null);
   const [runsFor, setRunsFor] = useState("");
   const [error, setError] = useState("");
   const heading = useRef(null);
+  const mainRef = useRef(null);
+  const focusTop = () => (heading.current || mainRef.current)?.focus();
   const load = useCallback(() => api.getWorkflows().then(setMeta).catch((e) => setError(e.message || "Could not load your workflows.")), []);
-  useEffect(() => { load(); heading.current?.focus(); }, [load]);
+  useEffect(() => { load(); focusTop(); }, [load]);
+  const inFlow = mode !== "list";
+  const back = () => { setMode("list"); setEditing(null); setError(""); };
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape" && !editing) onClose(); };
+    const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) (inFlow ? back : onClose)(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editing, onClose]);
+  }, [inFlow, onClose]);
+  useEffect(() => { focusTop(); }, [mode]);
 
   // The plugin's own menu stays visible and usable: the page starts where the menu ends, and choosing a menu item closes the page.
   useEffect(() => { setWorkflowsOpen(true); return () => setWorkflowsOpen(false); }, []);
   const [left, setLeft] = useState(0);
+  const [top, setTop] = useState(0); // where the app's own top bar ends; 0 when the app has none (the home screen)
   useEffect(() => {
     const side = document.querySelector(".app-sidebar");
-    const measure = () => setLeft(side ? Math.max(0, Math.round(side.getBoundingClientRect().right)) : 0);
+    const bar = () => document.querySelector("[data-wf-anchor]");
+    const measure = () => {
+      setLeft(side && window.innerWidth > 820 ? Math.max(0, Math.round(side.getBoundingClientRect().right)) : 0); // on a phone the menu slides over the page
+      setTop(bar() ? Math.round(bar().getBoundingClientRect().bottom) : 0);
+    };
     measure();
     const ro = typeof ResizeObserver === "function" && side ? new ResizeObserver(measure) : null;
-    ro?.observe(side);
+    if (side) ro?.observe(side);
+    if (bar()) ro?.observe(bar());
     window.addEventListener("resize", measure);
     const onPick = (e) => {
       const item = e.target.closest?.(".app-sidebar button, .app-sidebar a, .app-sidebar [role='button']");
@@ -313,82 +186,100 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
     return () => { ro?.disconnect(); window.removeEventListener("resize", measure); document.removeEventListener("click", onPick, true); };
   }, [onClose]);
 
-  const persist = async (list) => {
-    const r = await api.saveWorkflows(list.map(({ stats, ...rest }) => rest));
-    if ((r.workflows || []).length < list.length) throw new Error("One of the workflows is not complete.");
+  const strip = (w) => { const { stats, ...rest } = w; return rest; };
+  // Every change starts from what the server holds now and is applied by id, so two quick changes or a second tab cannot overwrite each other.
+  const persist = async (change) => {
+    const fresh = (await api.getWorkflows()).workflows.map(strip);
+    await api.saveWorkflows(change(fresh));
     await load();
   };
-  const strip = (w) => { const { stats, ...rest } = w; return rest; };
+  const [busyId, setBusyId] = useState("");
+  const [askDelete, setAskDelete] = useState("");
+  const act = async (id, change) => {
+    setBusyId(id); setError("");
+    try { await persist(change); } catch (e) { setError(e.message || "That did not save."); }
+    setBusyId(""); setAskDelete("");
+  };
   const shown = useMemo(() => (meta ? meta.workflows.filter((w) => !plugin || meta.event_info[w.event]?.plugin === plugin) : []), [meta, plugin]);
-  const templates = useMemo(() => (meta ? meta.templates.filter((t) => !plugin || meta.event_info[t.event]?.plugin === plugin) : []), [meta, plugin]);
-  const fromTemplate = (t) => ({ ...blankWorkflow(t?.event), ...(t ? { name: t.name, when: t.when || {}, do: JSON.parse(JSON.stringify(t.do)) } : {}) });
-  const startFrom = (t) => setEditing({ index: -1, workflow: fromTemplate(t) });
-  const turnOn = (t) => persist([...meta.workflows.map(strip), fromTemplate(t)]).then(() => { setTab("workflows"); setError(""); }).catch((e) => setError(e.message || "Could not turn that on."));
-  const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(min(100%,290px),1fr))", gap: 12 };
-  const event = context?.event;
+  const fromTemplate = (t) => ({ ...blankWorkflow(t.event), name: t.name, when: t.when || {}, do: JSON.parse(JSON.stringify(t.do)) });
+  const editNew = (workflow) => { setEditing({ id: "", workflow }); setMode("edit"); };
+  const newButton = <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => setMode("start")}><Plus size={14} /> New workflow</button>;
+  const title = mode === "start" ? "New workflow" : mode === "edit" ? (editing?.id ? "Edit workflow" : "New workflow") : "Workflows";
 
   return (
-    <div className="wf" role="dialog" aria-modal="false" aria-label="Workflows" style={{ left }}>
+    <div className="wf" role="dialog" aria-modal="false" aria-label="Workflows" style={{ left, top }}>
       <style>{css}</style>
-      <div className="wf-top">
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={editing ? () => setEditing(null) : onClose} aria-label={editing ? "Back to your workflows" : "Back"}><ArrowLeft size={14} aria-hidden="true" /> Back</button>
-        <Workflow size={18} aria-hidden="true" />
-        <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>Workflows</h1>
-        <span style={{ ...muted, flex: 1 }} className="hide-mobile">When something happens in Leads, Voice or Social, do something automatically.</span>
-        {!editing && canEdit ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => startFrom(event ? { event, name: "", do: [blankAction()] } : null)}><Plus size={14} /> New workflow</button> : null}
-      </div>
-      <div className="wf-main">
+      {top ? null : (
+        <div className="wf-top">
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={inFlow ? back : onClose} aria-label={inFlow ? "Back to your workflows" : "Back"}><ArrowLeft size={14} aria-hidden="true" /> Back</button>
+          <Workflow size={18} aria-hidden="true" />
+          <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>{title}</h1>
+          <span style={{ ...muted, flex: 1 }} className="hide-mobile">{inFlow ? "" : "When something happens in Leads, Voice or Social, do something automatically."}</span>
+          {!inFlow && canEdit && meta ? newButton : null}
+        </div>
+      )}
+      <div className="wf-main" ref={mainRef} tabIndex={-1} style={{ outline: "none" }}>
+        {top && inFlow ? (
+          <div className="wf-row">
+            <button type="button" className="wf-link" onClick={back}>Workflows</button><ChevronRight size={12} color="#9AA1AD" aria-hidden="true" />
+            <span style={{ ...text, fontWeight: 600 }}>{title}</span>
+          </div>
+        ) : null}
         {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-        {!meta ? <Loader compact label="Loading" /> : editing ? (
-          <Editor meta={meta} initial={editing.workflow} canEdit={canEdit} onCancel={() => setEditing(null)}
-            onSave={async (w) => { await persist(editing.index >= 0 ? meta.workflows.map((x, i) => (i === editing.index ? w : strip(x))) : [...meta.workflows.map(strip), w]); setEditing(null); setTab("workflows"); }} />
+        {!meta ? <Loader compact label="Loading" /> : mode === "start" ? (
+          <Start meta={meta} first={context?.from} canEdit={canEdit} onPick={(event) => editNew(blankWorkflow(event))} onTemplate={(t) => editNew(fromTemplate(t))} />
+        ) : mode === "edit" ? (
+          <WorkflowEditor meta={meta} initial={editing.workflow} canEdit={canEdit} onCancel={back}
+            onSave={async (w) => { await persist((list) => (editing.id ? list.map((x) => (x.id === editing.id ? w : x)) : [...list, w])); back(); setTab("workflows"); }} />
         ) : (
           <>
-            <div className="wf-row" role="group" aria-label="Show">
-              {[["", "All"], ["voice", "Voice"], ["leads", "Leads"], ["social", "Social"]].map(([k, label]) => <button key={k || "all"} type="button" className="wf-chip" aria-pressed={plugin === k} onClick={() => setPlugin(k)}>{label}</button>)}
+            <div className="wf-row" style={{ justifyContent: "space-between" }}>
+              <div className="wf-tabs" role="tablist" style={{ flex: 1 }}>
+                {[["workflows", `Workflows${meta.workflows.length ? ` (${meta.workflows.length})` : ""}`], ["activity", "Activity"]].map(([k, label]) => <button key={k} type="button" role="tab" className="wf-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}
+              </div>
+              {top && canEdit ? newButton : null}
+              {tab === "workflows" && meta.workflows.length ? (
+                <Select label="Show workflows from" value={plugin} onChange={setPlugin}>
+                  <option value="">All plugins</option>{["voice", "leads", "social"].map((p) => <option key={p} value={p}>{PLUGIN_NAME[p]}</option>)}
+                </Select>
+              ) : null}
             </div>
-            <div className="wf-tabs" role="tablist">
-              {[["workflows", `Your workflows${meta.workflows.length ? ` (${meta.workflows.length})` : ""}`], ["templates", "Templates"], ["runs", "Runs"]].map(([k, label]) => <button key={k} type="button" role="tab" className="wf-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}
-            </div>
+
             {tab === "workflows" ? (
               shown.length ? shown.map((w) => {
-                const i = meta.workflows.findIndex((x) => x.id === w.id);
-                const flip = (patch) => persist(meta.workflows.map((x, j) => (j === i ? { ...strip(x), ...patch } : strip(x)))).catch((e) => setError(e.message));
+                const st = w.stats || {};
+                const flip = (patch) => act(w.id, (list) => list.map((x) => (x.id === w.id ? { ...x, ...patch } : x)));
                 return (
                   <div key={w.id} className="wf-card wf-row" style={{ alignItems: "flex-start" }}>
-                    <input type="checkbox" role="switch" checked={w.enabled} disabled={!canEdit} aria-label={`${w.name} is ${w.enabled ? "on" : "off"}`} style={{ marginTop: 3 }} onChange={(e) => flip({ enabled: e.target.checked })} />
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <div style={{ ...text, fontWeight: 600 }}>{w.name}</div>
-                      <div style={muted}>{summary(w, meta)}</div>
-                      <div style={{ ...muted, marginTop: 4 }}>
-                        <span className="wf-pill" style={{ background: PLUGIN_COLOR[meta.event_info[w.event]?.plugin] }}>{PLUGIN_NAME[meta.event_info[w.event]?.plugin]}</span>{" "}
-                        {w.stats.runs} run{w.stats.runs === 1 ? "" : "s"} · last {when(w.stats.last)}
-                        {w.stats.waiting ? ` · ${w.stats.waiting} waiting` : ""}{w.stats.failed ? <span style={{ color: C.red }}> · {w.stats.failed} failed</span> : null}
-                        {" · "}<button type="button" className="wf-link" onClick={() => { setRunsFor(w.id); setTab("runs"); }}>See runs</button>
+                    <input type="checkbox" role="switch" className="wf-switch" checked={w.enabled} disabled={!canEdit || busyId === w.id} aria-label={`Turn ${w.name} ${w.enabled ? "off" : "on"}`} onChange={(e) => flip({ enabled: e.target.checked })} />
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <div style={{ ...text, fontWeight: 600 }}>{w.name} <span style={{ ...muted, fontWeight: 400 }}>· {PLUGIN_NAME[meta.event_info[w.event]?.plugin]}{w.enabled ? "" : " · off"}</span></div>
+                      <FlowChips w={w} meta={meta} />
+                      <div style={{ ...muted, marginTop: 6 }}>
+                        {st.runs ? <>Ran {st.runs} time{st.runs === 1 ? "" : "s"}, last {when(st.last)}</> : "Has not run yet"}
+                        {st.waiting ? ` · ${st.waiting} waiting` : ""}{st.failed ? <span style={{ color: C.red }}> · {st.failed} failed</span> : null}{st.skipped ? ` · ${st.skipped} skipped` : ""}
+                        {st.runs || st.skipped ? <>{" · "}<button type="button" className="wf-link" onClick={() => { setRunsFor(w.id); setTab("activity"); }}>See activity</button></> : null}
                       </div>
                     </div>
-                    {canEdit ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setEditing({ index: i, workflow: JSON.parse(JSON.stringify(strip(w))) })}>Edit</button> : null}
-                    {canEdit ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Delete ${w.name}`} onClick={() => persist(meta.workflows.filter((_, j) => j !== i).map(strip)).catch((e) => setError(e.message))}><Trash2 size={13} /></button> : null}
+                    {canEdit ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" aria-label={`Edit ${w.name}`} onClick={() => { setEditing({ id: w.id, workflow: JSON.parse(JSON.stringify(strip(w))) }); setMode("edit"); }}>Edit</button> : null}
+                    {canEdit && askDelete !== w.id ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Delete ${w.name}`} onClick={() => setAskDelete(w.id)}><Trash2 size={13} /></button> : null}
+                    {canEdit && askDelete === w.id ? (
+                      <span className="wf-row" role="group" aria-label={`Delete ${w.name}?`}>
+                        <span style={muted}>Delete{st.waiting ? ` and stop ${st.waiting} waiting` : ""}?</span>
+                        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busyId === w.id} onClick={() => act(w.id, (list) => list.filter((x) => x.id !== w.id))}>Delete</button>
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAskDelete("")}>Keep</button>
+                      </span>
+                    ) : null}
                   </div>
                 );
               }) : (
-                <>
-                  <div className="wf-row" style={{ justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ ...text, fontWeight: 600 }}>{meta.workflows.length ? "Nothing here for that plugin yet." : "No workflows yet."}</div>
-                      <div style={muted}>Turn one on with a click, or build your own. A workflow does nothing until it is saved and switched on.</div>
-                    </div>
-                    {canEdit ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => startFrom(null)}>Build my own</button> : null}
-                  </div>
-                  <div style={grid}>{templates.slice(0, 6).map((t) => <TemplateCard key={t.id} t={t} meta={meta} canEdit={canEdit} onTurnOn={turnOn} onChange={startFrom} />)}</div>
-                  {templates.length > 6 ? <button type="button" className="wf-link" style={{ justifySelf: "start" }} onClick={() => setTab("templates")}>See all {templates.length} templates</button> : null}
-                </>
+                <div className="wf-card" style={{ display: "grid", gap: 8, justifyItems: "start", padding: 20 }}>
+                  <div style={{ ...text, fontWeight: 600, fontSize: 15 }}>{meta.workflows.length ? `No ${PLUGIN_NAME[plugin] || ""} workflows yet.` : "No workflows yet."}</div>
+                  <div style={muted}>A workflow watches for one event, such as a call ending or a reply arriving, and then does the steps you set: move the lead, add a note, plan a follow-up, send an email. It does nothing until it is saved and switched on.</div>
+                  {canEdit ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => setMode("start")}><Plus size={14} /> Create a workflow</button> : <div style={muted}>Only people who can edit company settings can create one.</div>}
+                </div>
               )
-            ) : null}
-            {tab === "templates" ? (
-              <div style={grid}>{templates.map((t) => <TemplateCard key={t.id} t={t} meta={meta} canEdit={canEdit} onTurnOn={turnOn} onChange={startFrom} />)}</div>
-            ) : null}
-            {tab === "runs" ? <RunsTab meta={meta} workflowId={runsFor} setWorkflowId={setRunsFor} canEdit={canEdit} /> : null}
+            ) : <Activity meta={meta} workflowId={runsFor} setWorkflowId={setRunsFor} canEdit={canEdit} />}
           </>
         )}
       </div>

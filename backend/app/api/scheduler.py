@@ -1475,6 +1475,15 @@ async def _publish_claimed(db: AsyncSession, post: SocialPost, request: Optional
         post.status = "failed"
     await db.commit()
     await db.refresh(post)
+    if post.status == "published" and not test and (post.source or "") != "api":
+        # Posts made in the app tell Workflows too. API posts do it already, in public_api/social_events.py, together with the customer's webhooks.
+        try:
+            from app.core.tenancy import current_org
+            from app.services import connections
+
+            connections.emit(current_org(), "post.published", {"post": {"id": post.id, "title": post.title or ""}})
+        except Exception:
+            logger.exception("post.published could not be passed to workflows")
     return bundled
 
 

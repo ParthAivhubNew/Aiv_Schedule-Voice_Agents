@@ -372,15 +372,16 @@ async def get_workflows(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     counts: Dict[str, Dict[str, Any]] = {}
     for wid, status, n, last in (await db.execute(select(WorkflowRun.workflow_id, WorkflowRun.status, func.count(), func.max(WorkflowRun.created_at))
                                                    .group_by(WorkflowRun.workflow_id, WorkflowRun.status))).all():
-        c = counts.setdefault(wid, {"runs": 0, "failed": 0, "waiting": 0, "last": None})
+        c = counts.setdefault(wid, {"runs": 0, "failed": 0, "waiting": 0, "skipped": 0, "last": None})
         if status != "skipped":
             c["runs"] += n
+        c["skipped"] += n if status == "skipped" else 0
         c["failed"] += n if status == "failed" else 0
         c["waiting"] += n if status == "waiting" else 0
         c["last"] = max([x for x in (c["last"], last) if x], default=None)
 
     def stats(wid: str) -> Dict[str, Any]:
-        c = counts.get(wid) or {"runs": 0, "failed": 0, "waiting": 0, "last": None}
+        c = counts.get(wid) or {"runs": 0, "failed": 0, "waiting": 0, "skipped": 0, "last": None}
         return {**c, "last": (c["last"].isoformat() + "Z") if c["last"] else None}
 
     return {"workflows": [{**w, "stats": stats(w["id"])} for w in await W.get_workflows(db)],
@@ -394,10 +395,14 @@ class WorkflowsIn(BaseModel):
 
 @router.put("/together/workflows")
 async def put_workflows(body: WorkflowsIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    clean = await W.save_workflows(db, body.workflows)
-    if len(clean) < len(body.workflows[: W.MAX_RULES]):
-        raise HTTPException(status_code=400, detail="One of the rules isn't complete. Each needs an event and at least one action with its value.")
-    return {"workflows": clean}
+    # Check everything before anything is written, so a workflow that fails the rules can never take the saved ones with it.
+    if len(body.workflows) > W.MAX_RULES:
+        raise HTTPException(status_code=400, detail=f"You can have up to {W.MAX_RULES} workflows. Delete one first.")
+    for item in body.workflows:
+        if W.clean_workflow(item) is None:
+            name = str((item or {}).get("name") or "A workflow")
+            raise HTTPException(status_code=400, detail=f"“{name}” isn't complete or isn't allowed. Check that it has an event and at least one step with everything filled in (a web address must be a public https address).")
+    return {"workflows": await W.save_workflows(db, body.workflows)}
 
 
 def _run_out(r: Any) -> Dict[str, Any]:

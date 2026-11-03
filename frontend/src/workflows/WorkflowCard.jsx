@@ -37,7 +37,6 @@ export function WorkflowCard({ rule }) {
       ) : dropped ? <div style={muted}>Not turned on.</div> : (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={state === "busy" || !meta} onClick={turnOn}>{state === "busy" ? <><Spinner size={13} /> Turning on</> : "Turn on"}</button>
-          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => openWorkflows({ event: rule.event })}>Open Workflows</button>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setDropped(true)}>Not now</button>
         </div>
       )}

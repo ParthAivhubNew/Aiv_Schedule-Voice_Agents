@@ -403,7 +403,8 @@ export const api = {
   getWeeklySummary: () => apiRequest('/together/weekly-summary'),
   sendWeeklySummary: () => apiRequest('/together/weekly-summary/send', { method: 'POST' }),
   backfillConnections: (dryRun = true) => apiRequest(`/together/backfill?dry_run=${dryRun}`, { method: 'POST', timeoutMs: 120000 }),
-  getWorkflows: () => apiRequest('/together/workflows'),
+  // A unique query keeps the client from reusing a read made a moment ago: a list read right after a save must show the save.
+  getWorkflows: () => apiRequest(`/together/workflows?_=${Date.now()}`),
   saveWorkflows: (workflows) => apiRequest('/together/workflows', { method: 'PUT', body: { workflows } }),
   workflowRuns: (workflowId = '', status = '') => apiRequest(`/together/workflow-runs?limit=60${workflowId ? `&workflow_id=${encodeURIComponent(workflowId)}` : ''}${status ? `&status=${encodeURIComponent(status)}` : ''}`),
   retryWorkflowRun: (id) => apiRequest(`/together/workflow-runs/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
@@ -412,7 +413,8 @@ export const api = {
   getDoNotContact: () => apiRequest('/compliance/do-not-contact'),
   addDoNotContact: (body) => apiRequest('/compliance/do-not-contact', { method: 'POST', body }),
   removeDoNotContact: (id) => apiRequest(`/compliance/do-not-contact/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  getTimeline: (id, kinds = '') => apiRequest(`/contacts/${encodeURIComponent(id)}/timeline${kinds ? `?kinds=${encodeURIComponent(kinds)}` : ''}`),
+  // The time in the address keeps the client from reusing a read made a second ago: a timeline read right after a change must show it.
+  getTimeline: (id, kinds = '') => apiRequest(`/contacts/${encodeURIComponent(id)}/timeline?_=${Date.now()}${kinds ? `&kinds=${encodeURIComponent(kinds)}` : ''}`),
   getDuplicates: () => apiRequest('/contacts/duplicates'),
   mergeContacts: (keepId, mergeIds) => apiRequest('/contacts/merge', { method: 'POST', body: { keep_id: keepId, merge_ids: mergeIds } }),
   resolveSuggestion: (leadId, suggestionId, accept) => apiRequest(`/leads/accounts/${encodeURIComponent(leadId)}/suggestions/${encodeURIComponent(suggestionId)}`, { method: 'POST', body: { accept } }),

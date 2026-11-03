@@ -24,6 +24,13 @@ export function blockText(b, meta) {
   return meta.actions[b.action] || b.action;
 }
 
+// Like blockText, but an if shows what both of its paths do, so a row in the list says everything the workflow does.
+export function chipText(b, meta) {
+  if (b.type !== "if") return blockText(b, meta);
+  const path = (list) => list.map((x) => chipText(x, meta)).join(", ");
+  return `${blockText(b, meta)}: ${path(b.then) || "nothing"}${b.else?.length ? `, otherwise ${path(b.else)}` : ""}`;
+}
+
 export function summary(w, meta) {
   const info = meta.event_info[w.event];
   const when = `${info ? info.hint : w.event}${w.when?.outcome ? `: ${w.when.outcome.replace(/_/g, " ")}` : ""}`;

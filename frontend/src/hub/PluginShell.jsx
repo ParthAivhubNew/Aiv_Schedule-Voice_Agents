@@ -9,6 +9,7 @@ import { useRailTip } from "./RailTip";
 import { NavItem } from "./NavItem";
 import { GlobalAssistant } from "./GlobalAssistant";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
+import { WORKFLOWS_HEADER, useWorkflowsOpen } from "../workflows/openWorkflows";
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
 // It only applies on wide screens (global.css); phones keep their slide-out menu.
@@ -133,13 +134,15 @@ export function PhoneTabBar({ items, nav, accent }) {
 // The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
 // anything the page needs (children), your credits, notifications and profile (accountBar).
 export function PluginHeader({ nav, title, sub, children, accountBar, assistant = true, assistantPlugin = "leads" }) {
+  const workflows = useWorkflowsOpen();
+  if (workflows) [title, sub] = WORKFLOWS_HEADER;
   return (
-    <div style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
+    <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
       <MobileNavButton nav={nav} />
       <h1 style={{ margin: 0, fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em", color: C.textInk, whiteSpace: "nowrap" }}>{title}</h1>
       <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-        {children}
+        {workflows ? null : children}
         {assistant ? <GlobalAssistant plugin={assistantPlugin} /> : null}
         {accountBar}
       </div>
