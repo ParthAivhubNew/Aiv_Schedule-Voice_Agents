@@ -91,6 +91,9 @@ _SYSTEM = (
     "For lookalikes call my_data with customer_profile and then search_companies with what it returns. "
     "You can call several tools one after another: wait for a tool's result before choosing the next one. Do not repeat a call that already ran. "
     "If a request is missing something you need (what to find, where, or which list), ask ONE short question instead of guessing. "
+    "When the person names a trade (accountants, plumbers), always pass it in sector, with its close synonyms, on every search_companies call, together with the place. "
+    "A trade matches companies whose main activity or name is that trade. If a search result says it was broadened, tell the person that few companies have it as "
+    "their main activity, so the list also includes companies that list it as a side activity. Set include_secondary_activity only when they ask for side activities too. "
     "Never drop the trade the person asked for to get results: if nothing matches, say so and offer other words. When they ask for a number (\"give me 20\"), pass it as limit. "
     "When asked to write emails or a sequence, write them from the business profile with merge fields such as {{first_name}} and {{company}}, never invent facts about a recipient, "
     "and say they can set it up under Outreach. When asked which companies fit best, explain only with the fields a search returned. "
@@ -173,7 +176,7 @@ async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     except ValueError as err:
         return {"needs": str(err), "filters": filters, "total": 0, "top": []}
     return {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"], "asked": asked,
-            "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
+            "broadened": bool(found.get("broadened")), "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
 
 
 async def _pipeline(db: AsyncSession) -> Dict[str, Any]:
@@ -200,9 +203,12 @@ async def _market(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     filters = business_records.normalize_filters(args)
     out: Dict[str, Any] = {"filters": filters}
     base = await business_records.search_filtered(db, filters, limit=1, exclude_ids=[], stats=True)
-    out.update(total=base["total"], capped=base["total_capped"], tiers=base.get("tiers"), saved=base.get("saved_total"))
+    out.update(total=base["total"], capped=base["total_capped"], tiers=base.get("tiers"), saved=base.get("saved_total"), broadened=base["broadened"])
+    # The website/email/phone figures count within the same companies as the total: the same main-activity rule, never
+    # broadened on their own.
+    same = {**filters, "include_secondary_activity": True} if base["broadened"] else filters
     for key in ("has_website", "has_email", "has_phone"):
-        got = await business_records.search_filtered(db, {**filters, key: True}, limit=1, exclude_ids=[], stats=False)
+        got = await business_records.search_filtered(db, {**same, key: True}, limit=1, exclude_ids=[], stats=False, broaden=False)
         out[key] = got["total"]
     return out
 
@@ -295,6 +301,9 @@ class _Turn:
         self.actor: Dict[str, Any] = {}
 
 
+_BROADENED_TELL = "Broadened: {note}. Tell the person this in your answer."
+
+
 async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None:
     t0 = time.time()
     count_only = bool(args.pop("count_only", False))
@@ -305,7 +314,8 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
         tiers = m["tiers"] or {}
         t.notes.append(f"Market ({words}): {m['total']:,}{plus} companies in the register. Profile detail: full {tiers.get('full', 'unknown')}, partial {tiers.get('partial', 'unknown')}, "
                        f"basic {tiers.get('basic', 'unknown')}. With a website {m['has_website']:,}, with an email {m['has_email']:,}, with a phone {m['has_phone']:,}. "
-                       f"Already saved by the person: {m['saved'] if m['saved'] is not None else 'unknown'}.")
+                       f"Already saved by the person: {m['saved'] if m['saved'] is not None else 'unknown'}."
+                       + (f" {_BROADENED_TELL.format(note=lead_filters.broadened_note(m['filters']))}" if m.get("broadened") else ""))
         t.steps.append({"label": "Sized the market", "detail": f"{words}: {m['total']:,}{plus}", "ms": _ms(t0)})
         return
     res = await _run_search(db, args)
@@ -326,7 +336,8 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
     t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies"
                    + (f"; {len(res['top'])} are listed (the person asked for {res['asked']}). Say how many matched in all and how many you list" if res.get("asked") else "") + ". Top results: "
                    + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]) or "none")
-                   + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else ""))
+                   + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else "")
+                   + (f". {_BROADENED_TELL.format(note=lead_filters.broadened_note(res['filters']))}" if res.get("broadened") else ""))
 
 
 async def _tool_company(db: AsyncSession, t: _Turn, name: str) -> None:
@@ -577,7 +588,8 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
         "reply": reply, "steps": turn.steps, "proposals": turn.proposals, "took_ms": int((time.time() - started) * 1000),
         "suggestions": suggestions(found=bool(found and found["total"]), proposals=bool(turn.proposals), lists=lists, has_profile=has_profile,
                                    asked=body.message, thin=thin, web=body.web_search),
-        "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"], "asked": found.get("asked", 0)} if found else None),
+        "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"], "asked": found.get("asked", 0),
+                   "broadened": bool(found.get("broadened"))} if found else None),
         "state": {"last_total": found["total"] if found else last.get("last_total"),
                   "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}}
 

@@ -458,8 +458,11 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
-               "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business")
+               "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity")
 COUNT_CAP = 10_000
+# A trade search returns companies whose MAIN activity is the trade. When fewer than this many do, the search also takes
+# companies that list the trade only as a side activity (a later SIC code), and says so ("broadened").
+BROADEN_BELOW = 5
 DIRECTORY_SITES = ("food.gov.uk", "facebook.com", "yell.com", "tripadvisor.", "linkedin.com", "instagram.com", "twitter.com", "companieshouse.gov.uk",
                    "company-information.service.gov.uk", "google.com/maps", "192.com", "yelp.")
 _NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
@@ -534,7 +537,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity"):
         if (filters or {}).get(key):
             out[key] = True
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
@@ -558,11 +561,13 @@ def _wants_non_business(f: Dict[str, Any]) -> bool:
 
 
 def _postcode_match(prefix: str) -> Any:
-    """LS1 means the LS1 district (LS1 4AB), never LS10 to LS19. A prefix with a space, or ending in a letter (LS, LS1 4), is read as typed."""
+    """LS1 means the LS1 district (LS1 4AB), never LS10 to LS19; EC1 still takes EC1A to EC1Y, which are letters, not other districts.
+    A prefix with a space, or ending in a letter (LS, LS1 4), is read as typed."""
     p = prefix.strip().upper()
+    like = BusinessRecord.postcode.like(_like(p, prefix_only=True), escape="\\")
     if " " not in p and p[-1:].isdigit():
-        return or_(BusinessRecord.postcode == p, BusinessRecord.postcode.like(_like(p, exact=True) + " %", escape="\\"))
-    return BusinessRecord.postcode.like(_like(p, prefix_only=True), escape="\\")
+        return and_(like, ~BusinessRecord.postcode.op("~")("^" + re.escape(p) + "[0-9]"))
+    return like
 
 
 def check_filters(filters: Dict[str, Any]) -> None:
@@ -588,31 +593,66 @@ def check_filters(filters: Dict[str, Any]) -> None:
             raise
 
 
-def _filter_conditions(f: Dict[str, Any]) -> list:
+def can_broaden(f: Dict[str, Any]) -> bool:
+    """A trade was asked for and side activities were not already included, so a thin result may take them in."""
+    return bool((f.get("keyword") or f.get("sector") or f.get("sic_codes")) and not f.get("include_secondary_activity"))
+
+
+def _main_part(col: Any) -> Any:
+    """The main activity of a trade text: sic_text and industry list activities as "69201 - Accounting | 45112 - Sale of used cars",
+    main one first."""
+    return func.split_part(func.coalesce(col, ""), " | ", 1)
+
+
+def _trade_text(term: str, col: Any, any_activity: bool) -> Any:
+    """The trade word in the main activity, or in any listed activity. The whole-column match stays first so the
+    trigram index still finds the rows; the main-part test only rechecks them."""
+    hit = _whole_word(term, col)
+    return hit if any_activity else and_(hit, _whole_word(term, _main_part(col)))
+
+
+def _sic_code(code: str, any_activity: bool) -> Any:
+    """sic_codes is "|45112|69201|", main code first: the main code is the one right after the opening bar."""
+    c = _like(code, exact=True)
+    return BusinessRecord.sic_codes.like(f"%|{c}%" if any_activity else f"|{c}%", escape="\\")
+
+
+def _trade_conditions(f: Dict[str, Any], any_activity: bool) -> list:
+    """The keyword, sector and SIC code boxes. By default each matches a company's MAIN activity (first SIC code, or the
+    first entry of its trade text) or its name; `any_activity` also takes companies that list the trade as a side activity."""
+    from app.services import search_synonyms
+
     B = BusinessRecord
     conds = []
-    if f["status"].lower() != "any":
-        conds.append(func.lower(B.status) == f["status"].lower())
-    if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the sector
-        from app.services import search_synonyms
-
+    if f.get("keyword"):  # the panel's single box: a word may be part of the name or of the main trade
         clauses = []
         for typed in f["keyword"]:
             words, sics = search_synonyms.expand(typed)  # accountancy = accounting = accountants = the accounting SIC codes
-            clauses += [_by_name_or_number(w, B.name, B.sic_text, B.industry, words=True) for w in words]
-            clauses += [B.sic_codes.like(f"%|{c}%") for c in sics]
+            for w in words:
+                clauses.append(_by_name_or_number(w, B.name, words=True))
+                clauses += [_trade_text(w, B.sic_text, any_activity), _trade_text(w, B.industry, any_activity)]
+            clauses += [_sic_code(c, any_activity) for c in sics]
         conds.append(or_(*clauses))
     if f.get("sector"):
-        from app.services import search_synonyms
-
         clauses = []
         for typed in f["sector"]:
             words, sics = search_synonyms.expand(typed)  # the same trade words and SIC codes as the keyword box
-            clauses += [or_(_whole_word(w, B.sic_text), _whole_word(w, B.industry)) for w in words]
-            clauses += [B.sic_codes.like(f"%|{c}%") for c in sics]
+            for w in words:
+                clauses += [_whole_word(w, B.name), _trade_text(w, B.sic_text, any_activity), _trade_text(w, B.industry, any_activity)]
+            clauses += [_sic_code(c, any_activity) for c in sics]
         conds.append(or_(*clauses))
     if f.get("sic_codes"):
-        conds.append(or_(*[B.sic_codes.like(f"%|{_like(c, exact=True)}%", escape="\\") for c in f["sic_codes"]]))
+        conds.append(or_(*[_sic_code(c, any_activity) for c in f["sic_codes"]]))
+    return conds
+
+
+def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
+    B = BusinessRecord
+    any_activity = any_activity or bool(f.get("include_secondary_activity"))
+    conds = []
+    if f["status"].lower() != "any":
+        conds.append(func.lower(B.status) == f["status"].lower())
+    conds += _trade_conditions(f, any_activity)
     if f.get("towns"):
         conds.append(or_(*[B.region.ilike(_like(t, exact=True), escape="\\") for t in f["towns"]]))
     if f.get("postcode_prefixes"):
@@ -641,10 +681,10 @@ def _filter_conditions(f: Dict[str, Any]) -> list:
             conds.append(func.coalesce(col, "") != "")
     if f.get("has_website"):  # a rating site, register or social page saved as the "website" is not the company's own
         conds.append(~or_(*[B.website.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
-    # "Is none of": the same columns as the matching include filters, negated.
+    # "Is none of": the same columns and the same main-activity rule as the include filters, negated.
     if f.get("not_keyword"):
-        conds.append(~or_(*[or_(_whole_word(t, B.name), _whole_word(t, func.coalesce(B.sic_text, "")),
-                                _whole_word(t, func.coalesce(B.industry, ""))) for t in f["not_keyword"]]))
+        conds.append(~or_(*[or_(_whole_word(t, B.name), _trade_text(t, func.coalesce(B.sic_text, ""), any_activity),
+                                _trade_text(t, func.coalesce(B.industry, ""), any_activity)) for t in f["not_keyword"]]))
     if f.get("not_towns"):
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
@@ -676,16 +716,41 @@ def _primary_trade_first(f: Dict[str, Any]) -> list:
     return [case((or_(*[BusinessRecord.sic_codes.like(f"|{c}%") for c in codes]), 0), else_=1)]
 
 
-def _order(sort: str, f: Optional[Dict[str, Any]] = None) -> list:
-    """Best match: filled-in, well-known companies first (see rank_score_of); the others re-order the same results."""
+def _order(sort: str, f: Optional[Dict[str, Any]] = None, broadened: bool = False) -> list:
+    """Best match: filled-in, well-known companies first (see rank_score_of); the others re-order the same results.
+    A broadened search lists the companies whose main activity is the trade before the side-activity ones."""
     B = BusinessRecord
     if sort == "name":
         return [func.lower(B.name), B.id]
+    first = _primary_trade_first(f or {})
+    if broadened:
+        first = [case((and_(*_trade_conditions(f or {}, False)), 0), else_=1)] + first
     if sort == "newest":
         # Plain DESC (empty dates first, there are almost none) is the order the existing date index can walk; NULLS LAST is not,
         # and would read and sort every company.
-        return _primary_trade_first(f or {}) + [B.incorporated_on.desc(), B.id]  # also while the rank index is missing: main trade first
-    return _primary_trade_first(f or {}) + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
+        return first + [B.incorporated_on.desc(), B.id]  # also while the rank index is missing: main trade first
+    return first + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
+
+
+async def _count_upto(db: AsyncSession, where, n: int = BROADEN_BELOW) -> int:
+    """How many match, stopping at n: enough to know whether a trade search is thin."""
+    capped = select(BusinessRecord.id).where(where).limit(n).subquery()
+    return int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
+
+
+async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = None, *, count=None, broaden: bool = True):
+    """(where, count, broadened): the one place that decides which companies a set of filters means, so every list, count
+    and summary agrees. A trade matches by main activity; when fewer than BROADEN_BELOW do, side activities are taken in too.
+    `count(db, where)` is the count the caller needs anyway (the capped total), so the usual case costs no extra query."""
+    count = count or _count_upto
+    extra = list(extra or [])
+    strict = and_(*_filter_conditions(f), *extra)
+    n = await count(db, strict)
+    if not broaden or n >= BROADEN_BELOW or not can_broaden(f):
+        return strict, n, False
+    wide = and_(*_filter_conditions(f, any_activity=True), *extra)
+    m = await count(db, wide)
+    return (wide, m, True) if m > n else (strict, n, False)
 
 
 _RANKING: List[Any] = [0.0, True]  # [when checked, ready]
@@ -786,19 +851,18 @@ async def saved_ids(db: AsyncSession, ids: List[str]) -> set:
 
 
 async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: int = 25, offset: int = 0,
-                          exclude_ids: Optional[List[str]] = None, sort: str = "best", stats: bool = True) -> Dict[str, Any]:
+                          exclude_ids: Optional[List[str]] = None, sort: str = "best", stats: bool = True,
+                          broaden: bool = True) -> Dict[str, Any]:
     """The Apollo-style structured search over the shared store: every filter is an exact,
     explainable condition on a real column (nothing fuzzy or semantic), so the same filters always
     return the same companies and each result can be traced to the field that matched. Needs at
     least one narrowing filter (sector, SIC code, town, postcode or name) -- "every active company
     in the UK" is not a search. Returns the page, the (capped) total, and the normalised filters
-    actually applied, so the caller can show them back to the user."""
+    actually applied, so the caller can show them back to the user. `broadened` is True when too few companies have
+    the trade as their main activity and the side-activity ones were taken in too (see matching)."""
     check_filters(filters)
     f = normalize_filters(filters)
-    conds = _filter_conditions(f)
-    if exclude_ids:
-        conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
-    where = and_(*conds)
+    extra = [BusinessRecord.id.notin_(list(exclude_ids))] if exclude_ids else []
     limit = max(1, min(int(limit or 25), 250))
     if db.get_bind().dialect.name == "postgresql":  # a runaway filter must never tie up the database
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
@@ -807,16 +871,18 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     t0 = time.monotonic()
     ranked = await ranking_ready(db)
     t1 = time.monotonic()
-    total = await _capped_count(db, where)
+    where, total, broadened = await matching(db, f, extra, count=_capped_count, broaden=broaden)
     t2 = time.monotonic()
     rows = (await db.execute(
-        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest", f)).limit(limit).offset(max(0, int(offset or 0)))
+        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest", f, broadened))
+        .limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
     t3 = time.monotonic()
     timing = {"ready": int((t1 - t0) * 1000), "count": int((t2 - t1) * 1000), "page": int((t3 - t2) * 1000)}
     if t3 - t0 > 3:
         logger.warning(f"[business_records] slow search {timing} ranked={ranked} sort={sort} filters={f}")
-    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked, "timing_ms": timing}
+    out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked,
+           "timing_ms": timing, "broadened": broadened}
     if stats and ranked:
         out.update(await result_stats(db, where, out["total"]))
     elif stats:
@@ -829,15 +895,15 @@ async def search_summary(db: AsyncSession, filters: Dict[str, Any]) -> Dict[str,
     Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen."""
     check_filters(filters)
     f = normalize_filters(filters)
-    where = and_(*_filter_conditions(f))
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
-    total = await _capped_count(db, where)
-    out: Dict[str, Any] = {"total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "tiers": None, "saved_total": None, "total_all": None}
+    where, total, broadened = await matching(db, f, count=_capped_count)
+    out: Dict[str, Any] = {"total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "tiers": None, "saved_total": None, "total_all": None,
+                           "broadened": broadened}
     if await ranking_ready(db):
         out.update(await result_stats(db, where, out["total"]))
     if out["total_capped"]:
-        out["total_all"] = await exact_total(db, where, f)
+        out["total_all"] = await exact_total(db, where, {**f, "_broadened": broadened})
     return out
 
 
@@ -852,16 +918,16 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     check_filters(filters)
     f = normalize_filters(filters)
     B = BusinessRecord
-    base = and_(*_filter_conditions(f))
+    limit = max(1, min(int(limit or 25), 100))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    base, _, broadened = await matching(db, f)  # the same companies as the Companies tab
     with_people = and_(base, B.officers.isnot(None))
     word = str(title or "").strip().lower()[:60]
     if word:  # a cheap pre-filter on the stored JSON text; the exact role match is made below
         with_people = and_(with_people, cast(B.officers, String).ilike(_like(word), escape="\\"))
-    limit = max(1, min(int(limit or 25), 100))
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     ranked = await ranking_ready(db)
-    order = _order(sort if ranked or sort != "best" else "newest")
+    order = _order(sort if ranked or sort != "best" else "newest", f, broadened)
     total = await _capped_count(db, with_people)
     rows = (await db.execute(select(B).where(with_people).order_by(*order).limit(limit).offset(max(0, int(offset or 0))))).scalars().all()
     people = []
@@ -871,7 +937,8 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
                 continue
             people.append({**o, "company": biz})
     fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*order).limit(25))).scalars().all()
-    return {"people": people, "companies_total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill)}
+    return {"people": people, "companies_total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill),
+            "broadened": broadened}
 
 
 _DISTRICTS: Dict[str, Any] = {}  # town -> (when, rows); the shared store changes slowly, so a town is counted once in a while
@@ -917,19 +984,22 @@ AREA_COUNT_CAP = 100_000
 
 
 async def _area_conditions(db: AsyncSession, filters: Dict[str, Any], poly, exclude_ids: Optional[List[str]] = None):
-    """The filter conditions plus 'in one of the districts this shape touches'; None when it touches none."""
+    """(filters, where, broadened): the filter conditions plus 'in one of the districts this shape touches'; where is None
+    when it touches none. The main-activity rule and its broadening are decided on the area, as for a list (see matching)."""
     from app.services import geocoding
 
     check_filters(filters)
     f = normalize_filters(filters)
     outcodes = await geocoding.outcodes_for_area(poly)
     if not outcodes:
-        return f, None
-    conds = _filter_conditions(f)
-    conds.append(or_(*[BusinessRecord.postcode.like(f"{oc} %") for oc in outcodes]))
+        return f, None, False
+    extra = [or_(*[BusinessRecord.postcode.like(f"{oc} %") for oc in outcodes])]
     if exclude_ids:
-        conds.append(BusinessRecord.id.notin_(list(exclude_ids)))
-    return f, and_(*conds)
+        extra.append(BusinessRecord.id.notin_(list(exclude_ids)))
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+    where, _, broadened = await matching(db, f, extra)
+    return f, where, broadened
 
 
 async def area_candidates(db: AsyncSession, filters: Dict[str, Any], area: Any) -> Dict[str, Any]:
@@ -938,14 +1008,12 @@ async def area_candidates(db: AsyncSession, filters: Dict[str, Any], area: Any) 
     from app.services import geocoding
 
     poly = geocoding.clean_polygon(area)
-    f, where = await _area_conditions(db, filters, poly)
+    f, where, broadened = await _area_conditions(db, filters, poly)
     if where is None:
-        return {"candidates": 0, "capped": False, "filters": f}
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
+        return {"candidates": 0, "capped": False, "filters": f, "broadened": False}
     capped = select(BusinessRecord.id).where(where).limit(AREA_COUNT_CAP + 1).subquery()
     n = int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
-    return {"candidates": min(n, AREA_COUNT_CAP), "capped": n > AREA_COUNT_CAP, "filters": f}
+    return {"candidates": min(n, AREA_COUNT_CAP), "capped": n > AREA_COUNT_CAP, "filters": f, "broadened": broadened}
 
 
 async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *, scan: int = 0, chunk: int = AREA_CHUNK,
@@ -960,16 +1028,14 @@ async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *
     from app.services import geocoding
 
     poly = geocoding.clean_polygon(area)
-    f, where = await _area_conditions(db, filters, poly, exclude_ids)
+    f, where, broadened = await _area_conditions(db, filters, poly, exclude_ids)
     if where is None:
-        return {"rows": [], "points": {}, "total": 0, "next_scan": None, "filters": f}
+        return {"rows": [], "points": {}, "total": 0, "next_scan": None, "filters": f, "broadened": False}
     scan = max(0, int(scan or 0))
     chunk = max(1, min(int(chunk or AREA_CHUNK), AREA_CHUNK))
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     rows = (await db.execute(
         select(BusinessRecord).where(where)
-        .order_by(*_order("best" if await ranking_ready(db) else "newest")).offset(scan).limit(chunk + 1)
+        .order_by(*_order("best" if await ranking_ready(db) else "newest", f, broadened)).offset(scan).limit(chunk + 1)
     )).scalars().all()
     more = len(rows) > chunk
     rows = rows[:chunk]
@@ -980,7 +1046,8 @@ async def search_in_area(db: AsyncSession, filters: Dict[str, Any], area: Any, *
         if pt and geocoding.point_in_polygon(pt[0], pt[1], poly):
             inside.append(r)
             points[r.id] = [pt[0], pt[1]]
-    return {"rows": inside, "points": points, "total": len(inside), "next_scan": scan + chunk if more else None, "filters": f}
+    return {"rows": inside, "points": points, "total": len(inside), "next_scan": scan + chunk if more else None, "filters": f,
+            "broadened": broadened}
 
 
 def _admin_search_filter(q: str):

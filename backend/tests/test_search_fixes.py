@@ -36,7 +36,7 @@ def test_longer_words_keep_the_contains_match():
 
 def test_postcode_ls1_is_the_ls1_district_only():
     q = sql({"postcode_prefixes": ["ls1"]})
-    assert "postcode = 'LS1'" in q and "LIKE 'LS1 %'" in q and "LIKE 'LS1%'" not in q
+    assert "LIKE 'LS1%'" in q and "NOT (business_records.postcode ~ '^LS1[0-9]')" in q  # LS1 and LS1 4AB, and EC1A for EC1, but never LS10 to LS19
 
 
 def test_a_prefix_ending_in_a_letter_or_with_a_space_is_read_as_typed():
@@ -213,3 +213,127 @@ async def test_main_activity_first_no_community_centres_and_honest_labels(db):
     cards = {r.name: lead_filters.card(r) for r in (await BR.search_filtered(db, {"include_non_business": True}, limit=10, stats=False))["rows"]}
     assert cards["Reading Dental Practice"]["tier"] == "premises_listing" and cards["Smith Accountants Ltd"]["tier"] == "verified_registry"
     assert cards["Smith Accountants Ltd"]["region"] == "Reading"
+
+
+def test_a_trade_matches_the_main_activity_unless_side_activities_are_asked_for():
+    q = sql({"sector": ["accountants"], "postcode_prefixes": ["RG2"]})
+    assert "LIKE '|69201%'" in q and "LIKE '%|69201%'" not in q  # the first (main) SIC code only
+    assert "split_part" in q  # and the first entry of the trade text
+    wide = sql({"sector": ["accountants"], "include_secondary_activity": True})
+    assert "LIKE '%|69201%'" in wide and "split_part" not in wide
+    assert "LIKE '|62020%'" in sql({"sic_codes": ["62020"]})
+    assert BR.normalize_filters({"include_secondary_activity": 1})["include_secondary_activity"] is True
+    assert "include_secondary_activity" in BR.FILTER_KEYS
+
+
+def test_the_assistant_tool_offers_the_side_activity_switch():
+    from app.api import lead_assistant as LA
+
+    props = LA.TOOLS[0]["function"]["parameters"]["properties"]
+    assert props["include_secondary_activity"]["type"] == "boolean" and "sector" in props
+
+
+def _rg2_companies():
+    from app.models.models import BusinessRecord
+
+    from datetime import date
+
+    made = []
+
+    def rec(key, name, sic, sic_text, rank=10, born="2015-01-01"):
+        made.append(key)
+        return BusinessRecord(id=f"m2{key}", identity_hash=f"m2h{key}", name=name, registration_number=f"0900{len(made):04d}", status="Active",
+                              postcode="RG2 7AA", sic_codes=sic, sic_text=sic_text, industry="", region="Reading", website="", email="", phone="",
+                              rank_score=rank, incorporated_on=date.fromisoformat(born))
+
+    acc = "69201 - Accounting and auditing activities"
+    return [
+        *[rec(f"acc{i}", f"Reading Ledger Partners {i}", "|69201|", acc, born=f"201{i}-01-01") for i in range(6)],
+        rec("cars1", "JXMBOSS LTD", "|45112|47910|69201|", "45112 - Sale of used cars and light motor vehicles | 47910 - Retail sale via mail order | " + acc, rank=20050, born="2024-06-01"),
+        rec("cars2", "SKOENIX GLOBAL LTD", "|45112|69201|", "45112 - Sale of used cars and light motor vehicles | " + acc, rank=20040, born="2024-05-01"),
+        rec("estate", "WESTMINSTER VENTURES LTD", "|68100|69202|", "68100 - Buying and selling of own real estate | 69202 - Bookkeeping activities", rank=20030, born="2024-04-01"),
+        rec("it", "QUANTUM FINDATA LTD", "|62020|69201|", "62020 - Information technology consultancy activities | " + acc, rank=20020, born="2024-03-01"),
+        rec("taxi", "Reading Taxi Corporation", "|49320|", "49320 - Taxi operation", born="2024-02-01"),
+        rec("centre", "Whitley Community Centre", "|88990|", "88990 - Other social work activities without accommodation n.e.c.", born="2024-01-01"),
+    ]
+
+
+SIDE = {"JXMBOSS LTD", "SKOENIX GLOBAL LTD", "WESTMINSTER VENTURES LTD", "QUANTUM FINDATA LTD"}
+
+
+@pytest.mark.db
+async def test_accountants_in_rg2_are_companies_whose_main_activity_is_accounting(db):
+    from app.api import lead_assistant as LA
+
+    db.add_all(_rg2_companies())
+    await db.commit()
+    mains = {f"Reading Ledger Partners {i}" for i in range(6)}
+
+    for sort in ("best", "newest"):
+        out = await BR.search_filtered(db, {"sector": ["accountants"], "postcode_prefixes": ["RG2"]}, limit=50, stats=False, sort=sort)
+        assert {r.name for r in out["rows"]} == mains and out["broadened"] is False, sort
+    for typed in ({"keyword": ["accoutants"]}, {"keyword": ["accountancy"]}, {"sector": ["accounting", "bookkeeping", "tax"]}, {"sic_codes": ["69201"]}):
+        out = await BR.search_filtered(db, {**typed, "postcode_prefixes": ["RG2"]}, limit=50, stats=False)
+        assert {r.name for r in out["rows"]} == mains, typed
+
+    # The count, the summary and the assistant agree with the list.
+    filters = {"sector": ["accountants"], "postcode_prefixes": ["RG2"]}
+    summary = await BR.search_summary(db, filters)
+    assert summary["total"] == 6 and summary["broadened"] is False
+    res = await LA._run_search(db, {**filters, "limit": 20})
+    assert res["total"] == 6 and {c["name"] for c in res["top"]} == mains and res["broadened"] is False
+    market = await LA._market(db, filters)
+    assert market["total"] == 6 and market["broadened"] is False
+
+    # Asking for side activities takes them in, main trade still first in both sorts.
+    wide = {**filters, "include_secondary_activity": True}
+    for sort in ("best", "newest"):
+        out = await BR.search_filtered(db, wide, limit=50, stats=False, sort=sort)
+        names = [r.name for r in out["rows"]]
+        assert set(names) == mains | SIDE and set(names[:6]) == mains and out["broadened"] is False, sort
+    assert (await BR.search_summary(db, wide))["total"] == 10
+
+    # Never a taxi firm or a community centre.
+    out = await BR.search_filtered(db, {"keyword": ["tax"], "postcode_prefixes": ["RG2"]}, limit=50, stats=False)
+    assert {r.name for r in out["rows"]} == mains
+
+    # Leaving out a word takes out the companies it describes.
+    out = await BR.search_filtered(db, {**wide, "not_keyword": ["used cars"]}, limit=50, stats=False)
+    assert {r.name for r in out["rows"]} == mains | {"WESTMINSTER VENTURES LTD", "QUANTUM FINDATA LTD"}
+
+
+@pytest.mark.db
+async def test_a_thin_trade_search_takes_in_side_activities_and_says_so(db):
+    from types import SimpleNamespace
+
+    from app.api import lead_assistant as LA
+    from app.services import lead_filters
+
+    db.add_all([c for c in _rg2_companies() if not c.name.startswith("Reading Ledger Partners") or c.name.endswith(" 0")])
+    await db.commit()
+    filters = {"sector": ["accountants"], "postcode_prefixes": ["RG2"]}
+
+    for sort in ("best", "newest"):
+        out = await BR.search_filtered(db, filters, limit=50, stats=False, sort=sort)
+        names = [r.name for r in out["rows"]]
+        assert out["broadened"] is True and out["total"] == 5, sort
+        assert names[0] == "Reading Ledger Partners 0" and set(names[1:]) == SIDE, sort  # main trade first, though the others rank higher
+    summary = await BR.search_summary(db, filters)
+    assert summary["total"] == 5 and summary["broadened"] is True
+    assert "side activity" in lead_filters.broadened_note(out["filters"])
+
+    res = await LA._run_search(db, {**filters, "limit": 20})
+    assert res["total"] == 5 and len(res["top"]) == 5 and res["broadened"] is True
+    turn = LA._Turn(SimpleNamespace(web_search=False, filters=None), [])
+    await LA._tool_search(db, turn, {**filters, "limit": 20})
+    assert any("side activity" in n and "Tell the person" in n for n in turn.notes)
+
+    market = await LA._market(db, filters)
+    assert market["total"] == 5 and market["broadened"] is True and market["has_email"] == 0
+
+    people = await BR.search_people(db, filters)
+    assert people["broadened"] is True and set(people["fill_ids"]) == {"m2acc0", "m2cars1", "m2cars2", "m2estate", "m2it"}
+
+    # A trade nobody has, even as a side activity, is not "broadened": it is simply empty.
+    none = await BR.search_filtered(db, {"sector": ["zzqx florist"], "postcode_prefixes": ["RG2"]}, limit=5, stats=False)
+    assert none["total"] == 0 and none["broadened"] is False

@@ -21,6 +21,7 @@ const FAVOURITES = "Favourites";
 const CHECK_TIPS = {
   hasWebsite: "Only companies we already hold a website for",
   includeNonBusiness: "Also show schools, nurseries, churches and community places (hidden by default)",
+  includeSecondary: "Also show companies that list this trade only as a side activity. By default a trade matches a company's main activity or its name",
   hasPhone: "Only companies we already hold a phone number for",
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
@@ -29,9 +30,9 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
+const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "notSector"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name", "Name A to Z"]];
 
@@ -73,6 +74,7 @@ function formToFilters(f) {
   if (f.category.trim()) out.company_category = f.category.trim();
   if (f.hasWebsite) out.has_website = true;
   if (f.includeNonBusiness) out.include_non_business = true;
+  if (f.includeSecondary) out.include_secondary_activity = true;
   if (f.hasPhone) out.has_phone = true;
   if (f.hasEmail) out.has_email = true;
   if (splitList(f.notSector).length) out.not_keyword = splitList(f.notSector);
@@ -93,7 +95,7 @@ function filtersToForm(fl) {
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
-    includeNonBusiness: !!fl.include_non_business, hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
+    includeNonBusiness: !!fl.include_non_business, includeSecondary: !!fl.include_secondary_activity, hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
     notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
     saved: fl.saved || "", title: "",
   };
@@ -366,6 +368,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const widenRef = useRef(false); // the drawn area's count found nothing for the typed words, so nearby words are used
   // How the typed words were read ("dentist" also looks for "dental"), and the words the user took out.
   const [understood, setUnderstood] = useState([]);
+  // Too few companies had the trade as their main activity, so side-activity ones were included: the server's sentence saying so.
+  const [broadenedNote, setBroadenedNote] = useState("");
   const [dropTerms, setDropTerms] = useState([]);
   const dropFor = useRef("");
   // Every search can be cancelled: a newer run id makes the older one's answer be ignored when it arrives.
@@ -484,6 +488,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setChips(r.chips || []);
       setDidYouMean(r.did_you_mean || {});
       setUnderstood(r.understood || []);
+      setBroadenedNote(r.broadened ? r.broadened_note || "" : "");
       setSearched(true);
       setBusy(false);
       if (!offset && !Object.keys(formToFilters(f)).length && !(sortOverride || sort !== "best")) {
@@ -537,6 +542,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     setCapped(false);
     setChips([]);
     setUnderstood([]);
+    setBroadenedNote("");
     setDropTerms([]);
     setSearched(false);
     setError("");
@@ -600,6 +606,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     setCapped(r.total_capped);
     setApplied(r.filters);
     setChips(r.chips || []);
+    setBroadenedNote(r.broadened ? r.broadened_note || "" : "");
     setFillIds(r.fill_ids || []);
     setPage(Math.floor(offset / pageRef.current) + 1);
     setSearched(true);
@@ -692,6 +699,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         setCompanies(got.slice(0, target));
         setTotal(Math.min(got.length, target));
         lastChips = r.chips || lastChips;
+        setBroadenedNote(r.broadened ? r.broadened_note || "" : "");
         if (r.understood) setUnderstood(r.understood);
         lastFilters = r.filters || lastFilters;
         more = r.next_scan != null;
@@ -896,6 +904,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
             <label style={field} title="Leave out companies whose name or sector has any of these words"><span style={label}>Leave out</span>
               <input className="ui-input" value={form.notSector} onChange={(e) => setField("notSector", e.target.value)} placeholder="franchise, holdings" /></label>
+            {check("includeSecondary", "Include side activities")}
           </FilterGroup>
           <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")}>
             <div style={field}>
@@ -1044,6 +1053,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               </label>
             ) : null}
           </div>
+          {broadenedNote && !busy ? (
+            <div role="status" style={{ ...muted, fontSize: 12.5, padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>{broadenedNote}.</div>
+          ) : null}
           {understood.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
               <span style={{ ...muted, fontSize: 12.5 }}>Also looking for:</span>

@@ -25,9 +25,13 @@ _SCHEMA = {
         "keyword": {"type": "array", "items": {"type": "string"},
                     "description": "Only carry over the current 'keyword' filter unchanged; never set it yourself."},
         "sector": {"type": "array", "items": {"type": "string"},
-                   "description": "Words that appear in an official industry (SIC) description: the sector AND its "
-                                  "close synonyms, e.g. accountants -> ['accounting', 'bookkeeping', 'tax']; "
-                                  "restaurants -> ['restaurant', 'cafe']. Singular stems, lower-case."},
+                   "description": "The trade the person asked for, ALWAYS set when they named one: the trade word AND its "
+                                  "close synonyms as they appear in an official industry (SIC) description, e.g. accountants -> "
+                                  "['accountants', 'accounting', 'bookkeeping']; restaurants -> ['restaurant', 'cafe']. Lower-case. "
+                                  "It matches companies whose MAIN activity (or name) is the trade."},
+        "include_secondary_activity": {"type": "boolean",
+                                       "description": "Only if the person asks to include companies that do the trade as a side "
+                                                      "activity (a second SIC code), not just as their main business."},
         "sic_codes": {"type": "array", "items": {"type": "string"}, "description": "Only if the user gave SIC codes."},
         "towns": {"type": "array", "items": {"type": "string"},
                   "description": "UK towns/cities exactly as the registry spells them (London, Manchester). "
@@ -168,9 +172,17 @@ def describe(filters: Dict[str, Any]) -> List[str]:
     for key, label in (("has_website", "Has website"), ("has_email", "Has email"), ("has_phone", "Has phone")):
         if filters.get(key):
             chips.append(label)
+    if filters.get("include_secondary_activity"):
+        chips.append("Including side activities")
     for key, label in (("not_keyword", "Not about"), ("not_towns", "Not in"), ("not_company_category", "Not type")):
         if filters.get(key):
             chips.append(label + ": " + ", ".join(filters[key]))
     if filters.get("saved"):
         chips.append("Already in your lists" if filters["saved"] == "only" else "Not in any of your lists")
     return chips
+
+
+def broadened_note(filters: Dict[str, Any]) -> str:
+    """What to tell the person when a trade search took in side activities (see business_records.matching)."""
+    trade = ", ".join(list(filters.get("keyword") or []) + list(filters.get("sector") or []) + list(filters.get("sic_codes") or [])) or "this trade"
+    return f"Few companies have {trade} as their main activity, so this also includes companies that list it as a side activity"

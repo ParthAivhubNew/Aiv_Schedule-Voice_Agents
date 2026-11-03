@@ -184,7 +184,9 @@ _BROWSE_TTL = 1200.0  # the opening list (no filters) changes slowly; it is also
 def _page_key(filters, sort, limit, offset, drop_terms) -> str:
     import json
 
-    return json.dumps([filters, sort, limit, offset, drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
+    # "main-activity": a trade now matches a company's main activity first (see business_records.matching), so pages kept
+    # under the older any-activity rule are never served again.
+    return json.dumps(["main-activity", filters, sort, limit, offset, drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
 
 
 async def warm_browse_pages() -> None:
@@ -268,6 +270,9 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         raise
     out["filters"] = shown_filters
     chips = lead_filters.describe(out["filters"])
+    broadened = bool(out.get("broadened"))
+    if broadened:  # too few have the trade as their main activity: the side-activity ones are in too, and the person is told
+        chips.append(lead_filters.broadened_note(out["filters"]))
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
@@ -278,7 +283,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
               "next_scan": out.get("next_scan"), "understood": understood,
               "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
-              "timing_ms": out.get("timing_ms")}
+              "timing_ms": out.get("timing_ms"), "broadened": broadened,
+              "broadened_note": lead_filters.broadened_note(out["filters"]) if broadened else ""}
     from app.services import search_towns
 
     guess = search_towns.suggest((body.filters or {}).get("towns") or [])
@@ -361,8 +367,11 @@ async def search_people(body: SearchIn, db: AsyncSession = Depends(get_db)):
     people = [{"id": f'{p["company"].id}:{p["name"]}', "name": p["name"], "first_name": p.get("first_name", ""), "last_name": p.get("last_name", ""),
                "role": p["role"], "appointed_on": p["appointed_on"], "company": {**masked[p["company"].id], "saved": p["company"].id in mine}}
               for p in out["people"]]
+    broadened = bool(out.get("broadened"))
+    chips = lead_filters.describe(out["filters"]) + ([lead_filters.broadened_note(out["filters"])] if broadened else [])
     return {"people": people, "companies_total": out["companies_total"], "total_capped": out["total_capped"],
-            "filters": out["filters"], "chips": lead_filters.describe(out["filters"]), "fill_ids": out["fill_ids"]}
+            "filters": out["filters"], "chips": chips, "fill_ids": out["fill_ids"], "broadened": broadened,
+            "broadened_note": lead_filters.broadened_note(out["filters"]) if broadened else ""}
 
 
 async def _candidates_as_total(pending) -> Dict[str, Any]:
@@ -389,7 +398,8 @@ async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That area is too busy to count. Draw a smaller one.")
         raise
-    return {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood}
+    return {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood,
+            "broadened": bool(out.get("broadened"))}
 
 
 @router.get("/districts")
