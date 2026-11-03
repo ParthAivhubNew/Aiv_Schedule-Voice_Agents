@@ -141,7 +141,8 @@ async def create(body: ListIn, db: AsyncSession = Depends(get_db)) -> Dict[str, 
     made = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": name, "ids": await _existing(db, body.ids),
             "created_at": datetime.utcnow().isoformat() + "Z"}
     await _save(db, [made] + lists)
-    return {"list": made}
+    wanted = list(dict.fromkeys(body.ids))
+    return {"list": made, "added": len(made["ids"]), "already": 0, "missing": len(wanted) - len(made["ids"])}
 
 
 @router.patch("/{list_id}")
@@ -158,10 +159,15 @@ async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_d
     gone = set(body.remove)
     if gone & await _checking():
         raise HTTPException(status_code=409, detail="Some of these companies are being checked right now. Take them out of the list when the check has finished.")
+    before = set(hit["ids"]) - gone
+    wanted = list(dict.fromkeys(body.add))
+    real = set(await _existing(db, wanted))
     hit["ids"] = await _existing(db, [i for i in hit["ids"] if i not in gone] + body.add)
     hit["updated_at"] = datetime.utcnow().isoformat() + "Z"
     await _save(db, lists)
-    return {"list": hit}
+    # What really happened, so the screen never says "added 36" when 11 were already there and 2 are not saved companies.
+    return {"list": hit, "added": len([i for i in wanted if i in real and i not in before]),
+            "already": len([i for i in wanted if i in real and i in before]), "missing": len([i for i in wanted if i not in real])}
 
 
 @router.delete("/{list_id}")

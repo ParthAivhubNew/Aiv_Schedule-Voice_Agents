@@ -67,10 +67,13 @@ const compare = (a, b) => {
 };
 
 // Marks the rows a filter hides and puts each run of rows in the sort order. Returns how many rows show.
-function applyView(table, labels, sort, filters) {
+// `force` is true when the person changed the sort or a filter. Without it, rows are put in order only when new rows have appeared:
+// a cell changing its own text (a lookup shows "Looking...", then the answer) must never make its row jump to another place.
+function applyView(table, labels, sort, filters, force = true) {
   const body = table.tBodies[0];
   if (!body) return { shown: 0, total: 0 };
   const rows = Array.from(body.rows);
+  const hasNewRows = rows.some((r) => !isGroupRow(r) && r.dataset.gtI === undefined);
   const active = Object.entries(filters).filter(([, v]) => v).map(([label, v]) => [labels.indexOf(label), v.toLowerCase()]).filter(([i]) => i >= 0);
   let shown = 0;
   let total = 0;
@@ -83,6 +86,7 @@ function applyView(table, labels, sort, filters) {
   });
   const col = sort ? labels.indexOf(sort.label) : -1;
   if (col < 0 && !table.dataset.gtSorted) return { shown, total };
+  if (!force && !hasNewRows) return { shown, total };
   const runs = [];
   let cur = [];
   rows.forEach((r) => { if (isGroupRow(r)) { if (cur.length) runs.push(cur); cur = []; } else cur.push(r); });
@@ -173,7 +177,7 @@ export function GridTools({ id, className = "" }) {
       cells.forEach((c) => { if (labelOf(c)) decorate(c); });
       const next = cells.map(labelOf);
       setLabels((prev) => (sameList(prev, next) ? prev : next));
-      const v = applyView(table, next, viewRef.current.sort, viewRef.current.filters);
+      const v = applyView(table, next, viewRef.current.sort, viewRef.current.filters, false);
       setView((prev) => (prev.shown === v.shown && prev.total === v.total ? prev : v));
     };
     const mo = new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(read); });

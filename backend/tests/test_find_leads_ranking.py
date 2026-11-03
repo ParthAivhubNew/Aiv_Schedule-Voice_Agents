@@ -188,14 +188,14 @@ async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_onl
             return found
         return {"found": False, "cached": False, "website": "", "phones": [], "emails": [], "team": []}
 
-    async def fake_places(query):
+    async def fake_places(query, **_):
         return {"place_id": "p1", "website": "https://deepcafe.co.uk", "phone": "0113 222 333", "name": "Deep Cafe"} if "Deep" in query else None
 
     async def deep_cafe_site(url, max_chars=6000):  # the company's own site, which is what confirms Google's lead
         return "Deep Cafe", "Welcome to Deep Cafe in Leeds. Call us on 0113 222 333."
 
     monkeypatch.setattr("app.services.company_contacts.web_contacts", fake_web)
-    monkeypatch.setattr("app.api.lead_accounts.search_google_places", fake_places)
+    monkeypatch.setattr("app.api.lead_accounts.search_deeper", fake_places)
     monkeypatch.setattr("app.services.web_harness.fetch_text", deep_cafe_site)
     _, token = await make_user(db, "fl8", "Admin", org_id="org_acme")
     with org_scope("org_acme"):
@@ -310,11 +310,11 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
             return found
         return {"found": False, "cached": False, "website": "", "phones": [], "emails": [], "team": []}
 
-    async def no_places(query):
+    async def no_places(query, **_):
         return None
 
     monkeypatch.setattr("app.services.company_contacts.web_contacts", fake_web)
-    monkeypatch.setattr("app.api.lead_accounts.search_google_places", no_places)
+    monkeypatch.setattr("app.api.lead_accounts.search_deeper", no_places)
     _, token = await make_user(db, "fl9", "Admin", org_id="org_acme")
     with org_scope("org_acme"):
         await K.add_credits(db, "leadgen", 50, source="grant", note="Trial")

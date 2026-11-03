@@ -532,13 +532,19 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
     }
 
 
-async def search_deeper(query: str, *, name: str = "", postcode: str = "", domain: str = "") -> Optional[Dict[str, Any]]:
-    """The deeper search: Google's listing first; when that gives no phone or website, Apollo's company data. Shown to the
-    user only as "Deep web search"."""
+async def search_deeper(query: str, *, name: str = "", postcode: str = "", domain: str = "", want: str = "") -> Optional[Dict[str, Any]]:
+    """The deeper search: Google's listing first; when that does not have what is wanted ("phone" or "website"; either when not
+    said), Apollo's company data. Shown to the user only as "Deep web search"."""
     place = await search_google_places(query, name=name, postcode=postcode)
-    if place and (place.get("phone") or place.get("website")):
+    needed = (want,) if want in ("phone", "website") else ("phone", "website")
+    if place and any(place.get(k) for k in needed):
         return place
-    return (await search_apollo(name or query, postcode=postcode, domain=domain)) or place
+    if place and not domain and place.get("website"):
+        domain = _host_of(place["website"]) or ""  # Google knows the company's site: Apollo can be asked about that exact site
+    found = await search_apollo(name or query, postcode=postcode, domain=domain)
+    if found and any(found.get(k) for k in needed):
+        return found
+    return place or found
 
 
 _TAVILY_WHY = {

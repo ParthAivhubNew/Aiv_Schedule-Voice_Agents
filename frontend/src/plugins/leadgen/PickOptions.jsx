@@ -66,12 +66,18 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
     window.addEventListener("scroll", again, true);
     return () => { window.removeEventListener("resize", again); window.removeEventListener("scroll", again, true); };
   }, [anchorKey]);
+  // The parent hands in a new onClose on every render (the credits chip refreshes on a timer). Reading it through a ref keeps this
+  // effect from re-running, which used to pull focus out of the text box in the middle of typing.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const opened = useRef({ hadOptions: Boolean(options?.length) }); // only what was shown when it opened decides where focus goes
   useEffect(() => {
-    box.current?.focus({ preventScroll: true });
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const field = document.getElementById("pick-more");
+    ((!opened.current.hadOptions && field) || box.current)?.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === "Escape") closeRef.current(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
   const pick = async (o) => {
     setBusy(o.value);
     setError("");

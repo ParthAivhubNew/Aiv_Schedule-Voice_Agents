@@ -512,7 +512,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     if not (lead_filters.card(biz)["website"] or (web or {}).get("website")):
         try:
             await _can_deep_search(db)
-            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "")
+            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="website")
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
@@ -712,7 +712,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     else:
         try:
             await _can_deep_search(db)
-            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "")
+            place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="phone")
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."

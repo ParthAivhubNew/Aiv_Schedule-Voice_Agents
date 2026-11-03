@@ -75,3 +75,40 @@ async def test_by_website_domain_is_taken_when_the_name_agrees(monkeypatch):
     assert got and got["postcode_match"] is True
     monkeypatch.setattr(E.httpx, "AsyncClient", _client(enrich_org=_org("Totally Different Ltd", "LS28 5HX")))
     assert await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="farsleydental.co.uk") is None
+
+
+@pytest.mark.asyncio
+async def test_the_deeper_search_asks_apollo_only_for_what_google_lacks(monkeypatch):
+    google = {"name": "York Place Dental Practice", "website": "http://www.ypdp.co.uk/", "phone": "", "place_id": "g1", "postcode_match": True}
+
+    async def fake_google(query, **_):
+        return dict(google)
+
+    monkeypatch.setattr(E, "search_google_places", fake_google)
+    asked = []
+
+    async def fake_apollo(name, *, postcode="", domain=""):
+        asked.append(domain)
+        return {"name": "York Place Dental", "phone": "+44 1937 000000", "website": "http://www.ypdp.co.uk", "place_id": "apollo_1", "via": "apollo", "postcode_match": True}
+
+    monkeypatch.setattr(E, "search_apollo", fake_apollo)
+    # The website is wanted and Google has it: Apollo is never asked.
+    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="website")
+    assert got["place_id"] == "g1" and asked == []
+    # The phone is wanted and Google has none: Apollo is asked, about the site Google named.
+    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="phone")
+    assert got["via"] == "apollo" and got["phone"] and asked == ["ypdp.co.uk"]
+
+
+@pytest.mark.asyncio
+async def test_when_neither_has_it_the_google_listing_is_returned_not_invented(monkeypatch):
+    async def fake_google(query, **_):
+        return {"name": "Be Sweet", "website": "", "phone": "", "place_id": "g2"}
+
+    async def fake_apollo(name, *, postcode="", domain=""):
+        return None
+
+    monkeypatch.setattr(E, "search_google_places", fake_google)
+    monkeypatch.setattr(E, "search_apollo", fake_apollo)
+    got = await E.search_deeper("Be Sweet", name="Be Sweet", postcode="LE10 1DA", want="phone")
+    assert got["place_id"] == "g2" and not got["phone"]

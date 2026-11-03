@@ -258,6 +258,16 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   );
 }
 
+// What the server really did, so "36 selected" never reads as "36 added" when some were already in the list or are not saved companies.
+export function addedMessage(r, asked) {
+  const added = r?.added ?? asked;
+  const noun = (n) => `${n.toLocaleString()} ${n === 1 ? "company" : "companies"}`;
+  let text = `Added ${noun(added)} to the list.`;
+  if (r?.already) text += ` ${noun(r.already)} ${r.already === 1 ? "was" : "were"} already in it.`;
+  if (r?.missing) text += ` ${noun(r.missing)} could not be added because ${r.missing === 1 ? "it is" : "they are"} not saved in Leads yet.`;
+  return text;
+}
+
 // "Add to list" box on Saved Accounts: pick an existing list or name a new one.
 export function AddToListDialog({ ids, listsStore, onToast, onClose }) {
   const [target, setTarget] = useState(listsStore.lists[0]?.id || "new");
@@ -268,10 +278,9 @@ export function AddToListDialog({ ids, listsStore, onToast, onClose }) {
     setBusy(true);
     setError("");
     try {
-      if (target === "new") await api.createLeadList(name, ids);
-      else await api.updateLeadList(target, { add: ids });
+      const r = target === "new" ? await api.createLeadList(name, ids) : await api.updateLeadList(target, { add: ids });
       await listsStore.reload();
-      onToast(`Added ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} to the list.`);
+      onToast(addedMessage(r, ids.length));
       onClose();
     } catch (e) {
       setError(e.message || "Couldn't add them.");

@@ -113,12 +113,13 @@ export function BulkActions({ selected, phoneOf, leadsOn, leadLists, listName, o
   const putInList = async (name, existingId) => {
     let id = existingId;
     const ids = known.map((r) => r.leadId);
+    let already = 0;
     if (!id) id = (await api.createLeadList(name, ids))?.list?.id;
-    else if (ids.length) await api.updateLeadList(id, { add: ids });
+    else if (ids.length) already = (await api.updateLeadList(id, { add: ids }))?.already || 0;
     const fresh = selected.filter((r) => !r.leadId);
     if (fresh.length) await api.saveLeadAccounts(fresh.map((r) => rowAsAccount(r, phoneOf(r))), name);
     onLeadListsChanged?.();
-    return id;
+    return { id, already };
   };
   const run = async (fn) => {
     setBusy(true);
@@ -128,8 +129,9 @@ export function BulkActions({ selected, phoneOf, leadsOn, leadLists, listName, o
     const existing = leadLists.find((l) => l.id === target);
     const name = existing ? existing.name : newName.trim();
     if (!name) { onToast("Choose a list or type a name for a new one."); return; }
-    await putInList(name, existing?.id);
-    onToast(`${selected.length} contact${selected.length === 1 ? "" : "s"} added to “${name}” in Leads.`);
+    const { already } = await putInList(name, existing?.id);
+    const added = selected.length - already;
+    onToast(`${added} contact${added === 1 ? "" : "s"} added to “${name}” in Leads.${already ? ` ${already} ${already === 1 ? "was" : "were"} already in it.` : ""}`);
     setOpen(false); setMode("");
   });
   const setStageFor = () => run(async () => {

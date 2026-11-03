@@ -169,7 +169,7 @@ def fake_world(monkeypatch):
     async def mx(domain):
         return "invalid" if domain.startswith("nomail") else "ok"
 
-    async def places(query):
+    async def places(query, **_):
         calls["deep"] += 1
         return {"name": "Cafe Nero Local", "business_status": "OPERATIONAL", "phone": "", "website": "", "place_id": "p1", "rating": 4} if "Nero" in query else None
 
