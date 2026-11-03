@@ -162,3 +162,15 @@ async def test_the_assistant_lists_the_number_asked_for_and_never_drops_the_trad
     first = turn.found
     await LA._tool_search(db, turn, {"postcode_prefixes": ["RG2"]})  # a second round that lost the trade
     assert turn.found is first and any("left out the trade" in n for n in turn.notes)
+
+
+def test_the_company_search_route_refuses_wildcards_and_negative_ages_before_they_are_tidied_away():
+    from fastapi import HTTPException
+
+    from app.api.lead_accounts import _refuse_bad_filters
+
+    for bad in ({"keyword": ["%"]}, {"keyword": ["*"]}, {"min_age_years": -5, "keyword": ["accountancy"]}, {"min_age_years": 10, "max_age_years": 2}):
+        with pytest.raises(HTTPException) as err:
+            _refuse_bad_filters(bad)
+        assert err.value.status_code == 422
+    _refuse_bad_filters({"keyword": ["accountancy"], "towns": ["Leeds"]})

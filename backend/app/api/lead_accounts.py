@@ -220,6 +220,14 @@ class SearchIn(BaseModel):
     widen: bool = False  # with an area: the typed words found nothing when counted, so the nearby words are used (see /search/area-count)
 
 
+def _refuse_bad_filters(filters):
+    """Wildcard-only words, negative ages and swapped ages are refused on what was typed, before anything is tidied away."""
+    try:
+        business_records.check_filters(filters)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
+
 @router.post("/search")
 async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The Apollo-style filter search over the shared company store (the same one the chat runs).
@@ -227,6 +235,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
     from app.services import lead_filters, phrase_understanding
 
+    _refuse_bad_filters(body.filters)
     shown_filters = business_records.normalize_filters(body.filters)  # what the user typed: this is what comes back
     understood: List[Dict[str, Any]] = []
     try:
@@ -362,6 +371,7 @@ async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
     (slower) step of placing each one on the map. Free."""
     if not body.area:
         raise HTTPException(status_code=422, detail="Draw an area on the map first.")
+    _refuse_bad_filters(body.filters)
     from app.services import phrase_understanding
 
     try:

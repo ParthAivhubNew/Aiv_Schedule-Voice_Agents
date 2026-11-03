@@ -940,7 +940,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
               <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
             </button>
-            <button type="submit" className="ui-btn ui-btn--primary" disabled={busy} style={{ marginLeft: "auto", height: 36 }} title="Search the company register. It costs no credits">
+            <button type="submit" aria-busy={busy} className="ui-btn ui-btn--primary" style={{ marginLeft: "auto", height: 36 }} title="Search the company register. It costs no credits">
               {busy ? <Spinner size={15} /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
             </button>
           </div>

@@ -162,6 +162,10 @@ async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         asked = 0
     shown = asked or TOP  # the number the person asked for, else a short preview
+    try:
+        business_records.check_filters(args)  # on what the model typed, before junk words are tidied away
+    except ValueError as err:
+        return {"needs": str(err), "filters": business_records.normalize_filters(args), "total": 0, "top": []}
     filters = business_records.normalize_filters(args)
     try:
         found, _ = await phrase_understanding.widen_if_empty(
