@@ -206,6 +206,7 @@ async def test_main_activity_first_no_community_centres_and_honest_labels(db):
     await db.commit()
     first = [r.name for r in (await BR.search_filtered(db, {"keyword": ["accountants"]}, limit=5, stats=False, sort="newest"))["rows"]]
     best = (await BR.search_filtered(db, {"keyword": ["accountants"]}, limit=5, stats=False, sort="best"))["rows"]
+    assert first == ["Smith Accountants Ltd", "Used Cars Ltd"]  # newest-first (the live fallback while ranking is not built) puts the main trade first too
     assert [r.name for r in best] == ["Smith Accountants Ltd", "Used Cars Ltd"]  # main activity ahead of a side activity, though the side one ranks higher
     assert "Wythenshawe Forum" not in [r.name for r in (await BR.search_filtered(db, {"keyword": ["dentist"]}, limit=5, stats=False))["rows"]]
     assert "Wythenshawe Forum" in [r.name for r in (await BR.search_filtered(db, {"keyword": ["dentist"], "include_non_business": True}, limit=5, stats=False))["rows"]]

@@ -684,7 +684,7 @@ def _order(sort: str, f: Optional[Dict[str, Any]] = None) -> list:
     if sort == "newest":
         # Plain DESC (empty dates first, there are almost none) is the order the existing date index can walk; NULLS LAST is not,
         # and would read and sort every company.
-        return [B.incorporated_on.desc(), B.id]
+        return _primary_trade_first(f or {}) + [B.incorporated_on.desc(), B.id]  # also while the rank index is missing: main trade first
     return _primary_trade_first(f or {}) + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 
 
