@@ -29,6 +29,7 @@ import {
   Users,
   FileSpreadsheet,
   Workflow,
+  FileText,
 } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
@@ -46,6 +47,7 @@ import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
 import { NewCampaign } from "./CampaignSimple";
 import { JourneysView } from "./JourneysView";
+import { InboundFormsView } from "./InboundForms";
 import { CompanyPage } from "./CompanyPage";
 import { ProfileBox } from "./EmailWriter";
 import { SavedPeople, SavedTabs, peopleOf } from "./SavedPeople";
@@ -196,10 +198,11 @@ export default function LeadGenerationPlugin({
     { id: "lists", label: "Lists", short: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach", embedIds: ["lists", "saved_people", "saved_companies"] }, // Companies and People are tabs on the same page
     { id: "outreach", label: "Journeys", icon: Route, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
+    { id: "inbound_forms", label: "Forms", icon: FileText, group: "Inbound", title: "Web forms that turn visitors into leads" },
     { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
   ], embedViews);
-  const navGroups = ["Outreach", "Setup"].map((label) => ({
+  const navGroups = ["Outreach", "Inbound", "Setup"].map((label) => ({
     label,
     items: navItems.filter((item) => item.group === label).map((item) => ({
       id: item.id,
@@ -250,6 +253,7 @@ export default function LeadGenerationPlugin({
     lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
     outreach: { title: "Journeys", desc: "A path through emails, calls and tasks for each person: set it up once, and it stops when they reply, book or opt out." },
     mail: { title: "Inbox and sent", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
+    inbound_forms: { title: "Forms", desc: "Build a web form, share its link, and every answer with a working email becomes a lead in the list you choose." },
     mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
@@ -344,6 +348,7 @@ export default function LeadGenerationPlugin({
           {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
 
           {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("mail"); }} />}
+          {view === "inbound_forms" && <InboundFormsView toast={showToast} onOpenLead={async (id) => { await Promise.all([store.reload(), listsStore.reload()]); setWantedLead(id); setView("saved_companies"); }} />}
           {view === "business" && <ProfileBox page />}
 
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}

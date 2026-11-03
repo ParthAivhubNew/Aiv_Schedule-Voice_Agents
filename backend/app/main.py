@@ -66,6 +66,7 @@ from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
 from app.api.number_check import router as number_check_router
 from app.api.email_outreach import router as email_outreach_router
+from app.api.email_design import router as email_design_router
 from app.api.journeys import router as journeys_router
 from app.api.mail_client import router as mail_client_router
 from app.api.developer_keys import router as developer_keys_router
@@ -74,6 +75,7 @@ from app.api.partners import router as partners_router
 from app.api.embed import router as embed_router
 from app.api.embed_connect import router as embed_connect_router
 from app.api.v1_public import router as v1_public_router
+from app.api.inbound_forms import public_router as inbound_public_router, router as inbound_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
 
@@ -942,6 +944,8 @@ app.include_router(plugin_assistant_router, prefix=settings.API_PREFIX)
 app.include_router(agent_router, prefix=settings.API_PREFIX)
 app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
+app.include_router(inbound_router, prefix=settings.API_PREFIX)
+app.include_router(inbound_public_router, prefix=settings.API_PREFIX)  # /api/f/<key>: a published web form, no sign-in
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)
 app.include_router(connected_social_router, prefix=settings.API_PREFIX)
@@ -965,6 +969,7 @@ app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
+app.include_router(email_design_router, prefix=settings.API_PREFIX)
 app.include_router(journeys_router, prefix=settings.API_PREFIX)
 app.include_router(mail_client_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)

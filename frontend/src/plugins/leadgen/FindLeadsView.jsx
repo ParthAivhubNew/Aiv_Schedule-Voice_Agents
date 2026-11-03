@@ -763,7 +763,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       const matches = !r.found && (r.options || []).length ? r.options : null;
       if (!r.found) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
       if (matches) setWaiting((w) => ({ ...w, [key]: matches }));
-      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.charged ? ". Credits used for this find" : ""}.` : r.note || "Nothing found.");
+      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}${r.charged ? ". Credits used for this find" : ""}.` : r.note || "Nothing found.");
     } catch (err) {
       setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
       store.toast(err.message || "The lookup didn't finish. Nothing was charged.");

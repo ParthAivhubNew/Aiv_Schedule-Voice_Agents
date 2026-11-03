@@ -6,6 +6,7 @@ import { Note, Pill, btn as baseBtn, card, input, useAction, when } from "../../
 import { askConfirm, askText } from "./Dialogs";
 import { useConnection, openPlans } from "../../hooks/useConnections";
 import { Drawer } from "./FindLeadsParts";
+import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDesign";
 import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, priBtn, secBtn } from "../scheduler/ScheduleWindow";
 import { parseLeads } from "./OutreachViews";
 import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
@@ -285,8 +286,23 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
   const [openStep, setOpenStep] = useState(-1);
   const [menu, setMenu] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
+  const addRef = useRef(null);
+  const [menuBox, setMenuBox] = useState(null); // where the open Add a step menu sits, kept inside the window (never clipped by a scrolling parent)
+  useEffect(() => {
+    if (!addMenu) { setMenuBox(null); return; }
+    const r = addRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.min(300, window.innerWidth - 16), gap = 8;
+    const below = window.innerHeight - r.bottom - gap - 4, above = r.top - gap - 4;
+    const up = below < 280 && above > below;
+    setMenuBox({ left: Math.max(gap, Math.min(r.left, window.innerWidth - width - gap)), width,
+      ...(up ? { bottom: window.innerHeight - r.top + 4, maxHeight: above } : { top: r.bottom + 4, maxHeight: below }) });
+  }, [addMenu]);
   const [adding, setAdding] = useState(false);
   const [rules, setRules] = useState(false);
+  const [looks, setLooks] = useState(false); // the "Look of the emails" drawer
+  const [brandOpen, setBrandOpen] = useState(false);
+  const emailDesign = useEmailDesign();
   const [details, setDetails] = useState(false);
   const [advice, setAdvice] = useState(null);
   const [listId, setListId] = useState("");
@@ -343,6 +359,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
             {live ? <button type="button" style={btn(false)} onClick={() => run(() => api.journeyStatus(j.id, "paused"), "Paused. Nobody loses their place.")}><Pause size={14} /> Pause</button>
               : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={() => run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window.")}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
             <button type="button" style={btn(false)} onClick={() => setRules(true)}><SlidersHorizontal size={14} /> Rules</button>
+            <button type="button" style={btn(false)} title="Send these emails with your logo, colours and buttons" onClick={() => setLooks(true)}><PenLine size={14} /> Design</button>
             <button type="button" style={btn(false)} title="Ask the AI about this journey" onClick={() => onAskAssistant?.()}><Bot size={14} /> Ask AI</button>
             <span style={{ position: "relative" }}>
               <button type="button" aria-label="More" aria-haspopup="menu" aria-expanded={menu} style={{ ...btn(false), padding: "0 9px" }} onClick={() => setMenu((m) => !m)}><MoreHorizontal size={16} /></button>
@@ -397,12 +414,12 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               onRemove={() => { edit(steps.filter((_, k) => k !== i).map((x, k) => (k === 0 ? { ...x, delay_days: 0, delay_hours: 0 } : x))); setOpenStep(-1); }} />
           ))}
         </ol>
-        <div style={{ position: "relative", justifySelf: "start" }}>
+        <div ref={addRef} style={{ position: "relative", justifySelf: "start", zIndex: 90 }}>
           <button type="button" aria-expanded={addMenu} style={btn(false)} onClick={() => setAddMenu((m) => !m)}><Plus size={14} /> Add a step</button>
           {addMenu ? (
             <>
-              <div onClick={() => setAddMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
-              <div className="ui-menu" role="menu" style={{ zIndex: 80, minWidth: 260 }}>
+              <div onClick={() => setAddMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 95 }} />
+              <div className="ui-menu ui-menu--left" role="menu" style={{ zIndex: 100, minWidth: 0, position: "fixed", right: "auto", overflowY: "auto", visibility: menuBox ? "visible" : "hidden", ...menuBox }}>
                 {STEP_TYPES.map((t) => {
                   const Icon = ICONS[t.channel];
                   const locked = t.needs === "call_step" && !callOk;
@@ -459,6 +476,21 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
       <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name} avatar={<span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.paperSoft || "#F4F6FA", display: "grid", placeItems: "center", color: C.slate }}><SlidersHorizontal size={18} /></span>}>
         <RulesPanel key={j.id + String(rules)} j={j} mailboxes={outreach.mailboxes} saving={busy} onSave={(body) => run(async () => { await api.journeySettings(j.id, body); setRules(false); }, "Saved.")} />
       </Drawer>
+      <Drawer open={looks} onClose={() => setLooks(false)} title="Look of the emails" sub={j.name}>
+        <div style={{ display: "grid", gap: 14 }}>
+          <DesignBox design={emailDesign.design} designed={Boolean(emailDesign.design?.campaigns?.[j.id])}
+            setDesigned={(on) => run(() => api.setEmailCampaignDesign(j.id, on).then(emailDesign.setDesign), on ? "Emails will go out with your brand design." : "Emails will go out as plain messages.")}
+            onSetup={() => setBrandOpen(true)} />
+          {(() => {
+            const first = steps.find((x) => x.channel === "email" || x.channel === "manual_email");
+            if (!first || !emailDesign.design) return null;
+            return <><div style={small}>{emailDesign.design?.campaigns?.[j.id] ? "This is how the emails arrive." : "This is how they would look. The design is off, so emails go out as plain messages."}</div><DesignPreview subject={first.subject} body={first.body} brand={emailDesign.design.brand} mailboxId={(j.mailbox_ids || [])[0] || ""} height={420} /></>;
+          })()}
+          <div style={small}>Only emails are designed. Calls and tasks are not changed. Buttons: write a line like [Book a call](https://your-link) on its own.</div>
+        </div>
+      </Drawer>
+      {brandOpen ? <BrandDialog design={emailDesign.design} mailboxes={outreach.mailboxes} subject={(steps.find((x) => x.channel === "email") || {}).subject || ""}
+        body={(steps.find((x) => x.channel === "email") || {}).body || ""} onClose={() => setBrandOpen(false)} onSaved={(r) => emailDesign.setDesign(r)} /> : null}
       <Drawer open={details} onClose={() => setDetails(false)} title="Results and advice" sub={j.name}>
         <div style={{ display: "grid", gap: 14 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>

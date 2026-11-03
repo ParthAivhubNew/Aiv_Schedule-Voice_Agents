@@ -49,6 +49,7 @@ TENANT_TABLES: List[str] = [
     "social_post_metrics", "social_account_stats", "social_media", "social_links", "social_link_clicks",
     "social_reports", "social_report_runs", "social_listen_topics", "social_mentions", "social_video_jobs",
     "agent_runs", "workflow_runs", "contact_reveals",
+    "inbound_forms", "inbound_form_submissions",
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.

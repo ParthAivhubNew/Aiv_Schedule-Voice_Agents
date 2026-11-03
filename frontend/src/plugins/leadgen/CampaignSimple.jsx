@@ -5,6 +5,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { leadsFromList, fill, CampaignWizard } from "./CampaignWizard";
 import { listReach } from "./Lists";
 import { CheckNote, PersonalLines, ProfileBox, RefineBar, SequenceWriter, unknownFields } from "./EmailWriter";
+import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDesign";
 
 // New campaign, on one page, for someone who has never sent a campaign: pick who, let the AI write the emails, check
 // the summary, press Launch. The exact timing, call steps and "send as" addresses are still there in the step-by-step
@@ -67,6 +68,9 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
   const [tplName, setTplName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const emailDesign = useEmailDesign();
+  const [designed, setDesigned] = useState(false); // send with the brand design: off by default, plain messages often get more replies
+  const [brandOpen, setBrandOpen] = useState(false);
 
   // Start on the list that can actually be emailed, so most people do not have to choose.
   useEffect(() => {
@@ -101,6 +105,15 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
     setEmail(i, { body: fromFriendly(next), ai: false, warnings: [] });
     setTimeout(() => { if (box) { box.focus(); box.setSelectionRange(at + word.length, at + word.length); } }, 0);
   };
+  // A line that is only [Button text](https://address) is drawn as a button in a designed email, and as "Button text: address" in plain text.
+  const addButton = (i) => {
+    const box = boxes.current[i];
+    const mine = toFriendly(emails[i].body);
+    // Where the cursor is when the person was typing, otherwise at the end: a button belongs after the text, not before it.
+    const at = box && document.activeElement === box && typeof box.selectionStart === "number" ? box.selectionStart : mine.length;
+    const line = "\n\n[Book a call](https://)\n\n";
+    setEmail(i, { body: fromFriendly(`${mine.slice(0, at)}${line}${mine.slice(at)}`), ai: false, warnings: [] });
+  };
   const setEmail = (i, patch) => setEmails((all) => all.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   const edit = (i, field, value) => setEmail(i, { [field]: fromFriendly(value), ai: false, warnings: [] }); // typing makes it their own words
 
@@ -125,6 +138,9 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
         steps: emails.map((e) => ({ subject: e.subject, body: e.body, delay_days: Number(e.delay_days) || 0 })),
       })).campaign;
       const out = await api.emailAddLeads(made.id, leads.map(({ account_id, ...lead }) => ({ ...lead, personal_line: (lines[account_id] || "").trim() })));
+      if (designed) {
+        try { await api.setEmailCampaignDesign(made.id, true); } catch (err) { store.toast(`The brand design wasn't switched on, so it will send as plain text: ${err.message}`); }
+      }
       if (start) await api.emailCampaignStatus(made.id, "running");
       store.toast(start ? `Campaign started: ${plural(out.added, "person", "people")} will be emailed.` : `Saved as a draft with ${plural(out.added, "person", "people")}.`);
       onDone(made.id);
@@ -260,6 +276,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
                   <span style={{ ...muted, fontSize: 12 }}>Add their:</span>
                   <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => addWord(at, "first_name")}>First name</button>
                   <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => addWord(at, "company")}>Company</button>
+                  {designed ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Adds a button line. Put your own address in the brackets after the name." onClick={() => addButton(at)}>Add a button</button> : null}
                 </div>
                 <CheckNote email={e} aiWritten={Boolean(e.ai)} />
                 <RefineBar email={e} ready={profileReady} onChange={(r) => setEmails((all) => all.map((x, j) => (j === at ? { ...x, subject: at === 0 || x.subject ? r.subject : x.subject, body: r.body, ai: true, warnings: r.warnings || [] } : x)))} />
@@ -311,7 +328,14 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
         </div>
 
         <div style={{ flex: "2 1 360px", minWidth: 0, display: "grid", gap: 16, position: "sticky", top: 8 }}>
-          <MailPreview email={e} opener={emails[0]} leads={leads} lines={lines} sender={sender} />
+          <DesignBox design={emailDesign.design} designed={designed} setDesigned={setDesigned} onSetup={() => setBrandOpen(true)} />
+          {designed && emailDesign.design ? (
+            <div className="ui-card" style={{ padding: 16 }}>
+              <DesignPreview subject={e ? e.subject : ""} body={e ? e.body : ""} brand={emailDesign.design.brand} mailboxId={sender ? sender.id : ""} />
+            </div>
+          ) : <MailPreview email={e} opener={emails[0]} leads={leads} lines={lines} sender={sender} />}
+          {brandOpen ? <BrandDialog design={emailDesign.design} mailboxes={mailboxes} subject={e ? e.subject : ""} body={e ? e.body : ""} toast={store.toast}
+            onClose={() => setBrandOpen(false)} onSaved={(r) => emailDesign.setDesign(r)} /> : null}
           <div className="ui-card" style={{ padding: 16, display: "grid", gap: 10 }}>
             <h3 style={h2}>Before you launch</h3>
             <div style={{ display: "grid", gap: 6 }}>

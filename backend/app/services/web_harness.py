@@ -1,7 +1,7 @@
 """Company web lookup: find a company's own website, phone and email from the open web and show only what the guardrail trusts.
 
 1. The recipe (search_recipe) builds the searches: one template, filled from the register.
-2. Search APIs (DeepSeek, then Tavily) answer them. The company's own site is then read in full (homepage, and contact pages when the
+2. Search APIs (Tavily first, then DeepSeek as the second opinion) answer them. The company's own site is then read in full (homepage, and contact pages when the
    homepage has none), which also proves the site is alive.
 3. The guardrail (guardrail.py) turns every source into candidates per field, rejects the bad ones, scores the rest, and returns one
    winner per field or nothing.

@@ -32,7 +32,7 @@ router = APIRouter(prefix="/leads", tags=["Leads"])
 
 MAX_PER_REQUEST = 2000
 _FIELDS = ("name", "website", "phone", "email", "contact_name", "contact_title", "industry", "region", "notes")
-_SOURCES = {"scout", "copilot", "import", "manual"}
+_SOURCES = {"scout", "copilot", "import", "manual", "inbound_form"}
 
 
 class AccountIn(BaseModel):

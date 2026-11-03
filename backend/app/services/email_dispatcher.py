@@ -141,7 +141,11 @@ def alias_for(mb: EmailMailbox, address: str) -> Optional[Dict[str, Any]]:
 
 
 def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, warmup_id: str = "",
-          in_reply_to: str = "", references: str = "", from_alias: str = "", open_marker: str = "") -> MimeMessage:
+          in_reply_to: str = "", references: str = "", from_alias: str = "", open_marker: str = "",
+          brand: Optional[Dict[str, Any]] = None, unsubscribe_override: str = "") -> MimeMessage:
+    """The message. A plain email when `brand` is empty (exactly as before). With a brand, the HTML part is the designed layout and the
+    plain-text part carries the same words; warm-up mail is never designed. `unsubscribe_override` is for a test send, where the
+    footer link must not be a real token for anyone."""
     msg = MimeMessage()
     alias = alias_for(mb, from_alias)
     msg["From"] = formataddr(((alias.get("name") if alias else "") or mb.display_name or "", alias["address"] if alias else mb.email))
@@ -152,17 +156,37 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = (references + " " + in_reply_to).strip()
-    body = text.rstrip()
+    core = text.rstrip()
+    body = core
     if mb.signature:
         body += "\n\n" + mb.signature.strip()
+    link = why = ""
     if warmup_id:
         msg[T.WARMUP_HEADER] = warmup_id
     else:
-        link = unsubscribe_url(org_id, to)
-        msg["List-Unsubscribe"] = f"<{link}>, <mailto:{mb.email}?subject=unsubscribe>"
-        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        link = unsubscribe_override or unsubscribe_url(org_id, to)
+        why = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/business-data"
+        if not unsubscribe_override:
+            msg["List-Unsubscribe"] = f"<{link}>, <mailto:{mb.email}?subject=unsubscribe>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         body += (f"\n\n--\nNot interested? Unsubscribe: {link}"
-                 f"\nWhy you got this, and where we found your details: {settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/business-data")
+                 f"\nWhy you got this, and where we found your details: {why}")
+    designed = ""
+    if brand and not warmup_id:
+        try:
+            from app.services import email_design as D
+
+            designed = D.render(core, brand, subject=subject, signature=mb.signature or "", unsubscribe_link=link, why_link=why,
+                                open_marker=open_marker)
+        except Exception as err:  # a design problem must never stop an email: it goes out plain instead
+            logger.warning(f"[Email] designed layout skipped, sending plain: {err}")
+            designed = ""
+    if designed:
+        from app.services import email_design as D
+
+        msg.set_content(D.plain_of(body))
+        msg.add_alternative(designed, subtype="html")
+        return msg
     msg.set_content(body)
     page = _html_of(body)
     if open_marker and not warmup_id:  # lets Lead Gen see who is reading (Settings -> Connections can switch it off)
@@ -188,6 +212,7 @@ async def send_cold_email(
     warmup_id: str = "",
     in_reply_to: str = "",
     from_alias: str = "",
+    brand: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Checks, sends and records one email. Returns {status: sent|suppressed|blocked_pecr|failed, ...}.
     The caller commits."""
@@ -215,7 +240,7 @@ async def send_cold_email(
         except Exception:
             marker = ""
     msg = build(mailbox, to, subject, body_text, org_id=org_id, warmup_id=warmup_id if is_warmup else "",
-                in_reply_to=in_reply_to, from_alias=from_alias, open_marker=marker)
+                in_reply_to=in_reply_to, from_alias=from_alias, open_marker=marker, brand=brand if not is_warmup else None)
     try:
         await T.send(mailbox_settings(mailbox), msg)
     except T.MailError as err:

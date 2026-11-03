@@ -650,19 +650,19 @@ async def search_web(query: str, *, max_results: int = 5, include_domains: Optio
 
 async def search_open_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """Web search through the platform's search APIs only, in this order:
-    1. DeepSeek search (when ticked under Platform Keys, same key as DeepSeek's writing models)
-    2. Tavily (when a key is saved under Platform Keys)
+    1. Tavily (when a key is saved under Platform Keys)
+    2. DeepSeek search (when ticked under Platform Keys, same key as DeepSeek's writing models)
     The free scraped engines (DuckDuckGo, Bing) are not used: they were blocked or off-topic, which made lookups fail quietly.
     Each engine's off-topic results are dropped; an engine left with none hands over to the next."""
     if not query or not query.strip():
         return []
-    results = _on_topic(await search_deepseek(query, max_results=max_results), query)
-    if results:
-        logger.info("web search %r answered by DeepSeek (%d results)", query[:80], len(results))
-        return results
     results = _on_topic(await search_tavily(query, max_results=max_results), query)
     if results:
         logger.info("web search %r answered by Tavily (%d results)", query[:80], len(results))
+        return results
+    results = _on_topic(await search_deepseek(query, max_results=max_results), query)
+    if results:
+        logger.info("web search %r answered by DeepSeek (%d results)", query[:80], len(results))
         return results
     logger.warning("web search %r found nothing. If this keeps happening, check Platform Keys > Leads: the DeepSeek search box and "
                    "key, or a Tavily key. Without one of them there is no web search.", query[:80])

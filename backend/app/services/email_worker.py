@@ -190,6 +190,9 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
     from app.services import journeys as J
 
     steps = await _steps(db, camp.id)
+    from app.services import email_design
+
+    brand = await email_design.brand_for_campaign(db, org_id, camp.id)  # None for a plain campaign, which sends exactly as before
     rules = J.rules_of(camp)
     cap_left = (camp.daily_cap - await J.sent_today(db, camp.id, now)) if camp.daily_cap else None  # the journey's own daily cap, on top of each mailbox's
     due = (await db.execute(select(EmailEnrollment).where(
@@ -243,7 +246,7 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
                                         sequence_step_id=step.id, enrollment_id=enr.id, prospect_id=enr.prospect_id or "",
                                         entity_type=classify_pecr_entity(enr.company, enr.email),
                                         in_reply_to=enr.last_message_id if enr.current_step > 1 else "",
-                                        from_alias=(camp.alias_map or {}).get(c.id, ""))
+                                        from_alias=(camp.alias_map or {}).get(c.id, ""), brand=brand)
             if res["status"] != "failed":
                 break  # sent, or stopped for a reason another mailbox wouldn't change; a failed send tries the next mailbox
         if res is None or mb is None:

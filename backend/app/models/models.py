@@ -2303,3 +2303,41 @@ class ContactChoice(Base):
     picks = Column(Integer, default=0)
     orgs = Column(JSON, default=list)  # the organisations that picked it, each once
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class InboundForm(Base):
+    """A web form a Leads user builds and shares (hosted page or iframe). Each submission lands in
+    InboundSubmission and, once the email looks real, becomes a company/person in the leads store."""
+    __tablename__ = "inbound_forms"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    name = Column(String, nullable=False)
+    status = Column(String, default="draft", index=True)  # draft, published
+    fields = Column(JSON, default=list)  # the working copy: [{id, type, label, placeholder, required, maps_to, options}]
+    published_fields = Column(JSON, nullable=True)  # what visitors see: a copy taken at Publish, so edits never break a live form
+    settings = Column(JSON, default=dict)  # list_id, list_name, allowed_origins, allowed_email_domains, block_free_email, daily_limit, thanks
+    schema_version = Column(Integer, default=1)  # bumped at each Publish; submissions record the version they used
+    public_key = Column(String, unique=True, index=True, nullable=False)  # in public links; not a secret, can be rotated
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)
+
+
+class InboundSubmission(Base):
+    """One answer to an InboundForm. Held as pending until the email passes a check (or the owner approves
+    it), so strangers cannot put rows into the leads store or into a list by posting to a public link."""
+    __tablename__ = "inbound_form_submissions"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    form_id = Column(String, ForeignKey("inbound_forms.id", ondelete="CASCADE"), index=True, nullable=False)
+    schema_version = Column(Integer, default=1)
+    payload = Column(JSON, default=dict)  # cleaned answers: {field id: value}
+    email = Column(String, default="", index=True)
+    status = Column(String, default="pending", index=True)  # pending, approved, blocked
+    reason = Column(String, default="")  # why it was blocked, or how it was approved (auto, owner)
+    lead_id = Column(String, nullable=True, index=True)  # the LeadAccount it became
+    ip_hash = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

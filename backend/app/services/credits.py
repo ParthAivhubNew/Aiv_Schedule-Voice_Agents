@@ -54,7 +54,9 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     # A video clip costs the platform far more than a picture (roughly 0.3 to 3 USD), so it is priced on its own.
     "ai_video": {"label": "AI video clip", "unit": "clip", "credits": 20, "wallet": "scheduler", "charged": True},
     "lead_lookup": {"label": "Lead researched", "unit": "lead", "credits": 5, "wallet": "leadgen", "charged": True},
-    "google_deep_search": {"label": "Deep web search", "unit": "search", "credits": 2, "wallet": "leadgen", "charged": True},
+    # Same price as a web lookup on purpose: a found field costs 5 whichever step found it, so the client's price never depends on
+    # which provider answered. The deep search costs us more per call than the web lookup, so a lower price lost money.
+    "google_deep_search": {"label": "Deep web search", "unit": "search", "credits": 5, "wallet": "leadgen", "charged": True},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "leadgen", "charged": True},
     # Company checks (Saved Accounts > Check companies). Starting prices, editable in the rate card.
     # Checks against our own records are free, so they have no item. A half credit is allowed: a run

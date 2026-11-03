@@ -44,6 +44,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     # Signed links in emails and the social OAuth return page
     _OPT_API + r"scheduler/(review|schedule-extend|report-view|post-results-view)$",
     _OPT_API + r"l/[A-Za-z0-9]{4,12}$",  # tracked short links in published posts
+    _OPT_API + r"f/[A-Za-z0-9_-]{16,64}(/(page|config|submit))?$",  # a published web form: its page, and posting an answer
     _OPT_API + r"email/u/[A-Za-z0-9_.-]+$",  # unsubscribe links in cold emails (signed)
     _OPT_API + r"email/o/[A-Za-z0-9_.-]+$",  # the open marker in a cold email (signed)
     _OPT_API + r"mail/[us]/[A-Za-z0-9_.-]+$",  # unsubscribe links in our own system emails (signed)

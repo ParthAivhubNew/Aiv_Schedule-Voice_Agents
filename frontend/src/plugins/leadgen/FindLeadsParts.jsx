@@ -167,7 +167,7 @@ function Reach({ value, kind, onFind, web, state, missed, closed, onOpen }) {
   }
   if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const cost = price || "credits";
-  const tip = kind === "email" ? `Look for this company's email. ${cost} if found. Nothing is charged for a miss` : `Look for this company's ${kind}. ${cost} if found (a deeper search is used only if the first finds nothing, and only charged if it does). Nothing is charged for a miss`;
+  const tip = kind === "email" ? `Look for this company's email. ${cost} if found. Nothing is charged for a miss` : `Look for this company's ${kind}. ${cost} if found, the same whether the web search or the deep web search finds it. We search the web first, and run the deep web search only if that finds nothing. Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
   return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}<span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· {price ? `${price} if found` : "charged if found"}</span></button>;
 }

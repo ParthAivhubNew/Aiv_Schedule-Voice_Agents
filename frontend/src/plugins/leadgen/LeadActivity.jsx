@@ -27,7 +27,9 @@ const SUGGEST_WORD = { email: "Email", contact_name: "Contact", best_time: "Best
 export function StageBadge({ stage }) {
   const label = END_STAGES[stage] || (STAGES.find(([k]) => k === stage) || [])[1] || "New";
   const tone = stage === "do_not_contact" || stage === "lost" ? C.red : stage === "meeting" || stage === "won" ? "#16A34A" : stage === "interested" ? "var(--ui-accent)" : C.slate;
-  return <span style={{ ...text, fontSize: 11.5, fontWeight: 600, color: tone, border: `1px solid ${tone}33`, background: `${tone}12`, borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>{label}</span>;
+  // The accent is a CSS variable, so a hex suffix (tone + "33") is not a colour: mix it instead, and the pill keeps its border and tint.
+  const tint = (pct) => (tone.startsWith("var(") ? `color-mix(in srgb, ${tone} ${pct}%, transparent)` : `${tone}${pct === 20 ? "33" : "12"}`);
+  return <span style={{ ...text, fontSize: 11.5, fontWeight: 600, color: tone, border: `1px solid ${tint(20)}`, background: tint(7), borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap" }}>{label}</span>;
 }
 
 function Journey({ stage }) {

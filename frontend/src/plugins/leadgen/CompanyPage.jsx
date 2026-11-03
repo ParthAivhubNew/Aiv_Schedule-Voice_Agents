@@ -137,7 +137,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const find = async (kind) => {
     if (waiting[kind]) { setPick({ kind, person: "", anchor: kind, options: waiting[kind] }); return; }
     setBusy(kind);
-    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
+    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
     setBusy("");
   };
   // Opens one contact our registry holds. Free, once. It never searches for anything.

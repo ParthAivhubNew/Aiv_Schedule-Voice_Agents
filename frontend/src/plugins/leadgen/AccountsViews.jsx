@@ -20,9 +20,9 @@ import { LeadActivity, StageBadge } from "./LeadActivity";
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
 // add-account form. Nothing here is made up: a field nobody found stays empty.
 
-const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand" };
+const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand", inbound_form: "Web form" };
 // Where a company came from, in a sentence a person understands.
-const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand" };
+const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand", inbound_form: "Sent through your web form" };
 const sourceWords = (src) => SOURCE_WORDS[src] || SOURCE_WORDS.manual;
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
