@@ -218,6 +218,8 @@ class EnrichRequest(BaseModel):
 class DiscoverAccountsRequest(BaseModel):
     query: str
     target_role: Optional[str] = None  # only when the user names who to reach
+    count: Optional[int] = None  # how many companies the person asked for (1 to 50); none = the short preview
+    include_big: bool = False  # household-name companies are left out unless asked for
 
 class CopilotChatRequest(BaseModel):
     message: Optional[str] = ""
@@ -283,6 +285,8 @@ async def discover_accounts(req: DiscoverAccountsRequest, db: AsyncSession = Dep
             query_or_domain=req.query,
             target_role=req.target_role,
             db=db,
+            count=req.count,
+            include_big=req.include_big,
         )
         # Results already in our own store ("tier": "stored") are free -- only newly-found ones are charged.
         new_count = sum(1 for l in (leads or []) if l.get("tier") != "stored")
@@ -291,6 +295,7 @@ async def discover_accounts(req: DiscoverAccountsRequest, db: AsyncSession = Dep
             "success": True,
             "query": req.query,
             "count": len(leads),
+            "asked": req.count or 0,  # 0: no number was asked for
             "leads": leads
         }
     except Exception as e:

@@ -160,6 +160,8 @@ async def _put_doc(db, key: str, data: dict) -> None:
 async def rates(db) -> Dict[str, Dict[str, Any]]:
     stored = await _get_doc(db, RATES_KEY)
     out = {k: dict(v) for k, v in DEFAULT_RATES.items()}
+    for k, v in out.items():
+        v["standard"] = v["credits"]  # what it costs until staff change it
     for k, v in stored.items():
         if k in out and isinstance(v, (int, float)) and v >= 0:
             out[k]["credits"] = _price(v)

@@ -5,6 +5,7 @@ import { adminApi } from "./adminApi";
 import { Note, PageTitle, Table, btn, cell, fmt, heading, input, mono, money, useAction, when } from "./ui";
 
 const WALLETS = [["voice", "Voice"], ["leadgen", "Leads"], ["email", "Email"], ["scheduler", "Social"]];
+const WALLET_ORDER = WALLETS.map(([w]) => w);
 
 // The app a Stripe product is most likely for, from its name (staff can change it).
 const guessWallet = (name) => (/social|post|schedul/i.test(name) ? "scheduler" : /lead/i.test(name) ? "leadgen" : /mail/i.test(name) ? "email" : "voice");
@@ -137,17 +138,44 @@ export function Billing({ canEdit }) {
         </>
       )}
 
-      <div style={heading}>Rate card (credits per unit)</div>
+      <div style={heading}>What each activity costs (credits)</div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>
+        Change a price and press Save. It applies to everything started from then on; work already under way keeps the price it began with.
+        Half credits are fine. 0 makes the activity free.
+      </div>
       {rates && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-          {Object.entries(rates).map(([k, r]) => (
-            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, opacity: r.charged ? 1 : 0.6 }} title={r.charged ? "" : "Priced, not charged yet"}>
-              {r.label}
-              <input type="number" min="0" disabled={!canEdit} value={rateDraft[k] ?? ""} onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })} style={{ ...input, width: 76 }} />
-            </label>
-          ))}
-          {canEdit && <button type="button" style={btn(false)} onClick={() => run(() => adminApi.setRates(Object.fromEntries(Object.entries(rateDraft).map(([k, v]) => [k, Number(v) || 0]))), "Rates saved.")}>Save rates</button>}
-        </div>
+        <>
+          <Table head={["App", "Activity", "Per", "Credits", "Standard"]} minWidth={640}>
+            {Object.entries(rates)
+              .sort(([, a], [, b]) => WALLET_ORDER.indexOf(a.wallet) - WALLET_ORDER.indexOf(b.wallet))
+              .map(([k, r]) => {
+                const changed = Number(rateDraft[k]) !== r.credits;
+                return (
+                  <tr key={k}>
+                    <td style={cell}>{WALLETS.find(([w]) => w === r.wallet)?.[1] || r.wallet}</td>
+                    <td style={cell}>{r.label}</td>
+                    <td style={{ ...cell, color: C.slate }}>{r.unit}</td>
+                    <td style={cell}>
+                      <input type="number" min="0" step="0.5" aria-label={`Credits for ${r.label}`} disabled={!canEdit} value={rateDraft[k] ?? ""}
+                        onChange={(e) => setRateDraft({ ...rateDraft, [k]: e.target.value })}
+                        style={{ ...input, width: 90, ...mono, borderColor: changed ? C.teal : undefined }} />
+                    </td>
+                    <td style={{ ...cell, ...mono, color: C.slate }}>{r.standard}</td>
+                  </tr>
+                );
+              })}
+          </Table>
+          {canEdit && (
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button type="button" style={btn(true)} onClick={() => {
+                const bad = Object.entries(rateDraft).find(([, v]) => v === "" || !(Number(v) >= 0));
+                if (bad) return run(async () => { throw new Error(`Enter a price for "${rates[bad[0]].label}" (0 or more).`); });
+                return run(() => adminApi.setRates(Object.fromEntries(Object.entries(rateDraft).map(([k, v]) => [k, Number(v)]))).then(load), "Prices saved.");
+              }}>Save prices</button>
+              <button type="button" style={btn(false)} onClick={() => setRateDraft(Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, String(v.standard)])))}>Fill in standard prices</button>
+            </div>
+          )}
+        </>
       )}
 
       <TelnyxMargin canEdit={canEdit} />

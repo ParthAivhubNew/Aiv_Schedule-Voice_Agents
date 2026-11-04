@@ -9,6 +9,9 @@ import { WorkflowCard } from "../../workflows/WorkflowCard";
 import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
+import { FoundTable } from "./FoundTable";
+import { profileIsThin } from "./profileThin";
+import { webResultText } from "./foundText";
 import { addedText } from "./journeyLogic";
 import { creditWord, useLeadCredits } from "./CreditsChip";
 
@@ -185,7 +188,7 @@ const css = `
 .as-foot{flex:none;padding:10px 14px 12px;border-top:1px solid var(--ui-line,#E3E6EF);background:#fff}
 .as-box{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;padding:8px 8px 8px 12px;background:#fff;transition:border-color .15s,box-shadow .15s}
 .as-box:focus-within{border-color:var(--ui-accent,#3457D5);box-shadow:0 0 0 3px var(--ui-accent-soft,#EEF2FE)}
-.as-box textarea{all:unset;flex:1;min-width:0;font:13.5px/1.45 Inter,sans-serif;max-height:120px;overflow-y:hidden;scrollbar-width:none;color:var(--ui-ink,#111827);white-space:pre-wrap}
+.as-box textarea{all:unset;box-sizing:border-box;flex:1;min-width:0;min-height:30px;padding:5px 0;font:13.5px/1.45 Inter,sans-serif;max-height:120px;overflow-y:hidden;scrollbar-width:none;color:var(--ui-ink,#111827);white-space:pre-wrap}
 .as-box textarea::-webkit-scrollbar{display:none}
 .as-send{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;background:#111520;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:transform .12s var(--mo-ease,ease),opacity .15s}
 .as-send:not([disabled]):hover{transform:translateY(-1px)}.as-send:not([disabled]):active{transform:scale(.94)}
@@ -385,6 +388,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const chatId = sharedRef(sh, "chatId");
   const run = sharedRef(sh, "run");
   const turn = sharedRef(sh, "turnState");
+  const listed = sharedRef(sh, "listedCompanies"); // the companies the last search listed, sent back so "save these" saves those
   const HISTORY_KEY = cfg.history;
   const MEMORY_KEY = cfg.memory;
   const endRef = useRef(null);
@@ -401,7 +405,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
 
   const loadProfile = useCallback(() => {
-    api.emailGetWritingProfile().then((r) => setNeedsProfile(!r?.edit?.company || !r?.edit?.sells)).catch(() => {});
+    api.emailGetWritingProfile().then((r) => setNeedsProfile(profileIsThin(r))).catch(() => {});
   }, []);
   useEffect(() => { if (cfg.leads) loadProfile(); }, [loadProfile, cfg.leads]);
   const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, [HISTORY_KEY]);
@@ -466,7 +470,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     sh.aborter = new AbortController();
     try {
       const body = cfg.leads
-        ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current }
+        ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current, listed: listed.current || null }
         : { message: text, history: prior, memory: memory.map((m) => m.text), state: turn.current };
       await cfg.ask(body, (ev) => {
         if (mine !== run.current) return;
@@ -489,6 +493,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, retry: text, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
     } else {
       if (res.found?.filters) filters.current = res.found.filters;
+      if (res.found) listed.current = { total: res.found.total, capped: res.found.capped, asked: res.found.asked, filters: res.found.filters, top: (res.found.top || []).slice(0, 50) };
       if (res.state) turn.current = res.state;
       setSuggest(res.suggestions || []);
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", text: res.reply, steps: res.steps, tookMs: res.took_ms, found: res.found, proposals: res.proposals }];
@@ -593,9 +598,9 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (p.kind === "web_search") {
       setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
       try {
-        const r = await api.discoverAccounts({ query: p.params.query });
-        const results = r.leads || [];
-        setActs((a) => ({ ...a, [p.id]: { state: "done", results, text: results.length ? `Found ${results.length} on the web. They are unverified: check them before you rely on them.` : `Nothing found on the web for “${p.params.query}”. Nothing was charged.` } }));
+        const r = await api.discoverAccounts({ query: p.params.query, ...(p.params.count ? { count: p.params.count } : {}), include_big: Boolean(p.params.include_big) });
+        const results = (r.leads || []).slice(0, p.params.count || 8);
+        setActs((a) => ({ ...a, [p.id]: { state: "done", results, text: webResultText(results.length, p.params.count, p.params.query) } }));
       } catch (err) {
         setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "The web search didn't finish. Nothing was charged." } }));
       }
@@ -603,8 +608,10 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     }
     setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
     try {
-      const r = await api.searchCompanies({ filters: p.params.filters, limit: p.params.how_many, offset: 0, exclude_ids: [], sort: "best" });
-      const accounts = (r.companies || []).map(asAccount);
+      // The companies that were listed are saved as listed. Only a bigger number than was listed re-runs the search.
+      const listed = p.params.companies;
+      const r = listed?.length ? { companies: listed } : await api.searchCompanies({ filters: p.params.filters, limit: p.params.how_many, offset: 0, exclude_ids: [], sort: "best" });
+      const accounts = (r.companies || []).slice(0, p.params.how_many).map(asAccount);
       if (!accounts.length) throw new Error("That search has no companies to save.");
       await store.save(accounts, p.params.list_name);
       setActs((a) => ({ ...a, [p.id]: { state: "done", text: `Saved ${accounts.length} to “${p.params.list_name}”.` } }));
@@ -754,17 +761,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                   {m.text}
                   {m.error && m.retry ? <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setMessages((l) => l.filter((x) => x.id !== m.id)); send(m.retry); }}><RotateCcw size={13} aria-hidden="true" /> Try again</button></div> : null}
                   {m.found ? (
-                    <div className="as-card">
-                      <div style={{ ...text, fontWeight: 600 }}>{m.found.total.toLocaleString()}{m.found.capped ? "+" : ""} {m.found.total === 1 ? "company" : "companies"} found</div>
-                      {m.found.top && m.found.top.length < m.found.total ? <div style={{ ...muted, fontSize: 12.5 }}>Showing {m.found.top.length} of {m.found.total.toLocaleString()}{m.found.capped ? "+" : ""}</div> : null}
-                      {(m.found.top || []).slice(0, m.found.asked || 5).map((c) => (
-                        <div key={c.id} className="as-hit">
-                          <span style={{ ...text, fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                          <span style={{ ...muted, flex: "none" }}>{c.region || ""}</span>
-                        </div>
-                      ))}
-                      {m.found.total > 0 ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} onClick={() => onShowResults?.(m.found.filters)}>Show all in Find Leads</button> : null}
-                    </div>
+                    <FoundTable found={m.found} onShowAll={() => onShowResults?.(m.found.filters)} />
                   ) : null}
                   {(m.proposals || []).map((p) => {
                     if (p.kind === "plan_run") return <PlanCard key={p.id} plan={p.params.run} />;

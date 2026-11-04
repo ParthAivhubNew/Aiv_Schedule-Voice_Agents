@@ -882,7 +882,7 @@ async def get_rates(request: Request):
 
 
 class RatesBody(BaseModel):
-    rates: Dict[str, int]
+    rates: Dict[str, float]  # half credits are allowed (a contact email check is 2.5)
 
 
 @router.put("/rates")
@@ -890,6 +890,11 @@ async def put_rates(body: RatesBody, request: Request):
     from app.services import credits as K
 
     _admin_only(request)
+    unknown = [k for k in body.rates if k not in K.DEFAULT_RATES]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Not an activity we price: {', '.join(unknown)}.")
+    if any(v < 0 or v > 100000 for v in body.rates.values()):
+        raise HTTPException(status_code=400, detail="A price must be between 0 and 100,000 credits.")
     async with AsyncSessionLocal() as db:
         out = await K.set_rates(db, body.rates)
         await db.commit()

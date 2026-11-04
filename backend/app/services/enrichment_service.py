@@ -1841,10 +1841,60 @@ _TRADE_BODY = re.compile(
     r"professional (body|standards)|society of|council|directory|guild|ombudsman|regulator)\b", re.I)
 
 
+MAX_DISCOVER = 50  # the most companies one web search will return
+
+# Pages that talk about companies but are not one: social networks, video and news sites, forums.
+_NOT_A_COMPANY_SITE = (
+    "facebook.", "linkedin.", "twitter.", "x.com", "instagram.", "youtube.", "tiktok.", "pinterest.", "reddit.", "quora.", "medium.com",
+    "bbc.co.uk", "bbc.com", "theguardian.", "telegraph.co.uk", "thetimes.", "independent.co.uk", "dailymail.", "mirror.co.uk", "forbes.",
+    "bloomberg.", "reuters.", "ft.com", "cnbc.", "businessinsider.", "yahoo.", "msn.com", "gov.uk", "wordpress.com", "blogspot.",
+)
+
+# Household names and the largest firms. A person who asks for "20 accountants in RG2" wants the local practices, so these are left out
+# unless they ask for big companies too. A short, plain list: the register's size band is the real test where a company is in it.
+_BIG_COMPANIES = {
+    "amazon", "google", "microsoft", "apple", "meta", "tesco", "sainsburys", "asda", "morrisons", "aldi", "lidl", "waitrose", "boots", "argos",
+    "barclays", "hsbc", "lloydsbank", "natwest", "santander", "halifax", "nationwide", "aviva", "legalandgeneral", "prudential",
+    "deloitte", "pwc", "kpmg", "ey", "bdo", "grantthornton", "mazars", "rsm", "bakertilly", "pkf", "crowe", "moorestephens", "accenture",
+    "capita", "serco", "bt", "vodafone", "sky", "virginmedia", "o2", "ee", "three", "britishgas", "edfenergy", "octopus", "shell", "bp",
+    "mcdonalds", "starbucks", "costa", "greggs", "nandos", "subway", "kfc", "burgerking", "dominos", "pizzahut", "wetherspoon", "marksandspencer",
+    "johnlewis", "currys", "dunelm", "ikea", "bandq", "screwfix", "toolstation", "halfords", "specsavers", "vision-express", "visionexpress",
+    "dhl", "ups", "fedex", "royalmail", "dpd", "evri", "nhs", "ibm", "oracle", "sap", "salesforce", "adobe", "linkedin", "uber", "airbnb",
+}
+
+
+def _on_site_list(url: str, entries) -> bool:
+    """The address is on one of these sites: "facebook." is any facebook domain, "x.com" is x.com itself and its subdomains, never wix.com."""
+    host = _host_of(url)
+    if not host:
+        return False
+    labels = host.split(".")
+    for d in entries:
+        if d.endswith("."):
+            if d[:-1] in labels:
+                return True
+        elif host == d or host.endswith("." + d):
+            return True
+    return False
+
+
+def is_big_company(name: str, url: str = "") -> bool:
+    """A household name or one of the very large firms (see _BIG_COMPANIES): its own site, or its name."""
+    return _squash(_site_name(url)) in _BIG_COMPANIES or _squash(name) in _BIG_COMPANIES
+
+
+def _wider_queries(query: str) -> List[str]:
+    """Other wording for the same search, tried when the first answers with too few: the person's words, never a different trade."""
+    q = (query or "").strip()
+    return [f"{q} ltd", f"{q} limited company contact", f"{q} local firm website"]
+
+
 def _is_noise_result(name: str, title: str, url: str, snippet: str) -> bool:
     """Results that are not one company: encyclopedias, trade-body pages, and a "name" that was
     only guessed from the web address (like "Craneww") with nothing in the page text backing it."""
     if _REFERENCE_PAGE.search(f"{title} {url}") or _TRADE_BODY.search(f"{name} {title}"):
+        return True
+    if _on_site_list(url, _NOT_A_COMPANY_SITE):
         return True
     site = _squash(_site_name(url))
     if len(site) >= 3 and _squash(name) == site and not _has_site_name(f"{title} {snippet}", site):
@@ -1856,7 +1906,15 @@ async def discover_new_target_accounts(
     query_or_domain: str,
     target_role: Optional[str] = None,
     db: Optional[Any] = None,
+    count: Optional[int] = None,
+    include_big: bool = False,
 ) -> List[Dict[str, Any]]:
+    """Companies from the open web for a search. `count` is how many the person asked for: it is returned at most that many and, when
+    the first search is short, a few more searches with other wording are tried. Never padded: fewer is fine, and the caller says so.
+    Without `count` it is the short preview it always was (one search, up to 8). Big household-name companies are left out unless
+    `include_big`."""
+    want = min(max(int(count), 1), MAX_DISCOVER) if count else 0
+    cap = want or 8
     # The searcher's own words (and a role only if they gave one): padding them with words
     # like "contact phone email CEO" pulled in data-broker pages and left engines with nothing.
     search_query = f"{query_or_domain} {target_role}".strip() if target_role else query_or_domain
@@ -1871,7 +1929,7 @@ async def discover_new_target_accounts(
             from app.services import business_records
 
             keywords = [w for w in re.split(r"\s+", query_or_domain.strip()) if len(w) > 2]
-            for row in await business_records.search(db, keywords=keywords, limit=8):
+            for row in await business_records.search(db, keywords=keywords, limit=cap):
                 site = _usable_website(row.website or row.domain or "")
                 key = site or row.name.lower()
                 if key in seen or not (row.phone or site):
@@ -1886,11 +1944,23 @@ async def discover_new_target_accounts(
         except Exception as err:
             logger.debug(f"[discover] shared-store check skipped: {err}")
 
-    results = await search_open_web(search_query, max_results=8)
-
     # Web results only. Registry companies come from the filter search (business_records.search_filtered),
     # never mixed into this list, so a row's origin is always clear.
-    for idx, item in enumerate(results):
+    queries = [search_query] + (_wider_queries(search_query) if want else [])
+    results: List[Dict[str, Any]] = []
+    for qn, q in enumerate(queries):
+        if qn and len(discovered_accounts) >= cap:
+            break
+        got = await search_open_web(q, max_results=min(max(cap * 2, 8), 20) if want else 8)
+        results = [r for r in got if r.get("url") not in {x.get("url") for x in results}] if qn else got
+        await _take_web_results(results, qn, query_or_domain, discovered_accounts, seen, db, include_big, cap)
+    return discovered_accounts[:cap]
+
+
+async def _take_web_results(results, round_no, query_or_domain, discovered_accounts, seen, db, include_big, cap):
+    for idx, item in enumerate(results, start=round_no * 100):
+        if len(discovered_accounts) >= cap:
+            return
         title = item.get("title", "")
         snippet = item.get("snippet", "")
         url = item.get("url", "")
@@ -1901,6 +1971,8 @@ async def discover_new_target_accounts(
         if _LISTS_MANY.search(title.lower()):
             continue
         if _is_noise_result(comp_name, title, url, snippet):
+            continue
+        if not include_big and is_big_company(comp_name, url):
             continue
 
         phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', snippet)
@@ -1949,8 +2021,6 @@ async def discover_new_target_accounts(
                 )
             except Exception as err:
                 logger.debug(f"[discover] couldn't save {comp_name} for next time: {err}")
-
-    return discovered_accounts[:8]
 
 
 def _row_missing_fields(row: Dict[str, Any]) -> List[str]:

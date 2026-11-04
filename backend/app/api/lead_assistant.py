@@ -64,7 +64,9 @@ TOOLS = [
           {"topic": {"type": "string", "enum": _TOPICS}, "company": {"type": "string", "description": "topic company: the company's name or id"}}, ["topic"]),
     _tool("show_credits", "USE when the person asks how many credits they have. Free."),
     _tool("add_to_list", "USE to offer saving the companies from the latest search into one of the person's lists (a new name starts a new list). "
-                         "Free. They confirm on screen. Needs a search first.", {"list_name": {"type": "string"}, "how_many": {"type": "integer", "description": "1 to 200, default 25"}}, ["list_name"]),
+                         "Free. They confirm on screen. Needs a search first. Without how_many it saves exactly the companies just listed; "
+                         "set how_many only when the person asks for a different number (more than listed re-runs the search).",
+          {"list_name": {"type": "string"}, "how_many": {"type": "integer", "description": "1 to 200. Leave out to save exactly the companies just listed."}}, ["list_name"]),
     _tool("check_list", "USE to offer checking a saved list: fixing its websites, phones and emails and finding contacts. It costs credits, so it is only offered; "
                         "the person sees the price before anything is charged.", {"list_name": {"type": "string"}}, ["list_name"]),
     *JA.tools(),
@@ -76,8 +78,10 @@ TOOLS = [
 
 WEB_TOOL = _tool("search_web", "USE only when the register search found nothing or too few, or the person asks for businesses that are not in the register "
                                "(for example a new or non-UK business). Searches public web pages and directories. Results are unverified and cost credits per "
-                               "company found, so it is only offered and the person confirms on screen. Give a short query: a type of business and a place.",
-                 {"query": {"type": "string"}}, ["query"])
+                               "company found, so it is only offered and the person confirms on screen. Give a short query: a type of business and a place. "
+                               "When the person asked for a number (\"give me 20\") pass it as count. Set include_big only when they ask for big or well-known companies too.",
+                 {"query": {"type": "string"}, "count": {"type": "integer", "description": "How many companies they asked for, 1 to 50. Leave out if they gave none."},
+                  "include_big": {"type": "boolean"}}, ["query"])
 
 _SYSTEM = (
     "You are the assistant inside the Leads part of Outreach by Aivhub, helping a UK business find and contact companies. "
@@ -111,6 +115,7 @@ class AskIn(BaseModel):
     lists: List[Dict[str, Any]] = []  # [{id, name, count}]: the person's own lists
     memory: List[str] = []  # things the person asked the assistant to remember (/remember)
     web_search: bool = False  # the Web search toggle in the chat: only then does the model get the search_web tool
+    listed: Optional[Dict[str, Any]] = None  # the companies the last search listed on screen ({total, asked, filters, top}): "save these" saves those
     state: Dict[str, Any] = {}  # what the last turn left behind ({last_total, last_names}), sent back so "those" and "the second one" resolve
 
 
@@ -296,6 +301,7 @@ class _Turn:
         self.proposals: List[Dict[str, Any]] = []
         self.notes: List[str] = []
         self.found: Optional[Dict[str, Any]] = None
+        self.listed: Optional[Dict[str, Any]] = body.listed if isinstance(body.listed, dict) else None
         self.filters: Dict[str, Any] = body.filters or {}
         self.web_asked = False
         self.actor: Dict[str, Any] = {}
@@ -334,10 +340,37 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
     words = " · ".join(lead_filters.describe(res["filters"])) or "your filters"
     t.steps.append({"label": "Searched the company register", "detail": f"{words}: {res['total']:,}{'+' if res.get('capped') else ''} found", "ms": _ms(t0)})
     t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies"
-                   + (f"; {len(res['top'])} are listed (the person asked for {res['asked']}). Say how many matched in all and how many you list" if res.get("asked") else "") + ". Top results: "
+                   + (f"; {len(res['top'])} are listed (the person asked for {res['asked']}). Say how many matched in all and how many you list" if res.get("asked") else "")
+                   + ". A table of exactly the listed companies is on screen: do not write the company names out again unless the person asks which fit best. Listed: "
                    + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]) or "none")
                    + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else "")
                    + (f". {_BROADENED_TELL.format(note=lead_filters.broadened_note(res['filters']))}" if res.get("broadened") else ""))
+
+
+_SAVE_FIELDS = ("id", "name", "website", "phone", "email", "industry", "region", "registration_number", "status", "sic_text", "postcode")
+
+
+def save_proposal(pid: str, list_name: str, filters: Dict[str, Any], found: Optional[Dict[str, Any]], asked_for: Any = None) -> Dict[str, Any]:
+    """The "save to a list" offer. What was listed on screen is saved as it was listed (the same companies, the same count). Only when the
+    person asks for more than was listed does it re-run the search, and then it says so: "the top 100", never "these"."""
+    shown = list((found or {}).get("top") or [])
+    total = int((found or {}).get("total") or 0)
+    try:
+        want = int(asked_for or 0)
+    except (TypeError, ValueError):
+        want = 0
+    want = min(max(want, 0), 200) or (int((found or {}).get("asked") or 0) or 25)
+    if shown and want <= len(shown):
+        picked = shown[:want]
+        companies = [{k: c.get(k, "") for k in _SAVE_FIELDS} for c in picked]
+        more = f" {total - len(picked):,} more match." if total > len(picked) else ""
+        return {"id": pid, "kind": "add_to_list", "title": f"Save these {len(picked)} to “{list_name}”",
+                "detail": f"Free. Exactly the {len(picked)} companies listed above.{more}",
+                "params": {"filters": filters, "list_name": list_name, "how_many": len(picked), "companies": companies, "total": total}}
+    n = min(want, total) if total else want
+    return {"id": pid, "kind": "add_to_list", "title": f"Save the top {n} to “{list_name}”",
+            "detail": f"Free. The best {n} of {total:,} matches, the ones listed above first." if total else "Free. Saved from the search above.",
+            "params": {"filters": filters, "list_name": list_name, "how_many": n, "total": total}}
 
 
 async def _tool_company(db: AsyncSession, t: _Turn, name: str) -> None:
@@ -438,20 +471,33 @@ async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any])
             t.notes.append("A web search is already waiting for the person to confirm.")
         else:
             t.web_asked = True
-            t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "web_search", "title": f"Search the web for “{query}”",
-                                "detail": "Public web pages and directories. Results are unverified. You pay only for companies found, nothing if none.", "params": {"query": query}})
+            try:
+                count = min(max(int(args.get("count") or 0), 0), 50)
+            except (TypeError, ValueError):
+                count = 0
+            big = bool(args.get("include_big"))
+            upto = f" for up to {count} companies" if count else ""
+            t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "web_search", "title": f"Search the web for “{query}”{upto}",
+                                "detail": "Public web pages and directories. Results are unverified. You pay only for companies found, nothing if none."
+                                          + ("" if big else " Household-name companies are left out."),
+                                "params": {"query": query, "count": count, "include_big": big}})
             t.steps.append({"label": "Prepared a web search for you to confirm", "detail": query, "ms": _ms(t0)})
             t.notes.append(f"A web search for '{query}' is on screen, waiting for the person to confirm. It costs credits per company found, nothing if none.")
     elif name == "add_to_list":
         if not t.filters or not business_records.normalize_filters(t.filters):
             t.notes.append("There is no search to save yet. Ask the person who they want to find first.")
             return
-        how_many = min(max(int(args.get("how_many") or 25), 1), 200)
         list_name = str(args.get("list_name") or "Assistant list").strip()[:80] or "Assistant list"
-        t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "add_to_list", "title": f"Save up to {how_many} companies to “{list_name}”",
-                            "detail": "Free. They are saved from the search above.", "params": {"filters": t.filters, "list_name": list_name, "how_many": how_many}})
-        t.steps.append({"label": "Prepared a list for you to confirm", "detail": f"{list_name}, up to {how_many}", "ms": _ms(t0)})
-        t.notes.append(f"A proposal to save up to {how_many} companies to the list '{list_name}' is on screen, waiting for the person to confirm.")
+        had = [i for i, x in enumerate(t.proposals) if x.get("kind") == "add_to_list"]
+        proposal = save_proposal(f"p{had[0] if had else len(t.proposals)}", list_name, t.filters, t.found or t.listed, args.get("how_many"))
+        if had:
+            t.proposals[had[0]] = proposal  # one offer to save per message, the last one the model made
+        else:
+            t.proposals.append(proposal)
+        n = proposal["params"]["how_many"]
+        t.steps.append({"label": "Prepared a list for you to confirm", "detail": f"{list_name}, {n}", "ms": _ms(t0)})
+        t.notes.append(f"A proposal to save {'exactly the ' if proposal['params'].get('companies') else 'the top '}{n} companies to the list '{list_name}' is on screen, "
+                       "waiting for the person to confirm. Say that number, and that more match if the total is larger. Do not name the companies.")
     elif name in ("check_list", "start_campaign"):
         hit = _list_named(t.lists, str(args.get("list_name") or ""))
         if not hit:
