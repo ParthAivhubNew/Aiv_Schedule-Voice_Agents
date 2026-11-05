@@ -44,6 +44,10 @@ def is_listing_host(url: str, name: str = "") -> bool:
         return True
     if any(d in host for d in _DIRECTORY_HOSTS) or any(j in host for j in _JUNK_WEB_HOSTS):
         return True
+    from app.services import listing_pages
+
+    if any(host == d or host.endswith("." + d) for d in listing_pages.hosts()):
+        return True
     for bad in _REGISTRY_HOSTS:
         if host == bad or host.endswith("." + bad) or (bad.count(".") == 0 and bad in host):
             # A council or public body can have a gov.uk site of its own.

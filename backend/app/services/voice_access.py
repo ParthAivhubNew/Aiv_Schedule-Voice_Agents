@@ -86,6 +86,12 @@ async def _switch_off(db, setup) -> Dict[str, Any]:
         except Exception as err:
             logger.warning(f"[voice-access] could not disable managed account, detaching numbers: {err}")
     state["numbers"] = await _detach(db, client_for(setup))
+    if getattr(setup, "credential_connection_id", ""):  # browser calls dial by themselves: switch their logins off too
+        try:
+            await client_for(setup).set_credential_connection_active(setup.credential_connection_id, False)
+            state["browser_calls"] = True
+        except Exception as err:
+            logger.warning(f"[voice-access] could not switch browser calls off: {err}")
     return state
 
 
@@ -103,7 +109,13 @@ async def _switch_on(db, setup, state: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f"[voice-access] could not enable managed account: {err}")
     if state.get("numbers"):
         left["numbers"] = await _reattach(db, client_for(setup), state["numbers"])
-    return {} if not left.get("account") and not left.get("numbers") else left
+    if state.get("browser_calls") and getattr(setup, "credential_connection_id", ""):
+        try:
+            await client_for(setup).set_credential_connection_active(setup.credential_connection_id, True)
+            left["browser_calls"] = False
+        except Exception as err:
+            logger.warning(f"[voice-access] could not switch browser calls on: {err}")
+    return {} if not left.get("account") and not left.get("numbers") and not left.get("browser_calls") else left
 
 
 async def _tell(title: str, lines) -> None:

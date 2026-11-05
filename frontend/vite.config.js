@@ -38,6 +38,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // The dev server answers cross-origin calls from the same places the product does: pages on this computer and the Outreach Chrome extension.
+    cors: { origin: /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension:\/\/[a-p]{32})$/ },
     proxy: {
       '/api': {
         target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',

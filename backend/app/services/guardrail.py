@@ -164,8 +164,18 @@ def _cand(field: str, key: str, value: str, idx: List[int]) -> Dict[str, Any]:
     return {"field": field, "key": key, "value": value, "sources": idx, "points": {}, "score": 0, "rejected": ""}
 
 
+SETTLE_UNPROVEN = True  # a candidate that is only a deep page on a domain unlike the name must be vouched for by its own homepage
+_ROOTISH = re.compile(r"^/?(?:index\.\w+|home|about[^/]*|contact[^/]*)?/?$", re.I)
+_ENTRY = re.compile(r"/(?:entry|entries|directory-enquiries|business-atoz|atoz|register|registers|companies|company)/", re.I)
+
+
+def _rootish(url: str) -> bool:
+    return bool(_ROOTISH.match(urlparse(str(url or "")).path or "/"))
+
+
 def website_candidates(sources: List[Dict[str, Any]], facts: Dict[str, Any]) -> List[Dict[str, Any]]:
     name = facts.get("name") or ""
+    trading = str(facts.get("trading_as") or "")
     by: Dict[str, List[int]] = {}
     for i, s in enumerate(sources):
         if s["domain"]:
@@ -177,10 +187,35 @@ def website_candidates(sources: List[Dict[str, Any]], facts: Dict[str, Any]) -> 
             c["rejected"] = "a directory or listing page, not the company's own site"
         elif all(sources[i]["conflict"] for i in idx):
             c["rejected"] = "the page is about a different place"
-        elif not (domain_matches_name(domain, name) or any(mentions(name, sources[i]["title"]) for i in idx)):
+        elif not (domain_matches_name(domain, name) or any(mentions(name, sources[i]["title"]) or (trading and mentions(trading, sources[i]["title"])) for i in idx)):
             c["rejected"] = "the page is about a different business"
+        elif SETTLE_UNPROVEN and not domain_matches_name(domain, name) and not (trading and domain_matches_name(domain, trading)):
+            # A domain unlike the company's name that search found only through inner pages (a register entry, a phone-book listing) is a page ABOUT the
+            # company, not its site, until its own homepage says otherwise (settle_unproven, after the homepage is read).
+            if all(_ENTRY.search(urlparse(sources[i]["url"]).path or "") for i in idx):
+                c["rejected"] = "a register or directory entry about the company, not its own site"
+            elif not any(_rootish(sources[i]["url"]) and not sources[i]["read"] for i in idx):
+                c["unproven"] = True
         out.append(c)
     return out
+
+
+def settle_unproven(cands: List[Dict[str, Any]], sources: List[Dict[str, Any]], facts: Dict[str, Any]) -> None:
+    """After homepages are read: an unproven website stays only if a page read from that site names the company or its trading name, or shows its
+    company number or postcode. Anything else is a page about the company on another site. Not read at all counts as not vouched."""
+    if not SETTLE_UNPROVEN:
+        return
+    name, trading = facts.get("name") or "", str(facts.get("trading_as") or "")
+    number, postcode = str(facts.get("company_number") or ""), squash(facts.get("postcode") or "")
+    for c in cands:
+        if c["field"] != "website" or not c.get("unproven") or c["rejected"]:
+            continue
+        pages = [sources[i] for i in c["sources"] if sources[i]["read"]]
+        text = " ".join(f"{p['title']} {p['text'][:3000]}" for p in pages)
+        vouched = bool(pages) and (mentions(name, text) or bool(trading and mentions(trading, text)) or (number and company_number_in(number, text))
+                                   or (postcode and postcode in squash(text)))
+        if not vouched:
+            c["rejected"] = "a page about the company on another site, not its own site"
 
 
 def phone_candidates(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

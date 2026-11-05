@@ -13,7 +13,7 @@ const SocialWorkspaceGate = lazy(() => import("../plugins/scheduler/SocialWorksp
 const CallingWorkspace = lazy(() => import("../plugins/voice/calling/CallingWorkspace").then((m) => ({ default: m.CallingWorkspace })));
 
 // Where each screen opens inside its app (the app keeps its place in memory; see utils/route).
-const START = { leads: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan" };
+const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan" };
 const NOOP = () => {};
 
 function Centered({ children }) {
@@ -41,6 +41,9 @@ export function EmbedApp() {
     applyAppearance(a);
   }, []);
   const returnUrl = useRef("");
+  const stateParam = useRef(null); // read once: the address is cleaned in an effect, and development runs effects twice
+  if (stateParam.current === null) stateParam.current = new URLSearchParams(window.location.search).get("state") || "";
+  const popup = useRef(false); // opened from a partner's page as our own sign-in window (a state in the address, no frame)
 
   const start = useCallback(async (token) => {
     setPhase("loading");
@@ -80,6 +83,14 @@ export function EmbedApp() {
   }, [start, show]);
 
   useEffect(() => {
+    if (stateParam.current && !inFrame()) {
+      popup.current = true;
+      try {
+        window.history.replaceState(null, "", window.location.pathname);
+      } catch (_) {}
+      begin({ connectToken: stateParam.current });
+      return undefined;
+    }
     const fromHash = initFromFragment();
     if (fromHash) {
       begin(fromHash);
@@ -88,6 +99,10 @@ export function EmbedApp() {
     const off = fromParent((m) => {
       if (m.type === "init") begin(m);
       else if (m.type === "appearance") { passed.current = m.appearance; show(lookOf(savedLook.current, m.appearance)); }
+      else if (m.type === "find" && typeof m.company === "string") {
+        window.__outreachFind = m.company.slice(0, 120); // kept until the Leads app has loaded and picks it up
+        window.dispatchEvent(new CustomEvent("outreach-find", { detail: { company: window.__outreachFind } }));
+      }
     });
     toParent("ready");
     if (!inFrame()) {
@@ -114,8 +129,31 @@ export function EmbedApp() {
     return (
       <ConnectScreen
         connectToken={connectToken}
+        popup={popup.current}
         onConnected={(out) => {
-          toParent("connected", { linkId: out.link_id, externalId: out.external_id, mode: out.mode });
+          if (popup.current) {
+            // The Chrome extension signs in through Chrome's own window: the code goes back on its redirect address.
+            const ext = /^chrome-extension:\/\/([a-p]{32})$/.exec(out.origin || "");
+            if (ext) {
+              window.location.replace(`https://${ext[1]}.chromiumapp.org/cb#code=${encodeURIComponent(out.code)}`);
+              return;
+            }
+            // The whole window was used for sign-in: go back to the page that sent the person here, with the code in the address fragment.
+            if (out.return_url) {
+              window.location.replace(`${out.return_url}${out.return_url.includes("#") ? "&" : "#"}outreach_code=${encodeURIComponent(out.code)}`);
+              return;
+            }
+            // Hand a one-time code to the page that opened this window, only at the address it was made for, then close.
+            try {
+              window.opener.postMessage({ source: "outreach-popup", type: "code", code: out.code }, out.origin);
+            } catch (_) {}
+            window.close();
+            setMessage("You are connected. You can close this window.");
+            setPhase("error");
+            return;
+          }
+          toParent("connected", { linkId: out.link_id, externalId: out.external_id, mode: out.mode, code: out.code || "" });
+          if (out.code) return; // shown inside the partner's page: it trades the code for a token and sends it back as a new init
           if (!inFrame() && returnUrl.current) {
             window.location.href = returnUrl.current;
             return;
@@ -133,7 +171,7 @@ export function EmbedApp() {
       <EmbedProvider views={session.views} brand={{ name: look.variables.brandName || "", logoUrl: look.variables.logoUrl || cleanLogo(session.partner && session.partner.logoUrl) }}>
         <div className="embed-root" style={{ height: "100vh", width: "100vw", overflow: "hidden" }}>
           <Suspense fallback={<Centered>Opening…</Centered>}>
-            {["leads", "campaigns", "mail"].includes(session.component) && <LeadGenerationPlugin {...props} />}
+            {["leads", "leadgen", "campaigns", "mail"].includes(session.component) && <LeadGenerationPlugin {...props} />}
             {session.component === "voice" && <CallingWorkspace {...props} />}
             {session.component === "social" && <SocialWorkspaceGate {...props} />}
           </Suspense>

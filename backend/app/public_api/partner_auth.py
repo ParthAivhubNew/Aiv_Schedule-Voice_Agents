@@ -1,4 +1,5 @@
-"""POST /v1/run  {"plugin": "auth", "action": ...}: sign-up and login for a partner's own pages.
+"""POST /v1/run  {"plugin": "auth", "action": ...}: sign-up and login for a partner's own pages, and connecting a user from the
+partner's page with only its publishable key (connect, exchange, refresh: see the end of this file).
 
 signup, login, resend_verification and forgot_password work without a key; they need the partner's `client_id` and, from a
 browser, one of its allowed web addresses. me and disconnect need the account's key. Signing up or logging in returns a scoped
@@ -19,7 +20,7 @@ from app.models.models import Operator, Organization, Partner, PartnerLink
 from app.public_api.core import ApiError, check_rate, fail
 from app.services import partners as PT
 
-PUBLIC_ACTIONS = ("signup", "login", "resend_verification", "forgot_password")
+PUBLIC_ACTIONS = ("signup", "login", "resend_verification", "forgot_password", "connect", "exchange", "refresh")
 KEY_ACTIONS = ("me", "disconnect")
 ACTIONS = PUBLIC_ACTIONS + KEY_ACTIONS
 
@@ -47,7 +48,7 @@ def _from_http(err: HTTPException) -> None:
     raise ApiError(err.status_code, code, message or "Something went wrong.")
 
 
-async def _partner_for(request: Request, data: Dict[str, Any]) -> Partner:
+async def _partner_for(request: Request, data: Dict[str, Any], page: bool = False) -> Partner:
     """The partner behind this call: known, not paused, called from an allowed address, and not over its limits."""
     client_id = _text(data, "client_id", 80)
     wait = check_rate(f"authip:{_ip(request)}", True) or check_rate(f"authcli:{client_id or '-'}", False)
@@ -56,8 +57,12 @@ async def _partner_for(request: Request, data: Dict[str, Any]) -> Partner:
                        {"Retry-After": str(wait)})
     try:
         partner = PT.usable(await PT.by_client_id(client_id))
-        PT.check_origin(partner, request)
+        if page:  # a web page with only the publishable key: its address must be there, and listed
+            PT.require_origin(partner, request)
+        else:
+            PT.check_origin(partner, request)
     except PT.PartnerError as err:
+        _note_refused(client_id, err)
         _refuse(err)
     return partner
 
@@ -196,7 +201,83 @@ async def disconnect(request: Request, db: AsyncSession, data: Dict[str, Any]) -
     return {"ok": True, "status": "revoked"}
 
 
-HANDLERS = {"signup": signup, "login": login, "resend_verification": resend_verification, "forgot_password": forgot_password,
+def _note_refused(client_id: str, err: PT.PartnerError) -> None:
+    """Keep a short trace of a page that was turned away, so the partner can see why its screen stayed blank. Never raises."""
+    import asyncio
+
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+
+    async def _go():
+        try:
+            partner = await PT.by_client_id(client_id)
+            if partner is not None:
+                with system_scope():
+                    async with AsyncSessionLocal() as s:
+                        PT.audit(s, partner.id, "page", "origin_denied", err.message[:200])
+                        await s.commit()
+        except Exception:
+            pass
+
+    if err.code in ("origin_not_allowed", "origin_required") and check_rate(f"authdeny:{client_id or '-'}", False) is None:
+        try:
+            asyncio.get_running_loop().create_task(_go())
+        except RuntimeError:
+            pass
+
+
+# ── Connecting from the partner's page, with only its publishable key ────────────────────────────────────────
+# connect   {client_id, component, access?, return_url?} -> {state, origin, expires_at}: show our sign-in at /embed/connect?state=...
+#           in a popup, inside your page (an iframe), or as the whole window (then return_url, a page of yours, is where it comes back to)
+# exchange  {client_id, code}                   -> {token, ...}: the popup's one-time code, for an embed token
+# refresh   {client_id, token}                  -> {token, ...}: a token that is still valid, for a fresh one
+def _page_origin(request: Request) -> str:
+    return PT.page_origin(request.headers.get("origin") or "")
+
+
+async def connect(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services import embed as EM
+
+    partner = await _partner_for(request, data, page=True)
+    component, access = _text(data, "component", 30) or "leads", _text(data, "access", 10) or "full"
+    if component not in EM.COMPONENTS or access not in EM.ACCESS:
+        fail(422, "invalid_request", f"component must be one of: {', '.join(EM.COMPONENTS)}; access is full or view.")
+    origin, ret = _page_origin(request), _text(data, "return_url", 500).split("#")[0]
+    if ret and not (PT.extension_return_ok(origin, ret) if origin.startswith(PT._EXT_SCHEMES) else PT.page_origin(ret) == origin):
+        fail(422, "return_url_not_allowed", "return_url must be a page on the same web address as the page that asked "
+                                            "(an extension: its own sign-in return address).")
+    state, expires_at = EM.mint_state(partner.id, component, access, origin, ret)
+    return {"state": state, "origin": origin, "expires_at": expires_at}
+
+
+async def exchange(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
+    from app.core.tenancy import system_scope
+    from app.services import embed as EM
+
+    partner = await _partner_for(request, data, page=True)
+    claims = EM.take_code(_text(data, "code", 2000), _page_origin(request))
+    if claims is None or claims["ptr"] != partner.id:
+        fail(401, "code_expired", "That sign-in has expired. Click Connect again.")
+    with system_scope():
+        link = await db.get(PartnerLink, claims["sub"])
+    if link is None or link.status != "active" or link.partner_id != partner.id or link.org_id != claims["org"]:
+        fail(401, "code_expired", "That sign-in has expired. Click Connect again.")
+    token, expires_at = EM.mint(link.id, partner.id, link.org_id, claims["cmp"], claims["acc"])
+    return {"token": token, "expires_at": expires_at, "component": claims["cmp"], "access": claims["acc"], "link_id": link.id}
+
+
+async def refresh(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services import embed as EM
+
+    partner = await _partner_for(request, data, page=True)
+    ctx = await EM.context(_text(data, "token", 3000))  # still valid, link still active, partner not paused
+    if ctx is None or ctx["partner_id"] != partner.id:
+        fail(401, "token_expired", "This session has ended. Click Connect again.")
+    token, expires_at = EM.mint(ctx["link_id"], partner.id, ctx["org_id"], ctx["component"], ctx["access"])
+    return {"token": token, "expires_at": expires_at, "component": ctx["component"], "access": ctx["access"], "link_id": ctx["link_id"]}
+
+
+HANDLERS = {"connect": connect, "exchange": exchange, "refresh": refresh, "signup": signup, "login": login, "resend_verification": resend_verification, "forgot_password": forgot_password,
             "me": me, "disconnect": disconnect}
 
 

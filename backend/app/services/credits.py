@@ -49,6 +49,8 @@ WALLETS: Dict[str, str] = {
 DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "voice_minute": {"label": "Voice call minute", "unit": "minute", "credits": 1, "wallet": "voice", "charged": True},
     "whatsapp_message": {"label": "WhatsApp message sent", "unit": "message", "credits": 1, "wallet": "voice", "charged": True},
+    # A written transcript and summary of a call a person made from the browser: recording + speech-to-text + summary.
+    "call_transcript": {"label": "Call transcript", "unit": "minute of call", "credits": 1, "wallet": "voice", "charged": True},
     "ai_post": {"label": "AI-written social post", "unit": "post", "credits": 2, "wallet": "scheduler", "charged": True},
     "ai_image": {"label": "AI image redraw", "unit": "image", "credits": 1, "wallet": "scheduler", "charged": True},
     # A video clip costs the platform far more than a picture (roughly 0.3 to 3 USD), so it is priced on its own.

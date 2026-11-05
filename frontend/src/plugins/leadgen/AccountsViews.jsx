@@ -3,7 +3,8 @@ import { GridTools } from "../../components/GridTools";
 import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { openPhone } from "../../utils/humanCall";
+import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -855,6 +856,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       {phoneFor(a) ? (
                         <>
                           {phoneFor(a).text}
+                          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${a.name} in the browser`}
+                            onClick={(e) => { e.stopPropagation(); openPhone({ number: phoneFor(a).text, leadId: a.id, name: a.name }); }}><PhoneCall size={13} /></button>
                           {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}> ✓</span> : null}
                           {a.verification?.phone?.state === "invalid" ? <span title={a.verification.phone.note || "Not a usable number"} style={{ color: C.red }}> ✕</span> : null}
                           {phoneFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}

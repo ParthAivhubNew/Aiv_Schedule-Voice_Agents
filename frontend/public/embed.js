@@ -1,12 +1,33 @@
 /*! Outreach embed loader. Put Outreach screens inside your own software.
  *
- * The easy way (no JavaScript to write): one script tag, then a tag wherever a screen should show.
+ * The easy way (no JavaScript to write, nothing on your server): one script tag, then a tag wherever a screen should show.
  *
- *   <script src="https://YOUR-OUTREACH-HOST/embed.js" data-key="pk_..." data-pass="/outreach-start"></script>
+ *   <script src="https://YOUR-OUTREACH-HOST/embed.js" data-key="pk_..." data-accent="#0a7"></script>
  *   <div data-outreach="leads"></div>                                         // a panel inside your page
  *   <button data-outreach="leads" data-mode="popup">Open Leads</button>       // a popup (also: drawer, page)
  *
- * data-pass is the address on YOUR server that hands out a pass (see the guide). Screens: leads, campaigns, mail, voice, social.
+ * The person clicks "Connect Outreach" once, signs in, and the screen opens. Your page never sees a password. You choose where
+ * the sign-in shows with data-login (on the script tag for every screen, or on one [data-outreach] tag):
+ *   data-login="popup"   a small Outreach window (the default)
+ *   data-login="inline"  inside your page, in the place of the screen (in a popup or side panel, inside that)
+ *   data-login="page"    the whole window goes to Outreach and comes back to the same page
+ * Screens: leadgen (every page of the Leads app), voice, social, or a smaller slice of Leads: leads, campaigns, mail.
+ *
+ * Look, set right on the tag (on the script tag for every screen, or on one [data-outreach] tag for that screen):
+ *   data-accent="#0a7"  data-bg="#fff"  data-text="#111"  data-surface="#fafafa"  data-danger="#c00"
+ *   data-sidebar="#123"  data-sidebar-text="#fff"  data-radius="8"  data-font="system|inter|serif|rounded|mono"
+ *   data-name="Acme"  data-logo="https://.../logo.png"  data-appearance="auto" (copy the colours of your page)
+ *
+ * Your own data and actions, from your own code (the person connects once, with a click, then these just work):
+ *   await Outreach.import(records, { list: "My CRM leads" })   // put your contacts or companies into their account
+ *   await Outreach.run("leads", "list.list")                    // any action of any plugin: voice, leads, social, whatsapp, mail, account
+ *   await Outreach.run("voice", "call.start", { to: "+4420..." })
+ *   Outreach.find("Acme Ltd")                                   // open Leads with that company searched
+ *   <div data-outreach="leadgen" data-find="Acme Ltd"></div>    // the same, as a tag
+ * Every action is listed in the API guide. While your integration is in test mode the actions are simulated and save nothing.
+ *
+ * Already have a server that signs your users in? Add data-pass="/outreach-start" (the address on YOUR server that hands out a
+ * pass, see the guide) and people are connected without a click.
  *
  * The longer way, with full control:
  *
@@ -26,7 +47,7 @@
   "use strict";
   var script = document.currentScript;
   var DEFAULT_HOST = script && script.src ? new URL(script.src).origin : "";
-  var COMPONENTS = { leads: 1, campaigns: 1, mail: 1, voice: 1, social: 1, connect: 1 };
+  var COMPONENTS = { leads: 1, leadgen: 1, campaigns: 1, mail: 1, voice: 1, social: 1, connect: 1 };
 
   function el(tag, css, attrs) {
     var e = document.createElement(tag);
@@ -172,7 +193,7 @@
     return this.client.host + "/embed/" + this.component + "?client_id=" + encodeURIComponent(this.client.clientId);
   };
 
-  var TITLES = { leads: "Leads", campaigns: "Email campaigns", mail: "Mail", voice: "Voice", social: "Social", connect: "Connect your account" };
+  var TITLES = { leads: "Leads", leadgen: "Leads", campaigns: "Email campaigns", mail: "Mail", voice: "Voice", social: "Social", connect: "Connect your account" };
 
   Screen.prototype._build = function (parent, height) {
     if (this.frame) return;
@@ -227,7 +248,7 @@
     else if (d.type === "ready-ui") { this.ready = true; this._watch(); if (o.onReady) o.onReady(d); }
     else if (d.type === "token-needed") {
       resolve(o.getToken || o.token).then(function (t) { self._send({ type: "token", token: t }); }, function () {});
-    } else if (d.type === "connected") { if (o.onConnected) o.onConnected({ linkId: d.linkId, externalId: d.externalId, mode: d.mode }); }
+    } else if (d.type === "connected") { if (o.onConnected) o.onConnected({ linkId: d.linkId, externalId: d.externalId, mode: d.mode, code: d.code }); }
     else if (d.type === "session-ended") { if (o.onSessionEnded) o.onSessionEnded(d); }
     else if (d.type === "error") this._fail(d.message || "Something went wrong.");
     else if (d.type === "event") { if (o.onEvent) o.onEvent({ name: d.name, data: d.data }); }
@@ -343,7 +364,7 @@
     if (!this.host) throw new Error("Outreach: load embed.js from your Outreach host, or pass { host }.");
   }
   Client.prototype.create = function (component, options) {
-    if (!COMPONENTS[component]) throw new Error("Outreach: unknown screen '" + component + "'. Use leads, campaigns, mail, voice or social.");
+    if (!COMPONENTS[component]) throw new Error("Outreach: unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice or social.");
     return new Screen(this, component, options);
   };
   // Links one of your users to an Outreach account. `connectToken` comes from your server.
@@ -365,12 +386,11 @@
 
   // ── One-tag mode ─────────────────────────────────────────────────────────────────────────────────────────
   // <script src=".../embed.js" data-key="pk_..." data-pass="/outreach-start"> turns every [data-outreach] tag into a screen.
-  var tag = { client: null, pass: "/outreach-start", appearance: undefined };
+  var tag = { client: null, pass: "", appearance: undefined, script: script };
   if (script && script.getAttribute && script.getAttribute("data-key")) {
     try {
       tag.client = new Client(script.getAttribute("data-key"), { host: script.getAttribute("data-host") || undefined });
-      tag.pass = script.getAttribute("data-pass") || tag.pass;
-      tag.appearance = script.getAttribute("data-appearance") || undefined;
+      tag.pass = script.getAttribute("data-pass") || "";
     } catch (err) { if (global.console) console.error("[Outreach] " + err.message); }
   }
 
@@ -401,14 +421,145 @@
     note.textContent = "Outreach could not open this screen. " + message;
   }
 
+  // ── The look, from data-* attributes ───────────────────────────────────────────────────────────────────────
+  var LOOK_ATTRS = { accent: "colorPrimary", bg: "colorBackground", surface: "colorSurface", text: "colorText", danger: "colorDanger",
+    sidebar: "colorSidebar", "sidebar-text": "colorSidebarText", radius: "borderRadius", font: "fontFamily", name: "brandName", logo: "logoUrl" };
+  function readLook(node, into) {
+    if (!node || !node.getAttribute) return;
+    for (var a in LOOK_ATTRS) {
+      var v = node.getAttribute("data-" + a);
+      if (v === null || v === "") continue;
+      into[LOOK_ATTRS[a]] = a === "radius" ? Number(v) : v;
+    }
+  }
+  // What a screen is given as `appearance`: the script tag's look, then the screen's own tag on top. The Outreach side checks every value.
+  function tagLook(node) {
+    var vars = {};
+    readLook(tag.script, vars);
+    readLook(node, vars);
+    var auto = (node && node.getAttribute && node.getAttribute("data-appearance")) || (tag.script && tag.script.getAttribute("data-appearance"));
+    if (auto === "auto") return { auto: {}, variables: vars };
+    for (var k in vars) return { variables: vars };
+    return undefined;
+  }
+
+  // ── Connecting from the page alone: one click, a small Outreach window, then the screen ─────────────────────
+  var sessions = {};
+  function runApi(client, action, data) {
+    var body = { plugin: "auth", action: action, data: Object.assign({ client_id: client.clientId }, data) };
+    return fetch(client.host + "/api/v1/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) {
+            var m = (d && d.error && d.error.message) || (d && d.message) || (d && typeof d.detail === "string" ? d.detail : "");
+            throw new Error(m || "Outreach answered " + r.status + ".");
+          }
+          return d;
+        });
+      });
+  }
+  function save(client, component, d) {
+    sessions[client.clientId + ":" + component] = { token: d.token, expires: (d.expires_at || 0) * 1000 };
+  }
+  function currentToken(client, component) {
+    var s = sessions[client.clientId + ":" + component];
+    if (!s) return Promise.reject(new Error("Not connected."));
+    if (s.expires - Date.now() > 60000) return Promise.resolve(s.token);
+    return runApi(client, "refresh", { token: s.token }).then(function (d) { save(client, component, d); return d.token; });
+  }
+  var BTN = "cursor:pointer;border:0;border-radius:8px;padding:10px 16px;background:#2f5be0;color:#fff;font:600 14px/1 system-ui,-apple-system,'Segoe UI',sans-serif;";
+
+  // The window must open from the click itself or the browser blocks it, so it opens first and is pointed at Outreach after.
+  function openPopup(client, component, say, done) {
+    var win = window.open("", "outreach-connect", "width=460,height=700,menubar=no,toolbar=no");
+    if (!win) { say("Your browser blocked the sign-in window. Allow pop-ups for this site and click again."); return; }
+    var finished = false, watch = null;
+    function stop() { finished = true; clearInterval(watch); window.removeEventListener("message", onMsg); }
+    function onMsg(ev) {
+      if (ev.origin !== client.host || ev.source !== win) return;
+      var d = ev.data;
+      if (!d || d.source !== "outreach-popup" || d.type !== "code" || typeof d.code !== "string") return;
+      stop();
+      runApi(client, "exchange", { code: d.code }).then(function (out) { save(client, component, out); done(out); },
+        function (err) { say(err.message); });
+    }
+    window.addEventListener("message", onMsg);
+    watch = setInterval(function () { if (win.closed && !finished) { stop(); say("The sign-in window was closed. Click Connect to try again."); } }, 600);
+    runApi(client, "connect", { component: component }).then(function (d) {
+      win.location.href = client.host + "/embed/connect?state=" + encodeURIComponent(d.state);
+    }, function (err) { stop(); try { win.close(); } catch (e) { /* already closed */ } say(err.message); });
+  }
+
+  // The sign-in screen inside your page: it takes the place of the screen (or opens over the page when the screen itself is a popup).
+  function connectInline(client, component, node, mode, say, done) {
+    runApi(client, "connect", { component: component }).then(function (d) {
+      var link = client.connect({
+        connectToken: d.state, height: "560px",
+        onError: function (e) { say(e.message); },
+        onConnected: function (info) {
+          if (!info.code) return;
+          runApi(client, "exchange", { code: info.code }).then(function (out) { save(client, component, out); link.destroy(); done(out); },
+            function (err) { say(err.message); });
+        },
+      });
+      if (mode === "inline") link.mount(node); else link.open({ mode: mode === "drawer" ? "drawer" : "modal", side: "right" });
+    }, function (err) { say(err.message); });
+  }
+
+  // The whole window goes to Outreach and comes back to this page with a one-time code in the address (taken below, on load).
+  function connectPage(client, component, say) {
+    runApi(client, "connect", { component: component, return_url: window.location.href.split("#")[0] }).then(function (d) {
+      window.location.assign(client.host + "/embed/connect?state=" + encodeURIComponent(d.state));
+    }, function (err) { say(err.message); });
+  }
+
+  function showByPopup(node, component, opts, client) {
+    var mode = opts.mode || "inline", look = opts.appearance || tagLook(node);
+    var find = opts.find || (node && node.getAttribute && node.getAttribute("data-find")) || "", screen = null;
+    var screenOptions = {
+      height: opts.height, appearance: look,
+      onReady: function () { if (find && screen) screen._send({ type: "find", company: String(find).slice(0, 120) }); },
+      getToken: function () { return currentToken(client, component); },
+      onError: function (e) { say(node, e.message); },
+    };
+    function launch() {
+      if (mode === "page") return client.redirect(component, { getToken: screenOptions.getToken, appearance: look, newTab: !!opts.newTab });
+      screen = client.create(component, screenOptions);
+      if (mode === "popup" || mode === "modal") screen.open({ mode: "modal" });
+      else if (mode === "drawer") screen.open({ mode: "drawer", side: opts.side || "right" });
+      else screen.mount(node);
+      return screen;
+    }
+    var have = sessions[client.clientId + ":" + component];
+    if (have && have.expires - Date.now() > 60000) return Promise.resolve(launch());
+    return new Promise(function (resolve) {
+      var btn = null;
+      var tell = function (m) { say(node, m); };
+      var login = (node && node.getAttribute && node.getAttribute("data-login")) || (tag.script && tag.script.getAttribute("data-login")) || "popup";
+      var after = function () { if (btn && btn.parentNode) btn.remove(); resolve(launch()); };
+      var connect = function () {
+        if (login === "page") connectPage(client, component, tell);
+        else if (login === "inline") { if (btn && btn.parentNode) btn.remove(); connectInline(client, component, node, mode, tell, after); }
+        else openPopup(client, component, tell, after);
+      };
+      // A screen opened from your own button is already a click: connect right away. An inline panel gets its own button.
+      if (mode !== "inline") { connect(); return; }
+      btn = el("button", BTN, { type: "button" });
+      btn.textContent = (node && node.getAttribute && node.getAttribute("data-connect-label")) || "Connect Outreach";
+      btn.onclick = connect;
+      node.appendChild(btn);
+    });
+  }
+
   // Show one screen. node: where it goes (inline) or what was clicked. opts: { mode, height, side, newTab, appearance }.
   // mode: "inline" (default), "popup", "drawer" or "page". Returns a promise of the screen.
   function show(node, component, opts) {
     opts = opts || {};
     var client = opts.client || tag.client, passUrl = opts.pass || tag.pass, mode = opts.mode || "inline";
     if (!client) { say(node, 'Add data-key="pk_..." to the embed.js script tag.'); return Promise.resolve(null); }
-    if (!COMPONENTS[component] || component === "connect") { say(node, "Unknown screen '" + component + "'. Use leads, campaigns, mail, voice or social."); return Promise.resolve(null); }
+    if (!COMPONENTS[component] || component === "connect") { say(node, "Unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice or social."); return Promise.resolve(null); }
     if (node && node.querySelector) { var old = node.querySelector("[data-outreach-note]"); if (old) old.remove(); }
+    if (!passUrl) return showByPopup(node, component, opts, client);
     return getPass(passUrl, component).then(function (d) {
       if (d.connect_token) {
         // This person has no linked Outreach account yet: link one, then show the screen they asked for.
@@ -424,7 +575,7 @@
       var first = d.token;
       var screenOptions = {
         height: opts.height,
-        appearance: opts.appearance || tag.appearance,
+        appearance: opts.appearance || tagLook(node),
         // The first pass is the one just fetched; later ones (after it runs out) are fetched fresh.
         getToken: function () {
           if (first) { var t = first; first = null; return Promise.resolve(t); }
@@ -460,11 +611,90 @@
     }
   }
 
+  // ── Your data and actions from your own code ────────────────────────────────────────────────────────────
+  var API_PASS = "api"; // one sign-in covers the actions of every plugin
+  // A pass for one screen's actions: the one already held, or a sign-in (a window can only open from a click, so call this from a click).
+  function pass(client, component) {
+    var have = sessions[client.clientId + ":" + component];
+    if (have && have.expires - Date.now() > 60000) return Promise.resolve(have.token);
+    if (have) return currentToken(client, component);
+    return new Promise(function (resolve, reject) {
+      openPopup(client, component, function (m) { reject(new Error(m)); }, function () { currentToken(client, component).then(resolve, reject); });
+    });
+  }
+  function clientOf(opts) {
+    var c = (opts && opts.client) || tag.client;
+    if (!c) throw new Error('Outreach: add data-key="pk_..." to the embed.js script tag.');
+    return c;
+  }
+  // Outreach.run("leads", "list.list", { ... }, { id: "..." }) -> the answer, or an Error that says what is wrong.
+  function run(plugin, action, data, opts) {
+    opts = opts || {};
+    var client;
+    try { client = clientOf(opts); } catch (e) { return Promise.reject(e); }
+    var component = opts.screen || API_PASS;
+    return pass(client, component).then(function (token) {
+      var body = { plugin: plugin, action: action, data: data || {} };
+      if (opts.id) body.id = opts.id;
+      return fetch(client.host + "/api/v1/run", { method: "POST", cache: "no-store", body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token } }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) {
+            var e = new Error((d && d.error && d.error.message) || (d && d.message) || "Outreach answered " + r.status + ".");
+            e.status = r.status; e.code = (d && d.error && d.error.code) || (d && d.code) || "";
+            throw e;
+          }
+          return d;
+        });
+      });
+    });
+  }
+  // Outreach.import(records, { list: "Name" }): your contacts or companies into the person's account (and into a list, if you name one).
+  // Each record: { name (required), email, phone, website, contact_name, contact_title, industry, region, notes }.
+  function importRecords(records, opts) {
+    opts = opts || {};
+    var rows = (records || []).filter(function (r) { return r && String(r.name || "").trim(); });
+    if (!rows.length) return Promise.reject(new Error("Outreach.import: send records with a name."));
+    var chunks = [];
+    for (var i = 0; i < rows.length; i += 500) chunks.push(rows.slice(i, i + 500));
+    var ids = [], added = 0, skipped = 0, simulated = false;
+    return chunks.reduce(function (chain, part) {
+      return chain.then(function () {
+        return run("leads", "lead.add", { leads: part }, opts).then(function (d) {
+          added += d.added || 0; skipped += d.skipped || 0;
+          (d.data || []).forEach(function (a) { if (a && a.id) { ids.push(a.id); if (/^lead_test_/.test(a.id)) simulated = true; } });
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      if (!opts.list || !ids.length || simulated) return { added: added, skipped: skipped, list: null, simulated: simulated };
+      return run("leads", "list.create", { name: String(opts.list).slice(0, 80), ids: ids }, opts).then(function (l) {
+        return { added: added, skipped: skipped, list: l, simulated: false };
+      });
+    });
+  }
+  function openScreen(component, opts) {
+    opts = opts || {};
+    return show(null, component, Object.assign({ mode: "popup" }, opts));
+  }
+
+  global.Outreach.run = run;
+  global.Outreach.import = importRecords;
+  global.Outreach.connect = function (component, opts) { return pass(clientOf(opts), component || API_PASS).then(function () { return { connected: true }; }); };
+  global.Outreach.open = openScreen;
+  global.Outreach.find = function (company, opts) { return openScreen("leadgen", Object.assign({}, opts || {}, { find: company })); };
   global.Outreach.show = show;
   global.Outreach.scan = scan;
+  // Back from a whole-window sign-in: trade the code in the address for a token before the screens are set up.
+  var back = Promise.resolve();
+  var returned = /[#&]outreach_code=([^&]+)/.exec(window.location.hash || "");
+  if (returned && tag.client) {
+    var oneTime = decodeURIComponent(returned[1]);
+    try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch (e) { /* the code stays in the bar, but works once */ }
+    back = runApi(tag.client, "exchange", { code: oneTime }).then(function (out) { save(tag.client, out.component, out); }, function () { /* a stale code: the Connect button shows */ });
+  }
   if (tag.client && typeof document !== "undefined") {
     var go = function () {
-      scan();
+      back.then(scan);
       // Tags a framework adds later (React, Vue, ...) are picked up as they appear.
       if (typeof MutationObserver !== "undefined") {
         var timer = null;

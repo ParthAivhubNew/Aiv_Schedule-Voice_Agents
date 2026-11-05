@@ -124,7 +124,7 @@ ACTIONS: Dict[str, Dict[str, Tuple[str, str, bool]]] = {
 PLUGINS = [*ACTIONS, "mail", "auth", "numbers"]
 
 _ENVELOPE = {"plugin", "action", "id", "data"}
-_PASS_HEADERS = ("authorization", "idempotency-key", "x-forwarded-for", "user-agent")
+_PASS_HEADERS = ("authorization", "idempotency-key", "x-forwarded-for", "user-agent", "origin")
 _BACK_HEADERS = ("x-request-id", "idempotent-replay", "retry-after", "accept-ranges", "content-disposition", "content-range")
 
 

@@ -37,6 +37,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"sip/webhook$",
     _OPT_API + r"telnyx-assistant/(call-control|call-event|tools?/[^/]+)$",
     _OPT_API + r"calls/(telnyx|twilio)/[^/]+$",
+    _OPT_API + r"human-calls/events$",  # Telnyx's call events for browser calls (signature checked in the handler)
     _OPT_API + r"twilio/(voice|inbound)$",
     _OPT_API + r"(vapi|retell|custom-voice|livekit)/webhook$",
     _OPT_API + r"telnyx/(webhook|messaging-webhook)$",
@@ -49,14 +50,14 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     _OPT_API + r"email/o/[A-Za-z0-9_.-]+$",  # the open marker in a cold email (signed)
     _OPT_API + r"mail/[us]/[A-Za-z0-9_.-]+$",  # unsubscribe links in our own system emails (signed)
     _OPT_API + r"legal/(business-data|opt-out|opt-out/confirm/[A-Za-z0-9_.-]+)$",  # notice and opt-out for people in the business data
-    _OPT_API + r"docs/partners(/(start|embed|api))?$",  # the partner guides, readable without an account
+    _OPT_API + r"docs/partners(/(start|embed|api|snippets))?$",  # the partner guides, readable without an account
     _OPT_API + r"scheduler/oauth/[^/]+/callback$",
     _OPT_API + r"meeting-links/[^/]+/callback$",  # return page; the signed state names the organisation
     _OPT_API + r"p/[A-Za-z0-9_.\-]+$",  # preview pages: the signed link is the sign-in
     _OPT_API + r"embed/sessions$",  # a partner's server, with its secret key (checked in the handler)
     _OPT_API + r"embed/connect-sessions$",  # the same, to start linking one of its users
     _OPT_API + r"embed/links/[^/]+(/key)?$",  # the same, to look up the account linked to one of its users, or get its API key
-    _OPT_API + r"embed/connect/(info|login|signup)$",  # the connect screen; a connect token from the partner's server is the sign-in
+    _OPT_API + r"embed/connect/(info|login|signup|resume|forget)$",  # the connect screen; a connect token from the partner's server is the sign-in
     _OPT_API + r"embed/frame-policy$",  # asked by our web server, which sets the embed page's frame rule
     # Images social networks and email clients fetch
     _OPT_API + r"scheduler/media/[^/]+$",
@@ -71,7 +72,7 @@ PUBLIC_WS = [re.compile(r"^/ws/media-stream$")]  # carrier audio stream
 # Query-string tokens (?access_token=) are permitted ONLY for browser contexts that cannot
 # attach custom Authorization headers (<audio src>, file downloads, and WebSockets).
 QUERY_TOKEN_ALLOWED = re.compile(
-    _OPT_API + r"(?:calls/[^/]+/recording(?:/download)?|calcom/bookings/[^/]+/ics|scheduler/media/[^/]+|media/.*)"
+    _OPT_API + r"(?:calls/[^/]+/recording(?:/download)?|human-calls/call_[a-f0-9]+/audio|calcom/bookings/[^/]+/ics|scheduler/media/[^/]+|media/.*)"
 )
 
 # Developer API keys reach the public /v1 API only, never the app's own endpoints (team,
@@ -328,6 +329,19 @@ class AuthMiddleware:
             from app.services import embed as EM
 
             emb = await EM.context(token)
+            if emb and _V1_PATH.match(api_path(path)):
+                # A connected person's page calling the one public endpoint: it is treated like that account's API key for this
+                # partner, limited to the actions of its own screen and to the partner's listed web addresses.
+                origin = next((v.decode("latin-1") for n, v in (scope.get("headers") or []) if n == b"origin"), "")
+                v1 = await EM.v1_context(emb, origin, method)
+                if isinstance(v1, str):
+                    return await _deny(scope, receive, send, 403, v1, code="embed_run_refused")
+                scope.setdefault("state", {})["auth"] = v1
+                scope.setdefault("state", {})["api_key"] = v1
+                from app.core.tenancy import org_scope
+
+                with org_scope(v1["org_id"]), EM.partner_scope(v1["partner_id"]):
+                    return await self.app(scope, receive, send)
             if emb:
                 rel = api_path(path)
                 if not EM.may_use(emb, rel, method):

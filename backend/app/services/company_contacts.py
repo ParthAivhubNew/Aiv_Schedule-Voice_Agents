@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -260,6 +260,7 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
         # A lookup from before the guardrail: its website was only checked for looking like the company's, and its phones and emails
         # were never checked. They are retired here, so nothing unchecked is shown again.
         found["website"] = found["website"] or (cached.get("website") or "")
+    listing, options = await _listing_step(db, biz, want, found, options, hint)
     if not (found["website"] or found["phones"] or found["emails"]):
         if cached and not cached.get("guardrail"):
             raw = dict(biz.raw_data or {})
@@ -267,13 +268,51 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
             biz.raw_data = raw
             business_records.refresh_rank(biz)
             await db.flush()
-        return {**found, "found": False, "cached": False, "reason": got.get("reason", ""), "options": options}
+        return {**found, "found": False, "cached": False, "reason": got.get("reason", ""), "options": options, "listing": listing}
     raw = dict(biz.raw_data or {})
     raw["contacts_web"] = found
     biz.raw_data = raw
     business_records.refresh_rank(biz)
     await db.flush()
-    return {**found, "found": True, "cached": False, "options": options}
+    return {**found, "found": True, "cached": False, "options": options, "listing": listing}
+
+
+async def _listing_step(db: AsyncSession, biz: BusinessRecord, want: str, found: Dict[str, Any], options: Dict[str, List[Dict[str, Any]]],
+                        hint: str) -> Tuple[Dict[str, Any], Dict[str, List[Dict[str, Any]]]]:
+    """When the lookup found no site of its own (or no phone or email, for those buttons), the company's exact page on a directory or social site.
+    A saved listing is reused for CACHE_DAYS, so the extra search runs once. A phone or email that page shows is offered as a labelled choice
+    ("From the Yell page"), never filled in: the person picks it, and the pick is remembered like any other."""
+    from app.services import listing_pages as LP
+    from app.services.person_record import is_role_inbox
+
+    need = {"website": want in ("all", "website") and not found["website"] and not (biz.website or biz.domain),
+            "phone": want in ("all", "phone") and not found["phones"] and not biz.phone,
+            "email": want in ("all", "email") and not found["emails"] and not biz.email}
+    if not any(need.values()):
+        return {}, options
+    stored = (biz.raw_data or {}).get("listing_page") or {}
+    if stored.get("url") and _age_days(stored.get("at")) <= CACHE_DAYS and not hint:
+        listing = stored
+    else:
+        listing = await _listing_for(biz)
+        if listing:
+            LP.keep(biz, listing)
+            await db.flush()
+    if not listing.get("url"):
+        return {}, options
+    seen = listing.get("also_seen") or {}
+    extra = {kind: [{"value": v, "score": 45, "label": f"From the {listing['site']} page", "sources": [listing["url"]]} for v in vals]
+             for kind, vals in (("phone", seen.get("phones") or []), ("email", [e for e in seen.get("emails") or [] if is_role_inbox(e)])) if need[kind] and vals}
+    if extra:
+        kept = await _remember_options(db, biz, extra)
+        options = {**options, **{k: (options.get(k) or []) + v for k, v in kept.items()}}
+    return listing, options
+
+
+async def _listing_for(biz: BusinessRecord) -> Dict[str, Any]:
+    from app.services import listing_pages
+
+    return await listing_pages.find_for(biz.name, biz.postcode or "", biz.region or biz.address or "")
 
 
 async def _remember_options(db: AsyncSession, biz: BusinessRecord, options: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:

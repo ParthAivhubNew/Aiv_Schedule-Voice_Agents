@@ -783,7 +783,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                           return (
                             <div key={i} className="as-hit" style={{ alignItems: "center" }}>
                               <span style={{ minWidth: 0, flex: 1 }}>
-                                <span style={{ ...text, fontWeight: 500, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name} <span className="as-tag" title="Found on public web pages. Not checked against the register">web · unverified</span></span>
+                                <span style={{ ...text, fontWeight: 500, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name} <span className="as-tag" title="Found on public web pages, not read from the company register">web</span></span>
                                 <span style={muted}>{d || "No website found"}{r.phone ? ` · ${r.phone}` : ""}</span>
                               </span>
                               {a.saved?.[i] ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Saved</span>
@@ -840,12 +840,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
             {mic.error ? <div role="alert" style={{ ...muted, color: C.red, marginTop: 6 }}>{mic.error}</div> : mic.listening ? <div role="status" style={{ ...muted, marginTop: 6 }}>Listening… speak, then press the mic again or Send.</div> : null}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               {cfg.leads ? <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
-                title={web ? "Web search is on: the assistant can offer to search public web pages. Results are unverified and cost credits per company found, nothing if none" : `Turn on to let the assistant search public web pages for businesses that are not in the register. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none.`}`}>
+                title={web ? "Web search is on: the assistant can offer to search public web pages. Results come from public web pages and cost credits per company found, nothing if none" : `Turn on to let the assistant search public web pages for businesses that are not in the register. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none.`}`}>
                 <Globe size={13} aria-hidden="true" /> Web search <span className="as-web-state">{web ? "On" : "Off"}</span>
               </button> : null}
               {cfg.leads && onImport ? <button type="button" className="as-web" onClick={onImport} title="Bring in your own spreadsheet of companies"><FileSpreadsheet size={13} aria-hidden="true" /> Import</button> : null}
             </div>
-            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{cfg.leads ? (web ? "Register answers are verified. Web results are labelled unverified, and you confirm before they cost anything." : "Answers come from the company register and your own account.") + " " : ""}{cfg.foot}</div>
+            <div style={{ ...muted, fontSize: 11.5, marginTop: 6 }}>{cfg.leads ? (web ? "Register answers come from the company register. Web results are labelled Web, and you confirm before they cost anything." : "Answers come from the company register and your own account.") + " " : ""}{cfg.foot}</div>
           </div>
         ) : null}
         </div>

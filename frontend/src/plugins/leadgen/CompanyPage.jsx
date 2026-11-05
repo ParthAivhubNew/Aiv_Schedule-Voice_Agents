@@ -276,7 +276,13 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
               <div key={k.kind} data-reach={k.kind} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff", maxWidth: "100%" }}>
                 <Icon size={14} color={C.slate} aria-hidden="true" />
                 {k.value ? <a href={k.href} target={k.kind === "website" ? "_blank" : undefined} rel="noreferrer" style={{ color: C.cobalt, fontSize: 13, overflowWrap: "anywhere" }}>{k.shown}</a>
-                  : <span style={{ fontSize: 13, color: C.slate }}>{k.kind === "website" ? "Website" : k.kind === "phone" ? "Phone" : "Email"}</span>}
+                  : k.kind === "website" && c.listing_page && c.listing_page.url
+                    ? <span title={`${c.listing_page.why || ""}. The company's page on ${c.listing_page.site}, not a website of its own.`} style={{ fontSize: 13 }}>
+                        <a href={c.listing_page.url} target="_blank" rel="noreferrer" style={{ color: C.cobalt, overflowWrap: "anywhere" }}>Listed on {c.listing_page.site}</a>{" "}
+                        <span style={{ fontSize: 10.5, color: c.listing_page.confirmed ? C.green : C.slate }}>{c.listing_page.confirmed ? "page confirmed" : "unconfirmed"}</span>
+                        {[...((c.listing_page.also_seen || {}).phones || []), ...((c.listing_page.also_seen || {}).emails || [])].length
+                          ? <span style={{ display: "block", fontSize: 11.5, color: C.slate }}>Also on that page: {[...((c.listing_page.also_seen || {}).phones || []), ...((c.listing_page.also_seen || {}).emails || [])].join(", ")}. Not added to the company. Use Find phone or Find email to pick it.</span> : null}</span>
+                    : <span style={{ fontSize: 13, color: C.slate }}>{k.kind === "website" ? "Website" : k.kind === "phone" ? "Phone" : "Email"}</span>}
                 {k.closed ? <button type="button" style={{ ...btn(true, busy === `open:${k.kind}`), padding: "3px 9px", minHeight: 28 }} disabled={busy === `open:${k.kind}`} title="We hold this. Open it once and it stays visible. Free." onClick={() => open(k.kind)}>
                   {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
                 {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}

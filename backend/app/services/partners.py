@@ -129,13 +129,73 @@ def usable(partner: Optional[Partner]) -> Partner:
     return partner
 
 
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+EXTENSION_ID = "nojmlpmpnfjoilhajkdpdbobcjajbmca"  # the Outreach Chrome extension (its public key is pinned in the manifest)
+_EXT_ORIGIN = re.compile(r"^chrome-extension://([a-p]{32})$")
+_MOZ_ORIGIN = re.compile(r"^moz-extension://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_EXT_SCHEMES = ("chrome-extension://", "moz-extension://")
+
+
+def extension_return_ok(origin: str, ret: str) -> bool:
+    """Where a browser extension's sign-in may send the code: only its own redirect address on the browser's sign-in domain."""
+    m = _EXT_ORIGIN.match(origin or "")
+    if m:
+        return bool(re.fullmatch(rf"https://{m.group(1)}\.chromiumapp\.org(/[^\s#]*)?", ret or ""))
+    if _MOZ_ORIGIN.match(origin or ""):
+        return bool(re.fullmatch(r"https://[a-z0-9]{20,}\.extensions\.allizom\.org(/[^\s#]*)?", ret or ""))
+    return False
+
+
+def extension_ids() -> List[str]:
+    from app.config import settings
+
+    return list(dict.fromkeys([EXTENSION_ID] + [x for x in re.split(r"[,\s]+", settings.EXTENSION_IDS or "") if x]))
+
+
+def page_origin(value: str) -> str:
+    """The address a call came from: a web page, or one of our own Chrome extensions. Anything else is ''."""
+    v = (value or "").strip()
+    m = _EXT_ORIGIN.match(v)
+    if m:
+        return v if m.group(1) in extension_ids() else ""
+    if _MOZ_ORIGIN.match(v):
+        from app.config import settings
+
+        return v if settings.ALLOW_FIREFOX_EXTENSION else ""
+    return _origin(v)
+
+
+def origin_allowed(partner: Partner, origin: str) -> bool:
+    """Whether a page at this web address may use the partner's publishable key. Only addresses the partner listed; while it
+    is still testing, a page on the partner's own computer (localhost) works too, so the first try needs no settings."""
+    o = page_origin(origin)
+    if not o:
+        return False
+    if o.startswith(_EXT_SCHEMES):  # the Outreach extension: whoever installs it opts in; the partner is named by its pairing
+        return True
+    if o in (partner.allowed_origins or []):
+        return True
+    return partner.status != "live" and urlparse(o).hostname in LOCAL_HOSTS
+
+
 def check_origin(partner: Partner, request: Request) -> None:
     """A browser call must come from one of the partner's web addresses. A call from the partner's own server has no Origin."""
     origin = (request.headers.get("origin") or "").strip()
     if not origin:
         return
-    if _origin(origin) not in (partner.allowed_origins or []):
+    if not origin_allowed(partner, origin):
         raise PartnerError(403, "origin_not_allowed", "This web address is not allowed to use this client_id.")
+
+
+def require_origin(partner: Partner, request: Request) -> str:
+    """For calls a web page makes with only a publishable key: the page's address must be present and allowed (a missing one is refused)."""
+    origin = page_origin(request.headers.get("origin") or "")
+    if not origin:
+        raise PartnerError(403, "origin_required", "Call this from your web page. The browser did not say which page this is.")
+    if not origin_allowed(partner, origin):
+        raise PartnerError(403, "origin_not_allowed", f"{origin} is not in your list of web addresses. Add it under Partner programme"
+                           f"{' (while you test, localhost works without adding it)' if partner.status != 'live' else ''}.")
+    return origin
 
 
 def check_return_url(partner: Partner, url: str) -> str:
@@ -157,6 +217,16 @@ def check_consent(data: Dict[str, Any]) -> str:
     if not version:
         raise PartnerError(422, "consent_version_required", "Send consent_version: the version of the consent text you showed.")
     return version[:40]
+
+
+async def start_partner(db: AsyncSession, owner_org_id: str, name: str, who: str) -> Partner:
+    """Make the organisation a partner in test mode, terms accepted, in one step. The caller commits."""
+    p = Partner(owner_org_id=owner_org_id, client_id=new_client_id(), name=(name or "").strip()[:120] or "My company", status="sandbox",
+                webhook_secret=new_webhook_secret(), terms_version=TERMS_VERSION, terms_accepted_at=datetime.utcnow(), allowed_origins=[])
+    db.add(p)
+    await db.flush()
+    audit(db, p.id, who, "partner_started", "test mode, terms accepted")
+    return p
 
 
 # ── Keys ────────────────────────────────────────────────────────────────────
@@ -242,11 +312,12 @@ async def attach_new_account(db: AsyncSession, partner: Partner, op: Operator) -
         org.referred_by_partner_id = partner.id
     link = await connect(db, partner, op.org_id, op.id, CONSENT_VERSION, created=True)
     await db.commit()
-    try:  # no credit gating while the programme is free
-        with org_scope(op.org_id):
-            async with AsyncSessionLocal() as s:
-                await K.set_org_settings(s, {"enforce": False}, op.org_id)
-                await s.commit()
+    try:  # no credit gating while the programme is free, and only for partners staff have switched live
+        if partner.status == "live":
+            with org_scope(op.org_id):
+                async with AsyncSessionLocal() as s:
+                    await K.set_org_settings(s, {"enforce": False}, op.org_id)
+                    await s.commit()
     except Exception as err:
         logger.warning(f"[partners] could not switch credit gating off for {op.org_id}: {err}")
     _forget_partner_cache(op.org_id)
@@ -308,7 +379,8 @@ def _forget_partner_cache(org_id: str) -> None:
 
 
 async def is_free_account(org_id: str) -> bool:
-    """True for an account created through a partner whose integration is not suspended: it needs no plan while the programme is free."""
+    """True for an account created through a partner whose integration is live: it needs no plan while the programme is free. A sandbox
+    partner is open to anyone, so its accounts pay like any other."""
     from app.core.tenancy import system_scope
 
     hit = _CACHE.get(org_id)
@@ -323,7 +395,7 @@ async def is_free_account(org_id: str) -> bool:
                 pid = row[0] if row else None
                 if pid:
                     p = await db.get(Partner, pid)
-                    free = bool(p and p.status != "suspended")
+                    free = bool(p and p.status == "live")
     except Exception as err:
         logger.debug(f"[partners] free-account check skipped: {err}")
     _CACHE[org_id] = (now + _CACHE_TTL_S, free)
@@ -342,6 +414,7 @@ def partner_json(p: Partner, secret: bool = True) -> Dict[str, Any]:
         "scopes": p.scopes or DEFAULT_SCOPES, "logoUrl": p.logo_url or "", "accentColor": p.accent_color or "",
         "webhookUrl": p.webhook_url or "", "secretKeyPrefix": p.secret_prefix or "", "theme": p.theme or {"variables": {}}, "liveRequestedAt": p.live_requested_at.isoformat() if p.live_requested_at else None,
         "termsVersion": p.terms_version or "", "createdAt": p.created_at.isoformat() if p.created_at else None,
+        "welcomeCredits": int(p.welcome_credits or 0), "welcomeWallet": p.welcome_wallet or "leadgen",
     }
     if secret:
         out["webhookSecret"] = p.webhook_secret or ""

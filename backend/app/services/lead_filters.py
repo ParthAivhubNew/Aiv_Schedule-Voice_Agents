@@ -142,6 +142,8 @@ def card(biz) -> Dict[str, Any]:
         # A phone or website the business itself gave through a form we emailed it (only where that question was marked to be shared).
         "confirmed_phone": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("phone") or ""),
         "confirmed_website": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("website") or ""),
+        # No website of its own: the company's exact page on a directory or social site, labelled with the site and whether the page was confirmed.
+        "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
     }
 
 

@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Outreach",
+  "version": "1.0.0",
+  "description": "Find leads, send email, make calls and plan posts from any page, in a side panel. Reads the page only when you click the button.",
+  "minimum_chrome_version": "114",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqwy+Z8pEs1bs9jaAs8ECvj1TUK226jbQx41Psq9TZthkUO79s5y4GXXRTfIDcHZ29Jf6NITm8BhCZk2RuBhskT6kjnBrsrxhX3VacyXiDrWCleE2uDDV2yIwpQ1qKv/qPkPUxl4WlZ2DhzdsB9OiJAskRe2K1ljenbHlruhCkJbKG8q23nCyD3lF5Uc3QsY48T4wegn8XD61cbgsdJlgOuhCoQz6fHhGqKpyA40lEkjfvDo90fyhDaRwJ7tCczYf+lnKmz8QHwHRuOSjtZBvuzUIlh7G4UrCrSOP7Ly+8xGXPsZt/KfxHCNXO7sHAySg7tGquGXE1Dyr76QM556+DwIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open Outreach",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "identity",
+    "activeTab",
+    "scripting"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

@@ -434,3 +434,43 @@ def test_a_lookup_that_found_nothing_is_remembered_and_cleared_when_something_tu
     before = biz.raw_data
     CC.note_lookup(biz, "website", True)  # nothing to clear: no write
     assert biz.raw_data is before
+
+
+# ── a page ABOUT the company on another site is not its website ───────────────────────────────────────
+HD_NAME, HD_FACTS = "HUNKY DORY RESTAURANTS LTD", {"postcode": "CF14 5DX", "industry": "56101 - Unlicensed restaurants and cafes", "address": "", "company_number": "05591185"}
+ICO = {"url": "https://ico.org.uk/ESDWebPages/Entry/ZB495838", "title": "HUNKY DORY RESTAURANTS LTD - ICO register", "snippet": "Cardiff CF14 5DX", "score": 0.8}
+PHONEBOOK = {"url": "https://www.ukphonebook.com/directory-enquiries/business-atoz/Hunky-Dory-Restaurants-Ltd-CARDIFF", "title": "Hunky Dory Restaurants Ltd Cardiff", "snippet": "CF14 5DX", "score": 0.7}
+
+
+def test_a_register_entry_and_a_phone_book_page_are_never_offered_as_the_website(monkeypatch):
+    _web(monkeypatch, {"Official website": [ICO, PHONEBOOK]})
+    out = run(H.find_company(None, name=HD_NAME, place="CARDIFF", facts=HD_FACTS, want="website"))
+    assert not out["website"] and out["options"]["website"] == []
+    why = {a["value"]: a["rejected"] for a in out["audit"] if a["field"] == "website"}
+    assert why["https://ico.org.uk"] and why["https://ukphonebook.com"]  # both rejected, with a reason
+
+
+def test_a_domain_that_looks_like_the_name_is_read_before_pages_about_the_company(monkeypatch):
+    brand = "https://www.hunkydory.group"
+    _web(monkeypatch, {"Official website": [ICO, PHONEBOOK, {"url": brand, "title": "Hunky Dory", "snippet": "Eat with us", "score": 0.5}]},
+         pages={brand: ("Hunky Dory Restaurants", "Hunky Dory Restaurants Limited, Cardiff CF14 5DX. Company number 05591185.")})
+    out = run(H.find_company(None, name=HD_NAME, place="CARDIFF", facts=HD_FACTS, want="website"))
+    steps = [t["step"] for t in out["ledger"]["timings"]]
+    assert any(s.startswith("read hunkydory.group") for s in steps)
+    assert not any(a["value"] == "https://ico.org.uk" and not a["rejected"] for a in out["audit"])
+
+
+def test_a_trading_name_site_survives_when_its_homepage_names_the_brand(monkeypatch):
+    site = "https://www.thelantern.co.uk"
+    facts = {"postcode": "CF10 1AA", "industry": "56302 - Public houses and bars", "address": "", "trading_as": "The Lantern"}
+    _web(monkeypatch, {"Official website": [{"url": site + "/menu", "title": "Menu | The Lantern Cardiff", "snippet": "CF10 1AA", "score": 0.6}]},
+         pages={site: ("The Lantern, Cardiff", "The Lantern Cardiff CF10 1AA")})
+    out = run(H.find_company(None, name="ABC HOSPITALITY LTD", place="CARDIFF", facts=facts, want="website"))
+    assert not any(a["rejected"].startswith("a page about the company") for a in out["audit"] if a["value"] == "https://thelantern.co.uk")
+
+
+def test_the_new_hosts_are_directories_and_the_old_rule_still_holds():
+    from app.services import site_check
+    for u in ("https://ico.org.uk/x", "https://www.ukphonebook.com/y", "https://www.192.com/z"):
+        assert site_check.is_listing_host(u, "Anything Ltd")
+    assert not site_check.is_listing_host("https://www.hunkydory.group", "Hunky Dory Restaurants Ltd")

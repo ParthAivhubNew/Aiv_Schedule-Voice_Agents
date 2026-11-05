@@ -500,7 +500,7 @@ class FindIn(BaseModel):
 async def find_company_website(company_id: str, body: FindIn = FindIn(), db: AsyncSession = Depends(get_db)):
     """One click from a result row that has no website: look on the open web first (1 Leads credit, only when a website or
     phone is found), and if that finds no website, the deeper search (its own price, only when it finds one). Nothing is
-    charged for a miss. What the web finds stays labelled as web and unverified; the deeper search fills only empty fields
+    charged for a miss. What the web finds stays labelled as web; the deeper search fills only empty fields
     and never replaces what the registry holds. Shown to the user as "web" and "deeper search", never by vendor name."""
     from app.services import company_contacts as CC, lead_filters
 
@@ -572,12 +572,16 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         CC.note_lookup(biz, "website", got)
         await db.commit()
         card = lead_filters.card(biz)
-    if not got and not note and not _options(biz, "website", got):
-        note = "We couldn't find a website for this company right now. Try again later." + _closest(web)
+    listing = card.get("listing_page") or {}
+    if not got and listing.get("url"):
+        shown = "the company's page" if listing.get("confirmed") else "a page that looks like the company's (not confirmed)"
+        note = f"No website of its own found. Found {shown} on {listing['site']}. Nothing was charged for it."
+    elif not got and not note and not _options(biz, "website", got):
+        note = "We couldn't find a confirmed website for this company right now. Try again later." + _closest(web)
     await CP.sync_safely(db, biz)  # every website, phone, email and page found is also listed, searchable, on its own
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
-            "options": _options(biz, "website", got)}
+            "options": _options(biz, "website", got), "listing": listing}
 
 
 def _closest(web: Optional[Dict[str, Any]]) -> str:
@@ -1347,8 +1351,9 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
 
 _UK_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b", re.I)
 # Sites that list many businesses: their pages and contacts are never this company's own.
-_LISTING_SITES = ("booking.com", "tripadvisor.", "facebook.com", "yell.com", "trustpilot.", "linkedin.com", "yelp.", "opentable.",
-                  "checkatrade.com", "companieshouse.gov.uk", "endole.co.uk", "opencorporates.com", "dnb.com", "google.com", "instagram.com")
+from app.services import listing_pages as _LP  # noqa: E402  (the one list of directory sites, plus a few that are only ever listings)
+
+_LISTING_SITES = tuple(dict.fromkeys((*_LP.hosts(), "booking.com", "yelp.", "opentable.", "google.com")))
 
 
 def _is_uk(row: LeadAccount) -> bool:

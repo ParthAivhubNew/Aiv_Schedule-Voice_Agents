@@ -16,7 +16,7 @@ export function foundHeading(found) {
 // What the web search says when it is done. A shortfall is said plainly, and only the companies found are charged.
 export function webResultText(found, asked, query) {
   if (!found) return `Nothing found on the web for “${query}”. Nothing was charged.`;
-  const unverified = " They are unverified: check them before you rely on them.";
-  if (asked && found < asked) return `Found ${found} of the ${asked} you asked for. That is all the web search turned up, so only ${found} ${found === 1 ? "is" : "are"} charged.${unverified}`;
-  return `Found ${found} on the web.${unverified}`;
+  const source = " They come from public web pages, not the company register.";
+  if (asked && found < asked) return `Found ${found} of the ${asked} you asked for. That is all the web search turned up, so only ${found} ${found === 1 ? "is" : "are"} charged.${source}`;
+  return `Found ${found} on the web.${source}`;
 }

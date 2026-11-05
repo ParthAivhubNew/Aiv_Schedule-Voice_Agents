@@ -2,6 +2,7 @@ import {
   announceAuthLost,
   announcePasswordChange,
   getAccessToken,
+  withToken,
   refreshSession,
   setSession,
   clearSession,
@@ -34,7 +35,7 @@ export async function apiRequest(endpoint, options = {}) {
 
   const isAuthCall = /^\/auth\/(login|refresh)$/.test(endpoint.startsWith('/') ? endpoint : `/${endpoint}`);
 
-  if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData)) {
+  if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData) && !(fetchOptions.body instanceof Blob)) {
     fetchOptions.body = JSON.stringify(fetchOptions.body);
   }
 
@@ -387,6 +388,26 @@ export const api = {
   latestCompanyCheck: () => apiRequest('/leads/checks/latest'),
   checkPicks: () => apiRequest('/leads/checks/picks'),
   activeJobs: () => apiRequest('/jobs/active'),
+  // Calls a person makes from the browser (Voice > Phone)
+  humanCallConfig: () => apiRequest('/human-calls/config'),
+  humanCallsMine: () => apiRequest('/human-calls/mine'),
+  startHumanCall: (body) => apiRequest('/human-calls/start', { method: 'POST', body, timeoutMs: 30000 }),
+  humanCallConnected: (ref, body) => apiRequest(`/human-calls/${encodeURIComponent(ref)}/connected`, { method: 'POST', body }),
+  endHumanCall: (ref, body) => apiRequest(`/human-calls/${encodeURIComponent(ref)}/end`, { method: 'POST', body: body || {} }),
+  humanCallTranscript: (ref) => apiRequest(`/human-calls/${encodeURIComponent(ref)}/transcript`),
+  retryHumanCallTranscript: (ref) => apiRequest(`/human-calls/${encodeURIComponent(ref)}/transcribe`, { method: 'POST' }),
+  humanCallAudioUrl: (ref) => withToken(`${API_BASE}/human-calls/${encodeURIComponent(ref)}/audio`),
+  /** A piece of the call's recording (raw audio bytes). */
+  uploadHumanCallAudio: (ref, blob) => apiRequest(`/human-calls/${encodeURIComponent(ref)}/audio`, {
+    method: 'POST', body: blob, headers: { 'Content-Type': blob.type || 'audio/webm' }, timeoutMs: 60000 }),
+  /** Ends the call when the tab is closing: a normal request would be cancelled. */
+  endHumanCallOnExit: (ref) => {
+    try {
+      fetch(`${API_BASE}/human-calls/${encodeURIComponent(ref)}/end`, {
+        method: 'POST', keepalive: true, body: '{}',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAccessToken()}` } });
+    } catch { /* the sweep closes it */ }
+  },
   answerCheckPick: (accountId, body) => apiRequest(`/leads/checks/picks/${encodeURIComponent(accountId)}`, { method: 'POST', body }),
   getCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}`),
   pauseCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
@@ -777,6 +798,7 @@ export const api = {
 
   // Partner programme
   getPartner: () => apiRequest('/partner'),
+  startPartner: (body) => apiRequest('/partner/start', { method: 'POST', body }),
   applyPartner: (body) => apiRequest('/partner/apply', { method: 'POST', body }),
   acceptPartnerTerms: () => apiRequest('/partner/accept-terms', { method: 'POST' }),
   savePartnerSettings: (body) => apiRequest('/partner/settings', { method: 'PUT', body }),
@@ -785,6 +807,8 @@ export const api = {
   savePartnerTheme: (body) => apiRequest('/partner/theme', { method: 'PUT', body }),
   requestPartnerLive: () => apiRequest('/partner/request-live', { method: 'POST' }),
   downloadPartnerKit: (stack) => apiRequest(`/partner/starter-kit?stack=${encodeURIComponent(stack)}`, { asBlob: true }),
+  getPartnerWallet: () => apiRequest('/partner/wallet'),
+  givePartnerCredits: (id, body) => apiRequest(`/partner/links/${encodeURIComponent(id)}/credits`, { method: 'POST', body }),
   getPartnerLinks: (status = '') => apiRequest(`/partner/links${status ? `?status=${status}` : ''}`),
   disconnectPartnerLink: (id) => apiRequest(`/partner/links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPartnerConnections: () => apiRequest('/partner/connections'),

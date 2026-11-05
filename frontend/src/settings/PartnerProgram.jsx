@@ -103,7 +103,11 @@ export function PartnerProgram() {
   const [showSecret, setShowSecret] = useState(false);
   const [tab, setTab] = useState("setup");
   const [openStep, setOpenStep] = useState(null); // null: the first unfinished step is open; "none": all closed
-  const [kitStack, setKitStack] = useState("vite");
+  const [kitStack, setKitStack] = useState("snippet");
+  const [start, setStart] = useState({ name: "", agree: false });
+  const [wallet, setWallet] = useState(null);
+  const [giving, setGiving] = useState(null); // { id, wallet, amount } while a gift form is open
+  const [welcome, setWelcome] = useState({ credits: "0", wallet: "leadgen" });
   const [kitDone, setKitDone] = useState(() => { try { return localStorage.getItem("aivhub_partner_kit") === "1"; } catch { return false; } });
 
   const load = useCallback(async () => {
@@ -117,6 +121,9 @@ export function PartnerProgram() {
           logo: p.partner.logoUrl || "", color: p.partner.accentColor || "", webhook: p.partner.webhookUrl || "",
         });
         setLinks((await api.getPartnerLinks()).links || []);
+        const w = await api.getPartnerWallet().catch(() => null);
+        setWallet(w);
+        if (w) setWelcome({ credits: String(w.welcomeCredits || 0), wallet: w.welcomeWallet || "leadgen" });
       }
     } catch (err) {
       setMsg({ text: err.message, error: true });
@@ -140,15 +147,14 @@ export function PartnerProgram() {
   if (!info) return <div style={{ color: C.slate, fontSize: 13 }}>{msg.text || <Dotted text="Loading" />}</div>;
   const partner = info.partner;
   const lastApp = (info.applications || [])[0];
-  const ready = partner && info.termsAccepted && settings && lines(settings.origins).length > 0 && lines(settings.returns).length > 0;
-  const hasAddresses = !!partner && (partner.allowedOrigins || []).length > 0 && (partner.returnUrls || []).length > 0;
+  const ready = partner && info.termsAccepted && settings && lines(settings.origins).length > 0;
+  const hasAddresses = !!partner && (partner.allowedOrigins || []).length > 0;
   const steps = partner ? [
-    { id: "terms", title: "Accept the partner terms", done: !!info.termsAccepted },
-    { id: "addresses", title: "Add your web addresses", done: hasAddresses },
-    { id: "key", title: "Make your secret key", done: !!partner.secretKeyPrefix },
-    { id: "kit", title: "Download your starter kit", done: kitDone },
+    { id: "kit", title: "Get your zip and paste the snippet", done: kitDone },
+    { id: "addresses", title: "Add the address of your site", done: hasAddresses },
     { id: "live", title: "Go live", done: partner.status === "live" },
   ] : [];
+  const snippet = partner ? `<script src="${window.location.origin}/embed.js" data-key="${partner.clientId}" data-accent="#2f5be0"></script>\n<div data-outreach="leadgen"></div>` : "";
   const nextStep = steps.find((s) => !s.done);
   const doneCount = steps.filter((s) => s.done).length;
   const activeLinks = links.filter((l) => l.status === "active").length;
@@ -163,7 +169,7 @@ export function PartnerProgram() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `outreach-starter-kit-${kitStack}.zip`;
+      a.download = kitStack === "snippet" ? "outreach-for-your-product.zip" : `outreach-starter-kit-${kitStack}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -189,29 +195,17 @@ export function PartnerProgram() {
 
       {!partner && (
         <div style={box}>
-          <h3 style={h3}><Handshake size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />Offer Outreach inside your own software</h3>
-          <div style={hint}>Show Outreach's screens (Leads, Campaigns, Mail, Voice and Social) inside your own software, in your colours: inline, as a popup, as a side panel or as a full page. Your users sign in to Outreach, or create an account, without leaving your product. Free while the programme is new.</div>
-          {lastApp && lastApp.status === "pending" && <p style={{ fontSize: 13 }}>Your application for <b>{lastApp.company}</b> is waiting for review. <span style={pill("amber")}>pending</span></p>}
-          {lastApp && lastApp.status === "rejected" && <p style={{ fontSize: 13 }}>Your last application was not approved.{lastApp.reviewNote ? ` ${lastApp.reviewNote}` : ""} You can apply again.</p>}
-          {!(lastApp && lastApp.status === "pending") && (
-            <form onSubmit={(e) => { e.preventDefault(); act(() => api.applyPartner(form), "Application sent. We will email you."); }}>
-              <label style={label} htmlFor="pp-company">Company</label>
-              <input id="pp-company" required minLength={2} style={field} value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
-              <label style={label} htmlFor="pp-product">Your product</label>
-              <input id="pp-product" style={field} value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} />
-              <label style={label} htmlFor="pp-use">What will your users do with Outreach?</label>
-              <textarea id="pp-use" rows={3} style={field} value={form.use_case} onChange={(e) => setForm({ ...form, use_case: e.target.value })} />
-              <label style={label} htmlFor="pp-users">Expected number of users</label>
-              <input id="pp-users" style={field} placeholder="For example 500 in the first year" value={form.expected_users} onChange={(e) => setForm({ ...form, expected_users: e.target.value })} />
-              <label style={label} htmlFor="pp-web">Website</label>
-              <input id="pp-web" style={field} value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
-              <label style={label} htmlFor="pp-cname">Contact person</label>
-              <input id="pp-cname" style={field} value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
-              <label style={label} htmlFor="pp-cmail">Contact email</label>
-              <input id="pp-cmail" type="email" style={field} value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} />
-              <div style={{ marginTop: 14 }}><button type="submit" disabled={busy} style={button(true, busy)}>Send application</button></div>
-            </form>
-          )}
+          <h3 style={h3}><Handshake size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />Add Outreach to your own software</h3>
+          <div style={hint}>Show Outreach's screens (Leads, Campaigns, Mail, Voice and Social) inside your product, in your colours, with one snippet of code. Your users sign in to Outreach in a small window, so you never handle a password. Start in test mode now: only your own computer and the addresses you add can use it until you go live.</div>
+          <form onSubmit={(e) => { e.preventDefault(); act(() => api.startPartner({ name: start.name, accept_terms: start.agree }), "You are in test mode. Download your zip below."); }}>
+            <label style={label} htmlFor="pp-company">Your company name</label>
+            <input id="pp-company" required minLength={2} style={field} value={start.name} onChange={(e) => setStart({ ...start, name: e.target.value })} />
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "12px 0 0", fontSize: 12.5, color: C.textInk, lineHeight: 1.5 }}>
+              <input type="checkbox" checked={start.agree} onChange={(e) => setStart({ ...start, agree: e.target.checked })} style={{ marginTop: 3 }} />
+              <span>I agree to the partner terms. Your users' accounts are normal Outreach accounts, and you only get the access they agree to. You never keep their Outreach password.</span>
+            </label>
+            <div style={{ marginTop: 14 }}><button type="submit" disabled={busy || !start.agree} style={button(true, busy || !start.agree)}>Start in test mode</button></div>
+          </form>
         </div>
       )}
 
@@ -239,62 +233,50 @@ export function PartnerProgram() {
 
           {tab === "setup" && (
             <>
-              <Step n={1} title="Accept the partner terms" done={info.termsAccepted} open={isOpen("terms")} onToggle={() => toggle("terms")}
-                summary={`Accepted, version ${partner.termsVersion}`}>
-                <div style={hint}>Your users' accounts are normal Outreach accounts, and you only get the access they agreed to. Outreach may keep and reuse data from accounts created through your sign-up page. Your pages must show your users what you can access before they continue, and never keep their Outreach password.</div>
-                <div style={{ marginTop: 10 }}><button type="button" disabled={busy} style={button(true, busy)} onClick={() => act(() => api.acceptPartnerTerms(), "Terms accepted.")}>Accept the partner terms</button></div>
+              {!info.termsAccepted && (
+                <div style={box}>
+                  <h3 style={h3}>Accept the partner terms</h3>
+                  <div style={hint}>Your users' accounts are normal Outreach accounts, and you only get the access they agreed to. Your pages never keep their Outreach password.</div>
+                  <div style={{ marginTop: 10 }}><button type="button" disabled={busy} style={button(true, busy)} onClick={() => act(() => api.acceptPartnerTerms(), "Terms accepted.")}>Accept the partner terms</button></div>
+                </div>
+              )}
+
+              <Step n={1} title="Get your zip and paste the snippet" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
+                summary="Downloaded. Paste the two lines of snippet.html into your page.">
+                <div style={hint}>Your zip has your snippet with your key already in it, a test page, and the Outreach browser extension for your team. There is nothing to add to your server and no secret key to find. Paste these two lines where Outreach should show:</div>
+                <Code>{snippet}</Code>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button type="button" disabled={busy} style={button(true, busy)} onClick={downloadKit}>Download your zip</button>
+                  <CopyText text={snippet} />
+                </div>
+                <div style={hint}>Change the look on the same line: <code>data-accent</code>, <code>data-bg</code>, <code>data-text</code>, <code>data-radius</code>, <code>data-font</code>, <code>data-logo</code>, <code>data-name</code>. Screens: <code>leadgen</code> (the whole Leads app), <code>voice</code>, <code>social</code>; smaller Leads slices: <code>leads</code>, <code>campaigns</code>, <code>mail</code>. The first time, a person clicks "Connect Outreach" and signs in. To use your own data from code, call <code>Outreach.import(records, {'{'} list {'}'})</code>, <code>Outreach.run(plugin, action, data)</code> or <code>Outreach.find(company)</code>; they are simulated in test mode. Choose where the sign-in shows with <code>data-login</code>: <code>popup</code> (a small window, the default), <code>inline</code> (inside your page) or <code>page</code> (the whole window, then back).</div>
               </Step>
 
-              <Step n={2} title="Add your web addresses" done={hasAddresses} open={isOpen("addresses")} onToggle={() => toggle("addresses")}
-                summary={`${(partner.allowedOrigins || []).length} web ${(partner.allowedOrigins || []).length === 1 ? "address" : "addresses"}, ${(partner.returnUrls || []).length} return ${(partner.returnUrls || []).length === 1 ? "page" : "pages"}`}>
+              <Step n={2} title="Add the address of your site" done={hasAddresses} open={isOpen("addresses")} onToggle={() => toggle("addresses")}
+                summary={`${(partner.allowedOrigins || []).length} web ${(partner.allowedOrigins || []).length === 1 ? "address" : "addresses"}`}>
                 <form onSubmit={(e) => { e.preventDefault(); saveSettings(); }}>
-                  <label style={{ ...label, marginTop: 0 }} htmlFor="pp-name">Name your users see</label>
-                  <input id="pp-name" style={field} value={settings.name} onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
-                  <label style={label} htmlFor="pp-origins">Pages that will show Outreach</label>
+                  <label style={{ ...label, marginTop: 0 }} htmlFor="pp-origins">Pages that will show Outreach</label>
                   <textarea id="pp-origins" rows={2} style={field} placeholder="https://app.yourproduct.com" value={settings.origins} onChange={(e) => setSettings({ ...settings, origins: e.target.value })} />
-                  <div style={hint}>One full address per line. www.yourproduct.com and yourproduct.com count as two.</div>
-                  <label style={label} htmlFor="pp-returns">Where people come back to</label>
-                  <textarea id="pp-returns" rows={2} style={field} placeholder="https://app.yourproduct.com/outreach/connected" value={settings.returns} onChange={(e) => setSettings({ ...settings, returns: e.target.value })} />
-                  <div style={hint}>One per line. After someone confirms their email or connects an account, we send them to one of these pages. It must be on a web address above.</div>
+                  <div style={hint}>One full address per line. While you test, pages on your own computer (localhost) work without adding anything. Only these addresses can use your key once you are live.</div>
                   <div style={{ marginTop: 14 }}><button type="submit" disabled={busy} style={button(true, busy)}>Save</button></div>
                 </form>
               </Step>
 
-              <Step n={3} title="Make your secret key" done={!!partner.secretKeyPrefix} open={isOpen("key")} onToggle={() => toggle("key")}
-                summary={`Secret key ${partner.secretKeyPrefix}••••`}>
-                <SecretKeyBox partner={partner} busy={busy} act={act} bare />
-              </Step>
-
-              <Step n={4} title="Download your starter kit" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
-                summary="Downloaded. Unzip it into your project and run the check.">
-                <div style={hint}>Your .env file, the one small server file for your language, and ready-to-paste snippets (panel, popup, side panel, full page), with your keys and addresses already filled in. Unzip them into your project folder, then follow START-HERE.txt: three or four short steps. It ends with one command that checks everything and says what is still missing.</div>
-                <label htmlFor="pp-kit" style={label}>What is your product built with?</label>
-                <select id="pp-kit" value={kitStack} onChange={(e) => setKitStack(e.target.value)} style={field}>
-                  <option value="vite">A Vite or React app (no server of its own)</option>
-                  <option value="node">Your own Node / Express server</option>
-                  <option value="next">Next.js</option>
-                  <option value="python">Python (Flask)</option>
-                  <option value="php">PHP</option>
-                </select>
-                <div style={{ marginTop: 12 }}><button type="button" disabled={busy} style={button(true, busy)} onClick={downloadKit}>Download starter kit</button></div>
-                <div style={hint}>Your secret key is not in the kit. You paste it into a file called .env, as START-HERE.txt shows. Using something else? The Docs tab, "Copy-paste code", has the same files and the steps for any language.</div>
-              </Step>
-
-              <Step n={5} title="Go live" done={partner.status === "live"} open={isOpen("live")} onToggle={() => toggle("live")}
-                summary="You are live. New accounts get live keys.">
+              <Step n={3} title="Go live" done={partner.status === "live"} open={isOpen("live")} onToggle={() => toggle("live")}
+                summary="You are live.">
                 {partner.status === "live" ? (
-                  <div style={hint}>You are live. New accounts get live keys.</div>
+                  <div style={hint}>You are live.</div>
                 ) : partner.liveRequestedAt ? (
                   <div style={hint}>Asked on {when(partner.liveRequestedAt)}. The Outreach team will check your integration and switch it on.</div>
                 ) : (
                   <>
-                    <div style={hint}>Test first: in the sandbox nothing real is sent or charged. Then ask us to switch you on. This needs the terms accepted, a web address and a return page.</div>
+                    <div style={hint}>Test first on your own computer or a test address. People who connect during the test use their own Outreach accounts, so anything they do is real. When it works on your site, ask us to switch you on. This needs the terms accepted and one web address.</div>
                     <div style={{ marginTop: 10 }}><button type="button" disabled={busy || !ready || partner.status === "suspended"} style={button(true, busy || !ready || partner.status === "suspended")} onClick={() => act(() => api.requestPartnerLive(), "Request sent.")}>Ask to go live</button></div>
-                    {!ready && <div style={hint}>Finish steps 1 and 2 first.</div>}
+                    {!ready && <div style={hint}>Add the address of your site first.</div>}
                   </>
                 )}
               </Step>
-              <div style={{ fontSize: 13, color: C.slate, margin: "4px 0 0" }}>Need the code? Open <button type="button" onClick={() => setTab("docs")} style={{ background: "none", border: 0, padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, fontFamily: FONT_BODY }}>Docs</button> and start with "Get started".</div>
+              <div style={{ fontSize: 13, color: C.slate, margin: "4px 0 0" }}>Need more detail? Open <button type="button" onClick={() => setTab("docs")} style={{ background: "none", border: 0, padding: 0, color: C.cobalt, cursor: "pointer", fontSize: 13, fontFamily: FONT_BODY }}>Docs</button>. Already sign your users in on your own server? See "Connect with your own server" under Advanced.</div>
             </>
           )}
 
@@ -309,6 +291,22 @@ export function PartnerProgram() {
 
           {tab === "accounts" && (
             <div style={box}>
+              <h3 style={h3}>Credits you can share</h3>
+              <div style={hint}>Your people spend their own Outreach credits. You can fund them from your own wallets: top yours up on the normal Outreach billing page, then give credits to a connected account below, or give every new account a welcome gift.</div>
+              {wallet && (
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", margin: "8px 0" }}>
+                  {wallet.wallets.map((w) => <span key={w.key} style={{ fontSize: 13 }}><b>{w.balance}</b> {w.label}</span>)}
+                </div>
+              )}
+              <form style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}
+                onSubmit={(e) => { e.preventDefault(); act(() => api.savePartnerSettings({ welcome_credits: Number(welcome.credits) || 0, welcome_wallet: welcome.wallet }), "Welcome gift saved."); }}>
+                <label htmlFor="pp-wc" style={{ fontSize: 13 }}>Welcome gift for each new account:</label>
+                <input id="pp-wc" type="number" min="0" max="1000" style={{ ...field, width: 90 }} value={welcome.credits} onChange={(e) => setWelcome({ ...welcome, credits: e.target.value })} />
+                <select aria-label="Welcome gift wallet" style={{ ...field, width: 120 }} value={welcome.wallet} onChange={(e) => setWelcome({ ...welcome, wallet: e.target.value })}>
+                  {(wallet ? wallet.wallets : []).map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+                </select>
+                <button type="submit" disabled={busy} style={button(false, busy)}>Save</button>
+              </form>
               <h3 style={h3}>Accounts connected to you</h3>
               {links.length === 0 && <div style={hint}>None yet. A user shows up here after they connect their Outreach account in your product.</div>}
               {links.map((l) => (
@@ -318,7 +316,21 @@ export function PartnerProgram() {
                     <div style={hint}>{l.externalId ? `Your user ${l.externalId} · ` : ""}{l.creditsUsed30d ? `${l.creditsUsed30d} credits used in 30 days · ` : ""}Connected {when(l.connectedAt)}{l.createdAccount ? " · created through you" : " · existing account"}{l.revokedBy ? ` · disconnected by ${l.revokedBy}` : ""}</div>
                   </div>
                   {l.status === "active" && (
-                    <button type="button" disabled={busy} style={button(false, busy)} onClick={() => window.confirm("Stop acting for this account?") && act(() => api.disconnectPartnerLink(l.id), "Disconnected.")}>Disconnect</button>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      {giving && giving.id === l.id ? (
+                        <form style={{ display: "flex", gap: 6, alignItems: "center" }} onSubmit={(e) => { e.preventDefault(); act(() => api.givePartnerCredits(l.id, { wallet: giving.wallet, amount: Number(giving.amount) }).then(() => setGiving(null)), "Credits given."); }}>
+                          <select aria-label="Wallet" style={{ ...field, width: 100 }} value={giving.wallet} onChange={(e) => setGiving({ ...giving, wallet: e.target.value })}>
+                            {(wallet ? wallet.wallets : []).map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+                          </select>
+                          <input aria-label="Credits" type="number" min="1" style={{ ...field, width: 80 }} value={giving.amount} onChange={(e) => setGiving({ ...giving, amount: e.target.value })} />
+                          <button type="submit" disabled={busy || !Number(giving.amount)} style={button(true, busy)}>Give</button>
+                          <button type="button" style={button(false)} onClick={() => setGiving(null)}>Cancel</button>
+                        </form>
+                      ) : (
+                        <button type="button" disabled={busy} style={button(false, busy)} onClick={() => setGiving({ id: l.id, wallet: "leadgen", amount: "" })}>Give credits</button>
+                      )}
+                      <button type="button" disabled={busy} style={button(false, busy)} onClick={() => window.confirm("Stop acting for this account?") && act(() => api.disconnectPartnerLink(l.id), "Disconnected.")}>Disconnect</button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -346,6 +358,24 @@ export function PartnerProgram() {
                 <input id="pp-color" style={{ ...field, maxWidth: 160 }} placeholder="#3457D5" value={settings.color} onChange={(e) => setSettings({ ...settings, color: e.target.value })} />
                 <div style={{ marginTop: 14 }}><button type="submit" disabled={busy} style={button(true, busy)}>Save</button></div>
               </form>
+
+              <details style={box}>
+                <summary style={{ ...h3, cursor: "pointer" }}>Connect with your own server (optional)</summary>
+                <div style={hint}>Only if your server already knows who each user is and you want them connected without the sign-in window. It needs a secret key and one small file on your server.</div>
+                <h3 style={{ ...h3, marginTop: 12 }}>Secret key</h3>
+                <SecretKeyBox partner={partner} busy={busy} act={act} bare />
+                <h3 style={{ ...h3, marginTop: 12 }}>Server file for your language</h3>
+                <label htmlFor="pp-kit" style={label}>What is your product built with?</label>
+                <select id="pp-kit" value={kitStack} onChange={(e) => setKitStack(e.target.value)} style={field}>
+                  <option value="snippet">One snippet, nothing on your server</option>
+                  <option value="vite">A Vite or React app (no server of its own)</option>
+                  <option value="node">Your own Node / Express server</option>
+                  <option value="next">Next.js</option>
+                  <option value="python">Python (Flask)</option>
+                  <option value="php">PHP</option>
+                </select>
+                <div style={{ marginTop: 12 }}><button type="button" disabled={busy} style={button(false, busy)} onClick={downloadKit}>Download this kit</button></div>
+              </details>
 
               <details style={box}>
                 <summary style={{ ...h3, cursor: "pointer" }}>Code samples for showing screens</summary>

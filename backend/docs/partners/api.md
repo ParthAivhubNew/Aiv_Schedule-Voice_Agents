@@ -13,6 +13,28 @@ POST /v1/run   Authorization: Bearer sk_live_…   (or sk_test_… for test mode
 `id` is needed only for actions that act on one thing. Every call is checked against the key's permissions (scopes), the
 user's plan and credits, exactly as in the app. Writes can carry an `Idempotency-Key` header for safe retries.
 
+## Running these actions from your own page, with a connected person's pass
+
+`embed.js` gives your page `Outreach.run(plugin, action, data)` and `Outreach.import(records, { list })`. They call `POST /v1/run` with
+the short-lived pass the person's connection gives your page (`Authorization: Bearer <pass>`, from the `api` pass of `auth.connect`).
+The pass acts as that account's API key for you: the same actions, the same plan and credit rules, limited to the scopes you were
+granted. It works only from your listed web addresses (and `localhost` while you test), a view-only pass cannot change anything, and
+it stops at once when the person disconnects. In test mode every action is simulated and nothing is saved.
+
+## Connecting a person from your page, with only your publishable key (plugin `auth`, no key needed)
+
+`embed.js` makes these calls for you. They are listed so you can build the same flow yourself. All three are `POST /v1/run` from a
+web page of yours (the browser's `Origin` must be a listed address, or `localhost` while you test), with `data.client_id` set to your publishable key.
+
+| Action | `data` | Returns |
+|---|---|---|
+| `connect` | `component` (`leadgen`, `voice`, `social` for the whole apps; `leads`, `campaigns`, `mail` for smaller slices; `api` for a pass that runs actions from your code), `access` (`full` or `view`, default `full`), `return_url` (optional) | `{state, origin, expires_at}`. Show `https://YOUR-OUTREACH-HOST/embed/connect?state=…` in a small window opened from a click, in an iframe in your page, or as the whole window. For the whole window, send `return_url`, a page on the same web address as the caller: the person comes back to it with `#outreach_code=<code>` added |
+| `exchange` | `code` (the one-time code: from the window by `postMessage`, from the iframe by its `connected` message, or from `#outreach_code` after a whole-window sign-in) | `{token, expires_at, component, access, link_id}`. A code works once, within two minutes |
+| `refresh` | `token` (one that is still valid) | a fresh `{token, expires_at, …}` |
+
+The person is identified by their Outreach sign-in (their id on your side is `outreach:<id>`), never by anything your page sends,
+so nobody can claim someone else's account. Hand the token to the screen as in the Embedding reference.
+
 ## Connecting accounts from your own page
 
 Three things must be connected before the matching calls work. Each connect action returns a link you open **in a popup**.

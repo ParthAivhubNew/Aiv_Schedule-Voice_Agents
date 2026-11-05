@@ -179,6 +179,7 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         for c in wc:
             if read_domains.get(c["key"]) is False:
                 c["rejected"] = c["rejected"] or "dead site: the page could not be loaded"
+        G.settle_unproven(wc, src, F)
         G.score(wc, src, F, [])
         _boost(wc, "website")
         win_w, why_w = G.decide(wc, threshold, margin)
@@ -207,7 +208,9 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         """Reads the homepage (and contact pages when it has no number or address) of the best look-alike domains, the sites at the same time.
         True if it read anything, live or dead, because either changes the evidence. A page read from a site inherits the best search score
         that site was found with."""
-        live = sorted((c for c in state["cands"] if c["field"] == "website" and not c["rejected"]), key=lambda c: -c["score"])[:2]
+        # a domain that looks like the company's name is opened before a page about the company on another site (a register, a phone book)
+        live = sorted((c for c in state["cands"] if c["field"] == "website" and not c["rejected"]),
+                      key=lambda c: (not G.domain_matches_name(c["key"], name), c.get("unproven", False), -c["score"]))[:2]
         todo = [c for c in live if c["key"] not in read_domains]
         results = await asyncio.gather(*(read_one(c, state) for c in todo))
         for c, home, page, dead in results:

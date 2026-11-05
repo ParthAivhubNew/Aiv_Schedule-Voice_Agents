@@ -19,13 +19,9 @@ WANT = {"website": "Official website", "phone": "Phone number", "email": "Email 
 SETTINGS: Dict[str, Any] = {"search_depth": "basic", "max_results": 5, "country": "united kingdom", "include_usage": True}
 
 # Directories, review sites and social pages: they list companies, they are not the company.
-EXCLUDE_DOMAINS: List[str] = [
-    "yell.com", "facebook.com", "instagram.com", "twitter.com", "x.com", "linkedin.com", "tiktok.com", "youtube.com", "pinterest.com",
-    "tripadvisor.co.uk", "tripadvisor.com", "trustpilot.com", "192.com", "thomsonlocal.com", "cylex-uk.co.uk", "hotfrog.co.uk",
-    "scoot.co.uk", "freeindex.co.uk", "checkatrade.com", "companieshouse.gov.uk", "find-and-update.company-information.service.gov.uk",
-    "endole.co.uk", "opencorporates.com", "dnb.com", "companycheck.co.uk", "ratings.food.gov.uk", "wikipedia.org", "gov.uk",
-    "tavily.com", "scamadviser.com", "scamdoc.com", "trustprofile.com", "just-eat.co.uk", "deliveroo.co.uk", "ubereats.com",
-]
+from app.services import listing_pages as _LP  # the one list of directory sites; the listing search looks in them, this search leaves them out
+
+EXCLUDE_DOMAINS: List[str] = _LP.hosts()
 
 MAX_SEARCHES = 6  # per lookup, the retries included
 

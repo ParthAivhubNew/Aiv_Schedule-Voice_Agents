@@ -1,4 +1,5 @@
 import JobDock from "./hub/JobDock";
+import HumanCallHost from "./hub/HumanCallHost";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
@@ -935,6 +936,7 @@ function MainApp({ onSignedOut }) {
         </div>
       ))}
       {operator ? <JobDock /> : null}
+      {operator ? <HumanCallHost /> : null}
 
       {/* Universal Floating Incoming Call Banner across ALL Plugins */}
       <UniversalCallNotificationBanner

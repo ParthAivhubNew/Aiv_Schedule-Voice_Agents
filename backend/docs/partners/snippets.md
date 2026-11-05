@@ -4,7 +4,9 @@ Everything a developer needs to show Outreach inside a product, as code to copy.
 holds these same files with your keys already filled in. Here they show `pk_YOUR_PUBLISHABLE_KEY` and `YOUR-OUTREACH-HOST`: replace
 those with your own values from Partner programme.
 
-> **New here?** Download the starter kit in Partner programme and follow `START-HERE.txt`. It is four steps. Come back to this page
+> **Most partners need none of this page.** The one-snippet way (nothing on your server) is in [Get started](start.md): three steps. This page is
+> only for the older way, where your own server hands out a pass with a secret key (`data-pass`). Download that kit in Partner programme
+> under Advanced > Connect with your own server and follow `START-HERE.txt`. Come back to this page
 > to see the code, or to choose how Outreach should look in your product.
 
 ## How it fits together
@@ -53,8 +55,8 @@ While you test, the key starts with `psk_test_`. After you go live it starts wit
 
 ## 2. The page: choose how it should look
 
-Add the script line to your page once. Then put a tag wherever a screen should show. The screen can be `leads`, `campaigns`,
-`mail`, `voice` or `social`.
+Add the script line to your page once. Then put a tag wherever a screen should show. The screen can be `leadgen` (the whole Leads
+app), `voice`, `social`, or a smaller Leads slice: `leads`, `campaigns`, `mail`.
 
 ### A panel inside your page
 
@@ -93,7 +95,7 @@ Put the script line in your `index.html` (or the Next.js layout), then use this 
 | Script tag | `data-key` | Your publishable key. Required. |
 | Script tag | `data-pass` | The address on your server that hands out a pass. Default `/outreach-start`. |
 | Script tag | `data-appearance="auto"` | The screens take the colours, corners and font of your page. |
-| Any tag | `data-outreach` | Which screen: `leads`, `campaigns`, `mail`, `voice` or `social`. |
+| Any tag | `data-outreach` | Which screen: `leadgen` (the whole Leads app), `voice`, `social`, or a smaller Leads slice: `leads`, `campaigns`, `mail`. |
 | Any tag | `data-mode` | `popup`, `drawer` or `page`. Leave it out for a panel inside the page. |
 | Panel tag | `data-height` | How tall the panel is, for example `700px`. |
 | Drawer tag | `data-side` | `left` or `right`. Default `right`. |

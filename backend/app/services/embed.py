@@ -37,12 +37,21 @@ _LEADS = "leads|enrichment|contacts|together"
 _VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voices|numbers|calcom|voice-studio|call-lists|call-schedules|meeting-links"
 # screen -> what it may call, relative to /api. The Leads app loads its lists and its mail together, so each screen may also
 # read (never change) the other's data; everything else is refused.
+# "leadgen" is the whole Leads app (every page of it); "voice" and "social" are their whole apps. leads, campaigns and mail are
+# smaller slices of Leads for a partner that wants only that. Whatever a screen may call, the account's own roles and plan still
+# apply, and the actions that only an account admin may take (ordering phone numbers, billing, users and keys) stay with the
+# admin in Outreach itself: an embedded screen is never an admin.
+_LEADGEN = _LEADS + "|email|journeys|inbound|meetings|call-lists|calcom|profile|compliance|number-check|calls|prospects|missions"
+_VOICE_ALL = _VOICE + "|profile|compliance|human-calls|wa|telnyx|number-check|diagnostics|analytics|leads|enrichment|assistant|contacts"
 COMPONENTS: Dict[str, Tuple] = {
     "leads": _screen(("leadgen",), _LEADS, ("email",), "email"),
-    "campaigns": _screen(("leadgen", "email"), _LEADS + "|email"),
+    "campaigns": _screen(("leadgen", "email"), _LEADS + "|email|journeys"),  # its Journeys page calls /journeys
     "mail": _screen(("email",), "email", ("leadgen",), _LEADS),
-    "voice": _screen(("calling", "calcom"), _VOICE, ("leadgen",), _LEADS),
-    "social": _screen(("scheduler",), "scheduler|social", (), "together|profile/sources"),
+    "leadgen": _screen(("leadgen", "email", "calcom", "company", "calling"), _LEADGEN, ("analytics",), "analytics"),
+    "voice": _screen(("calling", "calcom", "analytics", "company", "leadgen"), _VOICE_ALL, ("connections",), "connections|together"),
+    # "api" is no screen: one pass for a partner's own code to run the actions of every plugin (POST /v1/run) for the connected person.
+    "api": _screen((), "api-pass-only"),
+    "social": _screen(("scheduler", "company"), "scheduler|social|profile|enrichment/chats/social_assistant|enrichment/chats/social_assistant_memory", ("calcom", "leadgen", "calling"), "calcom|meetings|leads/lists|together"),
 }
 ACCESS = ("full", "view")
 # component -> the pages of the app it shows (the app hides every other page of its menu)
@@ -50,6 +59,8 @@ VIEWS: Dict[str, List[str]] = {
     "leads": ["find_leads", "lists"],
     "campaigns": ["lists", "outreach", "mailboxes"],
     "mail": ["mail", "mailboxes"],
+    "leadgen": [],  # every page of the Leads app
+    "api": [],
     "voice": [],
     "social": [],
 }
@@ -94,6 +105,54 @@ def read_connect(token: str) -> Optional[Dict[str, Any]]:
     return claims
 
 
+# Page-only connect (no partner server): the page asks for a state, a popup of ours signs the person in, and the popup hands the
+# opener a one-time code. The code is worth one embed token, and only to the page address it was made for.
+CODE_TYPE = "embed_code"
+CODE_TTL_S = 120
+REMEMBER_TYPE = "embed_remember"
+REMEMBER_TTL_S = 30 * 24 * 3600
+REMEMBER_COOKIE = "outreach_popup"
+_USED_CODES: Dict[str, float] = {}
+
+
+def mint_state(partner_id: str, component: str, access: str, origin: str, ret: str = "") -> Tuple[str, int]:
+    """Opens the connect screen for one page address (in a popup, in the page, or as the whole window; `ret` is where the whole
+    window goes back to). The person's identity is not in it: we set that after they sign in."""
+    claims = {"sub": partner_id, "ext": "popup", "pop": origin, "cmp": component, "acc": access, "typ": CONNECT_TYPE, "jti": secrets.token_hex(8)}
+    if ret:
+        claims["ret"] = ret
+    token = _encode(claims, CONNECT_TTL_S)
+    return token, int(time.time()) + CONNECT_TTL_S
+
+
+def mint_code(link_id: str, partner_id: str, org_id: str, component: str, access: str, origin: str) -> str:
+    return _encode({"sub": link_id, "ptr": partner_id, "org": org_id, "cmp": component, "acc": access, "pop": origin,
+                    "jti": secrets.token_hex(12), "typ": CODE_TYPE}, CODE_TTL_S)
+
+
+def take_code(code: str, origin: str) -> Optional[Dict[str, Any]]:
+    """The claims of a one-time code, once, and only for the page address it was made for."""
+    claims = decode_token(code, CODE_TYPE) if code else None
+    if not claims or claims.get("pop") != origin or claims.get("cmp") not in COMPONENTS or claims.get("acc") not in ACCESS:
+        return None
+    now = time.time()
+    for k in [k for k, exp in _USED_CODES.items() if exp < now]:
+        _USED_CODES.pop(k, None)
+    if claims["jti"] in _USED_CODES:
+        return None
+    _USED_CODES[claims["jti"]] = now + CODE_TTL_S + 5
+    return claims
+
+
+def mint_remember(operator_id: str, org_id: str) -> str:
+    """For our own cookie: it lets a returning person skip the password in our popup, on this browser, for 30 days."""
+    return _encode({"sub": operator_id, "org": org_id, "typ": REMEMBER_TYPE}, REMEMBER_TTL_S)
+
+
+def read_remember(token: str) -> Optional[Dict[str, Any]]:
+    return decode_token(token, REMEMBER_TYPE) if token else None
+
+
 # The partner whose embedded screen is making this request: stamped on the credit lines it causes.
 _partner_var: ContextVar[Optional[str]] = ContextVar("embed_partner", default=None)
 
@@ -124,6 +183,7 @@ def _stamp_credit_line(mapper, connection, target):
 def forget() -> None:
     """A link was revoked or a partner paused: stop honouring tokens at once on this server."""
     _CACHE.clear()
+    _V1_CACHE.clear()
 
 
 def may_use(ctx: Dict[str, Any], rel_path: str, method: str) -> bool:
@@ -189,6 +249,76 @@ async def _load(claims: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+# What a page may do through POST /v1/run for the person who connected: the actions of its own app, nothing else. The account's plan
+# and the partner's granted scopes still decide the rest, exactly as for an API key.
+RUN_SCOPE_PREFIXES: Dict[str, Tuple[str, ...]] = {
+    "api": ("leads:", "email:", "voice:", "social:", "company:", "calendar:", "wallets:"),
+    "leadgen": ("leads:", "email:", "company:", "calendar:", "wallets:"),
+    "leads": ("leads:", "company:", "wallets:"),
+    "campaigns": ("leads:", "email:", "company:", "wallets:"),
+    "mail": ("email:", "company:", "wallets:"),
+    "voice": ("voice:", "calendar:", "company:", "wallets:"),
+    "social": ("social:", "company:", "wallets:"),
+}
+_V1_CACHE: Dict[Tuple[str, str], Tuple[float, Any]] = {}
+
+
+async def v1_context(emb: Dict[str, Any], origin: str, method: str) -> Any:
+    """The API context for a connected person's page calling /v1: a dict, or a short reason (text) it is refused.
+
+    The page's own address must be one the partner listed (so a copied token is no use on another site), the pass must allow
+    changes, and the account's API key for this partner is made on first use so the existing /v1 code treats the call like any key's."""
+    from app.services import partners as PT
+
+    if emb.get("access") != "full" and method not in ("GET", "HEAD"):
+        return "This pass is view only, so it cannot make changes. Connect with full access."
+    page = PT.page_origin(origin)
+    if not page:
+        return "Call this from your web page. The browser did not say which page this is."
+    now = time.time()
+    hit = _V1_CACHE.get((emb["link_id"], page))
+    if hit and hit[0] > now:
+        return hit[1]
+    from sqlalchemy.future import select
+
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import ApiKey, Partner, PartnerLink
+
+    out: Any = "This integration is paused."
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            partner = await db.get(Partner, emb["partner_id"])
+            link = await db.get(PartnerLink, emb["link_id"])
+            if partner is None or link is None or link.status != "active" or partner.status == "suspended":
+                out = "This integration is paused."
+            elif not PT.origin_allowed(partner, page):
+                out = f"{page} is not in your list of web addresses."
+            else:
+                if not link.key_id:
+                    await PT.issue_key(db, partner, link)  # the raw key is never shown: the page only ever holds its short pass
+                    await db.commit()
+                row = await db.get(ApiKey, link.key_id)
+                prefixes = RUN_SCOPE_PREFIXES.get(emb["component"], ())
+                scopes = [s for s in PT.expand_scopes(partner.scopes or []) if s.startswith(prefixes)]
+                if row is None or not row.is_active:
+                    out = "This connection has no key. Connect again."
+                else:
+                    out = {
+                        "type": "api_key", "key_id": row.id, "org_id": row.org_id, "name": row.name, "scopes": scopes, "mailbox_ids": row.mailbox_ids,
+                        "test": partner.status != "live", "operator_id": link.operator_id or "api_client", "username": f"key:{row.prefix}",
+                        "is_admin": False, "partner_id": partner.id, "link_id": link.id, "via": "embed_pass",
+                        "perms": {"team": "none", "calling": "full" if any(s.startswith("voice:") for s in scopes) else "none",
+                                  "scheduler": "full" if any(s.startswith("social:") for s in scopes) else "none",
+                                  "leadgen": "full" if any(s.startswith(("leads:", "email:")) for s in scopes) else "none"},
+                        "must_change_password": False,
+                    }
+    _V1_CACHE[(emb["link_id"], page)] = (now + 5.0, out)
+    if len(_V1_CACHE) > 2000:
+        _V1_CACHE.clear()
+    return out
+
+
 async def partner_for_secret(raw: str) -> Optional[Any]:
     """The partner that owns this secret key (a live key needs a live partner, a test key a sandbox one)."""
     from sqlalchemy.future import select
@@ -207,7 +337,18 @@ async def partner_for_secret(raw: str) -> Optional[Any]:
     return p
 
 
-def frame_ancestors(origins: Optional[List[str]]) -> str:
-    """The Content-Security-Policy frame-ancestors value for a partner: its own web addresses, or nobody."""
+def frame_ancestors(origins: Optional[List[str]], test: bool = False, extension: bool = False) -> str:
+    """The Content-Security-Policy frame-ancestors value for a partner: its own web addresses, or nobody. While it is testing,
+    pages on the partner's own computer may frame it as well."""
     clean = [o for o in (origins or []) if re.match(r"^https?://[A-Za-z0-9.\-]+(:\d+)?$", o or "")]
+    if test:
+        clean += ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*"]
+    if extension:  # the Outreach side panel in Chrome frames the screen
+        from app.services.partners import extension_ids
+
+        clean += [f"chrome-extension://{i}" for i in extension_ids()]
+        from app.config import settings
+
+        if settings.ALLOW_FIREFOX_EXTENSION:
+            clean.append("moz-extension:")
     return "frame-ancestors " + (" ".join(clean) if clean else "'none'")

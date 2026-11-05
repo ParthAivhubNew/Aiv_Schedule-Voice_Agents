@@ -76,6 +76,7 @@ from app.api.embed import router as embed_router
 from app.api.embed_connect import router as embed_connect_router
 from app.api.v1_public import router as v1_public_router
 from app.api.jobs import router as jobs_router
+from app.api.human_calls import router as human_calls_router
 from app.api.inbound_forms import public_router as inbound_public_router, router as inbound_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
@@ -308,6 +309,32 @@ async def _social_results_loop():
         await asyncio.sleep(3600)
 
 
+async def _human_calls_loop():
+    """Every 5 minutes, per organisation: close browser calls whose tab died, start waiting transcripts, delete old audio."""
+    from app.database import AsyncSessionLocal
+    from app.core.tenancy import org_scope
+    from app.core.orgs import active_org_ids
+    from app.services import human_calls
+
+    await asyncio.sleep(120)
+    while True:
+        try:
+            for org_id in await active_org_ids():
+                try:
+                    with org_scope(org_id):
+                        async with AsyncSessionLocal() as db:
+                            await human_calls.sweep(db)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as job_err:
+                    logger.warning(f"[Human calls] sweep for {org_id} failed: {job_err}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Human calls] sweep failed: {loop_err}")
+        await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database tables...")
@@ -448,6 +475,12 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text(f"ALTER TABLE company_profile ADD COLUMN {col} {col_type};"))
                 except Exception:
                     pass
+
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE org_telnyx ADD COLUMN IF NOT EXISTS credential_connection_id VARCHAR DEFAULT '';"))
+        except Exception:
+            pass
 
         try:
             from sqlalchemy import text
@@ -806,6 +839,7 @@ async def lifespan(app: FastAPI):
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
     find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
     call_schedule_task = asyncio.create_task(_call_schedule_loop())
+    human_calls_task = asyncio.create_task(_human_calls_loop())
     from app.services.workflows import workflow_loop
     workflow_task = asyncio.create_task(workflow_loop())
 
@@ -813,6 +847,7 @@ async def lifespan(app: FastAPI):
 
     workflow_task.cancel()
     call_schedule_task.cancel()
+    human_calls_task.cancel()
     find_leads_warm_task.cancel()
     social_results_task.cancel()
     billing_upkeep_task.cancel()
@@ -947,6 +982,7 @@ app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
 app.include_router(inbound_router, prefix=settings.API_PREFIX)
 app.include_router(jobs_router, prefix=settings.API_PREFIX)
+app.include_router(human_calls_router, prefix=settings.API_PREFIX)
 app.include_router(inbound_public_router, prefix=settings.API_PREFIX)  # /api/f/<key>: a published web form, no sign-in
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)

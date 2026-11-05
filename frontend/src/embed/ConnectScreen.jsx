@@ -4,11 +4,13 @@ import { FONT_BODY } from "../tokens";
 
 // What each screen lets the partner do, in words a person can check before they agree.
 const ACCESS_TEXT = {
+  api: "use your Outreach account from their software: add and read your leads and lists, send email, start calls, post to your social accounts and read your company profile",
+  leadgen: "use the whole Leads app: find and save companies and contacts, run journeys and email, take form answers, call your leads and edit your business profile",
   leads: "find and save companies and contacts, and see your lists",
   campaigns: "create and run your email campaigns and see their results",
   mail: "read and send your campaign mail and replies",
-  voice: "set up and run phone calls and see their results",
-  social: "plan, publish and review your social posts",
+  voice: "set up and run phone calls, use the browser phone and WhatsApp, manage numbers, knowledge and compliance, and see call results and analytics",
+  social: "plan, publish and review your social posts, and edit your business profile",
 };
 
 async function call(path, token, body) {
@@ -28,7 +30,7 @@ async function call(path, token, body) {
 }
 
 // Links a person's Outreach account to the partner, inside our own page: the partner never sees the password.
-export function ConnectScreen({ connectToken, onConnected }) {
+export function ConnectScreen({ connectToken, onConnected, popup = false }) {
   const [info, setInfo] = useState(null);
   const [mode, setMode] = useState("login");
   const [f, setF] = useState({ email: "", password: "", company: "", name: "", website: "" });
@@ -36,10 +38,44 @@ export function ConnectScreen({ connectToken, onConnected }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const [again, setAgain] = useState(false); // a person this browser already knows: one click, no password
 
   useEffect(() => {
-    call("info", connectToken).then(setInfo).catch((e) => setError(e.message));
+    let live = true;
+    (async () => {
+      try {
+        const i = await call("info", connectToken);
+        if (!live) return;
+        setInfo(i);
+        if (!(i.origin && i.remembered)) return; // page-only connect, in a browser that still holds our sign-in
+        try {
+          onConnected(await call("resume", connectToken, { consent: false, consent_version: i.consentVersion }));
+        } catch (e) {
+          if (e.status === 422) setAgain(true); // first time with this partner: they still have to agree
+        }
+      } catch (e) {
+        if (live) setError(e.message);
+      }
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectToken]);
+
+  const resume = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      onConnected(await call("resume", connectToken, { consent: agree, consent_version: info.consentVersion }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const other = async () => {
+    await call("forget", connectToken, {}).catch(() => {});
+    setAgain(false);
+  };
 
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async (e) => {
@@ -60,6 +96,7 @@ export function ConnectScreen({ connectToken, onConnected }) {
 
   if (!info && !error) return <Loader compact label="Loading" />;
   const partner = info ? info.partner.name : "this app";
+  const site = info && info.origin ? info.origin.replace(/^https?:\/\//, "") : "";
   const label = { display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "var(--ui-ink-2)" };
   const input = { width: "100%", height: 38, boxSizing: "border-box", fontSize: 14, fontWeight: 400 };
   return (
@@ -68,12 +105,24 @@ export function ConnectScreen({ connectToken, onConnected }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {info && info.partner.logoUrl ? <img src={info.partner.logoUrl} alt="" style={{ height: 32, alignSelf: "flex-start", marginBottom: 4 }} /> : null}
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 650, letterSpacing: "-0.01em", color: "var(--ui-ink)" }}>Connect Outreach to {partner}</h1>
+          {site ? <p style={{ margin: 0, fontSize: 12.5, color: "var(--ui-muted)" }}>Asked from <strong>{site}</strong>. Only continue if you opened this from that site.</p> : null}
           <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: "var(--ui-muted)" }}>
             {sent ? "" : mode === "login" ? "Sign in with your Outreach account. We check it here, and the password never reaches " + partner + "." : "New to Outreach? Make an account here and it is linked to " + partner + " straight away."}
           </p>
-          {info && info.test ? <div style={{ alignSelf: "flex-start", fontSize: 11.5, fontWeight: 600, color: "var(--ui-accent-ink)", background: "var(--ui-accent-soft)", borderRadius: 999, padding: "2px 9px" }}>Test mode: nothing real is sent or charged</div> : null}
+          {info && info.test ? <div style={{ alignSelf: "flex-start", fontSize: 11.5, fontWeight: 600, color: "var(--ui-accent-ink)", background: "var(--ui-accent-soft)", borderRadius: 999, padding: "2px 9px" }}>Test mode: this app is not live yet</div> : null}
         </div>
-        {sent ? (
+        {again ? (
+          <>
+            <p style={{ margin: 0, color: "var(--ui-ink-2)", fontSize: 14, lineHeight: 1.5 }}>You are signed in to Outreach on this browser.</p>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13, lineHeight: 1.5, color: "var(--ui-ink-2)", background: "var(--ui-bg)", border: "1px solid var(--ui-line)", borderRadius: 8, padding: "10px 12px", cursor: "pointer" }}>
+              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 3, flexShrink: 0 }} />
+              <span>{partner} may {info ? ACCESS_TEXT[info.component] : ""} in my Outreach account. I can disconnect at any time.</span>
+            </label>
+            {error ? <div role="alert" style={{ color: "var(--ui-bad)", fontSize: 13 }}>{error}</div> : null}
+            <button className="ui-btn ui-btn--primary" type="button" onClick={resume} disabled={busy || !agree} style={{ height: 40, fontSize: 14 }}>{busy ? "Connecting…" : "Continue"}</button>
+            <button type="button" onClick={other} style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ui-muted)", fontSize: 13 }}>Use a different account</button>
+          </>
+        ) : sent ? (
           <p style={{ margin: 0, color: "var(--ui-ink-2)", fontSize: 14, lineHeight: 1.5 }}>We sent you an email. Open the link in it, then come back and connect again.</p>
         ) : (
           <>
@@ -98,8 +147,8 @@ export function ConnectScreen({ connectToken, onConnected }) {
             </label>
           </>
         )}
-        {error ? <div role="alert" style={{ color: "var(--ui-bad)", fontSize: 13 }}>{error}</div> : null}
-        {!sent && <button className="ui-btn ui-btn--primary" type="submit" disabled={busy || !agree || !info} style={{ height: 40, fontSize: 14 }}>{busy ? "Connecting…" : mode === "login" ? "Connect" : "Create account and connect"}</button>}
+        {error && !again ? <div role="alert" style={{ color: "var(--ui-bad)", fontSize: 13 }}>{error}</div> : null}
+        {!sent && !again && <button className="ui-btn ui-btn--primary" type="submit" disabled={busy || !agree || !info} style={{ height: 40, fontSize: 14 }}>{busy ? "Connecting…" : mode === "login" ? "Connect" : "Create account and connect"}</button>}
       </form>
     </div>
   );

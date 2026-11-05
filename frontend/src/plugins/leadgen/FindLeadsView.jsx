@@ -105,9 +105,9 @@ function TierBadge({ tier }) {
   const verified = tier === "verified_registry";
   if (tier === "premises_listing") return <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, color: C.slate }}><Globe size={12} /> Premises listing</span>;
   return (
-    <span title={verified ? "Read from an official registry record" : tier === "scraped" ? "Collected from a website" : "Found by a web search, not verified"}
+    <span title={verified ? "Read from an official registry record" : tier === "scraped" ? "Collected from a website" : "Found by a web search, not read from the official registry"}
       style={{ ...text, fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, color: verified ? C.green : C.slate }}>
-      {verified ? <BadgeCheck size={12} /> : <Globe size={12} />} {verified ? "Registry" : tier === "scraped" ? "Website" : "Web (unverified)"}
+      {verified ? <BadgeCheck size={12} /> : <Globe size={12} />} {verified ? "Registry" : tier === "scraped" ? "Website" : "Web"}
     </span>
   );
 }
@@ -778,9 +778,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setOpenCo((o) => (o && o.id === c.id && r.company ? { ...o, ...r.company, saved: o.saved } : o));
       setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches ? "options" : "none"; return n; });
       const matches = !r.found && (r.options || []).length ? r.options : null;
-      if (!r.found) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
+      const listed = !r.found && r.listing && r.listing.url; // no site of its own, but the company's exact directory page: shown in the cell, no box
+      if (!r.found && !listed) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
       if (matches) setWaiting((w) => ({ ...w, [key]: matches }));
-      if (r.found || !matches) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}${r.charged ? ". Credits used for this find" : ""}.` : r.note || "Nothing found.");
+      if (r.found || !matches || listed) store.toast(r.found ? `Found the ${kind} for ${c.name}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}${r.charged ? ". Credits used for this find" : ""}.` : r.note || "Nothing found.");
     } catch (err) {
       setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
       store.toast(err.message || "The lookup didn't finish. Nothing was charged.");

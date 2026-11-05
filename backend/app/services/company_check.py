@@ -492,6 +492,15 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
                        "website": place.get("website", "")} if place else {"found": False})
     elif not known and not pending and not ctx.deep_ready:
         ev["deep"] = {"state": "off"}
+    # No website of its own anywhere: the company's exact page on a directory or social site, shown beside the row, never put in its website field.
+    listing: Dict[str, Any] = {}
+    if ctx.deep_ready and not (row.get("website") or row.get("domain")) and not (ev.get("deep") or {}).get("website"):
+        from app.services import listing_pages
+
+        async with ctx.deep_sem:
+            listing = await listing_pages.find_for(row["name"], str(row.get("postcode") or ""), row.get("region", ""))
+        if listing:
+            stages.append("listing")
 
     say(row, "Checking the website, email and phone number")
     free = await free_task
@@ -536,6 +545,8 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     }
     if link_id:
         out["record_id"] = link_id
+    if listing:
+        out["listing"] = {k: listing[k] for k in ("url", "site", "kind", "confirmed", "why") if k in listing}
     fixes = build_fixes(row, ev.get("deep"), free, found_email)
     if fixes:
         out["fixes"] = fixes

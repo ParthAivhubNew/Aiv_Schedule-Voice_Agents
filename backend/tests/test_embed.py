@@ -197,7 +197,11 @@ async def test_an_expired_or_forged_token_is_refused(anon, db, partner, secret):
 
 async def test_the_frame_rule_names_only_the_partners_own_addresses(anon, partner):
     r = await anon.get("/api/embed/frame-policy", headers={"X-Original-URI": f"/embed/leads?client_id={partner['clientId']}&x=1"})
-    assert r.status_code == 200 and r.headers["x-frame-policy"] == f"frame-ancestors {ORIGIN}"
+    # While the partner is testing, pages on its own computer may frame it too; once it is live, only the addresses it listed.
+    assert r.status_code == 200 and r.headers["x-frame-policy"].startswith(f"frame-ancestors {ORIGIN} http://localhost:*")
+    from app.services import embed as EM
+
+    assert EM.frame_ancestors([ORIGIN]) == f"frame-ancestors {ORIGIN}"
     for uri in ("/embed/leads", "/embed/leads?client_id=pk_unknown", "/embed/leads?client_id="):
         r = await anon.get("/api/embed/frame-policy", headers={"X-Original-URI": uri})
         assert r.status_code == 200 and r.headers["x-frame-policy"] == "frame-ancestors 'none'"

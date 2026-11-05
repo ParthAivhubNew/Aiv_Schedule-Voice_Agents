@@ -1,0 +1,38 @@
+OUTREACH FOR {{COMPANY}}
+========================
+
+Everything you need is in this folder. Your key is already filled in. There is nothing to add to your server.
+
+STEP 1 - Try it (2 minutes)
+  Open a terminal in this folder and start any small web server, for example:
+        python -m http.server 8000
+  Then open  http://localhost:8000/outreach-test.html  in your browser.
+  Click "Connect Outreach", sign in or create an account in the small window, and the screen opens.
+  (Open it through the server, not by double-clicking the file: a page opened from disk has no address Outreach can check.)
+
+STEP 2 - Put it in your own page
+  Copy the two lines in  snippet.html  to the place in your page where Outreach should show.
+  Change the colours on the same line: data-accent, data-radius, data-font, data-bg, data-text, data-logo, data-name.
+  Other screens: change  data-outreach="leadgen"  (the whole Leads app) to  voice  or  social  (also: leads, campaigns, mail for a smaller slice).
+  Where the sign-in shows: add  data-login="popup"  (small window, the default),  "inline"  (inside your page) or  "page"  (the whole window, then back).
+  Show it in a popup or side panel instead: use a button, like  <button data-outreach="voice" data-mode="popup">Calls</button>
+
+STEP 3 - Add your live address
+  In Outreach: Partner programme > Web addresses. Add the address your page runs on, like  https://app.yourproduct.com
+  While you test, pages on your own computer (localhost) work without adding anything.
+  When you are ready, press "Go live" in the same place.
+
+USE YOUR OWN DATA  (from your own code, after the person has connected)
+  Outreach.import([{ name: "Acme Ltd", email: "a@acme.test" }], { list: "My customers" })   // their account gets your records
+  Outreach.run("voice", "call.list")                                                          // any action of any plugin
+  Outreach.find("Acme Ltd")                                                                   // open Leads with that company searched
+  While you are in test mode these are simulated and save nothing. See the guide "Get started".
+
+OPTIONAL - The Outreach browser extension
+  Chrome or Edge > chrome://extensions (Edge: edge://extensions) > turn on Developer mode > Load unpacked > choose the  extension  folder.
+  Firefox > about:debugging > This Firefox > Load Temporary Add-on > choose  extension-firefox/manifest.json.
+  Click the Outreach button in the toolbar. Your team gets Outreach in a side panel on any page.
+  Click it on a page you are reading and the panel offers to look up that company in Leads. It reads the page only when you click,
+  and only that page. (Safari: not available yet.)
+
+Your publishable key  {{CLIENT_ID}}  is safe to put in a page. There is no secret key in this kit.

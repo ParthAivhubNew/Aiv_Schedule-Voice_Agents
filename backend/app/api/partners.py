@@ -46,6 +46,8 @@ class SettingsBody(BaseModel):
     logo_url: Optional[str] = Field(None, max_length=500)
     accent_color: Optional[str] = Field(None, max_length=20)
     webhook_url: Optional[str] = Field(None, max_length=500)
+    welcome_credits: Optional[int] = Field(None, ge=0, le=1000)
+    welcome_wallet: Optional[str] = Field(None, max_length=20)
 
 
 def _who(ctx: Dict[str, Any]) -> str:
@@ -88,16 +90,20 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/starter-kit")
-async def starter_kit(request: Request, stack: str = "vite", db: AsyncSession = Depends(get_db)):
+async def starter_kit(request: Request, stack: str = "snippet", db: AsyncSession = Depends(get_db)):
     """A zip made for this partner: the files to drop into their project, their publishable key and addresses filled in, and a
     check they run to see what is still missing. The secret key is never in it."""
     from fastapi.responses import Response
 
     from app.config import settings
-    from app.partner_kit import STACKS, build
+    from app.partner_kit import SNIPPET, STACKS, build, build_snippet
 
     ctx = admin_ctx(request)
     partner = await _partner_or_404(db, ctx["org_id"])
+    if stack == SNIPPET:
+        data = build_snippet(client_id=partner.client_id, host=(settings.PUBLIC_BASE_URL or "").strip(), company=partner.name or "")
+        return Response(content=data, media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="outreach-for-your-product.zip"', "Cache-Control": "no-store"})
     if stack not in STACKS:
         raise HTTPException(status_code=422, detail=f"stack must be one of: {', '.join(STACKS)}")
     data = build(stack, client_id=partner.client_id, host=(settings.PUBLIC_BASE_URL or "").strip(),
@@ -108,10 +114,43 @@ async def starter_kit(request: Request, stack: str = "vite", db: AsyncSession = 
 
 @router.get("/starter-kit/stacks")
 async def starter_kit_stacks(request: Request):
-    from app.partner_kit import STACKS
+    from app.partner_kit import SNIPPET, STACKS
 
     admin_ctx(request)
-    return [{"id": k, "label": v} for k, v in STACKS.items()]
+    return [{"id": SNIPPET, "label": "One snippet, nothing on your server (recommended)"}] + [{"id": k, "label": v} for k, v in STACKS.items()]
+
+
+class StartBody(BaseModel):
+    name: str = Field("", max_length=120)
+    accept_terms: bool = False
+
+
+@router.post("/start")
+async def start(body: StartBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Become a partner in test mode in one step: no application, no waiting. Staff only decide about going live."""
+    from app.public_api.core import check_rate
+
+    ctx = admin_ctx(request)
+    existing = await _mine(db, ctx["org_id"])
+    if existing is not None:
+        if not existing.terms_accepted_at:
+            if body.accept_terms is not True:
+                raise HTTPException(status_code=422, detail="Agree to the partner terms to continue.")
+            existing.terms_version, existing.terms_accepted_at = PT.TERMS_VERSION, datetime.utcnow()
+            PT.audit(db, existing.id, _who(ctx), "terms_accepted", PT.TERMS_VERSION)
+            await db.commit()
+        return PT.partner_json(existing)
+    if body.accept_terms is not True:
+        raise HTTPException(status_code=422, detail="Agree to the partner terms to continue.")
+    if check_rate(f"partnerstart:{ctx['org_id']}", True):
+        raise HTTPException(status_code=429, detail="Too many tries. Wait a minute and try again.")
+    org = (await db.execute(select(Organization.name).where(Organization.id == ctx["org_id"]))).scalar()
+    p = await PT.start_partner(db, ctx["org_id"], body.name or org or "", _who(ctx))
+    await db.commit()
+    logger.info(f"[partners] {p.name} started in test mode ({p.id})")
+    await PT.tell_owner(f"New partner started: {p.name}", [f"{p.name} started the partner programme in test mode. Nothing needs doing now.",
+                                                          "They can ask to go live later; you will get another email then."])
+    return PT.partner_json(p)
 
 
 @router.post("/apply")
@@ -170,8 +209,17 @@ async def settings(body: SettingsBody, request: Request, db: AsyncSession = Depe
         if color and not (color.startswith("#") and len(color) in (4, 7) and all(c in "0123456789abcdefABCDEF" for c in color[1:])):
             raise HTTPException(status_code=400, detail="Colour must look like #3457D5.")
         p.accent_color = color
+    if body.welcome_wallet is not None:
+        from app.services.credits import WALLETS
+
+        if body.welcome_wallet not in WALLETS:
+            raise HTTPException(status_code=400, detail=f"welcome_wallet must be one of: {', '.join(WALLETS)}.")
+        p.welcome_wallet = body.welcome_wallet
+    if body.welcome_credits is not None:
+        p.welcome_credits = body.welcome_credits
     changed = [n for n, v in (("name", body.name), ("web addresses", body.allowed_origins), ("return URLs", body.return_urls),
-                              ("logo", body.logo_url), ("accent colour", body.accent_color), ("webhook address", body.webhook_url)) if v is not None]
+                              ("logo", body.logo_url), ("accent colour", body.accent_color), ("webhook address", body.webhook_url),
+                              ("welcome credits", body.welcome_credits)) if v is not None]
     if changed:
         PT.audit(db, p.id, _who(ctx), "settings_changed", ", ".join(changed))
     resync = False
@@ -249,8 +297,8 @@ async def request_live(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Your integration is paused. Contact the Outreach team.")
     if not p.terms_accepted_at:
         raise HTTPException(status_code=409, detail="Accept the partner terms first.")
-    if not p.allowed_origins or not p.return_urls:
-        raise HTTPException(status_code=409, detail="Add at least one web address and one return URL before going live.")
+    if not p.allowed_origins:
+        raise HTTPException(status_code=409, detail="Add at least one web address (the page where Outreach will show) before going live.")
     p.live_requested_at = datetime.utcnow()
     PT.audit(db, p.id, _who(ctx), "live_requested")
     await db.commit()
@@ -309,6 +357,38 @@ async def links(request: Request, status: str = "", offset: int = 0, db: AsyncSe
                        "lastLoginAt": l.last_login_at.isoformat() if l.last_login_at else None,
                        "revokedBy": l.revoked_by or "", "revokedAt": l.revoked_at.isoformat() if l.revoked_at else None}
                       for l, name in rows]}
+
+
+class GiftBody(BaseModel):
+    wallet: str = Field("leadgen", max_length=20)
+    amount: int = Field(..., ge=1, le=100000)
+
+
+@router.get("/wallet")
+async def partner_wallet(request: Request, db: AsyncSession = Depends(get_db)):
+    """What the partner has to share: its own wallets (top them up like any Outreach account) and its welcome gift."""
+    from app.services import credits as K
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    return {"wallets": [{"key": w["key"], "label": w["label"], "balance": w["balance"]} for w in await K.wallets(db)],
+            "welcomeCredits": int(p.welcome_credits or 0), "welcomeWallet": p.welcome_wallet or "leadgen"}
+
+
+@router.post("/links/{link_id}/credits")
+async def give_credits(link_id: str, body: GiftBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Give a connected account credits from the partner's own wallet."""
+    from app.services import partner_credits as PC
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    link = (await db.execute(select(PartnerLink).where(PartnerLink.id == link_id, PartnerLink.partner_id == p.id))).scalars().first()
+    if link is None:
+        raise HTTPException(status_code=404, detail="That account is not connected to you.")
+    try:
+        return await PC.gift(p, link, body.wallet, body.amount, by=_who(ctx))
+    except PC.GiftError as err:
+        raise HTTPException(status_code=err.status, detail=err.message)
 
 
 @router.delete("/links/{link_id}")

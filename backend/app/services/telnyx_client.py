@@ -9,6 +9,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
+from uuid import uuid4
 
 import httpx
 
@@ -176,6 +177,52 @@ class TelnyxClient:
 
     async def update_call_control_application(self, app_id: str, **fields) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/call_control_applications/{app_id}", json=fields)).get("data", {})
+
+    # ── Browser phone (WebRTC): credential connection, one login per call ──
+    # Bodies follow Telnyx's credential-connection docs; the first real call to Telnyx (gate G2 in human_calls_plan.md) confirms them.
+    async def create_credential_connection(self, name: str, outbound_voice_profile_id: str, webhook_url: str = "") -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"connection_name": name[:100], "user_name": f"co{uuid4().hex[:14]}", "password": uuid4().hex,
+                                   "webrtc_enabled": True, "active": True,
+                                   "outbound": {"outbound_voice_profile_id": outbound_voice_profile_id}}
+        if webhook_url:
+            payload.update({"webhook_event_url": webhook_url, "webhook_api_version": "2"})
+        return (await self._req("POST", "/credential_connections", json=payload)).get("data", {})
+
+    async def find_credential_connection(self, name: str) -> Optional[Dict[str, Any]]:
+        data = (await self._req("GET", "/credential_connections", params={"filter[connection_name]": name[:100], "page[size]": 50})).get("data", [])
+        return next((r for r in data if r.get("connection_name") == name[:100]), None)
+
+    async def get_credential_connection(self, connection_id: str) -> Dict[str, Any]:
+        return (await self._req("GET", f"/credential_connections/{connection_id}")).get("data", {})
+
+    async def set_credential_connection_active(self, connection_id: str, active: bool) -> Dict[str, Any]:
+        return (await self._req("PATCH", f"/credential_connections/{connection_id}", json={"active": bool(active)})).get("data", {})
+
+    async def create_telephony_credential(self, connection_id: str, name: str, expires_at: str = "") -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"connection_id": connection_id, "name": name[:100]}
+        if expires_at:
+            payload["expires_at"] = expires_at
+        return (await self._req("POST", "/telephony_credentials", json=payload)).get("data", {})
+
+    async def telephony_credential_token(self, credential_id: str) -> str:
+        """The login token (a JWT) for one credential. Telnyx returns it as plain text, not JSON."""
+        url = f"{BASE}/telephony_credentials/{credential_id}/token"
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            r = await client.post(url, headers={"Authorization": f"Bearer {self.api_key}"})
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except ValueError:
+                body = {}
+            raise TelnyxError(_message(body, r.status_code), r.status_code, body)
+        return r.text.strip().strip('"')
+
+    async def delete_telephony_credential(self, credential_id: str) -> None:
+        try:
+            await self._req("DELETE", f"/telephony_credentials/{credential_id}")
+        except TelnyxError as err:
+            if err.status != 404:  # already gone is what we wanted
+                raise
 
     # ── AI Assistants ─────────────────────────────────────────────────────
     async def create_assistant(self, payload: Dict[str, Any]) -> Dict[str, Any]:

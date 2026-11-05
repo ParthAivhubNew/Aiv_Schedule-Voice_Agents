@@ -3,10 +3,11 @@
 Everything about showing Outreach's screens (Leads, Campaigns, Mail, Voice, Social) inside your product. Your users sign in to
 Outreach, or create an account, without leaving your pages, and you never see their password.
 
-> **New here?** Read [Get started](start.md) first. It is seven short steps. This page is for looking things up afterwards.
+> **New here?** Read [Get started](start.md) first. It is three short steps. This page is for looking things up afterwards.
 
-> **Just want it working?** The one-tag way needs no JavaScript: one script line with `data-key` and `data-pass`, then
-> `<div data-outreach="leads"></div>` where the screen should show. See [Copy-paste code](snippets.md). This page covers the longer
+> **Just want it working?** The one-tag way needs no JavaScript and nothing on your server: one script line with `data-key`, then
+> `<div data-outreach="leads"></div>` where the screen should show. People connect with a click and a small sign-in window. Add
+> `data-pass` only if your own server already knows who each user is (see [Get started](start.md)). See [Copy-paste code](snippets.md). This page covers the longer
 > `Outreach(...)` calls, for when you want events, your own colours or full control.
 
 This is the way to integrate from now on. The older direct API (see the [API reference](api.md)) keeps working for integrations
@@ -56,7 +57,7 @@ Content-Type: application/json
 |---|---|---|
 | `external_id` | One of these two | Your own id for the person, the one you used when you linked them |
 | `link_id` | One of these two | The link's id, if you stored it |
-| `component` | Yes | The screen: `leads`, `campaigns`, `mail`, `voice` or `social` |
+| `component` | Yes | The screen: `leadgen` (the whole Leads app), `voice`, `social`, or a smaller Leads slice: `leads`, `campaigns`, `mail` |
 | `access` | No | `full` (the default) or `view` (read only, nothing can be changed) |
 | `ttl_seconds` | No | How long the token lasts, 60 to 3600. Default 900 (15 minutes) |
 

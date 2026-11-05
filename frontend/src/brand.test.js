@@ -8,6 +8,12 @@ import { describe, expect, it } from "vitest";
 const SUPPLIERS = /\b(telnyx|twilio|vonage|plivo|xai|grok|openai|deepgram|cartesia|eleven ?labs|livekit|whisper|llama|jitsi|anthropic|deepseek|mistral|groq|pgvector)\b/i;
 
 const CLIENT_FILES = [
+  "settings/PartnerProgram.jsx",
+  "settings/PartnerEmbed.jsx",
+  "embed/ConnectScreen.jsx",
+  "embed/EmbedApp.jsx",
+  "embed/bridge.js",
+  "embed/theme.js",
   "plugins/voice/AssistantOptions.jsx",
   "plugins/voice/AgentStudio.jsx",
   "plugins/voice/VoicePicker.jsx",

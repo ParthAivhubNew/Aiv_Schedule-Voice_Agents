@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
-import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, Plus, Search, X, XCircle } from "lucide-react";
+import { openPhone } from "../../utils/humanCall";
+import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, PhoneCall, Plus, Search, X, XCircle } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -141,8 +142,14 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed }) {
+function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing }) {
   const price = useLookupPrice();
+  // No website of its own, but the company's exact page on a directory or social site: shown as that, with the site's name.
+  if (!value && !web && kind === "website" && listing && listing.url) {
+    return <span style={{ whiteSpace: "nowrap" }} title={`${listing.why || ""}. This is the company's page on ${listing.site}, not a website of its own.`}>
+      <a href={listing.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: C.cobalt, display: "inline-flex", alignItems: "center", gap: 3 }}>Listed on {listing.site} <ExternalLink size={11} /></a>{" "}
+      <span style={{ ...text, fontSize: 10.5, color: listing.confirmed ? C.green : C.slate }}>{listing.confirmed ? "page confirmed" : "unconfirmed"}</span></span>;
+  }
   if (!value && closed) {
     const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
     return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title={`We hold this company's ${kind}. Open it once and it stays visible. Free.`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onOpen(); }}><Icon size={13} /> {state === "busy" ? "Opening…" : `Open ${kind} · free`}</button>;
@@ -165,7 +172,7 @@ function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confir
       </button>
     );
   }
-  if (value) return kind === "phone" ? <a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
+  if (value) return kind === "phone" ? <><a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${who || value} in the browser`} onClick={(e) => { e.stopPropagation(); openPhone({ number: value, name: who || "" }); }}><PhoneCall size={13} /></button></> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const cost = price || "credits";
   const tip = kind === "email" ? `Look for this company's email. ${cost} if found. Nothing is charged for a miss` : `Look for this company's ${kind}. ${cost} if found, the same whether the web search or the deep web search finds it. We search the web first, and run the deep web search only if that finds nothing. Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
@@ -271,7 +278,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
-                          {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web, unverified</span> : null}
+                          {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
                         <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{[c.company_category, c.registration_number && `No. ${c.registration_number}`].filter(Boolean).join(" · ")}</div>
@@ -280,8 +287,8 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
@@ -331,7 +338,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
                 <Cell style={{ whiteSpace: "nowrap" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{c.name} <ProfileBadge profile={c.profile} /></span></Cell>
                 <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
                 <Cell style={{ whiteSpace: "nowrap" }}><Reach value="" kind="email" onFind={() => onOpen(c)} /></Cell>
-                <Cell style={{ whiteSpace: "nowrap" }}>{c.phone ? <Reach value={c.phone} kind="phone" onFind={() => onOpen(c)} /> : <span style={{ color: C.slateLight }}>–</span>}</Cell>
+                <Cell style={{ whiteSpace: "nowrap" }}>{c.phone ? <Reach value={c.phone} who={c.name} kind="phone" onFind={() => onOpen(c)} /> : <span style={{ color: C.slateLight }}>–</span>}</Cell>
                 <Cell>{p.appointed_on || "–"}</Cell>
                 <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>
               </tr>

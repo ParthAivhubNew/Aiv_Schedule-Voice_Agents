@@ -901,6 +901,11 @@ async def _partner_secret_key(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS secret_prefix VARCHAR DEFAULT ''"))
 
 
+async def _partner_welcome_credits(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS welcome_credits INTEGER DEFAULT 0"))
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS welcome_wallet VARCHAR DEFAULT 'leadgen'"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -950,6 +955,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_10_api_key_mailboxes", _api_key_mailboxes),
     ("2026_11_11_org_referred_by_partner", _org_referred_by_partner),
     ("2026_11_12_partner_secret_key", _partner_secret_key),
+    ("2026_11_04_partner_welcome_credits", _partner_welcome_credits),
     ("2026_11_13_embed_links_and_ledger_stamps", _embed_links_and_ledger_stamps),
     ("2026_11_14_partner_embed_theme", _partner_embed_theme),
     ("2026_11_15_open_data_notes_and_pay_gap", _open_data_notes_and_pay_gap),

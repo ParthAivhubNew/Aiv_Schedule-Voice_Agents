@@ -80,6 +80,7 @@ import { withToken } from "../../../api/authStore";
 import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
+import { PhoneTab } from "./PhoneTab";
 import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
 import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
@@ -102,6 +103,7 @@ import { openLead } from "../../../connections/ConnectedHome";
 const PAGES = [
   { id: "assistant", label: "AI Assistant", icon: Bot, section: "calling", hint: "Ask about your calls, lists and schedule in plain words" },
   { id: "list", label: "Call list", icon: List, section: "calling", hint: "Make calls: call one number, or upload a list and call many people" },
+  { id: "phone", label: "Phone", icon: PhoneCall, section: "calling", hint: "Call a number yourself from the browser, with an optional recording and transcript" },
   { id: "logs", label: "Conversations", icon: FileText, section: "calling", hint: "Past calls with their summaries, and calls happening right now. WhatsApp chats too" },  // calls and WhatsApp
   { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling", hint: "Meetings that were booked, and calls to try again later" },
   { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics", hint: "How many calls were made, answered and turned into meetings" },
@@ -112,7 +114,7 @@ const PAGES = [
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
-  { label: "Outreach", ids: ["assistant", "list", "logs", "schedule", "analytics"] },
+  { label: "Outreach", ids: ["assistant", "list", "phone", "logs", "schedule", "analytics"] },
   { label: "Settings", ids: ["ai", "company"] },
 ];
 
@@ -4426,6 +4428,8 @@ export function CallingWorkspace({
               />
             </div>
           )}
+
+          {page === "phone" && canSee(operator, "calling") && <PhoneTab />}
 
           {page === "analytics" && canSee(operator, "analytics") && (
             <div>

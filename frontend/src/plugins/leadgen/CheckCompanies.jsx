@@ -22,7 +22,7 @@ export const VERDICTS = {
 };
 export const VERDICT_ORDER = ["verified", "looks_ok", "problem", "not_found", "unclear", "person"];
 
-const STAGE_LABEL = { web: "Web research", our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder" };
+const STAGE_LABEL = { web: "Web research", our_records: "Our records", registry: "Company register", website: "Website", email: "Email", phone: "Phone", deep_search: "Deep web search", email_finder: "Email finder", listing: "Directory page" };
 const STATE_WORDS = {
   email: { verified: "Confirmed", found: "A verified address was found", ok: "Looks right", invalid: "Not working", none: "None given", unchecked: "Couldn't check" },
   phone: { ok: "Looks right", unconfirmed: "Not a normal phone line", invalid: "Not a usable number", none: "None given", unchecked: "Couldn't check" },
@@ -123,6 +123,10 @@ export function detailChecks(a) {
     : web.state === "parked" ? { tone: "bad", word: "Parked or for sale", why: "The address is a placeholder page, so it isn't the company's own site." }
     : checked ? { tone: "todo", word: "Couldn't check", why: "The site didn't answer this time." }
     : todo("Check & improve opens the site to see that it loads and shows the company name.")) });
+  if (v.listing && v.listing.url) {
+    rows.push({ label: "Listing page", value: v.listing.url, tone: v.listing.confirmed ? "good" : "missing", word: `${v.listing.site} · ${v.listing.confirmed ? "confirmed" : "unconfirmed"}`,
+      why: `No website of its own was found. This is the company's page on ${v.listing.site}, not a website. It is not put in the website field. ${v.listing.why || ""}` });
+  }
 
   const em = v.email || {};
   rows.push({ label: "Email", value: a.email || "", ...(!has("email")

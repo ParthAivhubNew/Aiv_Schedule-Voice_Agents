@@ -1,26 +1,138 @@
 # Get started
 
-This page takes you from nothing to an Outreach screen working inside your own software. Follow the steps in order. Each one says
-who does it: you in the Outreach dashboard, or your developer in your code.
+Put Outreach's screens (finding leads, email campaigns, calls, social posts) **inside your own product** with one snippet of code.
+Your users sign in to Outreach in a small window, so you never handle a password and nothing needs adding to your server.
 
-## What you are building
+## In 3 steps
 
-Your users see Outreach's screens (finding leads, email campaigns, calls, social posts) **inside your product**, as if you made them.
-Outreach does the work behind them. You never handle passwords.
+**1. Start (you, in the dashboard, 1 minute).** Open **Admin APIs & Webhooks → Partner programme**, type your company name, agree to
+the terms and press **Start in test mode**. There is no application and no waiting. Then press **Download your zip**.
 
-Three words you will see:
+**2. Paste the snippet (your developer, 2 minutes).** The zip has `snippet.html`. Paste its two lines where Outreach should show:
 
-- **Secret key**: a password for your server. It lets your server ask Outreach for permission to show a screen. Never put it in a web page.
-- **Link**: the connection between one of your users and one Outreach account. You make it once per user.
-- **Token**: a short pass (15 minutes) that lets one screen open for one user. Your server asks for it each time. You never keep it.
-
+```html
+<script src="https://YOUR-OUTREACH-HOST/embed.js" data-key="pk_YOUR_PUBLISHABLE_KEY" data-accent="#2f5be0"></script>
+<div data-outreach="leadgen"></div>
 ```
-Your page  →  asks your server  →  your server asks Outreach (with the secret key)  →  token  →  the screen opens
+
+The key in your zip is already filled in. It is a **publishable key**: it is meant to sit in a web page, and there is no secret key.
+
+**3. Try it.** Open `outreach-test.html` from the zip through any small web server (for example `python -m http.server 8000`, then
+`http://localhost:8000/outreach-test.html`). Click **Connect Outreach**, sign in or create an account in the small window, and the
+screen opens. While you test, pages on your own computer work without adding any address.
+
+When it works on your site: add the address of your site under **Partner programme → Add the address of your site**, then press
+**Ask to go live**. Until you are live, only your own computer and the addresses you add can use your key.
+
+### Change how it looks, from the snippet
+
+Put these on the script tag (every screen) or on one `data-outreach` tag (that screen only):
+
+| Attribute | What it changes | Example |
+|---|---|---|
+| `data-accent` | button and highlight colour | `#0a7a5a` |
+| `data-bg`, `data-surface`, `data-text` | page, card and text colours | `#ffffff` |
+| `data-danger` | error colour | `#c0392b` |
+| `data-sidebar`, `data-sidebar-text` | the side menu | `#101828` |
+| `data-radius` | rounded corners, 0 to 24 | `14` |
+| `data-font` | `system`, `inter`, `serif`, `rounded` or `mono` | `inter` |
+| `data-name`, `data-logo` | your name and an `https` logo address | `Acme` |
+| `data-appearance="auto"` | copy the colours of your own page | |
+
+Screens: `leadgen` (every page of the Leads app: AI Assistant, Find Leads, Lists, Journeys, Mail, Forms, Workflows, About your business), `voice` (every page of Voice) and `social` (every page of Social). Smaller slices of Leads, for a partner that wants only that: `leads`, `campaigns`, `mail`. Show one in a popup or side panel from your own button:
+`<button data-outreach="voice" data-mode="popup">Calls</button>` (also `drawer`, and `page` for a full page). Every value is
+checked on the Outreach side, so a wrong colour is ignored rather than breaking the screen.
+
+### Use your own data and every feature
+
+Your own code can put your data into the person's Outreach account and run any action, with one line each. The person connects once
+(a click and the sign-in), and these calls then work for them. Call the first one from a button click, so the browser allows the
+sign-in window.
+
+```js
+// Send your customers or leads into their account, and into a list
+await Outreach.import(
+  [{ name: "Harbour Dental Ltd", email: "hello@harbour.example", phone: "+441134960011" },
+   { name: "Greenfield Bakery", website: "https://greenfield.example" }],
+  { list: "My CRM customers" });
+
+// Run any action of any plugin: leads, voice, social, whatsapp, mail, account
+const calls = await Outreach.run("voice", "call.list");
+await Outreach.run("voice", "call.start", { to: "+442071230000" });
+await Outreach.run("social", "post.create", { text: "We are open on Sunday" });
+
+// Open a screen with something already searched
+Outreach.find("Harbour Dental");                       // Leads, with that company searched
+// or as a tag:  <div data-outreach="leadgen" data-find="Harbour Dental"></div>
 ```
+
+A record has `name` (required) and any of `email`, `phone`, `website`, `contact_name`, `contact_title`, `industry`, `region`, `notes`
+(up to 500 at a time; more are sent in batches for you). Every action and what it takes is listed in the **API reference**.
+What your code is allowed to do is only what the person agreed to on the sign-in screen, and it works only from the web addresses
+you listed. **While your integration is in test mode, these actions are simulated and save nothing**, so you can build safely.
+After you go live they are real, and the person's own plan and credits apply, as for any Outreach API key.
+
+Once your data is in their account, every feature works on it: lists, journeys and email, calls from a list, enrichment and
+checks, and social posts that mention it.
+
+### How a person is connected
+
+The first time, the person clicks **Connect Outreach**. Outreach shows your name and the address of your page, and asks them to sign
+in or create an account and agree to what you can access. **You choose where that sign-in shows**, with `data-login` on the script
+tag (every screen) or on one `data-outreach` tag:
+
+| `data-login` | What the person sees |
+|---|---|
+| `popup` (default) | A small Outreach window. It closes and your screen opens |
+| `inline` | The sign-in appears inside your page, in the place of the screen (inside the popup or side panel, if the screen is one). No new window, so no pop-up blocker |
+| `page` | The whole window goes to Outreach and comes back to the same page, which then opens the screen |
+
+Example: `<script src="…/embed.js" data-key="pk_…" data-login="inline"></script>`. Next time, with `popup` or `page`, they click once and the sign-in closes by itself, because Outreach remembers them in that browser (`inline` asks again when the browser blocks third-party cookies). If they
+use another browser or device they sign in again. They can disconnect from Outreach at any time, and access stops at once.
+
+### The Outreach browser extension
+
+The zip also has two extension folders. Your team gets Outreach in a side panel on any page, signed in the same way as your screens.
+
+| Browser | How to add it |
+|---|---|
+| Chrome | `chrome://extensions` > turn on **Developer mode** > **Load unpacked** > choose the `extension` folder |
+| Edge | `edge://extensions` > turn on **Developer mode** > **Load unpacked** > choose the same `extension` folder |
+| Firefox | `about:debugging` > **This Firefox** > **Load Temporary Add-on** > choose `extension-firefox/manifest.json` (needs `ALLOW_FIREFOX_EXTENSION` switched on by the Outreach team) |
+| Safari | Not available yet |
+
+Edit `config.json` in the folder to choose which screens show and to set the colours.
+
+**Reading the page.** Click the Outreach button in the toolbar while you are on a page. The panel then offers to look that company
+up in Leads, with the name filled in (you can change it first). The extension reads the page's address, title, site name, main
+heading and any text you selected, only at that click and only for that page. It has no standing access to any site, and it sends
+nothing anywhere from the page.
+
+### Sharing credits with your users
+
+Your people spend their own Outreach credits. You can fund them from your own account: top up your wallets on the normal Outreach
+billing page, then in **Partner programme → Accounts** press **Give credits** next to a connected account, or set a **welcome gift**
+that every new account created through you receives automatically (it stops when your wallet runs out, and nothing is created from
+nowhere). Credits move from your wallet to theirs; what they spend is still charged to them.
+
+### If something goes wrong
+
+| What you see | Why | Fix |
+|---|---|---|
+| "…is not in your list of web addresses" | Your page's address is not listed (live partners only) | Add it exactly as the browser bar shows it, with `https://` and the port if there is one |
+| "The browser did not say which page this is" | The page was opened from a file on disk | Open it through a web server, not by double-clicking |
+| "Your browser blocked the sign-in window" | A pop-up blocker | Allow pop-ups for the site, then click Connect again |
+| An empty box | Your page's address is not allowed to frame Outreach, or `data-key` is not your publishable key | Check the key and the address list. The browser console (F12) shows "Refused to frame" when the address is the problem |
+| "That sign-in has expired" | The sign-in window stayed open for more than two minutes | Click Connect again |
+
+## Optional: connect people from your own server
+
+Everything below is **only for partners whose own server already knows who each user is** and who want people connected without the
+sign-in window. It needs a secret key and one small file on your server. If you did the 3 steps above, you can stop here.
 
 ## The fastest way: the starter kit
 
-In **Partner programme**, step 4 is **Download your starter kit**. Pick what your product is built with and download a zip made for
+In **Partner programme → Advanced → Connect with your own server**, pick what your product is built with and download a kit made for
 you, with your publishable key and addresses already filled in. Each kit holds the same four things:
 
 | In the kit | What it is |
@@ -49,11 +161,10 @@ Unzip the kit **into your project folder** (next to `package.json`), then follow
 - You know the web address your product runs on, for example `https://app.yourproduct.com`.
 - A developer can add one small piece to your server and paste one snippet into your page. Both are below, ready to copy.
 
-## Step 1. Apply and agree to the terms (you, in the dashboard)
+## Step 1. Start and agree to the terms (you, in the dashboard)
 
 1. Sign in to Outreach and open **Admin APIs & Webhooks → Partner programme**.
-2. Fill in the application and send it. You get an email when it is approved.
-3. Open the same page again, read the terms and accept them.
+2. Press **Start in test mode** and agree to the terms (partners who applied earlier accept the terms on the same page).
 
 ## Step 2. Add your web address and a return address (you)
 
@@ -63,19 +174,16 @@ In **Partner programme**, add every address that will show Outreach, one per lin
 https://app.yourproduct.com
 ```
 
-Also add at least one **return address**: the page of yours where people land after they confirm their email, for example
-`https://app.yourproduct.com/outreach-done`. You need one before you can go live.
-
 `www.yourproduct.com` and `yourproduct.com` are two different addresses. Add both if you use both. A page on an address you have
 not added shows an empty box that says "refused to connect".
 
 ## Step 3. Make your secret key (you)
 
-1. In **Partner programme**, make a secret key.
+1. In **Partner programme → Advanced → Connect with your own server**, make a secret key.
 2. **Copy it now.** It is shown once. Give it to your developer to keep on the server, never in the page.
 3. Also copy your **publishable key** (starts with `pk_`, shown as "Publishable" or "Client ID"). This one is not secret and goes in your page.
 
-While you are testing you get test keys (`psk_test_…`). Nothing real is sent or charged.
+While you are testing you get a test key (`psk_test_…`).
 
 ## Step 4. Add the server file (your developer)
 
@@ -135,7 +243,7 @@ you can do. When they finish it closes and the screen appears. After that the sc
 
 ## Step 7. Go live
 
-1. In **Partner programme → 5. Go live**, press the request button. It works once the terms are accepted and you have at least one web address and one return address. The Outreach team checks your integration and switches it on.
+1. In **Partner programme → 3. Go live**, press the request button. It works once the terms are accepted and you have at least one web address. The Outreach team checks your integration and switches it on.
 2. Make a new **live** secret key in Partner programme (it starts with `psk_live_`). The test key stops working for live use.
 3. On your live website, open your hosting dashboard's "Environment variables" and replace the value of `OUTREACH_SECRET` with
    the live key. Your own `.env` file keeps the test key. Then redeploy or restart the live server. (The Vite plugin only runs under

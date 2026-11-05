@@ -1045,6 +1045,7 @@ class OrgTelnyx(Base):
     outbound_voice_profile_id = Column(String, default="")  # its own, in its billing group (PAYG)
     outbound_connection_id = Column(String, default="")  # its own Call Control app for outbound calls
     connection_id = Column(String, default="")  # Call Control app new numbers attach to
+    credential_connection_id = Column(String, default="")  # browser-phone logins (human calls) are made under this
     messaging_profile_id = Column(String, default="")  # needed for WhatsApp / SMS
     allowed_countries = Column(JSON, default=lambda: ["GB"])
     status = Column(String, default="new")  # new, ready, error
@@ -2146,6 +2147,8 @@ class Partner(Base):
     secret_hash = Column(String, default="")  # SHA-256 of the partner's secret key (psk_...); the key itself is shown once
     secret_prefix = Column(String, default="")
     theme = Column(JSON, default=dict)  # the saved default look of embedded screens (see services/embed_theme.py)
+    welcome_credits = Column(Integer, default=0)  # credits from the partner's own wallet given to each account created through it
+    welcome_wallet = Column(String, default="leadgen")  # which wallet they go to
     terms_version = Column(String, default="")
     terms_accepted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -2362,3 +2365,37 @@ class InboundSubmission(Base):
     lead_id = Column(String, nullable=True, index=True)  # the LeadAccount it became
     ip_hash = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class HumanCall(Base):
+    """A call a person makes themselves from the browser (no AI on the line). id = call_ref.
+    Who made it, the short-lived login made for it, and what became of its recording and transcript."""
+    __tablename__ = "human_calls"
+
+    id = Column(String, primary_key=True)
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    user_id = Column(String, index=True, nullable=False)
+    lead_id = Column(String, nullable=True, index=True)
+    to_e164 = Column(String, nullable=False)
+    from_e164 = Column(String, nullable=False)
+    credential_id = Column(String, default="")  # the Telnyx login made for this one call
+    state = Column(String, default="started", index=True)  # started, ringing, answered, ended, abandoned
+    started_at = Column(DateTime, default=datetime.utcnow)
+    answered_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    telnyx_session_id = Column(String, default="")
+    seconds = Column(Integer, default=0)  # talk time as worked out on our side (or read from Telnyx's own events)
+    billed_minutes = Column(Integer, default=0)
+    max_seconds = Column(Integer, nullable=True)  # the longest this call may last (what the credit hold covers)
+    outcome = Column(String, default="")
+    note = Column(Text, default="")
+    warnings = Column(JSON, default=list)
+    record = Column(Boolean, default=False)  # the person chose to record and transcribe
+    consent_ack = Column(Boolean, default=False)  # and confirmed they will tell the other person
+    recording_path = Column(String, default="")
+    transcript_state = Column(String, default="none")  # none, waiting, working, ready, failed
+    transcript_error = Column(String, default="")
+    transcript_charged = Column(Boolean, default=False)
+    transcript_seconds = Column(Integer, default=0)
+    audio_delete_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

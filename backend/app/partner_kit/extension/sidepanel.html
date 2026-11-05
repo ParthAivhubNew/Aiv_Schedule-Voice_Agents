@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outreach</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <section id="page" hidden>
+    <p id="page-line"></p>
+    <form id="page-form"><input id="page-name" aria-label="Company name" maxlength="120"><button type="submit">Find in Leads</button><button type="button" id="page-clear" aria-label="Dismiss">Dismiss</button></form>
+  </section>
+  <nav id="tabs" aria-label="Outreach screens"></nav>
+  <main id="stage">
+    <div id="connect" hidden>
+      <p id="connect-text">Sign in to Outreach to use it on this page.</p>
+      <button id="connect-button" type="button">Connect Outreach</button>
+      <p id="connect-error" role="alert"></p>
+    </div>
+    <iframe id="frame" title="Outreach" allow="clipboard-write; microphone" referrerpolicy="origin" hidden></iframe>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

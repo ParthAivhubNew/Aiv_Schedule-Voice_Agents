@@ -101,5 +101,7 @@ async def frame_policy(request: Request, response: Response) -> Dict[str, Any]:
     client_id = (parse_qs(urlparse(original).query).get("client_id") or [""])[0]
     partner = await PT.by_client_id(client_id)
     origins = partner.allowed_origins if partner is not None and partner.status != "suspended" else []
-    response.headers["X-Frame-Policy"] = EM.frame_ancestors(origins)
+    asks_extension = (parse_qs(urlparse(original).query).get("ext") or [""])[0] == "1"
+    response.headers["X-Frame-Policy"] = EM.frame_ancestors(origins, test=partner is not None and partner.status == "sandbox",
+                                                            extension=asks_extension and partner is not None and partner.status != "suspended")
     return {"ok": True}

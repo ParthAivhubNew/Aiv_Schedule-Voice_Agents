@@ -77,7 +77,7 @@ TOOLS = [
 ]
 
 WEB_TOOL = _tool("search_web", "USE only when the register search found nothing or too few, or the person asks for businesses that are not in the register "
-                               "(for example a new or non-UK business). Searches public web pages and directories. Results are unverified and cost credits per "
+                               "(for example a new or non-UK business). Searches public web pages and directories. Results come from public web pages, not the register, and cost credits per "
                                "company found, so it is only offered and the person confirms on screen. Give a short query: a type of business and a place. "
                                "When the person asked for a number (\"give me 20\") pass it as count. Set include_big only when they ask for big or well-known companies too.",
                  {"query": {"type": "string"}, "count": {"type": "integer", "description": "How many companies they asked for, 1 to 50. Leave out if they gave none."},
@@ -478,7 +478,7 @@ async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any])
             big = bool(args.get("include_big"))
             upto = f" for up to {count} companies" if count else ""
             t.proposals.append({"id": f"p{len(t.proposals)}", "kind": "web_search", "title": f"Search the web for “{query}”{upto}",
-                                "detail": "Public web pages and directories. Results are unverified. You pay only for companies found, nothing if none."
+                                "detail": "Public web pages and directories. You pay only for companies found, nothing if none."
                                           + ("" if big else " Household-name companies are left out."),
                                 "params": {"query": query, "count": count, "include_big": big}})
             t.steps.append({"label": "Prepared a web search for you to confirm", "detail": query, "ms": _ms(t0)})

@@ -172,6 +172,12 @@ async def _contacts_for(db: AsyncSession, biz: BusinessRecord, mode: str, web_bu
                 out.append({"name": "", "role": "", "source": "web", "website": web["website"]})
             for ph in (web.get("phones") or [])[:1]:
                 out.append({"name": "", "role": "", "source": "web", "phone": ph})
+            if not web.get("website") and not (biz.website or biz.domain):
+                from app.services import lead_filters
+
+                page = lead_filters.card(biz).get("listing_page") or {}
+                if page.get("url"):  # no site of its own: the company's exact page on a directory or social site, never given as "website"
+                    out.append({"name": "", "role": "", "source": "listing", "listing": {k: page[k] for k in ("url", "site", "confirmed") if k in page}})
         except HTTPException:
             web_budget[0] = 0  # out of credits: the rest are done without the web step
         except Exception as err:

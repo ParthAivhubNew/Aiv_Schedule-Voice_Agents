@@ -157,6 +157,15 @@ export default function LeadGenerationPlugin({
   const openJourney = (id) => { setWizard(null); setJourneyList(""); setJourneyId(id); setView("outreach"); };
   const [importAsk, setImportAsk] = useState(0); // bumped to open the spreadsheet import inside Find Leads
   const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters }
+  useEffect(() => { // the browser extension asks Find Leads to look for the company on the page the person is reading
+    const onFind = (e) => {
+      const company = String((e.detail && e.detail.company) || "").trim();
+      if (company) { setIncoming({ id: Date.now(), filters: { name_contains: company } }); setFindOpened(true); setView("find_leads"); }
+    };
+    window.addEventListener("outreach-find", onFind);
+    if (window.__outreachFind) { onFind({ detail: { company: window.__outreachFind } }); window.__outreachFind = ""; } // asked before this app loaded
+    return () => window.removeEventListener("outreach-find", onFind);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showToast = (msg) => {
     setToastMessage(msg);

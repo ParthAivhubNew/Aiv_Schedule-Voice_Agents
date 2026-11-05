@@ -1,0 +1,6 @@
+{
+  "clientId": "{{CLIENT_ID}}",
+  "host": "{{HOST}}",
+  "screens": ["leadgen", "voice", "social"],
+  "look": {}
+}

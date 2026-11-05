@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     
     # Public URLs for OAuth callbacks and telephony media streams
     PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://outreach.aivhub.com")
+    # Chrome extension ids (comma separated) besides the one Outreach ships, e.g. a copy published under another id.
+    EXTENSION_IDS: str = os.getenv("EXTENSION_IDS", "")
+    # Firefox gives every install a random address, so it cannot be listed like the Chrome id. Off until the Firefox add-on is published.
+    ALLOW_FIREFOX_EXTENSION: bool = os.getenv("ALLOW_FIREFOX_EXTENSION", "false").lower() in ("1", "true", "yes")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     # Social OAuth apps (optional; can also be saved in Accounts UI)

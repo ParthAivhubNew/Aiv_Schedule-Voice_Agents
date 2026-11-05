@@ -234,6 +234,7 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         "region": biz.region or "", "postcode": biz.postcode or "", "address": biz.address or "", "sic": sic,
         "profile": business_records.profile_of(biz.rank_score), "contact": contact, "linkedin": (linked.get("company") or {}).get("url", ""),
         "links": links_of(biz.raw_data),
+        "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
         "missing": [k for k in ("website", "phone", "email") if contact[k]["source"] == "missing"],
         "accounts": accounts, "confirmation": {"last": _human(_date(ch.get("ConfStmtLastMadeUpDate"))), "next_due": _human(_date(ch.get("ConfStmtNextDueDate")))},
         "charges": {"outstanding": _num(ch.get("Mortgages.NumMortOutstanding")), "satisfied": _num(ch.get("Mortgages.NumMortSatisfied")), "total": _num(ch.get("Mortgages.NumMortCharges"))},
