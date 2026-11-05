@@ -27,3 +27,13 @@ def test_each_guide_renders_without_the_team_section_and_links_to_the_other():
 def test_the_pages_can_be_framed_by_the_app_but_no_other_site():
     page = P._page("t", "<p>x</p>")
     assert page.headers["x-frame-options"] == "SAMEORIGIN"
+
+
+def test_embedded_page_omits_header_nav():
+    standalone = P._page("Standalone", "<p>x</p>", current="start", embedded=False)
+    assert "<header>" in standalone.body.decode("utf-8")
+    assert "Outreach for partners" in standalone.body.decode("utf-8")
+
+    embedded = P._page("Embedded", "<p>x</p>", current="start", embedded=True)
+    assert "<header>" not in embedded.body.decode("utf-8")
+    assert 'class="embedded"' in embedded.body.decode("utf-8")

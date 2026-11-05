@@ -142,7 +142,7 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing, closest = [] }) {
+function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing }) {
   const price = useLookupPrice();
   // No website of its own, but the company's exact page on a directory or social site: shown as that, with the site's name.
   if (!value && !web && kind === "website" && listing && listing.url) {
@@ -166,14 +166,10 @@ function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confir
     const on = missed ? new Date(missed) : null;
     const date = on && !Number.isNaN(on.getTime()) ? ` on ${on.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}` : "";
     return (
-      <span style={{ display: "inline-grid", gap: 3 }}>
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={(e) => { e.stopPropagation(); onFind(); }}
-          title={`We looked${date} and nothing confirmed turned up for the ${kind}. That doesn't mean there isn't one. Search again, or use the links below.`}>
-          <XCircle size={13} color={C.red} aria-hidden="true" /> Nothing confirmed · search again
-        </button>
-        {closest.length ? <span style={{ fontSize: 11, color: C.slate, whiteSpace: "normal" }}>Look here:{" "}
-          {closest.slice(0, 3).map((l, i) => <span key={l.url}>{i ? " · " : ""}<a href={l.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={l.note} style={{ color: C.cobalt }}>{l.label.replace(/^Search the web for the /, "Web search: ")}</a></span>)}</span> : null}
-      </span>
+      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={(e) => { e.stopPropagation(); onFind(); }}
+        title={`We looked${date} and nothing confirmed turned up for the ${kind}. That doesn't mean there isn't one. Search again.`}>
+        <XCircle size={13} color={C.red} aria-hidden="true" /> Nothing confirmed · search again
+      </button>
     );
   }
   if (value) return kind === "phone" ? <><a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${who || value} in the browser`} onClick={(e) => { e.stopPropagation(); openPhone({ number: value, name: who || "" }); }}><PhoneCall size={13} /></button></> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
@@ -291,9 +287,9 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   </Cell>
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" closest={(c.closest || {}).website} listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" closest={(c.closest || {}).phone} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" closest={(c.closest || {}).email} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>

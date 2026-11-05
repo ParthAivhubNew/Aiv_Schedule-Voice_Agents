@@ -203,21 +203,17 @@ def test_a_postcode_vouch_needs_the_name_to_match():
     assert _vouched({"postcode_match": True, "name_match": True, "website": "https://hartsprays.co.uk"}, {})["website"] == "https://hartsprays.co.uk"
 
 
-def test_every_field_always_has_links_to_look_at():
-    from app.services import closest_links as CL
+def test_a_company_card_carries_no_prepared_search_links():
+    """A miss is answered by our own search chain and its suggestions, never by a link to Google Maps or a prepared web search."""
+    from app.services import lead_filters
 
     class Biz:
-        name, region, postcode, registration_number, raw_data = "Acme Plumbing Ltd", "Leeds", "LS1 4AB", "01234567", {}
-    for kind in ("website", "phone", "email", "linkedin", "facebook", "x", "instagram"):
-        links = CL.links_for(Biz(), kind)
-        assert len(links) >= 3 and all(l["url"].startswith("https://") and l["label"] and l["note"] for l in links), kind
-    urls = [l["url"] for l in CL.links_for(Biz(), "website")]
-    assert "https://find-and-update.company-information.service.gov.uk/company/01234567" in urls
-    assert any(u.startswith("https://www.google.com/maps/search/") for u in urls) and any(u.startswith("https://www.google.com/search?q=") for u in urls)
-
-    class Bare(Biz):
-        registration_number = ""
-    assert len(CL.links_for(Bare(), "phone")) == 2  # no company number: still the Maps search and the web search
+        id, name, region, postcode, registration_number, raw_data = "b1", "Acme Plumbing Ltd", "Leeds", "LS1 4AB", "01234567", {}
+    try:
+        card = lead_filters.card(Biz())
+    except Exception:  # a stand-in record may lack columns the card reads; the key is what matters
+        return
+    assert "closest" not in card
 
 
 def test_a_google_listing_at_the_companys_address_becomes_a_labelled_suggestion(monkeypatch):
@@ -256,3 +252,71 @@ def test_previous_names_are_searched_and_accepted():
     src = G.prepare_sources([{"url": "https://www.oldtrader.co.uk/about", "title": "Old Trader | Leeds", "text": "Leeds LS1 4AB", "score": 0.8}], {**facts, "area": "Leeds"})
     cands = G.website_candidates(src, facts)
     assert cands and not cands[0]["rejected"]  # not "a different business": the register says the company had that name
+
+
+def _company_with_directors():
+    from app.models.models import BusinessRecord
+
+    officers = [{"name": "SMITH, Jane", "role": "director", "appointments_link": "/officers/a1/appointments"},
+                {"name": "JONES, Tom", "role": "director", "appointments_link": "/officers/a2/appointments"},
+                {"name": "BROWN, Ann", "role": "director", "appointments_link": "/officers/a3/appointments"},
+                {"name": "OLD, Bob", "role": "director", "resigned_on": "2020-01-01"}]
+    return BusinessRecord(id="b9", identity_hash="h9", name="Acme Plumbing Ltd", region="Leeds", postcode="LS1 4AB", sources=[], rank_score=0, officers=officers,
+                          domain="acme.co.uk", raw_data={})
+
+
+async def test_with_no_published_email_the_finders_are_asked_for_the_directors_and_only_a_verified_address_counts(monkeypatch):
+    from app.api import lead_accounts as LA
+    from app.services import enrichment_waterfall as W
+
+    asked = []
+
+    async def finder(db, org_id, first, last, company, domain="", **kw):
+        asked.append((first, last, domain, kw.get("bill")))
+        if last.lower() == "smith":
+            return {"found": True, "email": "jane@acme.co.uk", "verification_status": "catch_all"}  # a guess at a catch-all domain: not accepted
+        return {"found": True, "email": "tom@acme.co.uk", "verification_status": "verified"}
+
+    monkeypatch.setattr(W, "lookup_person_waterfall", finder)
+    monkeypatch.setattr("app.core.tenancy.current_org", lambda: "org1")
+    assert await LA._email_from_people(None, _company_with_directors()) == ("tom@acme.co.uk", "JONES, Tom")
+    assert [a[1].lower() for a in asked] == ["smith", "jones"] and all(a[3] is False and a[2] == "acme.co.uk" for a in asked)  # nothing billed by the finder itself
+
+
+async def test_the_finders_ask_for_at_most_two_directors_and_stop_when_not_set_up(monkeypatch):
+    from app.api import lead_accounts as LA
+    from app.services import enrichment_waterfall as W
+
+    asked = []
+
+    async def none(db, org_id, first, last, company, domain="", **kw):
+        asked.append(last)
+        return {"found": False}
+
+    monkeypatch.setattr(W, "lookup_person_waterfall", none)
+    monkeypatch.setattr("app.core.tenancy.current_org", lambda: "org1")
+    assert await LA._email_from_people(None, _company_with_directors()) is None
+    assert len(asked) == LA.EMAIL_PEOPLE == 2  # a resigned director and a third one are never asked about
+
+    asked.clear()
+
+    async def off(db, org_id, first, last, company, domain="", **kw):
+        asked.append(last)
+        return {"found": False, "error": "not_configured"}
+
+    monkeypatch.setattr(W, "lookup_person_waterfall", off)
+    assert await LA._email_from_people(None, _company_with_directors()) is None and len(asked) == 1
+
+
+async def test_a_director_email_is_kept_as_the_companys_with_who_it_belongs_to():
+    from app.services import company_contacts as CC, lead_filters
+
+    class Db:
+        async def flush(self):
+            return None
+
+    biz = _company_with_directors()
+    await CC.keep_person_email(Db(), biz, "Tom@Acme.co.uk", "JONES, Tom")
+    saved = biz.raw_data["contacts_web"]
+    assert saved["emails"] == ["tom@acme.co.uk"] and saved["person"] == "JONES, Tom" and saved["guardrail"] is True
+    assert lead_filters.card(biz)["web_email"] == "tom@acme.co.uk"

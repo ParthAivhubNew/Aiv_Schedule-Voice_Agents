@@ -863,7 +863,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   return (
     <div className="pane-root fl-root" data-active={pane} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
-      {pick ? <PickOptions kind={pick.kind} company={pick.company.name} options={pick.options} closest={(pick.company.closest || {})[pick.kind] || []} anchorKey={`${pick.company.id}:${pick.kind}`} onClose={() => setPick(null)}
+      {pick ? <PickOptions kind={pick.kind} company={pick.company.name} options={pick.options} anchorKey={`${pick.company.id}:${pick.kind}`} onClose={() => setPick(null)}
         onRetry={async (hint) => {
           const { company: co, kind } = pick;
           const key = `${co.id}:${kind}`;

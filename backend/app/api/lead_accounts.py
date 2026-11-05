@@ -585,7 +585,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         shown = "the company's page" if listing.get("confirmed") else "a page that looks like the company's (not confirmed)"
         note = f"No website of its own found. Found {shown} on {listing['site']}. Nothing was charged for it."
     elif not got and not note and not _options(biz, "website", got):
-        note = "Nothing confirmed for the website yet. The links shown are where to look, or add details and search again." + _closest(web)
+        note = "Nothing confirmed for the website yet. We searched the web, read the company's own pages and ran the deep web search. Add details and search again." + _closest(web)
     await CP.sync_safely(db, biz)  # every website, phone, email and page found is also listed, searchable, on its own
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
@@ -679,16 +679,52 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, have),
                 "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     got = bool(web.get("emails"))
-    CC.note_lookup(biz, "email", got)
-    await db.commit()
+    source, person = ("web" if got else ""), ""
     charged = 0
     if got and not web.get("cached"):
+        await db.commit()
         await _charge_leads(db, 1, f"Email for {biz.name}")
         charged = 1
+    elif not got:
+        # Stage 2: the company published no address, so ask the email finders (cheapest first, two at most) for its directors.
+        hit = await _email_from_people(db, biz)
+        if hit:
+            await CC.keep_person_email(db, biz, hit[0], hit[1])
+            got, source, person = True, "people", hit[1]
+            await db.commit()
+            await _charge_leads(db, 1, f"Email for {biz.name}")
+            charged = 1
+    CC.note_lookup(biz, "email", got)
+    await db.commit()
     await CP.sync_safely(db, biz)
     shown = _options(biz, "email", got)
-    return {"found": got, "source": "web" if got else "", "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
-            "note": "" if got or shown else "Nothing confirmed for the email yet. The links shown are where to look, or add details and search again."}
+    return {"found": got, "source": source, "person": person, "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
+            "note": "" if got or shown else "Nothing confirmed for the email yet. We searched the web, read the company's own pages and asked the email finders for its directors. Add details and search again."}
+
+
+EMAIL_PEOPLE = 2  # directors asked about when the company itself published no address: a miss costs two finder calls each at most
+
+
+async def _email_from_people(db: AsyncSession, biz: BusinessRecord):
+    """(address, person's name) for a current director whose work email a finder verified, else None. Only a verified address is taken:
+    a catch-all guess is never shown as theirs. Nothing is charged here; the caller charges once when this finds one."""
+    from app.core.tenancy import current_org
+    from app.services import company_contacts as CC
+    from app.services.enrichment_waterfall import lookup_person_waterfall
+
+    people = [o for o in CC.active_officers(biz.officers) if o.get("first_name") and o.get("last_name")][:EMAIL_PEOPLE]
+    domain = (biz.domain or "").strip() or _domain(biz.website or "")
+    for o in people:
+        try:
+            res = await lookup_person_waterfall(db, current_org(), o["first_name"], o["last_name"], biz.name, domain, bill=False)
+        except Exception as err:  # one finder failing must not end the search
+            logger.info("find-email: the finders did not answer for %r: %s", biz.name, err)
+            continue
+        if res.get("error") in ("not_configured", "insufficient_credits"):
+            return None
+        if res.get("found") and res.get("verification_status") == "verified" and res.get("email"):
+            return res["email"], o["name"]
+    return None
 
 
 def _vouched(place: Optional[Dict[str, Any]], confirmed: Dict[str, Any]) -> Dict[str, Any]:
@@ -791,7 +827,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         await db.commit()
         card = lead_filters.card(biz)
     if not got and not note and not _options(biz, "phone", got):
-        note = "Nothing confirmed for the phone yet. The links shown are where to look, or add details and search again."
+        note = "Nothing confirmed for the phone yet. We searched the web, read the company's own pages and ran the deep web search. Add details and search again."
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
@@ -977,7 +1013,7 @@ async def find_linkedin(company_id: str, body: LinkedinIn = LinkedinIn(), db: As
     if r["url"] and r.get("searched"):  # suggestions alone are free: a pick is charged when it is made (choose_contact)
         await _charge_leads(db, 1, f"LinkedIn for {biz.name}", "lead_social")
         charged = 1
-    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "Nothing confirmed for LinkedIn yet. The links shown are where to look.")
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "Nothing confirmed for LinkedIn yet. Add details and search again.")
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()  # the rows remembered for searches carry the links
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note}
@@ -1007,7 +1043,7 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
         await _charge_leads(db, 1, f"{body.network.title()} for {biz.name}", "lead_social")
         charged = 1
     label = "a LinkedIn page" if body.network == "linkedin" else f"{'an' if SL.NETWORKS[body.network]['label'][0] in 'AEIOUX' else 'a'} {SL.NETWORKS[body.network]['label']}"
-    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"Nothing confirmed for {label} yet. The links shown are where to look.")
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"Nothing confirmed for {label} yet. Add details and search again.")
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note, "company": await RV.mask_one(db, lead_filters_card(biz))}

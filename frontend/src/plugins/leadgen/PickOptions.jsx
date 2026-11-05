@@ -50,9 +50,10 @@ function place(anchorKey) {
 
 // A lookup that could not be sure: the closest three, shown right under the button that was pressed. It stays until a match is chosen or it is
 // closed. One candidate: "is this the right one?". Several: each is a link to check, with its own "this is the correct one" button.
-export function PickOptions({ kind, company, options, anchorKey, onPick, onClose, onRetry, closest = [] }) {
+export function PickOptions({ kind, company, options, anchorKey, onPick, onClose, onRetry }) {
   const [items, setItems] = useState(options);
   const [text, setText] = useState("");
+  const [more, setMore] = useState(false); // the text box stays hidden until the person asks for it
   const [again, setAgain] = useState(false);
   const [miss, setMiss] = useState("");
   const [busy, setBusy] = useState("");
@@ -70,10 +71,8 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
   // effect from re-running, which used to pull focus out of the text box in the middle of typing.
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  const opened = useRef({ hadOptions: Boolean(options?.length) }); // only what was shown when it opened decides where focus goes
   useEffect(() => {
-    const field = document.getElementById("pick-more");
-    ((!opened.current.hadOptions && field) || box.current)?.focus({ preventScroll: true });
+    box.current?.focus({ preventScroll: true });
     const onKey = (e) => { if (e.key === "Escape") closeRef.current(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -106,24 +105,19 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{!list.length ? `No confirmed ${word} for ${company} yet` : one ? `Is this the right ${word} for ${company}?` : `Which is the right ${word} for ${company}?`}</div>
           <div style={{ fontSize: 12.5, color: C.slate }}>
-            {!list.length ? "Nothing was confirmed, so nothing is shown as theirs. These links are where to look, or tell us more below and we will search again." : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
+            {!list.length ? "We searched the web, read the company's own pages and ran the deep web search. Nothing was confirmed, so nothing is shown as theirs. Add details and we will search again." : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
           </div>
         </div>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Close"><X size={16} /></button>
       </div>
       {list.map((o) => <Candidate key={o.value} o={o} only={one} busy={busy === o.value} disabled={Boolean(busy)} onPick={pick} />)}
       {error ? <div role="alert" style={{ fontSize: 12.5, color: C.red }}>{error}</div> : null}
-      {closest.length ? (
-        <div style={{ display: "grid", gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Where to look</div>
-          {closest.map((l) => (
-            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.cobalt, overflowWrap: "anywhere" }}>{l.label}<span style={{ color: C.slate, fontSize: 12 }}> · {l.note}</span></a>
-          ))}
-        </div>
+      {onRetry && !more ? (
+        <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setMore(true)}>{list.length ? "None of these? Add details" : "Add details"}</button></div>
       ) : null}
-      {onRetry ? (
+      {onRetry && more ? (
         <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-          <label htmlFor="pick-more" style={{ fontSize: 13, fontWeight: 600 }}>{list.length ? "None of these? Tell us more" : "Tell us more"}</label>
+          <label htmlFor="pick-more" style={{ fontSize: 13, fontWeight: 600 }}>Tell us more</label>
           <textarea id="pick-more" value={text} onChange={(e) => setText(e.target.value.slice(0, 300))} rows={2} maxLength={300} disabled={again}
             placeholder="Anything that helps: the town, the name they trade under, what they do, a person who works there"
             style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, font: "inherit", fontSize: 13, resize: "vertical" }} />

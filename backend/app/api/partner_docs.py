@@ -25,16 +25,19 @@ from app.services import mini_markdown as MD
 router = APIRouter(prefix="/docs/partners", tags=["Partner docs"])
 _DIR = Path(__file__).resolve().parents[2] / "docs" / "partners"
 _GUIDES = {
-    "start": ("Get started", "New here? Seven steps from nothing to an Outreach screen inside your product, with code to copy."),
-    "snippets": ("Copy-paste code", "The code to show Outreach your way (panel, popup, side panel, full page) and the one small server file, in your language."),
-    "embed": ("Embedding reference", "Every option for showing screens: popups, side panels, colours, connecting users, security."),
-    "api": ("API reference", "Use an account from your server: calls, lists, webhooks. The older path, still supported."),
+    "start": ("Get started", "Seven steps to embed an Outreach screen inside your product, with code to copy."),
+    "snippets": ("Copy-paste code", "Code snippets to display Outreach (panel, popup, drawer, full page) and server file templates."),
+    "embed": ("Embedding reference", "Options for embedding screens: popups, side panels, styling, user authentication, and security."),
+    "api": ("API reference", "Server-to-server REST API: actions, datasets, and webhooks."),
 }
 _STYLE = """
 :root{--bg:#fff;--ink:#14171F;--mute:#566070;--line:#E3E6EB;--soft:#F5F6F8;--accent:#2F4FD0;--code:#F1F3F6;--tip:#E8F3EE;--tipline:#2F7D5B;--warn:#FBF0E4;--warnline:#B4620A}
 @media (prefers-color-scheme:dark){:root{--bg:#12141C;--ink:#E8EAF0;--mute:#A0A8B6;--line:#2A3040;--soft:#181C27;--accent:#8CB0FF;--code:#1D2230;--tip:#17261F;--tipline:#5DBB8E;--warn:#2A2016;--warnline:#E0A25A}}
 *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:76px}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
+body.embedded{padding-top:0}
+body.embedded .wrap{padding-top:16px}
+body.embedded aside{top:16px;max-height:calc(100vh - 32px)}
 a{color:var(--accent)}
 header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
 .bar{max-width:1120px;margin:0 auto;padding:0 16px;display:flex;gap:4px;align-items:center;overflow-x:auto}
@@ -84,24 +87,39 @@ def _base() -> str:
     return f"{(settings.PUBLIC_BASE_URL or '').rstrip('/')}{settings.API_PREFIX}/docs/partners"
 
 
-def _link(href: str) -> str:
+def _link(href: str, embedded: bool = False) -> str:
     """The guides link to each other as embed.md / api.md; on the web those are page addresses."""
     for name in _GUIDES:
         if href == f"{name}.md" or href.startswith(f"{name}.md#"):
-            return _base() + "/" + href.replace(".md", "", 1)
+            url = _base() + "/" + href.replace(".md", "", 1)
+            if embedded:
+                if "#" in url:
+                    p, h = url.split("#", 1)
+                    return f"{p}?embedded=1#{h}"
+                return f"{url}?embedded=1"
+            return url
     return href
 
 
-def _page(title: str, body: str, current: str = "", toc: List[Tuple[str, str]] = ()) -> HTMLResponse:
-    tabs = "".join(f'<a class="tab" href="{_base()}/{name}"{" aria-current=page" if name == current else ""}>{html.escape(label)}</a>'
+def _page(title: str, body: str, current: str = "", toc: List[Tuple[str, str]] = (), embedded: bool = False) -> HTMLResponse:
+    tabs = "".join(f'<a class="tab" href="{_base()}/{name}{"?embedded=1" if embedded else ""}"{" aria-current=page" if name == current else ""}>{html.escape(label)}</a>'
                    for name, (label, _) in _GUIDES.items())
     items = "".join(f'<a href="#{anchor}">{html.escape(text)}</a>' for anchor, text in toc)
     side = f'<aside aria-label="On this page"><p class="label">On this page</p>{items}</aside>' if toc else "<aside></aside>"
     mobile = f'<details class="toc"><summary>On this page</summary>{items}</details>' if toc else ""
+    header = "" if embedded else f'<header><nav class="bar" aria-label="Partner guides"><span class="brand">Outreach for partners</span>{tabs}</nav></header>'
+    body_cls = ' class="embedded"' if embedded else ""
+    nav_notify = f"""<script>
+try {{
+  if (window.parent && window.parent !== window) {{
+    window.parent.postMessage({{ type: "partner_doc_nav", guide: "{current}" }}, "*");
+  }}
+}} catch(e) {{}}
+</script>""" if embedded else ""
     doc = (f'<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-           f"<title>{html.escape(title)}</title><style>{_STYLE}</style></head><body>"
-           f'<header><nav class="bar" aria-label="Partner guides"><span class="brand">Outreach for partners</span>{tabs}</nav></header>'
-           f'<div class="wrap">{side}<article>{mobile}{body}</article></div><script>{_SCRIPT}</script></body></html>')
+           f"<title>{html.escape(title)}</title><style>{_STYLE}</style></head><body{body_cls}>"
+           f'{header}'
+           f'<div class="wrap">{side}<article>{mobile}{body}</article></div><script>{_SCRIPT}</script>{nav_notify}</body></html>')
     # SAMEORIGIN lets the Partner programme screen show the page in place; other sites still cannot frame it.
     return HTMLResponse(doc, headers={"Cache-Control": "public, max-age=300", "X-Frame-Options": "SAMEORIGIN"})
 
@@ -119,26 +137,26 @@ def _expand(text: str) -> str:
     return text.replace("{{HOST}}", "https://YOUR-OUTREACH-HOST")
 
 
-@lru_cache(maxsize=8)
-def _guide(name: str) -> Tuple[str, Tuple[Tuple[str, str], ...]]:
+@lru_cache(maxsize=16)
+def _guide(name: str, embedded: bool = False) -> Tuple[str, Tuple[Tuple[str, str], ...]]:
     text = _expand(MD.drop_section((_DIR / f"{name}.md").read_text(encoding="utf-8"), "for the Outreach team"))
-    rendered = MD.render(text, _link).replace("<pre>", '<div class="pre"><pre>').replace("</pre>", "</pre></div>")
+    rendered = MD.render(text, lambda href: _link(href, embedded)).replace("<pre>", '<div class="pre"><pre>').replace("</pre>", "</pre></div>")
     return rendered, tuple(MD.headings(text))
 
 
 def _guide_html(name: str) -> str:
-    return _guide(name)[0]
+    return _guide(name, False)[0]
 
 
 @router.get("", response_class=HTMLResponse)
-async def index() -> HTMLResponse:
-    cards = "".join(f'<li><a href="{_base()}/{name}">{html.escape(title)}</a><br>{html.escape(about)}</li>' for name, (title, about) in _GUIDES.items())
-    return _page("Partner documentation", f'<h1>Partner documentation</h1><p>Everything a partner needs to connect to Outreach. Start with the first guide.</p><ul class="cards">{cards}</ul>')
+async def index(embedded: bool = False) -> HTMLResponse:
+    cards = "".join(f'<li><a href="{_base()}/{name}{"?embedded=1" if embedded else ""}">{html.escape(title)}</a><br>{html.escape(about)}</li>' for name, (title, about) in _GUIDES.items())
+    return _page("Partner documentation", f'<h1>Partner documentation</h1><p>Comprehensive guides and references to connect to Outreach.</p><ul class="cards">{cards}</ul>', embedded=embedded)
 
 
 @router.get("/{name}", response_class=HTMLResponse)
-async def guide(name: str):
+async def guide(name: str, embedded: bool = False):
     if name not in _GUIDES:
         return PlainTextResponse("Not found", status_code=404)
-    body, toc = _guide(name)
-    return _page(f"{_GUIDES[name][0]} | Outreach partners", body, current=name, toc=list(toc))
+    body, toc = _guide(name, embedded)
+    return _page(f"{_GUIDES[name][0]} | Outreach partners", body, current=name, toc=list(toc), embedded=embedded)

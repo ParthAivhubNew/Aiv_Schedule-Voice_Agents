@@ -394,6 +394,19 @@ async def _remember_options(db: AsyncSession, biz: BusinessRecord, options: Dict
     return shown
 
 
+async def keep_person_email(db: AsyncSession, biz: BusinessRecord, email: str, person: str) -> None:
+    """A director's verified work email, found by the email finders, kept as the company's email with who it belongs to."""
+    cached = (biz.raw_data or {}).get("contacts_web") or {}
+    found = {"website": cached.get("website") or "", "phones": list(cached.get("phones") or [])[:1], "emails": [email.strip().lower()], "team": [], "sources": [],
+             "source": "web", "verified": True, "guardrail": True, "by": "email_finder", "person": person,
+             "confidence": {"email": {"score": 90, "label": "high"}}, "audit": [], "ledger": {"outcome": "email_finder"}, "fetched_at": datetime.utcnow().isoformat() + "Z"}
+    raw = dict(biz.raw_data or {})
+    raw["contacts_web"] = found
+    biz.raw_data = raw
+    business_records.refresh_rank(biz)
+    await db.flush()
+
+
 async def _taught(db: AsyncSession, biz: BusinessRecord, want: str) -> Optional[Dict[str, Any]]:
     """A value that enough different organisations picked for this company is used straight away, with no search. Only for one field at a time."""
     from app.services import contact_choices as CH
