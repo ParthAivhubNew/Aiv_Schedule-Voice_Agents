@@ -441,3 +441,24 @@ async def test_a_phone_setup_that_cannot_be_finished_says_why_in_plain_words(db,
     with pytest.raises(HC.HumanCallError) as err:
         await HC.ready_setup(db)
     assert err.value.status == 503 and "not switched on yet" in err.value.message
+
+
+async def test_an_existing_resource_is_found_by_its_exact_name_even_when_telnyx_ignores_the_filter():
+    from app.services.telnyx_client import TelnyxClient
+
+    client = TelnyxClient("key")
+    pages = {1: [{"name": f"Other {i}"} for i in range(250)], 2: [{"name": "AIVHub (org_default) extended"}, {"name": "AIVHub (org_default)", "id": "ovp_real"}]}
+    asked = []
+
+    async def req(method, path, **kw):
+        params = kw.get("params") or {}
+        asked.append(params)
+        if "filter[name][contains]" in params:
+            raise TelnyxError("bad filter", 400)  # this spelling is refused here
+        return {"data": pages.get(params["page[number]"], [])}  # the plain filter is silently ignored: everything comes back
+
+    client._req = req
+    found = await client.find_outbound_voice_profile("AIVHub (org_default)")
+    assert found and found["id"] == "ovp_real"  # read page by page, and only the exact name counts, not "... extended"
+    none = await client.find_outbound_voice_profile("AIVHub (org_other)")
+    assert none is None

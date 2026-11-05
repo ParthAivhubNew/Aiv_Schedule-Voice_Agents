@@ -130,15 +130,32 @@ class TelnyxClient:
     async def enable_managed_account(self, account_id: str) -> Dict[str, Any]:
         return (await self._req("POST", f"/managed_accounts/{account_id}/actions/enable")).get("data", {})
 
+    async def _find_by_name(self, path: str, key: str, name: str, filters: List[str]) -> Optional[Dict[str, Any]]:
+        """A resource by its exact name. The account is shared by every organisation, so a plain name filter is not enough: Telnyx
+        ignores or renames filters by resource, and the first page may not hold it. Ask with each filter spelling, then read the list
+        page by page, and only ever return an exact name match."""
+        name = name[:100]
+        for fkey in [*filters, None]:
+            for page in range(1, 9 if fkey is None else 2):
+                params: Dict[str, Any] = {"page[size]": 250, "page[number]": page}
+                if fkey:
+                    params[fkey] = name
+                try:
+                    data = (await self._req("GET", path, params=params)).get("data", []) or []
+                except TelnyxError:
+                    break  # this filter spelling is not accepted here: try the next one
+                hit = next((r for r in data if r.get(key) == name), None)
+                if hit:
+                    return hit
+                if len(data) < 250:
+                    break
+        return None
+
     async def create_billing_group(self, name: str) -> Dict[str, Any]:
         return (await self._req("POST", "/billing_groups", json={"name": name[:100]})).get("data", {})
 
     async def find_billing_group(self, name: str) -> Optional[Dict[str, Any]]:
-        # filter[name] narrows the request, but matches by exact name afterwards too in case
-        # Telnyx silently ignores an unrecognised filter and returns everything unfiltered —
-        # picking data[0] blind on a shared account could otherwise grab a different org's resource.
-        data = (await self._req("GET", "/billing_groups", params={"filter[name]": name[:100], "page[size]": 50})).get("data", [])
-        return next((r for r in data if r.get("name") == name[:100]), None)
+        return await self._find_by_name("/billing_groups", "name", name, ["filter[name]", "filter[name][contains]"])
 
     async def create_outbound_voice_profile(self, name: str, countries: List[str], billing_group_id: str = "",
                                             daily_spend_limit_usd: str = "", max_destination_rate: str = "") -> Dict[str, Any]:
@@ -155,8 +172,7 @@ class TelnyxClient:
         return (await self._req("POST", "/outbound_voice_profiles", json=payload)).get("data", {})
 
     async def find_outbound_voice_profile(self, name: str) -> Optional[Dict[str, Any]]:
-        data = (await self._req("GET", "/outbound_voice_profiles", params={"filter[name]": name[:100], "page[size]": 50})).get("data", [])
-        return next((r for r in data if r.get("name") == name[:100]), None)
+        return await self._find_by_name("/outbound_voice_profiles", "name", name, ["filter[name][contains]", "filter[name]"])
 
     async def update_outbound_voice_profile(self, profile_id: str, countries: List[str]) -> Dict[str, Any]:
         return (await self._req("PATCH", f"/outbound_voice_profiles/{profile_id}",
@@ -169,8 +185,7 @@ class TelnyxClient:
         return (await self._req("POST", "/call_control_applications", json=payload)).get("data", {})
 
     async def find_call_control_application(self, name: str) -> Optional[Dict[str, Any]]:
-        data = (await self._req("GET", "/call_control_applications", params={"filter[application_name]": name[:100], "page[size]": 50})).get("data", [])
-        return next((r for r in data if r.get("application_name") == name[:100]), None)
+        return await self._find_by_name("/call_control_applications", "application_name", name, ["filter[application_name][contains]", "filter[application_name]"])
 
     async def get_call_control_application(self, app_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/call_control_applications/{app_id}")).get("data", {})
@@ -189,8 +204,7 @@ class TelnyxClient:
         return (await self._req("POST", "/credential_connections", json=payload)).get("data", {})
 
     async def find_credential_connection(self, name: str) -> Optional[Dict[str, Any]]:
-        data = (await self._req("GET", "/credential_connections", params={"filter[connection_name]": name[:100], "page[size]": 50})).get("data", [])
-        return next((r for r in data if r.get("connection_name") == name[:100]), None)
+        return await self._find_by_name("/credential_connections", "connection_name", name, ["filter[connection_name][contains]", "filter[connection_name]"])
 
     async def get_credential_connection(self, connection_id: str) -> Dict[str, Any]:
         return (await self._req("GET", f"/credential_connections/{connection_id}")).get("data", {})

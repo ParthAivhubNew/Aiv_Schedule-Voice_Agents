@@ -169,6 +169,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             setup.status, setup.last_error = "error", "Phone numbers are not switched on yet. The Outreach team is setting this up."
         return setup
     manager = TelnyxClient(platform_key())
+    step = "managed account" if setup.mode == "managed_account" else "start"
     try:
         if setup.mode == "managed_account":
             if not setup.managed_account_id:
@@ -197,9 +198,11 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
 
             label = f"{org_name or _org()} ({_org()})"
             if not setup.billing_group_id:
+                step = "billing group"
                 bg = await _create_or_reuse(lambda: manager.create_billing_group(label), lambda: manager.find_billing_group(label))
                 setup.billing_group_id = str(bg.get("id") or "")
             if not setup.outbound_voice_profile_id:
+                step = "outbound voice profile"
                 ovp = await _create_or_reuse(
                     lambda: manager.create_outbound_voice_profile(
                         label, list(setup.allowed_countries or ["GB"]), setup.billing_group_id,
@@ -209,6 +212,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 setup.outbound_voice_profile_id = str(ovp.get("id") or "")
                 await _prepaid_only(db)
             if not setup.outbound_connection_id:
+                step = "call control app"
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
                 app_name = f"Outreach calls: {label}"
                 app_ = await _create_or_reuse(
@@ -226,6 +230,7 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             setup.messaging_profile_id = setup.messaging_profile_id or os.getenv("TELNYX_MESSAGING_PROFILE_ID", "").strip()
         setup.status, setup.last_error = "ready", ""
     except TelnyxError as err:
+        logger.warning("[telnyx] setup for %s stopped at %s: %s", _org(), step, err)
         setup.last_error = scrub(err)[:500]
         if not was_ready:  # what already worked (e.g. buying numbers) keeps working
             setup.status = "error"
