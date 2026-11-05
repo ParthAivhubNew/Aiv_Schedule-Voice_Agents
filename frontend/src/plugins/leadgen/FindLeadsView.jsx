@@ -338,6 +338,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [savedTotal, setSavedTotal] = useState(0);
   const [picked, setPicked] = useState(() => new Set());
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
+  const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
   const [groups, setGroups] = useState({ industry: true, location: true, size: true, company: false, contact: false, lists: false, person: true });
   const [people, setPeople] = useState([]);
@@ -438,6 +439,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (!incoming || incoming.id === seenIncoming.current) return;
     seenIncoming.current = incoming.id;
     const f = filtersToForm(incoming.filters || {});
+    // "Give me 20": the table shows exactly those 20, best first, instead of a page of 25.
+    const asked = Number(incoming.meta?.asked) || 0;
+    pageRef.current = asked ? Math.min(asked, 250) : pageSize;
+    setDraft({ asked });
     setExcluded([]); setForm(f); setTab("companies"); search(null, f, 0, null, undefined, undefined, true);
   }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1028,6 +1033,21 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       {(searched || view === "map") && !firstLoad ? (
         <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
           <TopBar show={busy} />
+          {draft && !area && tab === "companies" && searched ? (
+            <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "9px 14px", borderBottom: `1px solid ${C.border}`, background: "#F3F6FF" }}>
+              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Draft from the AI assistant</span>
+              <span style={{ ...muted, fontSize: 12.5 }}>
+                {draft.asked && draft.asked < total ? `The ${draft.asked.toLocaleString()} you asked for, best matches first. ${total.toLocaleString()}${capped ? "+" : ""} match in all.` : `${total.toLocaleString()}${capped ? "+" : ""} match.`}
+              </span>
+              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!companies.length || busy} onClick={() => setPicked(new Set(companies.map((c) => c.id)))}>Select all {companies.length.toLocaleString()}</button>
+                {draft.asked && draft.asked < total ? (
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => { pageRef.current = pageSize; setDraft({ asked: 0 }); search(null, form, 0, null, undefined, undefined, true); }}>Show all matches</button>
+                ) : null}
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { pageRef.current = pageSize; setDraft(null); }}>Done</button>
+              </span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
@@ -1178,7 +1198,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               ) : searched && !inArea && !busy ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
               ) : null}
-              {companies.length && !area ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
+              {companies.length && !area && !(draft?.asked && draft.asked < total) ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
             </>
           )}
         </div>

@@ -9,8 +9,9 @@ import { WorkflowCard } from "../../workflows/WorkflowCard";
 import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
-import { FoundTable } from "./FoundTable";
-import { profileIsThin } from "./profileThin";
+import { ChoiceCard, CustomizeBanner, FeedbackBar, ViewCard, cardsCss } from "./AssistantCards";
+import { choiceAction, customizeText, isHashScreen, liveChoices, questionFor, viewFromFound } from "./assistantUi";
+import { profileGaps, profileIsThin } from "./profileThin";
 import { webResultText } from "./foundText";
 import { addedText } from "./journeyLogic";
 import { creditWord, useLeadCredits } from "./CreditsChip";
@@ -38,6 +39,8 @@ const COMMANDS = [
 ];
 const WEB_KEY = "leadgen_assistant_web";
 const readWeb = () => { try { return localStorage.getItem(WEB_KEY) === "on"; } catch { return false; } };
+const NUDGE_KEY = "assistant_customize_off";
+const readNudgeOff = () => { try { return sessionStorage.getItem(NUDGE_KEY) === "1"; } catch { return false; } };
 
 // The conversation lives here, outside any one screen, so the full page and the docked panel show the same chat: go to another tab and the
 // chat moves to the corner with its answer still coming in; expand it and it fills the page again.
@@ -375,6 +378,8 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const setSuggest = settable(sh, "suggest");
   const [stage, setStage] = useState(0);
   const [needsProfile, setNeedsProfile] = useState(false);
+  const [gaps, setGaps] = useState([]); // what the business profile still lacks, for the "Customize your AI" banner
+  const [nudgeOff, setNudgeOff] = useState(readNudgeOff);
   const [view, setView] = useState("chat"); // chat | history | context | memory
   const [history, setHistory] = useState([]);
   const [memory, setMemory] = useState([]); // [{ id, text }]: what the person asked me to remember
@@ -405,7 +410,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
 
   const loadProfile = useCallback(() => {
-    api.emailGetWritingProfile().then((r) => setNeedsProfile(profileIsThin(r))).catch(() => {});
+    api.emailGetWritingProfile().then((r) => { setNeedsProfile(profileIsThin(r)); setGaps(profileGaps(r)); }).catch(() => {});
   }, []);
   useEffect(() => { if (cfg.leads) loadProfile(); }, [loadProfile, cfg.leads]);
   const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, [HISTORY_KEY]);
@@ -496,7 +501,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
       if (res.found) listed.current = { total: res.found.total, capped: res.found.capped, asked: res.found.asked, filters: res.found.filters, top: (res.found.top || []).slice(0, 50) };
       if (res.state) turn.current = res.state;
       setSuggest(res.suggestions || []);
-      next = [...asked, { id: `a${Date.now()}`, role: "assistant", text: res.reply, steps: res.steps, tookMs: res.took_ms, found: res.found, proposals: res.proposals }];
+      next = [...asked, { id: `a${Date.now()}`, role: "assistant", text: res.reply, steps: res.steps, tookMs: res.took_ms, found: res.found, proposals: res.proposals, view: res.view || viewFromFound(res.found), choices: res.choices || [] }];
     }
     setMessages(next);
     if (!failure) remember(next);
@@ -620,6 +625,25 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     }
   };
 
+  // The draft card and the "pick one" options: the list itself is never in the chat, it opens as the full table on the page.
+  const openView = (m) => {
+    const v = m.view;
+    if (!v) return;
+    if (isHashScreen(v.screen)) goTo(v.screen);
+    else onShowResults?.(m.found?.filters || {}, { asked: v.asked, total: v.total });
+    if (!page && window.innerWidth <= 820) onClose?.();
+  };
+  const pickChoice = (m, c) => {
+    setActs((a) => ({ ...a, [`choice:${m.id}`]: { state: "done" } }));
+    const act = choiceAction(c);
+    if (act.type === "send") send(act.text);
+    else if (act.type === "view") openView(m);
+    else if (act.type === "screen") { goTo(act.hash); if (!page) onClose?.(); }
+  };
+  const nudge = cfg.leads && gaps.length > 0 && !nudgeOff && messages.length > 0;
+  const hideNudge = () => { setNudgeOff(true); try { sessionStorage.setItem(NUDGE_KEY, "1"); } catch { /* it just comes back next time */ } };
+  const liveChoice = liveChoices(messages, acts, busy);
+
   const onKey = (e) => {
     if (slash.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setSlashIx((i) => (i + (e.key === "ArrowDown" ? 1 : slash.length - 1)) % slash.length); return; }
     if (slash.length && (e.key === "Tab" || e.key === "Enter")) { e.preventDefault(); runCommand(slash[slashIx % slash.length]); return; }
@@ -650,7 +674,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   return (
     <div className={page ? "as-wrap as-page" : "as-wrap"} data-leaving={leaving}>
       <aside className="as-panel" aria-label={cfg.name}>
-        <style>{css}</style>
+        <style>{css + cardsCss}</style>
         {page ? (
           <nav className="as-side" aria-label="Assistant menu">
             <button type="button" className="as-nav" onClick={fresh}><Plus size={16} aria-hidden="true" /><span>Start new chat</span></button>
@@ -675,6 +699,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
         <div className="as-body">
           {view === "context" ? (
             <div style={{ display: "grid", gap: 10 }}>
+              {!page ? <button type="button" className="ui-link" style={{ justifySelf: "start" }} onClick={() => setView("chat")}>← Back to chat</button> : null}
               <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>Context center</h2>
               <p style={{ ...muted, margin: 0 }}>What I know about your business. Every answer, email and search follows it. Give me your website and I will draft it; you check it before it is saved.</p>
               <ProfileSetup editable onSaved={() => { setNeedsProfile(false); loadProfile(); }} />
@@ -752,7 +777,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 </>
               ) : null}
 
-              {messages.map((m) => (m.role === "user" ? (
+              {messages.map((m, mi) => (m.role === "user" ? (
                 <div key={m.id} className="as-me" style={text}>{m.text}</div>
               ) : (
                 <div key={m.id} className="as-bot" style={{ ...text, color: m.error ? C.red : C.ink }}>
@@ -760,9 +785,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                   <Steps steps={m.steps} tookMs={m.tookMs} />
                   {m.text}
                   {m.error && m.retry ? <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setMessages((l) => l.filter((x) => x.id !== m.id)); send(m.retry); }}><RotateCcw size={13} aria-hidden="true" /> Try again</button></div> : null}
-                  {m.found ? (
-                    <FoundTable found={m.found} onShowAll={() => onShowResults?.(m.found.filters)} />
-                  ) : null}
+                  {m.view ? <ViewCard view={m.view} onOpen={() => openView(m)} /> : null}
                   {(m.proposals || []).map((p) => {
                     if (p.kind === "plan_run") return <PlanCard key={p.id} plan={p.params.run} />;
                     if (p.kind === "workflow") return <WorkflowCard key={p.id} rule={p.params.rule} />;
@@ -794,6 +817,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                       </div>
                     );
                   })}
+                  {liveChoice && liveChoice.id === m.id ? <ChoiceCard choices={m.choices} disabled={busy} onPick={(c) => pickChoice(m, c)} /> : null}
+                  {!m.error && m.text && !m.from ? (
+                    <FeedbackBar key={m.id} message={m} question={questionFor(messages, mi)} plugin={cfg.id} chatId={chatId.current}
+                      context={{ filters: m.found?.filters, total: m.found?.total ?? m.view?.total, tools: (m.steps || []).map((x) => x.label), kind: m.view?.kind }}
+                      onRemember={(t) => remember_(t, true)} />
+                  ) : null}
                 </div>
               )))}
 
@@ -817,6 +846,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
 
         {view === "chat" ? (
           <div className="as-foot">
+            {nudge ? <CustomizeBanner line={customizeText(gaps)} onOpen={() => setView("context")} onDismiss={hideNudge} /> : null}
             {slash.length ? (
               <div className="as-menu" role="listbox" aria-label="Commands">
                 {slash.map((c, i) => (

@@ -28,12 +28,11 @@ from app.models.models import (CallList, CallLog, CallSchedule, CompanyProfile, 
 from app.core.auth_middleware import current
 from app.services import agent_runs, brand_voice, credits, llm_gateway
 from app.services import workflows as WF
-from app.services.assistant_engine import Spec, Turn, clean_reply, events, tool
+from app.services.assistant_engine import SLOW_DOWN, Spec, Turn, clean_reply, events, make_choice, make_view, tool, too_fast
 
 logger = logging.getLogger("plugin_assistant")
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
 
-DAILY_MESSAGES = 200  # per account, per plugin, per day
 OUTCOMES = ["meeting_booked", "callback_requested", "rejected", "no_answer", "human_review", "contacted"]
 VOICE_SCREENS = {"list": "Call list", "logs": "Conversations", "schedule": "Meetings & callbacks", "analytics": "Call stats", "templates": "AI caller", "company": "Business Setup"}
 SOCIAL_SCREENS = {"plan": "Post calendar", "listening": "Mentions", "media": "Library", "accounts": "Accounts", "subscription": "Plan and credits"}
@@ -113,6 +112,10 @@ async def _call_results(t: Turn, args: Dict[str, Any]) -> None:
         t.notes.append(f"Last {days} days: {total} finished calls. By result: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in by.items())
                        + ". Latest: " + "; ".join(f"{r.canonical_name or r.listed_as} ({(r.outcome or 'contacted').replace('_', ' ')}, {_ago(r.created_at)}, {r.duration or '?'})" for r in rows))
     t.step("Read your call results", f"{total} calls in {days} days", t0)
+    if total:
+        outcome = args.get("outcome") if args.get("outcome") in OUTCOMES else ""
+        t.view = make_view("calls", "Calls view", f"Last {days} days" + (f" · {outcome.replace('_', ' ')}" if outcome else ""),
+                           filter_count=1 + (1 if outcome else 0), total=by.get(outcome, 0) if outcome else total, screen="#/voice/logs")
 
 
 async def _find_call(t: Turn, args: Dict[str, Any]) -> None:
@@ -298,6 +301,11 @@ VOICE = Spec(
                        "Is my AI caller set up?", "Help me schedule calls to a list"],
     fallback="I'm not sure what to do with that. Ask about your calls, call lists or schedule, for example “how did my calls go this week?”.",
     once=frozenset({"draft_greeting"}),
+    choices=lambda t: [
+        make_choice("open", "Open the conversations", "See every call with its summary", recommended=True, open=t.view["screen"]),
+        make_choice("meeting", "Which calls booked a meeting?", "Only the calls that ended with a meeting", prompt="Which calls ended with a meeting booked?"),
+        make_choice("callback", "Which calls need a callback?", "Who asked to be called back, and when", prompt="Which calls asked for a callback, and when?"),
+    ] if t.view else [],
 )
 
 
@@ -312,6 +320,8 @@ async def _post_overview(t: Turn, _args: Dict[str, Any]) -> None:
     if nxt:
         t.notes.append("Next to go out: " + "; ".join(f"“{p.title[:60]}” on {', '.join(p.channels or [])} at {datetime.utcfromtimestamp(p.due_at_ms / 1000).strftime('%d %b %H:%M')} UTC ({p.status.replace('_', ' ')})" for p in nxt))
     t.step("Read your posts", f"{sum(by.values())} posts", t0)
+    if by:
+        t.view = make_view("posts", "Posts view", "All posts, by status: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in by.items()), total=sum(by.values()), screen="#/scheduler/plan")
 
 
 async def _post_results(t: Turn, args: Dict[str, Any]) -> None:
@@ -328,6 +338,8 @@ async def _post_results(t: Turn, args: Dict[str, Any]) -> None:
         t.notes.append(f"Best posts in the last {days} days by reach: " + "; ".join(
             f"“{title[:60]}” on {m.platform}: reach {n(m.reach)}, likes {n(m.likes)}, comments {n(m.comments)}, clicks {n(m.clicks)}" for m, title in rows))
     t.step("Read your post results", f"{len(rows)} posts", t0)
+    if rows:
+        t.view = make_view("posts", "Post results", f"Best posts, last {days} days, by reach", filter_count=1, total=len(rows), screen="#/scheduler/plan")
 
 
 async def _my_accounts(t: Turn, _args: Dict[str, Any]) -> None:
@@ -418,6 +430,11 @@ SOCIAL = Spec(
                        "How many credits do I have left?", "What should I post about?"],
     fallback="I'm not sure what to do with that. Ask about your posts, results or accounts, or tell me what to plan.",
     once=frozenset({"write_caption"}),
+    choices=lambda t: [
+        make_choice("open", "Open the post calendar", "See every post and when it goes out", recommended=True, open=t.view["screen"]),
+        make_choice("best", "Which post did best?", "The top posts by reach, likes and clicks", prompt="Which of my posts did best, and why might that be?"),
+        make_choice("plan", "Plan some posts", "Say the topic and when; the planner opens ready", prompt="Plan 3 posts for next week"),
+    ] if t.view else [],
 )
 
 def _planning(spec: Spec, origin: str) -> None:
@@ -470,8 +487,9 @@ def _actor(request: Request) -> Dict[str, Any]:
 
 async def _guard(db: AsyncSession, plugin: str) -> None:
     _spec(plugin)
-    if await _spent_today(db, plugin) >= DAILY_MESSAGES:
-        raise HTTPException(status_code=429, detail=f"You have used today's {DAILY_MESSAGES} assistant messages. They reset tomorrow.")
+    # No daily cap. Messages are still counted (_count) for usage reports; only a runaway burst is stopped.
+    if too_fast(f"{plugin}:{current_org()}"):
+        raise HTTPException(status_code=429, detail=SLOW_DOWN)
 
 
 @router.post("/{plugin}/ask")

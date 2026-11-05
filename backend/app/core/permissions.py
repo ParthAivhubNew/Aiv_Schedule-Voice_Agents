@@ -116,6 +116,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/jobs(/|$)"), None),  # filtered inside by what the organisation has bought
     (re.compile(r"^/scheduler"), "scheduler"),
     (re.compile(r"^/agent/"), None),  # a person's own plans: the handlers check each step against what they may use
+    (re.compile(r"^/assistant/feedback(/|$)"), None),  # a rating on any assistant answer; the caller is already signed in
     (re.compile(r"^/assistant/voice(/|$)"), "calling"),
     (re.compile(r"^/assistant/social(/|$)"), "scheduler"),
     (re.compile(r"^/email/u/"), None),  # unsubscribe links (public; signed)

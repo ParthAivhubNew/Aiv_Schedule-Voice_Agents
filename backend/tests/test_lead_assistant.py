@@ -94,12 +94,45 @@ async def test_when_the_ai_is_down_the_person_is_told_and_not_charged_a_message(
     assert await LA._spent_today(db) == 0
 
 
-async def test_the_daily_message_cap_stops_runaway_use(db, fakes, monkeypatch):
-    monkeypatch.setattr(LA, "DAILY_MESSAGES", 1)
+async def test_there_is_no_daily_cap_and_only_a_burst_is_stopped(db, fakes, monkeypatch):
+    from app.services import assistant_engine as AE
+    from app.services import credits
+
     _, token = await make_user(db, "as6", "Admin", org_id="org_as6")
+    with org_scope("org_as6"):
+        await credits._put_doc(db, LA._usage_key(), {"n": 5000})  # far past the old 200 a day
+        await db.commit()
     async with _client(token) as c:
         assert (await c.post("/api/leads/assistant/ask", json={"message": "hi"})).status_code == 200
-        assert (await c.post("/api/leads/assistant/ask", json={"message": "again"})).status_code == 429
+        AE._hits.clear()
+        monkeypatch.setattr(AE, "PER_MINUTE", 2)
+        assert (await c.post("/api/leads/assistant/ask", json={"message": "one"})).status_code == 200
+        assert (await c.post("/api/leads/assistant/ask", json={"message": "two"})).status_code == 200
+        r = await c.post("/api/leads/assistant/ask", json={"message": "three"})
+        assert r.status_code == 429 and "a lot of messages" in r.json()["detail"]
+    AE._hits.clear()
+
+
+async def test_a_search_ends_with_a_draft_card_and_a_pick_one_not_a_list(db, fakes):
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("search_companies", sector=["restaurant"], towns=["Leeds"], limit=200)]}
+    _, token = await make_user(db, "as9", "Admin", org_id="org_as9")
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "give me 200 cafes in Leeds"})).json()
+    v = r["view"]
+    assert v["kind"] == "companies" and v["title"] == "Companies view" and v["total"] == 2 and v["screen"] == "find_leads"
+    assert v["filter_count"] == 2 and "Leeds" in v["summary"] and "Status" not in v["summary"]
+    ids = [x["id"] for x in r["choices"]]
+    assert ids[0] == "open" and r["choices"][0]["recommended"] and r["choices"][0]["open"] == "view"
+    assert sum(1 for x in r["choices"] if x["recommended"]) == 1 and {"narrow", "save"} <= set(ids)
+    assert all(x["prompt"] or x["open"] for x in r["choices"])
+
+
+async def test_an_answer_with_nothing_found_has_no_card_and_no_choices(db, fakes):
+    fakes["plan"] = {"success": True, "reply": "Cold emails work best when short.", "tool_calls": []}
+    _, token = await make_user(db, "as10", "Admin", org_id="org_as10")
+    async with _client(token) as c:
+        r = (await c.post("/api/leads/assistant/ask", json={"message": "how long should a cold email be?"})).json()
+    assert r["view"] is None and r["choices"] == []
 
 
 async def test_the_profile_is_read_from_the_site_and_not_saved(db, monkeypatch):
@@ -261,13 +294,13 @@ async def test_the_last_results_reach_the_model_so_the_second_one_resolves(db, f
     assert "2. Corner Cafe Ltd" in seen["prompt"]
 
 
-async def test_the_daily_count_is_shared_through_the_database(db, fakes, monkeypatch):
-    monkeypatch.setattr(LA, "DAILY_MESSAGES", 2)
+async def test_the_daily_count_is_still_kept_in_the_database_for_reports(db, fakes):
     _, token = await make_user(db, "as17", "Admin", org_id="org_as17")
     async with _client(token) as c:
-        for _ in range(2):
+        for _ in range(3):
             assert (await c.post("/api/leads/assistant/ask", json={"message": "hi"})).status_code == 200
-        assert (await c.post("/api/leads/assistant/ask", json={"message": "hi"})).status_code == 429
+    with org_scope("org_as17"):
+        assert await LA._spent_today(db) == 3  # counted, never refused
 
 
 def test_the_tool_set_is_small_and_every_tool_says_when_to_use_it():
@@ -291,9 +324,13 @@ async def test_the_stream_sends_each_step_as_it_happens_then_the_same_reply(db, 
     assert events[-1]["result"]["reply"] == "I found 2 companies." and events[-1]["result"]["found"]["total"] == 2
 
 
-async def test_the_stream_refuses_past_the_daily_limit_before_it_opens(db, fakes, monkeypatch):
-    monkeypatch.setattr(LA, "DAILY_MESSAGES", 1)
+async def test_the_stream_refuses_a_burst_before_it_opens(db, fakes, monkeypatch):
+    from app.services import assistant_engine as AE
+
+    AE._hits.clear()
+    monkeypatch.setattr(AE, "PER_MINUTE", 1)
     _, token = await make_user(db, "as_stream2", "Admin", org_id="org_as_stream2")
     async with _client(token) as c:
         assert (await c.post("/api/leads/assistant/ask/stream", json={"message": "hi"})).status_code == 200
         assert (await c.post("/api/leads/assistant/ask/stream", json={"message": "again"})).status_code == 429
+    AE._hits.clear()

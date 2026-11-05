@@ -1,4 +1,5 @@
 import { cloneElement, useState, useEffect, useRef, useMemo } from "react";
+import { takePendingDraft } from "../../utils/draftHandoff";
 import {
   Search,
   Sparkles,
@@ -156,7 +157,7 @@ export default function LeadGenerationPlugin({
   const startJourney = (listId) => { setWizard(null); setJourneyId(""); setJourneyList(listId || ""); setView("outreach"); };
   const openJourney = (id) => { setWizard(null); setJourneyList(""); setJourneyId(id); setView("outreach"); };
   const [importAsk, setImportAsk] = useState(0); // bumped to open the spreadsheet import inside Find Leads
-  const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters }
+  const [incoming, setIncoming] = useState(null); // a search the assistant sends to Find Leads: { id, filters, meta: { asked, total } }
   useEffect(() => { // the browser extension asks Find Leads to look for the company on the page the person is reading
     const onFind = (e) => {
       const company = String((e.detail && e.detail.company) || "").trim();
@@ -166,6 +167,10 @@ export default function LeadGenerationPlugin({
     if (window.__outreachFind) { onFind({ detail: { company: window.__outreachFind } }); window.__outreachFind = ""; } // asked before this app loaded
     return () => window.removeEventListener("outreach-find", onFind);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // a draft the assistant opened while the person was on Voice or Social: it waited for Leads to start
+    const d = takePendingDraft();
+    if (d) { setIncoming({ id: Date.now(), filters: d.filters || {}, meta: d.meta }); setFindOpened(true); setView("find_leads"); }
+  }, []);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -328,7 +333,7 @@ export default function LeadGenerationPlugin({
             <AssistantPanel page open onClose={() => goTo("find_leads")} onGo={goTo} store={store} onImport={goImport}
               lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
               onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney} onOpenCompany={openCompany} seed={assistantSeed}
-              onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); }} />
+              onShowResults={(filters, meta) => { setIncoming({ id: Date.now(), filters, meta }); setFindOpened(true); setView("find_leads"); }} />
           )}
 
           {SAVED_VIEWS.includes(view) && (
@@ -371,7 +376,7 @@ export default function LeadGenerationPlugin({
         <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
           lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
           onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney} onOpenCompany={openCompany} seed={assistantSeed}
-          onShowResults={(filters) => { setIncoming({ id: Date.now(), filters }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
+          onShowResults={(filters, meta) => { setIncoming({ id: Date.now(), filters, meta }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
       ) : null}
 
       {openAccount && <AccountPanel key={openAccount.id} account={openAccount} store={store} onClose={() => setOpenAccount(null)} />}

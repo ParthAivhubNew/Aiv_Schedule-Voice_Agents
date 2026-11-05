@@ -45,6 +45,7 @@ from app.api.lead_accounts import router as lead_accounts_router
 from app.api.lead_checks import router as lead_checks_router
 from app.api.lead_assistant import router as lead_assistant_router
 from app.api.plugin_assistant import router as plugin_assistant_router
+from app.api.assistant_feedback import router as assistant_feedback_router
 from app.api.agent import router as agent_router
 from app.api.mail_prefs import router as mail_prefs_router
 from app.api.lead_lists import router as lead_lists_router
@@ -977,6 +978,7 @@ app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(lead_assistant_router, prefix=settings.API_PREFIX)
 app.include_router(plugin_assistant_router, prefix=settings.API_PREFIX)
+app.include_router(assistant_feedback_router, prefix=settings.API_PREFIX)
 app.include_router(agent_router, prefix=settings.API_PREFIX)
 app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)

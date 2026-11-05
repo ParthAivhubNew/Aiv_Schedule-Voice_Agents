@@ -42,6 +42,53 @@ def proposal_reply(proposals: List[Dict[str, Any]]) -> str:
     return ""
 
 
+PER_MINUTE = 60  # the only limit on messages: a runaway loop or abuse stops here; normal use never gets near it
+_hits: Dict[str, List[float]] = {}
+
+
+def too_fast(key: str) -> bool:
+    """True when this account has sent PER_MINUTE messages in the last minute. Counts the message when it is allowed."""
+    now = time.time()
+    hits = [t for t in _hits.get(key, []) if now - t < 60]
+    if len(hits) >= PER_MINUTE:
+        _hits[key] = hits
+        return True
+    hits.append(now)
+    _hits[key] = hits
+    return False
+
+
+SLOW_DOWN = "That is a lot of messages in one minute. Wait a few seconds and try again."
+
+
+def make_view(kind: str, title: str, summary: str, *, filter_count: int = 0, total: int = 0, capped: bool = False, asked: int = 0, screen: str = "") -> Dict[str, Any]:
+    """The draft card an answer ends with, in place of a list. The chat never lists rows: it says what was found (title, one line, how many
+    filters, how many), and one click opens the real screen, which loads the rows itself."""
+    return {"kind": kind, "title": title, "summary": summary, "filter_count": int(filter_count), "total": int(total), "capped": bool(capped),
+            "asked": int(asked or 0), "screen": screen}
+
+
+def make_choice(cid: str, label: str, note: str = "", *, recommended: bool = False, prompt: str = "", open: str = "") -> Dict[str, Any]:
+    """One "pick one" option. It either sends `prompt` as the person's next message, or opens a screen (`open` is a hash, or "view" for the card's own screen).
+    Only things the assistant can really do are offered, so code builds these, never the model."""
+    return {"id": cid, "label": label, "note": note, "recommended": recommended, "prompt": prompt, "open": open}
+
+
+def order_choices(options: List[Dict[str, Any]], limit: int = 4) -> List[Dict[str, Any]]:
+    """The recommended option first (only one is kept as recommended), at most `limit` of them."""
+    out: List[Dict[str, Any]] = []
+    seen_recommended = False
+    for o in options:
+        o = dict(o)
+        if o.get("recommended"):
+            if seen_recommended:
+                o["recommended"] = False
+            seen_recommended = True
+        out.append(o)
+    out.sort(key=lambda o: not o.get("recommended"))
+    return out[:limit]
+
+
 def tool(name: str, description: str, props: Optional[Dict[str, Any]] = None, required: Optional[List[str]] = None) -> Dict[str, Any]:
     return {"type": "function", "function": {"name": name, "description": description,
                                              "parameters": {"type": "object", "properties": props or {}, "required": required or []}}}
@@ -58,6 +105,7 @@ class Turn:
         self.proposals: List[Dict[str, Any]] = []
         self.notes: List[str] = []
         self.verbatim: List[str] = []  # text a tool wrote (a draft): shown word for word under the answer, never retold by the model
+        self.view: Optional[Dict[str, Any]] = None  # the draft card: what was found, opened on a real screen by one click (see make_view)
 
     def step(self, label: str, detail: str, t0: float) -> None:
         self.steps.append({"label": label, "detail": detail, "ms": int((time.time() - t0) * 1000)})
@@ -78,6 +126,7 @@ class Spec:
     handlers: Dict[str, Handler]
     doing: Dict[str, str] = field(default_factory=dict)  # tool name -> "Reading your calls", shown while it runs
     suggest: Callable[[Turn], List[str]] = lambda t: []
+    choices: Callable[[Turn], List[Dict[str, Any]]] = lambda t: []  # the "pick one" next steps, see make_choice
     fallback: str = "I'm not sure what to do with that. Tell me what you want to look at."
     once: frozenset = frozenset()  # tools that write something: run once per message, however many times the model asks
 
@@ -159,4 +208,5 @@ async def events(spec: Spec, db: AsyncSession, message: str, history: List[Dict[
     if turn.verbatim:
         reply = reply.rstrip() + "\n\n" + "\n\n".join(turn.verbatim)
     yield {"type": "final", "result": {"reply": reply, "steps": turn.steps, "proposals": turn.proposals, "found": None,
+                                       "view": turn.view, "choices": order_choices(spec.choices(turn)) if turn.view or turn.proposals else [],
                                        "took_ms": int((time.time() - started) * 1000), "suggestions": spec.suggest(turn), "state": {}}}

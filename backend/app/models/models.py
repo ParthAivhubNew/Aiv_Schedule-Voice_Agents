@@ -2399,3 +2399,26 @@ class HumanCall(Base):
     transcript_seconds = Column(Integer, default=0)
     audio_delete_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AssistantFeedback(Base):
+    """A thumbs up or down on one assistant answer, kept so the same mistake is not repeated. Platform-owned like PlatformOptOut, so it has
+    no org_id and no row-level security: only the sign-in route writes it, and only the admin portal reads it. `from_org` says who it came
+    from. A person's own lessons live in their Memory, never here; `lesson` is only the sentence that was offered and whether they kept it."""
+    __tablename__ = "assistant_feedback"
+
+    id = Column(String, primary_key=True)
+    from_org = Column(String, index=True, default="")
+    plugin = Column(String, index=True, default="leads")  # leads | voice | social
+    chat_id = Column(String, default="")
+    message_id = Column(String, default="")
+    rating = Column(String, index=True, default="up")  # up | down
+    reason = Column(String, index=True, default="")  # wrong_companies | wrong_info | missed_ask | too_long | other
+    note = Column(Text, default="")
+    question = Column(Text, default="")
+    answer = Column(Text, default="")
+    context = Column(JSON, nullable=True)  # what the answer used: filters, tools, total
+    lesson = Column(String, default="")
+    lesson_saved = Column(Boolean, default=False)
+    status = Column(String, index=True, default="new")  # new | fixed | dismissed (set by staff)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

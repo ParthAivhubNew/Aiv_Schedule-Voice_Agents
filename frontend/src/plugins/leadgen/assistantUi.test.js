@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+import { choiceAction, compactCount, customizeText, filtersText, isHashScreen, liveChoices, questionFor, viewCountText, viewFromFound, FEEDBACK_REASONS } from "./assistantUi";
+import { profileGaps, profileIsThin } from "./profileThin";
+import { setPendingDraft, takePendingDraft } from "../../utils/draftHandoff";
+
+describe("the draft card's numbers", () => {
+  it("shortens big counts and leaves small ones exact", () => {
+    expect(compactCount(0)).toBe("0");
+    expect(compactCount(999)).toBe("999");
+    expect(compactCount(1000)).toBe("1K");
+    expect(compactCount(3162)).toBe("3.2K");
+    expect(compactCount(12400)).toBe("12K");
+    expect(compactCount(1250000)).toBe("1.3M");
+  });
+
+  it("says how many of the matches were asked for, and marks a capped count", () => {
+    expect(viewCountText({ total: 3162 })).toBe("3.2K");
+    expect(viewCountText({ total: 3162, asked: 200 })).toBe("200 of 3.2K");
+    expect(viewCountText({ total: 150, asked: 200 })).toBe("150"); // asked for more than there is: no "of"
+    expect(viewCountText({ total: 12000, capped: true })).toBe("12K+");
+  });
+
+  it("names the filters, and says nothing for none", () => {
+    expect(filtersText(0)).toBe("");
+    expect(filtersText(1)).toBe("1 filter");
+    expect(filtersText(2)).toBe("2 filters");
+  });
+
+  it("still gives a search answer without a card from the server a card, and no card for no companies", () => {
+    expect(viewFromFound({ total: 40, asked: 20 })).toMatchObject({ kind: "companies", total: 40, asked: 20, screen: "find_leads" });
+    expect(viewFromFound({ total: 0 })).toBeNull();
+    expect(viewFromFound(null)).toBeNull();
+  });
+
+  it("knows a hash screen from the results screen", () => {
+    expect(isHashScreen("#/voice/logs")).toBe(true);
+    expect(isHashScreen("find_leads")).toBe(false);
+  });
+});
+
+describe("pick one", () => {
+  it("sends the words, opens the card's screen, or opens a named screen", () => {
+    expect(choiceAction({ prompt: "Only the ones with an email" })).toEqual({ type: "send", text: "Only the ones with an email" });
+    expect(choiceAction({ open: "view" })).toEqual({ type: "view" });
+    expect(choiceAction({ open: "#/voice/logs" })).toEqual({ type: "screen", hash: "#/voice/logs" });
+    expect(choiceAction({ label: "x" })).toEqual({ type: "none" });
+    expect(choiceAction(null)).toEqual({ type: "none" });
+  });
+
+  it("is live only on the newest answer, until one option is used, and never while answering", () => {
+    const a = { id: "a1", role: "assistant", choices: [{ id: "open" }] };
+    const msgs = [{ id: "u1", role: "user", text: "x" }, a];
+    expect(liveChoices(msgs, {}, false)).toBe(a);
+    expect(liveChoices(msgs, { "choice:a1": { state: "done" } }, false)).toBeNull();
+    expect(liveChoices(msgs, {}, true)).toBeNull();
+    expect(liveChoices([...msgs, { id: "u2", role: "user", text: "y" }], {}, false)).toBeNull(); // a newer message ends it
+    expect(liveChoices([{ id: "a2", role: "assistant", choices: [] }], {}, false)).toBeNull();
+  });
+});
+
+describe("thumbs", () => {
+  it("finds the question an answer belongs to", () => {
+    const msgs = [{ role: "user", text: "first" }, { role: "assistant", text: "a" }, { role: "user", text: "second" }, { role: "assistant", text: "b" }];
+    expect(questionFor(msgs, 1)).toBe("first");
+    expect(questionFor(msgs, 3)).toBe("second");
+    expect(questionFor(msgs, 0)).toBe("");
+  });
+
+  it("offers the same reasons the server knows", () => {
+    expect(FEEDBACK_REASONS.map((r) => r.id)).toEqual(["wrong_companies", "wrong_info", "missed_ask", "too_long", "other"]);
+  });
+});
+
+describe("Customize your AI", () => {
+  it("lists only the core facts that are missing, and never the optional ones", () => {
+    expect(profileGaps({})).toEqual(["your company name", "what you sell", "who buys it", "your main offer"]);
+    expect(profileGaps({ profile: { company: "Brew House", sells: "Coffee" } })).toEqual(["who buys it", "your main offer"]);
+    expect(profileGaps({ edit: { company: "Brew House", sells: "Coffee", audience: "Offices", offer: "Free trial" } })).toEqual([]); // tone and website are optional
+    expect(profileGaps({ profile: { company: "Brew House" }, services: 3 })).toEqual(["who buys it", "your main offer"]); // saved services count as what it sells
+  });
+
+  it("asks for at most two things, in one short sentence", () => {
+    expect(customizeText([])).toBe("");
+    expect(customizeText(["what you sell"])).toBe("Tell me what you sell so my answers fit your business.");
+    expect(customizeText(["what you sell", "who buys it", "your main offer"])).toBe("Tell me what you sell and who buys it so my answers fit your business.");
+  });
+
+  it("still calls a profile thin by the same rule as before", () => {
+    expect(profileIsThin({})).toBe(true);
+    expect(profileGaps({ profile: { company: "A", sells: "B", audience: "C", offer: "D" } })).toEqual([]);
+  });
+});
+
+describe("a draft opened from another plugin waits for Leads", () => {
+  it("is handed over once and then gone", () => {
+    setPendingDraft({ filters: { towns: ["leeds"] }, meta: { asked: 20 } });
+    expect(takePendingDraft()).toEqual({ filters: { towns: ["leeds"] }, meta: { asked: 20 } });
+    expect(takePendingDraft()).toBeNull();
+    setPendingDraft("nonsense");
+    expect(takePendingDraft()).toBeNull();
+  });
+});

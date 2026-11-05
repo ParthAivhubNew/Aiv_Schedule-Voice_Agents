@@ -975,6 +975,34 @@ async def put_meeting_app(provider: str, body: MeetingAppBody, request: Request)
     return meeting_rooms.apps_view()
 
 
+@router.get("/assistant-feedback")
+async def assistant_feedback_report(request: Request, days: int = 30):
+    """Thumbs on assistant answers for the last `days`: ratings per assistant, why answers went wrong, and the latest ones (no organisation or
+    person is named) -- staff only."""
+    from app.database import AsyncSessionLocal
+    from app.services import assistant_feedback as AF
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await AF.report(db, days)
+
+
+class FeedbackStatusBody(BaseModel):
+    status: str = "fixed"
+
+
+@router.put("/assistant-feedback/{feedback_id}")
+async def assistant_feedback_status(feedback_id: str, body: FeedbackStatusBody, request: Request):
+    from app.database import AsyncSessionLocal
+    from app.services import assistant_feedback as AF
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        if not await AF.set_status(db, feedback_id, body.status):
+            raise HTTPException(status_code=404, detail="Not found.")
+    return {"ok": True}
+
+
 @router.get("/social-connections")
 async def social_connections(request: Request):
     """Every organisation's connected social accounts and how long each login lasts, worst first --

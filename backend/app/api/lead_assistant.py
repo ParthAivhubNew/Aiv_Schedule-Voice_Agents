@@ -27,7 +27,8 @@ from app.core.auth_middleware import current
 from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import CompanyProfile, EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, LeadAccount
-from app.services.assistant_engine import clean_reply, proposal_reply
+from app.services import assistant_engine as AE
+from app.services.assistant_engine import SLOW_DOWN, clean_reply, make_choice, make_view, order_choices, proposal_reply, too_fast
 from app.services import workflows as WF
 from app.services import journey_assistant as JA
 from app.services import agent_runs, business_records, credits, lead_filters, llm_gateway, phrase_understanding
@@ -36,9 +37,10 @@ from app.services.safe_fetch import FetchRefused, fetch_text
 logger = logging.getLogger("lead_assistant")
 router = APIRouter(prefix="/leads/assistant", tags=["Leads"])
 
-DAILY_MESSAGES = 200  # per account per day, kept in the database so every server process shares one count
 MAX_ROUNDS = 4  # planning rounds per message: each round sees what the tools returned in the one before
 TOP = 8
+MAX_LISTED = 200  # the most companies one answer can list: the chat shows a card, the Find Leads table shows the rows
+NAMES_IN_PROMPT = 25  # of those, how many names the model is shown (the rest are on screen, not in its prompt)
 THIN = 3  # a register search with this many results or fewer is "thin": the web is worth offering
 
 _FILTER_PROPS = {k: v for k, v in lead_filters._SCHEMA["properties"].items() if k not in ("action", "remove_names", "keyword")}
@@ -57,7 +59,7 @@ TOOLS = [
                               "did not change). Set count_only for audience-size, TAM or how-many questions: it returns the size and how complete the profiles are "
                               "instead of a list. Free. DO NOT use for the person's own saved companies (use my_data) or for businesses outside the register.",
           {**_FILTER_PROPS, "count_only": {"type": "boolean", "description": "Only size the audience; do not list companies."},
-           "limit": {"type": "integer", "description": "How many companies to list when the person asked for a number (\"give me 20\"). 1 to 50. Leave out if they gave none."}}),
+           "limit": {"type": "integer", "description": "How many companies to list when the person asked for a number (\"give me 20\"). 1 to 200. Leave out if they gave none."}}),
     _tool("my_data", "USE for any question about the person's OWN account: pipeline (saved companies by stage), campaigns, replies (how replies were sorted), "
                      "mailboxes (deliverability), follow_ups (due in 7 days), journeys (their journeys and how they are doing), tasks (open journey tasks), company (ONE company from the register by name: what we hold, why to contact it now, its people and contact details; give the name in company) or customer_profile (sectors and towns of their best companies, for lookalikes; "
                      "then call search_companies with what it returns). Free. DO NOT use to find new companies.",
@@ -166,7 +168,7 @@ async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services import reveals as RV
 
     try:
-        asked = min(max(int(args.get("limit") or 0), 0), 50)
+        asked = min(max(int(args.get("limit") or 0), 0), MAX_LISTED)
     except (TypeError, ValueError):
         asked = 0
     shown = asked or TOP  # the number the person asked for, else a short preview
@@ -282,6 +284,31 @@ def suggestions(*, found: bool, proposals: bool, lists: List[Dict[str, Any]], ha
     return seen[:6]
 
 
+def found_view(found: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The draft card for a register search: title, the filters in words, how many filters, how many matched. The chat shows this, never rows."""
+    if not found:
+        return None
+    chips = [c for c in lead_filters.describe(found.get("filters") or {}) if c != "Status: Active"]
+    return make_view("companies", "Companies view", " · ".join(chips) or "All companies in the register", filter_count=len(chips),
+                     total=int(found.get("total") or 0), capped=bool(found.get("capped")), asked=int(found.get("asked") or 0), screen="find_leads")
+
+
+def found_choices(found: Optional[Dict[str, Any]], *, thin: bool = False, web: bool = False) -> List[Dict[str, Any]]:
+    """What to do next with a search that found companies. Every option maps to something the assistant or the screen can really do."""
+    if not found or not found.get("total"):
+        return []
+    n = int(found["total"])
+    asked = int(found.get("asked") or 0)
+    plus = "+" if found.get("capped") else ""
+    note = (f"See the {asked:,} you asked for in Find Leads, with {n:,}{plus} matching in all" if asked and asked < n else f"See all {n:,}{plus} in Find Leads and refine them there")
+    out = [make_choice("open", "Open the full list", note, recommended=True, open="view"),
+           make_choice("narrow", "Narrow down the list", "For example only the ones with an email or a phone number", prompt="Only the ones with an email"),
+           make_choice("save", "Save these to a list", "Keeps exactly the companies listed", prompt="Save these to a new list")]
+    if thin and web:
+        out.append(make_choice("web", "Search the web for more", "Looks beyond the register; you confirm before it costs anything", prompt="Search the web for these"))
+    return order_choices(out)
+
+
 async def _credits_line(db: AsyncSession) -> str:
     balance = await credits.wallet_balance(db, "leadgen")
     return f"{balance:,} credits left."
@@ -342,7 +369,8 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
     t.notes.append(f"Search ({words}) matched {res['total']}{'+' if res.get('capped') else ''} companies"
                    + (f"; {len(res['top'])} are listed (the person asked for {res['asked']}). Say how many matched in all and how many you list" if res.get("asked") else "")
                    + ". A table of exactly the listed companies is on screen: do not write the company names out again unless the person asks which fit best. Listed: "
-                   + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"]) or "none")
+                   + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"][:NAMES_IN_PROMPT]) or "none")
+                   + (f"; and {len(res['top']) - NAMES_IN_PROMPT} more" if len(res["top"]) > NAMES_IN_PROMPT else "")
                    + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else "")
                    + (f". {_BROADENED_TELL.format(note=lead_filters.broadened_note(res['filters']))}" if res.get("broadened") else ""))
 
@@ -542,8 +570,9 @@ _DOING = {"search_companies": "Searching the company register", "my_data": "Read
 
 
 async def _guard(db: AsyncSession) -> None:
-    if await _spent_today(db) >= DAILY_MESSAGES:
-        raise HTTPException(status_code=429, detail=f"You have used today's {DAILY_MESSAGES} assistant messages. They reset tomorrow.")
+    # No daily cap. Messages are still counted (_count_message) for usage reports; only a runaway burst is stopped.
+    if too_fast(f"leads:{current_org()}"):
+        raise HTTPException(status_code=429, detail=SLOW_DOWN)
 
 
 async def _events(body: AskIn, request: Request, db: AsyncSession):
@@ -636,6 +665,7 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
                                    asked=body.message, thin=thin, web=body.web_search),
         "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"], "asked": found.get("asked", 0),
                    "broadened": bool(found.get("broadened"))} if found else None),
+        "view": found_view(found), "choices": found_choices(found, thin=thin, web=body.web_search),
         "state": {"last_total": found["total"] if found else last.get("last_total"),
                   "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}}
 

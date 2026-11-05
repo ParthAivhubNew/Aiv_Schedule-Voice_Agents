@@ -126,10 +126,11 @@ async def test_social_plan_request_becomes_a_button_into_the_planner(db, fakes):
         assert (await c.post("/api/assistant/social/ask", json={"message": "x"})).status_code == 200
 
 
-async def test_each_plugin_has_its_own_daily_count_and_unknown_plugins_do_not_exist(db, fakes, monkeypatch):
-    from app.api import plugin_assistant as PA
+async def test_each_plugin_has_its_own_burst_limit_and_unknown_plugins_do_not_exist(db, fakes, monkeypatch):
+    from app.services import assistant_engine as AE
 
-    monkeypatch.setattr(PA, "DAILY_MESSAGES", 1)
+    AE._hits.clear()
+    monkeypatch.setattr(AE, "PER_MINUTE", 1)
     _, token = await make_user(db, "va5", "Admin", org_id="org_va5")
     async with _client(token) as c:
         assert (await c.post("/api/assistant/voice/ask", json={"message": "hi"})).status_code == 200

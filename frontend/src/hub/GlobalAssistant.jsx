@@ -5,6 +5,7 @@ import { useLeadAccounts } from "../plugins/leadgen/AccountsViews";
 import { useLeadLists } from "../plugins/leadgen/Lists";
 import { useConnections } from "../hooks/useConnections";
 import { navigateHash } from "../utils/route";
+import { setPendingDraft } from "../utils/draftHandoff";
 
 // The assistant outside Leads: a button in the header of Voice and Social that opens the same chat, with the same conversation, as a
 // panel over the page. Anything the chat finds or prepares opens in Leads, where it belongs. Shown only to companies that have Leads.
@@ -30,7 +31,7 @@ function LeadsDock({ open, onClose }) {
       <AssistantPanel open={open} onClose={onClose} store={store}
         lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
         onGo={(view) => go(view === "outreach" ? "outreach" : view || "find_leads")} onImport={() => go("find_leads")}
-        onOpenList={() => go("lists")} onCampaign={() => go("outreach")} onShowResults={() => go("find_leads")} />
+        onOpenList={() => go("lists")} onCampaign={() => go("outreach")} onShowResults={(filters, meta) => { setPendingDraft({ filters, meta }); go("find_leads"); }} />
     </div>
   );
 }

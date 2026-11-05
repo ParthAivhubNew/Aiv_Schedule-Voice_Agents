@@ -133,6 +133,8 @@ export const adminApi = {
   socialOauthApps: () => request("/social-oauth-apps"),
   saveSocialOauthApp: (platform, body) => request(`/social-oauth-apps/${q(platform)}`, { method: "PUT", body }),
   meetingApps: () => request("/meeting-apps"),
+  assistantFeedback: (days = 30) => request(`/assistant-feedback?days=${Number(days) || 30}`),
+  setAssistantFeedbackStatus: (id, status) => request(`/assistant-feedback/${q(id)}`, { method: "PUT", body: { status } }),
   saveMeetingApp: (provider, body) => request(`/meeting-apps/${q(provider)}`, { method: "PUT", body }),
   modelPricing: () => request("/model-pricing"),
   saveModelPrice: (id, priceIn, priceOut) => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut } }),
