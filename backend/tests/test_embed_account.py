@@ -20,7 +20,7 @@ def test_the_account_screen_reaches_what_an_admin_manages_and_nothing_of_the_par
     for method, path in [("POST", "/auth/share"), ("GET", "/partner/links"), ("POST", "/admin-api/partners"), ("POST", "/connections/telephony"),
                          ("PUT", "/credits/rates"), ("GET", "/leads/accounts"), ("POST", "/email/campaigns"), ("POST", "/scheduler/posts")]:
         assert not EM.may_use(ctx, path, method), f"account can {method} {path}"
-    for component in ("leads", "leadgen", "campaigns", "mail", "voice", "social"):  # no other screen gained any of it
+    for component in ("leads", "leadgen", "campaigns", "mail", "voice", "social", "workspace"):  # no other screen gained any of it
         other = {"component": component, "access": "full"}
         assert not EM.may_use(other, "/auth/users", "POST") and not EM.may_use(other, "/developer/keys", "POST") and not EM.may_use(other, "/billing/checkout", "POST")
 

@@ -12,10 +12,11 @@ const LeadGenerationPlugin = lazy(() => import("../plugins/leadgen/LeadGeneratio
 const SocialWorkspaceGate = lazy(() => import("../plugins/scheduler/SocialWorkspace").then((m) => ({ default: m.SocialWorkspaceGate })));
 const CallingWorkspace = lazy(() => import("../plugins/voice/calling/CallingWorkspace").then((m) => ({ default: m.CallingWorkspace })));
 const AccountScreen = lazy(() => import("./AccountScreen"));
+const WorkspaceScreen = lazy(() => import("./WorkspaceScreen"));
 const HumanCallHost = lazy(() => import("../hub/HumanCallHost")); // the browser phone: Call buttons and the Phone page open it
 
 // Where each screen opens inside its app (the app keeps its place in memory; see utils/route).
-const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan", account: "/account" };
+const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan", workspace: "/leadgen/find_leads", account: "/account" };
 const NOOP = () => {};
 
 function Centered({ children }) {
@@ -36,6 +37,7 @@ export function EmbedApp() {
   const [session, setSession] = useState(null);
   const [message, setMessage] = useState("");
   const passed = useRef(undefined);
+  const tabsAsked = useRef(""); // workspace: the tabs the page chose to show
   const savedLook = useRef(undefined); // the partner's saved default, which a page's own appearance is laid over
   const [look, setLook] = useState({ variables: {} });
   const show = useCallback((a) => {
@@ -74,6 +76,7 @@ export function EmbedApp() {
 
   const begin = useCallback((m) => {
     passed.current = m.appearance;
+    if (typeof m.tabs === "string") tabsAsked.current = m.tabs;
     returnUrl.current = m.returnUrl || "";
     show(lookOf(null, m.appearance));
     if (m.connectToken) {
@@ -177,7 +180,8 @@ export function EmbedApp() {
             {session.component === "voice" && <CallingWorkspace {...props} />}
             {session.component === "social" && <SocialWorkspaceGate {...props} />}
             {session.component === "account" && <AccountScreen operator={op} />}
-            {["leadgen", "voice"].includes(session.component) && <HumanCallHost />}
+            {session.component === "workspace" && <WorkspaceScreen props={props} tabs={tabsAsked.current} />}
+            {["leadgen", "voice", "workspace"].includes(session.component) && <HumanCallHost />}
           </Suspense>
         </div>
       </EmbedProvider>

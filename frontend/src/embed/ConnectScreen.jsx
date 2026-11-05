@@ -11,6 +11,7 @@ const ACCESS_TEXT = {
   mail: "read and send your campaign mail and replies",
   voice: "set up and run phone calls, use the browser phone and WhatsApp, manage numbers, knowledge and compliance, and see call results and analytics",
   social: "plan, publish and review your social posts, and edit your business profile",
+  workspace: "use your Leads, Voice and Social apps: find and save companies, run email and journeys, set up and run calls with the browser phone, plan and publish social posts, and edit your business profile",
 };
 
 async function call(path, token, body) {

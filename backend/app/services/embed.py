@@ -43,6 +43,7 @@ _VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voic
 # admin in Outreach itself: an embedded screen is never an admin.
 _LEADGEN = _LEADS + "|email|journeys|inbound|meetings|call-lists|calcom|profile|compliance|number-check|calls|prospects|missions|human-calls|assistant/voice"
 _VOICE_ALL = _VOICE + "|profile|compliance|human-calls|wa|telnyx|number-check|diagnostics|analytics|leads|enrichment|assistant/(?:voice|feedback)|contacts"
+_SOCIAL = "scheduler|social|profile|assistant/(?:feedback|social)|enrichment/chats/social_assistant|enrichment/chats/social_assistant_memory"
 _ACCOUNT = ("auth/(?:users|roles|sections)|numbers|billing/(?:access|overview|checkout|subscriptions|plan|cancel|portal)|credits$|credits/(?:usage|leads|wallet)|"
             "developer|telnyx/numbers|email/mailboxes|profile|assistant/feedback")
 COMPONENTS: Dict[str, Tuple] = {
@@ -56,8 +57,12 @@ COMPONENTS: Dict[str, Tuple] = {
     # "account" is the admin screen: users, roles, phone numbers, plans and credits, API keys. Only for a partner staff switched on (see
     # account_blocked), only for a person who is a real admin of their own account, and only after a fresh sign-in (never the remembered one).
     "account": _screen((), _ACCOUNT),
-    "social": _screen(("scheduler", "company"), "scheduler|social|profile|assistant/(?:feedback|social)|enrichment/chats/social_assistant|enrichment/chats/social_assistant_memory", ("calcom", "leadgen", "calling"), "calcom|meetings|leads/lists|together"),
+    "social": _screen(("scheduler", "company"), _SOCIAL, ("calcom", "leadgen", "calling"), "calcom|meetings|leads/lists|together"),
+    # "workspace" is Leads, Voice and Social behind one sign-in: one tag on the partner's page, with a tab for each app. It reaches exactly what
+    # those three screens reach together and nothing more (no account, billing, users or keys). The page may hide a tab (data-tabs); it can never add power.
+    "workspace": _screen(("leadgen", "email", "calcom", "company", "calling", "scheduler", "analytics"), "|".join((_LEADGEN, _VOICE_ALL, _SOCIAL)), ("connections",), "connections"),
 }
+WORKSPACE_TABS = ("leads", "voice", "social")
 ACCESS = ("full", "view")
 # component -> the pages of the app it shows (the app hides every other page of its menu)
 VIEWS: Dict[str, List[str]] = {
@@ -69,6 +74,7 @@ VIEWS: Dict[str, List[str]] = {
     "api": [],
     "voice": [],
     "social": [],
+    "workspace": [],
 }
 _PUBLIC_EMAIL = re.compile(r"^/email/(u|o)/")  # signed links keep their own rules and never come through an embed
 
@@ -290,6 +296,7 @@ RUN_SCOPE_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "mail": ("email:", "company:", "wallets:"),
     "voice": ("voice:", "calendar:", "company:", "wallets:"),
     "social": ("social:", "company:", "wallets:"),
+    "workspace": ("leads:", "email:", "voice:", "social:", "company:", "calendar:", "wallets:"),
 }
 _V1_CACHE: Dict[Tuple[str, str], Tuple[float, Any]] = {}
 
