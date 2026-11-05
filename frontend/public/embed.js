@@ -11,6 +11,8 @@
  *   data-login="popup"   a small Outreach window (the default)
  *   data-login="inline"  inside your page, in the place of the screen (in a popup or side panel, inside that)
  *   data-login="page"    the whole window goes to Outreach and comes back to the same page
+ * The button text is yours: data-connect-label="Open lead finder" (on the script tag for every screen, or on one [data-outreach] tag).
+ *   To use your own button instead, call Outreach.open("leadgen", { mode: "popup" }) from its click handler.
  * Screens: leadgen (every page of the Leads app), voice, social, or a smaller slice of Leads: leads, campaigns, mail.
  * account: users, phone numbers, plans and API keys for an admin. Outreach switches it on per partner; the admin signs in with their password each time.
  *
@@ -546,7 +548,7 @@
       // A screen opened from your own button is already a click: connect right away. An inline panel gets its own button.
       if (mode !== "inline") { connect(); return; }
       btn = el("button", BTN, { type: "button" });
-      btn.textContent = (node && node.getAttribute && node.getAttribute("data-connect-label")) || "Connect Outreach";
+      btn.textContent = ((node && node.getAttribute && node.getAttribute("data-connect-label")) || (tag.script && tag.script.getAttribute("data-connect-label")) || "Connect Outreach").slice(0, 80);
       btn.onclick = connect;
       node.appendChild(btn);
     });

@@ -23,11 +23,12 @@ const TONE = { pending: "amber", approved: "green", rejected: "red", sandbox: "b
 const lines = (v) => (v || "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean); // one per line, but commas and spaces work too
 const when = (iso) => (iso ? new Date(iso + (/[Z+]/.test(iso.slice(19)) ? "" : "Z")).toLocaleDateString([], { dateStyle: "medium" }) : "—");
 
-function CopyText({ text }) {
+function CopyText({ text, onCopy }) {
   const [done, setDone] = useState(false);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
+      if (onCopy) onCopy();
       setDone(true);
       setTimeout(() => setDone(false), 1500);
     } catch (_) {}
@@ -150,11 +151,11 @@ export function PartnerProgram() {
   const ready = partner && info.termsAccepted && settings && lines(settings.origins).length > 0;
   const hasAddresses = !!partner && (partner.allowedOrigins || []).length > 0;
   const steps = partner ? [
-    { id: "kit", title: "Get your zip and paste the snippet", done: kitDone },
+    { id: "kit", title: "Copy the snippet into your page", done: kitDone },
     { id: "addresses", title: "Add the address of your site", done: hasAddresses },
     { id: "live", title: "Go live", done: partner.status === "live" },
   ] : [];
-  const snippet = partner ? `<script src="${window.location.origin}/embed.js" data-key="${partner.clientId}" data-accent="#2f5be0"></script>\n<div data-outreach="leadgen"></div>` : "";
+  const snippet = partner ? `<script src="${window.location.origin}/embed.js" data-key="${partner.clientId}"></script>\n<div data-outreach="leadgen"></div>` : "";
   const nextStep = steps.find((s) => !s.done);
   const doneCount = steps.filter((s) => s.done).length;
   const activeLinks = links.filter((l) => l.status === "active").length;
@@ -241,13 +242,13 @@ export function PartnerProgram() {
                 </div>
               )}
 
-              <Step n={1} title="Get your zip and paste the snippet" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
-                summary="Downloaded. Paste the two lines of snippet.html into your page.">
-                <div style={hint}>Your zip has your snippet with your key already in it, a test page, and the Outreach browser extension for your team. There is nothing to add to your server and no secret key to find. Paste these two lines where Outreach should show:</div>
+              <Step n={1} title="Copy the snippet into your page" done={kitDone} open={isOpen("kit")} onToggle={() => toggle("kit")}
+                summary="Copied. Paste the two lines into your page.">
+                <div style={hint}>Your key is already in this snippet. There is nothing to add to your server and no secret key to find. Paste these two lines where Outreach should show. Colours, font, name and logo are set in the Look tab, not in the code:</div>
                 <Code>{snippet}</Code>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <button type="button" disabled={busy} style={button(true, busy)} onClick={downloadKit}>Download your zip</button>
-                  <CopyText text={snippet} />
+                  <CopyText text={snippet} onCopy={() => { setKitDone(true); try { localStorage.setItem("aivhub_partner_kit", "1"); } catch { /* the tick just is not remembered */ } }} />
+                  <button type="button" disabled={busy} style={button(false, busy)} onClick={downloadKit}>Optional: test page and browser extension (zip)</button>
                 </div>
                 <div style={hint}>Change the look on the same line: <code>data-accent</code>, <code>data-bg</code>, <code>data-text</code>, <code>data-radius</code>, <code>data-font</code>, <code>data-logo</code>, <code>data-name</code>. Screens: <code>leadgen</code> (the whole Leads app), <code>voice</code>, <code>social</code>; smaller Leads slices: <code>leads</code>, <code>campaigns</code>, <code>mail</code>. For your account admins: <code>account</code> (users, phone numbers, plans and API keys), which the Outreach team switches on for you; the admin signs in with their password each time. The first time, a person clicks "Connect Outreach" and signs in. To use your own data from code, call <code>Outreach.import(records, {'{'} list {'}'})</code>, <code>Outreach.run(plugin, action, data)</code> or <code>Outreach.find(company)</code>; they are simulated in test mode. Choose where the sign-in shows with <code>data-login</code>: <code>popup</code> (a small window, the default), <code>inline</code> (inside your page) or <code>page</code> (the whole window, then back).</div>
               </Step>

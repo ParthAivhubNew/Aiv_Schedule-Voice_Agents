@@ -38,10 +38,11 @@ def test_the_zip_holds_the_snippet_a_test_page_and_the_extension_and_no_secret()
     assert json.loads(_text(z, "extension/config.json"))["clientId"] == "pk_abc123"
 
 
-def test_the_snippet_is_two_lines_and_sets_the_look_on_the_tag():
+def test_the_snippet_is_two_lines_and_leaves_the_look_to_the_saved_settings():
     lines = [x for x in _text(_zip(), "snippet.html").splitlines() if x.strip() and not x.startswith("<!--")]
     assert len(lines) == 2
-    assert all(f'data-{a}=' in lines[0] for a in ("key", "accent", "radius", "font"))
+    assert "data-key=" in lines[0]
+    assert not any(f"data-{a}=" in lines[0] for a in ("accent", "radius", "font"))  # a colour on the tag would override the Look tab
 
 
 def test_the_extension_asks_for_little_and_has_a_fixed_id():
