@@ -404,3 +404,40 @@ async def test_a_failed_lookup_leaves_the_number_unconfirmed_and_is_not_asked_ag
         second = (await c.get("/api/human-calls/config")).json()
     assert first["unconfirmed"] == ["+447890994070"] == second["unconfirmed"] and len(calls) == 1
     assert [n["e164"] for n in first["numbers"]] == ["+442079460000"]
+
+
+@pytest.mark.db
+async def test_a_call_from_an_account_with_no_phone_setup_finishes_the_setup_instead_of_refusing(db, monkeypatch):
+    from app.services import telnyx_provisioning as TP
+
+    fake = FakePhone()
+    monkeypatch.setattr(TP, "client_for", lambda setup: fake)
+    monkeypatch.setenv("TELNYX_DAILY_SPEND_LIMIT_USD", "5")
+    monkeypatch.setattr(TP, "platform_ready", lambda: True)
+    made = []
+
+    async def ensure(db_, name, email=""):
+        made.append(name)
+        setup = OrgTelnyx(id="org_default", mode="billing_group", status="ready", outbound_voice_profile_id="ovp_1", allowed_countries=["GB"])
+        db_.add(setup)
+        await db_.flush()
+        return setup
+
+    monkeypatch.setattr(TP, "ensure_setup", ensure)
+    db.add(OrgPhoneNumber(id="num_1", e164="+442079460000", provider="telnyx", provider_ref="pn_1", status="active"))
+    await db.commit()
+    await K.grant(db, 60, note="test", wallet="voice")
+    await db.commit()
+    got = await HC.ready_setup(db)
+    assert got.status == "ready" and len(made) == 1  # finished once, here
+    assert (await HC.ready_setup(db)).status == "ready" and len(made) == 1  # and not made again
+
+
+@pytest.mark.db
+async def test_a_phone_setup_that_cannot_be_finished_says_why_in_plain_words(db, monkeypatch):
+    from app.services import telnyx_provisioning as TP
+
+    monkeypatch.setattr(TP, "platform_ready", lambda: False)
+    with pytest.raises(HC.HumanCallError) as err:
+        await HC.ready_setup(db)
+    assert err.value.status == 503 and "not switched on yet" in err.value.message

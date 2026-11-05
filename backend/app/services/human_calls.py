@@ -170,6 +170,35 @@ async def confirm_numbers(db) -> List[str]:
     return still
 
 
+async def ready_setup(db) -> Any:
+    """This organisation's phone setup, finished if it was never started. An account whose number came from the old caller ID setting has no
+    setup row, so it is made here the same way the Numbers page makes it (idempotent, nothing is dialled), instead of telling the person
+    to go and finish something they cannot find."""
+    from app.services import telnyx_provisioning as TP
+
+    setup = await TP.get_setup(db)
+    if setup is not None and setup.status == "ready":
+        return setup
+    if not TP.platform_ready():
+        raise HumanCallError(503, "Calling from the browser is not switched on yet. The Outreach team is setting this up.", "NOT_READY")
+    from sqlalchemy import text
+
+    from app.models.models import CompanyProfile
+
+    name = ((await db.execute(select(CompanyProfile.name).where(CompanyProfile.id == "default"))).scalar() or "").strip()
+    if not name:
+        row = (await db.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": _org()})).first()
+        name = row[0] if row else ""
+    problem = TP.company_name_problem(name)
+    if problem:
+        raise HumanCallError(422, problem, "NOT_READY")
+    setup = await TP.ensure_setup(db, name)
+    await db.commit()
+    if setup.status != "ready":
+        raise HumanCallError(503, scrub(setup.last_error or "") or "Your phone line is still being set up. Try again in a minute.", "NOT_READY")
+    return setup
+
+
 # ── Starting a call ────────────────────────────────────────────────────────────
 async def _owned_caller_id(db, from_number: str) -> Optional[OrgPhoneNumber]:
     from app.services.numbers import normalize
@@ -197,9 +226,7 @@ async def start(db, *, user_id: str, to: str, from_number: str, lead_id: str = "
     own = await _owned_caller_id(db, from_number)
     if own is None:
         raise HumanCallError(400, "Pick one of your own phone numbers to call from. Get a number first if you have none.", "NO_CALLER_ID")
-    setup = await get_setup(db)
-    if setup is None or setup.status != "ready":
-        raise HumanCallError(409, "Your phone line is not ready yet. Finish setting up your phone numbers first.", "NOT_READY")
+    setup = await ready_setup(db)
     iso = country_of(to_e164)
     if iso and iso not in (setup.allowed_countries or ["GB"]):
         raise HumanCallError(400, "Calls to that country are not switched on for your account.", "COUNTRY")
