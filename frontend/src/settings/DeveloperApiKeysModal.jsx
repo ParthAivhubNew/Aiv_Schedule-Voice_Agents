@@ -154,7 +154,8 @@ const formatScopePills = (scopes = []) => {
   return pills.length > 0 ? pills : ["Standard Access"];
 };
 
-export function DeveloperApiKeysModal({ open, onClose }) {
+// inline: drawn in the page instead of over it (the embedded Account screen); only the Keys and Webhooks tabs show there.
+export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
   const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs" | "partner"
   const [keys, setKeys] = useState([]);
   const [availableScopes, setAvailableScopes] = useState([]);
@@ -412,20 +413,19 @@ export function DeveloperApiKeysModal({ open, onClose }) {
 
   return (
     <div
+      className={inline ? "dev-inline" : undefined}
       style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(18, 20, 28, 0.65)",
-        backdropFilter: "blur(4px)",
+        ...(inline
+          ? { position: "static", height: "100%" }
+          : { position: "fixed", inset: 0, backgroundColor: "rgba(18, 20, 28, 0.65)", backdropFilter: "blur(4px)", zIndex: 1000, padding: 20 }),
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 1000,
-        padding: 20,
         fontFamily: FONT_BODY,
       }}
-      onClick={onClose}
+      onClick={inline ? undefined : onClose}
     >
+      {inline ? <style>{`.dev-inline [data-tab="playground"],.dev-inline [data-tab="docs"],.dev-inline [data-tab="partner"]{display:none !important}`}</style> : null}
       <div
         style={{
           backgroundColor: "#fff",
@@ -439,6 +439,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           boxShadow: "0 25px 60px rgba(18, 20, 28, 0.25)",
           border: `1px solid ${C.border}`,
           overflow: "hidden",
+          ...(inline ? { borderRadius: 0, maxWidth: "none", height: "100%", maxHeight: "none", boxShadow: "none", border: "none" } : {}),
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -493,6 +494,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
               cursor: "pointer",
               padding: 6,
               borderRadius: 8,
+              display: inline ? "none" : undefined,
             }}
           >
             <X size={18} />
@@ -510,6 +512,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           }}
         >
           <button
+            data-tab="keys"
             onClick={() => setActiveTab("keys")}
             style={{
               padding: "12px 4px",
@@ -529,6 +532,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           </button>
 
           <button
+            data-tab="webhooks"
             onClick={() => setActiveTab("webhooks")}
             style={{
               padding: "12px 4px",
@@ -548,6 +552,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           </button>
 
           <button
+            data-tab="playground"
             onClick={() => setActiveTab("playground")}
             style={{
               padding: "12px 4px",
@@ -567,6 +572,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           </button>
 
           <button
+            data-tab="docs"
             onClick={() => setActiveTab("docs")}
             style={{
               padding: "12px 4px",
@@ -586,6 +592,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           </button>
 
           <button
+            data-tab="partner"
             onClick={() => setActiveTab("partner")}
             style={{
               padding: "12px 4px",
@@ -1484,6 +1491,7 @@ export function DeveloperApiKeysModal({ open, onClose }) {
           <button
             onClick={onClose}
             style={{
+              display: inline ? "none" : undefined,
               padding: "6px 14px",
               borderRadius: 8,
               border: `1px solid ${C.border}`,

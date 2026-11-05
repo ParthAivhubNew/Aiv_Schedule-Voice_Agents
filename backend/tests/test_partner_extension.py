@@ -165,12 +165,14 @@ def test_the_campaigns_screen_can_reach_the_journeys_it_shows():
 # What each whole app may reach once embedded: the pages and actions of the plugin, and nothing that belongs to the account's admin.
 _REACH = {
     "leadgen": [("POST", "/inbound/forms"), ("POST", "/journeys"), ("POST", "/meetings/from-lead"), ("POST", "/call-lists"), ("POST", "/email/campaigns"),
-                ("POST", "/leads/lists"), ("PUT", "/profile/org"), ("GET", "/analytics/calling"), ("POST", "/enrichment/chats/lead_assistant")],
+                ("POST", "/leads/lists"), ("PUT", "/profile/org"), ("GET", "/analytics/calling"), ("POST", "/enrichment/chats/lead_assistant"),
+                ("POST", "/leads/assistant/ask/stream"), ("POST", "/assistant/feedback"), ("POST", "/human-calls/start"), ("GET", "/human-calls/mine")],
     "voice": [("POST", "/human-calls/calls"), ("GET", "/wa/threads"), ("POST", "/telnyx/numbers/order"), ("DELETE", "/telnyx/numbers/n1"), ("GET", "/analytics/calling"),
               ("POST", "/profile/sources"), ("POST", "/number-check/run"), ("POST", "/diagnostics/run"), ("POST", "/calls/live/c1/end"), ("GET", "/connections/hub"),
-              ("POST", "/leads/lists"), ("GET", "/contacts/timeline")],
+              ("POST", "/leads/lists"), ("GET", "/contacts/timeline"), ("POST", "/assistant/voice/ask/stream"), ("POST", "/assistant/feedback"), ("POST", "/human-calls/start")],
     "social": [("POST", "/scheduler/posts"), ("POST", "/social/posts/p1/engagers"), ("POST", "/profile/sources"), ("GET", "/calcom/event-types"), ("GET", "/leads/lists"),
-               ("GET", "/enrichment/chats/social_assistant"), ("PUT", "/enrichment/chats/social_assistant_memory")],
+               ("GET", "/enrichment/chats/social_assistant"), ("PUT", "/enrichment/chats/social_assistant_memory"),
+               ("POST", "/assistant/social/ask/stream"), ("POST", "/assistant/feedback")],
 }
 _NEVER = [("POST", "/billing/checkout"), ("POST", "/auth/users"), ("POST", "/auth/share"), ("GET", "/partner/links"), ("POST", "/developer/keys"),
           ("POST", "/admin-api/partners"), ("POST", "/connections/telephony"), ("PUT", "/credits/rates")]
@@ -186,8 +188,18 @@ def test_each_whole_app_reaches_its_pages_and_actions(component):
 @pytest.mark.parametrize("component", sorted(EM.COMPONENTS))
 def test_no_screen_reaches_what_belongs_to_the_account_admin(component):
     ctx = {"component": component, "access": "full"}
+    mine = {("POST", "/billing/checkout"), ("POST", "/auth/users"), ("POST", "/developer/keys")} if component == "account" else set()  # the Account screen is for exactly these
     for method, path in _NEVER:
+        if (method, path) in mine:
+            continue
         assert not EM.may_use(ctx, path, method), f"{component} can {method} {path}"
+
+
+def test_each_app_reaches_only_its_own_assistant_and_the_browser_phone_stays_in_voice_and_leads():
+    social, voice, leads = {"component": "social", "access": "full"}, {"component": "voice", "access": "full"}, {"component": "leads", "access": "full"}
+    assert not EM.may_use(social, "/assistant/voice/ask", "POST") and not EM.may_use(social, "/human-calls/start", "POST")
+    assert not EM.may_use(voice, "/assistant/social/ask", "POST")
+    assert not EM.may_use(leads, "/human-calls/start", "POST") and EM.may_use(leads, "/assistant/feedback", "POST")  # a rating is allowed everywhere; the phone is not in the small Leads slices
 
 
 def test_a_view_only_pass_cannot_change_anything_in_any_app():

@@ -3,6 +3,7 @@ import { Loader } from "../app/Loader";
 import { AlertTriangle, CalendarDays, Coins, CreditCard, Download, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
+import { goExternal, inFrame } from "../utils/goExternal";
 import { APPS } from "../hub/apps";
 
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box" };
@@ -80,7 +81,7 @@ export function CreditsTab() {
     setBusy("portal");
     try {
       const { url } = await api.openBillingPortal();
-      window.location.assign(url);
+      goExternal(url);
     } catch (err) {
       setError(err.message);
       setBusy("");
@@ -128,7 +129,7 @@ export function CreditsTab() {
                   <div style={{ fontSize: 12.5, color: plan ? C.teal : C.slate }}>
                     {plan ? `${plan.name} · ${money(plan.priceUsdCents, plan.currency)} a month${data.taxAdded ? " + VAT" : ""}` : "No plan yet"}
                   </div>
-                  <button type="button" style={{ ...btn(!plan), alignSelf: "flex-start" }} onClick={() => window.location.assign(app.plans.replace(/^#/, ""))}>
+                  <button type="button" style={{ ...btn(!plan), alignSelf: "flex-start" }} onClick={() => (inFrame() ? window.dispatchEvent(new CustomEvent("outreach-account-plans", { detail: app.wallet })) : window.location.assign(app.plans.replace(/^#/, "")))}>
                     <CreditCard size={13} /> {plan ? "Manage plan" : "See plans"}
                   </button>
                 </div>

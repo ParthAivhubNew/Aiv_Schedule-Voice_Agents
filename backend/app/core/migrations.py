@@ -906,6 +906,10 @@ async def _partner_welcome_credits(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS welcome_wallet VARCHAR DEFAULT 'leadgen'"))
 
 
+async def _partner_admin_screens(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS allow_admin_screens BOOLEAN DEFAULT FALSE"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -965,6 +969,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_19_business_record_people_checked", _business_record_people_checked),
     ("2026_11_20_journeys", _journeys),
     ("2026_11_21_people_todo_index_with_id", _people_todo_index_with_id),
+    ("2026_11_22_partner_admin_screens", _partner_admin_screens),
 ]
 
 

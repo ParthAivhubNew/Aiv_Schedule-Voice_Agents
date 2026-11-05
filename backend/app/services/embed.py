@@ -33,7 +33,7 @@ def _screen(write_sections, write_paths, read_sections=(), read_paths=""):
             re.compile(rf"^/({read_paths})(/|$)") if read_paths else None)
 
 
-_LEADS = "leads|enrichment|contacts|together"
+_LEADS = "leads|enrichment|contacts|together|assistant/feedback"
 _VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voices|numbers|calcom|voice-studio|call-lists|call-schedules|meeting-links"
 # screen -> what it may call, relative to /api. The Leads app loads its lists and its mail together, so each screen may also
 # read (never change) the other's data; everything else is refused.
@@ -41,8 +41,10 @@ _VOICE = "calls|prospects|missions|schedule|meetings|conversation-templates|voic
 # smaller slices of Leads for a partner that wants only that. Whatever a screen may call, the account's own roles and plan still
 # apply, and the actions that only an account admin may take (ordering phone numbers, billing, users and keys) stay with the
 # admin in Outreach itself: an embedded screen is never an admin.
-_LEADGEN = _LEADS + "|email|journeys|inbound|meetings|call-lists|calcom|profile|compliance|number-check|calls|prospects|missions"
-_VOICE_ALL = _VOICE + "|profile|compliance|human-calls|wa|telnyx|number-check|diagnostics|analytics|leads|enrichment|assistant|contacts"
+_LEADGEN = _LEADS + "|email|journeys|inbound|meetings|call-lists|calcom|profile|compliance|number-check|calls|prospects|missions|human-calls|assistant/voice"
+_VOICE_ALL = _VOICE + "|profile|compliance|human-calls|wa|telnyx|number-check|diagnostics|analytics|leads|enrichment|assistant/(?:voice|feedback)|contacts"
+_ACCOUNT = ("auth/(?:users|roles|sections)|numbers|billing/(?:access|overview|checkout|subscriptions|plan|cancel|portal)|credits$|credits/(?:usage|leads|wallet)|"
+            "developer|telnyx/numbers|email/mailboxes|profile|assistant/feedback")
 COMPONENTS: Dict[str, Tuple] = {
     "leads": _screen(("leadgen",), _LEADS, ("email",), "email"),
     "campaigns": _screen(("leadgen", "email"), _LEADS + "|email|journeys"),  # its Journeys page calls /journeys
@@ -51,7 +53,10 @@ COMPONENTS: Dict[str, Tuple] = {
     "voice": _screen(("calling", "calcom", "analytics", "company", "leadgen"), _VOICE_ALL, ("connections",), "connections|together"),
     # "api" is no screen: one pass for a partner's own code to run the actions of every plugin (POST /v1/run) for the connected person.
     "api": _screen((), "api-pass-only"),
-    "social": _screen(("scheduler", "company"), "scheduler|social|profile|enrichment/chats/social_assistant|enrichment/chats/social_assistant_memory", ("calcom", "leadgen", "calling"), "calcom|meetings|leads/lists|together"),
+    # "account" is the admin screen: users, roles, phone numbers, plans and credits, API keys. Only for a partner staff switched on (see
+    # account_blocked), only for a person who is a real admin of their own account, and only after a fresh sign-in (never the remembered one).
+    "account": _screen((), _ACCOUNT),
+    "social": _screen(("scheduler", "company"), "scheduler|social|profile|assistant/(?:feedback|social)|enrichment/chats/social_assistant|enrichment/chats/social_assistant_memory", ("calcom", "leadgen", "calling"), "calcom|meetings|leads/lists|together"),
 }
 ACCESS = ("full", "view")
 # component -> the pages of the app it shows (the app hides every other page of its menu)
@@ -60,6 +65,7 @@ VIEWS: Dict[str, List[str]] = {
     "campaigns": ["lists", "outreach", "mailboxes"],
     "mail": ["mail", "mailboxes"],
     "leadgen": [],  # every page of the Leads app
+    "account": [],
     "api": [],
     "voice": [],
     "social": [],
@@ -186,6 +192,13 @@ def forget() -> None:
     _V1_CACHE.clear()
 
 
+def account_blocked(partner: Any, component: str) -> str:
+    """A reason (text) when this partner may not use the Account screen, else "". Staff switch it on per partner in the admin portal."""
+    if component == "account" and not getattr(partner, "allow_admin_screens", False):
+        return "The Account screen is not switched on for this integration. Ask the Outreach team to turn it on."
+    return ""
+
+
 def may_use(ctx: Dict[str, Any], rel_path: str, method: str) -> bool:
     """Whether this embed token may call the path: only its component's paths, and only reads when the access is view."""
     _, _, writable, readable = COMPONENTS[ctx["component"]]
@@ -229,6 +242,22 @@ async def _load(claims: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             partner = await db.get(Partner, link.partner_id)
             if partner is None or partner.status == "suspended":
                 return None
+            admin_perms = None
+            if claims["cmp"] == "account":
+                # Admin power is never taken from the partner's page: the screen must be switched on for the partner, and the connected person must
+                # really be an admin of their own account right now (their roles are read again on every renewal).
+                from app.core.accounts import effective_access
+                from app.models.models import Operator
+
+                if account_blocked(partner, "account"):
+                    return None
+                op = await db.get(Operator, link.operator_id) if link.operator_id else None
+                if op is None or op.org_id != link.org_id:
+                    return None
+                is_admin_now, real_perms, _ = await effective_access(db, op)
+                if not is_admin_now:
+                    return None
+                admin_perms = real_perms
             org_status = (await db.execute(text("SELECT status FROM organizations WHERE id = :i"), {"i": link.org_id})).scalar()
             if org_status in ("suspended", "pending_verification"):  # a new account that has not confirmed its email is not usable yet
                 return None
@@ -242,10 +271,12 @@ async def _load(claims: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     perms = {section: P.NONE for section in P.SECTION_KEYS}
     perms.update({section: P.VIEW for section in COMPONENTS[component][1]})
     perms.update({section: level for section in COMPONENTS[component][0]})
+    if admin_perms is not None:
+        perms = dict(admin_perms)
     return {
         "type": "embed", "link_id": link.id, "partner_id": partner.id, "org_id": link.org_id, "component": component, "access": access,
         "test": partner.status != "live", "operator_id": link.operator_id or "embed_client", "username": f"embed:{partner.client_id}",
-        "name": partner.name, "email": "", "is_admin": False, "perms": perms, "roles": [], "must_change_password": False,
+        "name": partner.name, "email": "", "is_admin": admin_perms is not None, "perms": perms, "roles": [], "must_change_password": False,
     }
 
 

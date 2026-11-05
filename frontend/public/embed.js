@@ -12,6 +12,7 @@
  *   data-login="inline"  inside your page, in the place of the screen (in a popup or side panel, inside that)
  *   data-login="page"    the whole window goes to Outreach and comes back to the same page
  * Screens: leadgen (every page of the Leads app), voice, social, or a smaller slice of Leads: leads, campaigns, mail.
+ * account: users, phone numbers, plans and API keys for an admin. Outreach switches it on per partner; the admin signs in with their password each time.
  *
  * Look, set right on the tag (on the script tag for every screen, or on one [data-outreach] tag for that screen):
  *   data-accent="#0a7"  data-bg="#fff"  data-text="#111"  data-surface="#fafafa"  data-danger="#c00"
@@ -47,7 +48,7 @@
   "use strict";
   var script = document.currentScript;
   var DEFAULT_HOST = script && script.src ? new URL(script.src).origin : "";
-  var COMPONENTS = { leads: 1, leadgen: 1, campaigns: 1, mail: 1, voice: 1, social: 1, connect: 1 };
+  var COMPONENTS = { leads: 1, leadgen: 1, campaigns: 1, mail: 1, voice: 1, social: 1, account: 1, connect: 1 };
 
   function el(tag, css, attrs) {
     var e = document.createElement(tag);
@@ -193,7 +194,7 @@
     return this.client.host + "/embed/" + this.component + "?client_id=" + encodeURIComponent(this.client.clientId);
   };
 
-  var TITLES = { leads: "Leads", leadgen: "Leads", campaigns: "Email campaigns", mail: "Mail", voice: "Voice", social: "Social", connect: "Connect your account" };
+  var TITLES = { leads: "Leads", leadgen: "Leads", campaigns: "Email campaigns", mail: "Mail", voice: "Voice", social: "Social", account: "Account", connect: "Connect your account" };
 
   Screen.prototype._build = function (parent, height) {
     if (this.frame) return;
@@ -364,7 +365,7 @@
     if (!this.host) throw new Error("Outreach: load embed.js from your Outreach host, or pass { host }.");
   }
   Client.prototype.create = function (component, options) {
-    if (!COMPONENTS[component]) throw new Error("Outreach: unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice or social.");
+    if (!COMPONENTS[component]) throw new Error("Outreach: unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice, social or account.");
     return new Screen(this, component, options);
   };
   // Links one of your users to an Outreach account. `connectToken` comes from your server.
@@ -557,7 +558,7 @@
     opts = opts || {};
     var client = opts.client || tag.client, passUrl = opts.pass || tag.pass, mode = opts.mode || "inline";
     if (!client) { say(node, 'Add data-key="pk_..." to the embed.js script tag.'); return Promise.resolve(null); }
-    if (!COMPONENTS[component] || component === "connect") { say(node, "Unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice or social."); return Promise.resolve(null); }
+    if (!COMPONENTS[component] || component === "connect") { say(node, "Unknown screen '" + component + "'. Use leadgen, leads, campaigns, mail, voice, social or account."); return Promise.resolve(null); }
     if (node && node.querySelector) { var old = node.querySelector("[data-outreach-note]"); if (old) old.remove(); }
     if (!passUrl) return showByPopup(node, component, opts, client);
     return getPass(passUrl, component).then(function (d) {

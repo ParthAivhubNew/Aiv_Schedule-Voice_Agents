@@ -11,9 +11,11 @@ import { applyAppearance, cleanAppearance, cleanLogo } from "./theme";
 const LeadGenerationPlugin = lazy(() => import("../plugins/leadgen/LeadGenerationPlugin"));
 const SocialWorkspaceGate = lazy(() => import("../plugins/scheduler/SocialWorkspace").then((m) => ({ default: m.SocialWorkspaceGate })));
 const CallingWorkspace = lazy(() => import("../plugins/voice/calling/CallingWorkspace").then((m) => ({ default: m.CallingWorkspace })));
+const AccountScreen = lazy(() => import("./AccountScreen"));
+const HumanCallHost = lazy(() => import("../hub/HumanCallHost")); // the browser phone: Call buttons and the Phone page open it
 
 // Where each screen opens inside its app (the app keeps its place in memory; see utils/route).
-const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan" };
+const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan", account: "/account" };
 const NOOP = () => {};
 
 function Centered({ children }) {
@@ -174,6 +176,8 @@ export function EmbedApp() {
             {["leads", "leadgen", "campaigns", "mail"].includes(session.component) && <LeadGenerationPlugin {...props} />}
             {session.component === "voice" && <CallingWorkspace {...props} />}
             {session.component === "social" && <SocialWorkspaceGate {...props} />}
+            {session.component === "account" && <AccountScreen operator={op} />}
+            {["leadgen", "voice"].includes(session.component) && <HumanCallHost />}
           </Suspense>
         </div>
       </EmbedProvider>

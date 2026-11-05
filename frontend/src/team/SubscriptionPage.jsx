@@ -4,6 +4,7 @@ import { AlertTriangle, Check, CheckCircle2, CreditCard, ExternalLink } from "lu
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { BILLING_CHANGED, takeBillingParam } from "../hub/BillingReturnBanner";
+import { goExternal } from "../utils/goExternal";
 import { btn, day, fmt, heading, money, MonthlyUsage, WalletCard, WALLET_COLOUR } from "./CreditsTab";
 
 const card = { border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" };
@@ -94,7 +95,7 @@ export function SubscriptionPage({ wallet, back }) {
   };
   const toStripe = (key, fn) => run(key, async () => {
     const { url } = await fn();
-    window.location.assign(url);
+    goExternal(url);
   });
 
   const change = (p) => {
@@ -107,7 +108,7 @@ export function SubscriptionPage({ wallet, back }) {
       yes: up ? "Upgrade now" : "Change plan",
       run: () => run(p.id, async () => {
         const { url } = await api.changePlan(p.id);
-        if (url) return window.location.assign(url); // the bank wants this payment confirmed
+        if (url) return goExternal(url); // the bank wants this payment confirmed
         setNotice(up ? `You are now on ${p.name}. The extra credits appear within a minute.` : `You move to ${p.name} at your next renewal.`);
         loadSoon();
       }),

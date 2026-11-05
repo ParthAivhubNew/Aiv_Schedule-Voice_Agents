@@ -71,6 +71,7 @@ export function Partners({ canEdit }) {
                 <td style={cell}>
                   <Pill tone={TONE[p.status]}>{p.status}</Pill>
                   {p.liveRequestedAt && p.status === "sandbox" && <div style={{ color: C.amber, marginTop: 4 }}>Asked to go live {when(p.liveRequestedAt)}</div>}
+                  <div style={{ color: p.adminScreens ? C.teal : C.slate, marginTop: 4 }}>Account screen: {p.adminScreens ? "on" : "off"}</div>
                 </td>
                 <td style={cell}>
                   {canEdit && (
@@ -78,6 +79,12 @@ export function Partners({ canEdit }) {
                       {p.status === "sandbox" && (
                         <button type="button" style={btn(true)} onClick={() => window.confirm(`Switch ${p.name} to live? New accounts will get live keys.`) && run(() => adminApi.setPartnerStatus(p.id, "live"), `${p.name} is live.`)}>Go live</button>
                       )}
+                      <button type="button" style={btn(false)} title="Users, phone numbers, plans and API keys inside the partner's page, for an admin who signs in with their password"
+                        onClick={() => (p.adminScreens
+                          ? run(() => adminApi.setPartnerAdminScreens(p.id, false), `Account screen is off for ${p.name}.`)
+                          : window.confirm(`Turn on the Account screen for ${p.name}? An admin of any account connected through them could then change users, phone numbers, plans and API keys from ${p.name}'s page.`) && run(() => adminApi.setPartnerAdminScreens(p.id, true), `Account screen is on for ${p.name}.`))}>
+                        {p.adminScreens ? "Turn off Account screen" : "Turn on Account screen"}
+                      </button>
                       {p.status !== "suspended" && (
                         <button type="button" style={btn(false)} onClick={() => window.confirm(`Pause ${p.name}? Every key it holds stops working.`) && run(() => adminApi.setPartnerStatus(p.id, "suspended"), `${p.name} paused.`)}>Pause</button>
                       )}

@@ -325,7 +325,8 @@ function RolesTab({ roles, sections, reload, isAdmin }) {
 }
 
 // Users & roles: add people, give roles, set No access / View / Full per section.
-export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }) {
+// inline: drawn in the page instead of over it (the embedded Account screen), with no close button.
+export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", inline = false }) {
   const [tab, setTab] = useState(initialTab);
   const [roles, setRoles] = useState([]);
   const [sections, setSections] = useState([]);
@@ -361,8 +362,9 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}`, fontFamily: FONT_BODY }}>
+    <div style={inline ? { height: "100%" } : { position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.22)", border: `1px solid ${C.border}`, fontFamily: FONT_BODY,
+        ...(inline ? { borderRadius: 0, maxWidth: "none", maxHeight: "none", height: "100%", boxShadow: "none", border: "none" } : {}) }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: C.cobaltSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -373,7 +375,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users" }
               <div style={{ fontSize: 12, color: C.slate }}>Who can sign in, and what each person can see or change.</div>
             </div>
           </div>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }} aria-label="Close"><X size={18} /></button>
+          {inline ? null : <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }} aria-label="Close"><X size={18} /></button>}
         </div>
         <div style={{ display: "flex", gap: 4, padding: "10px 20px 0", borderBottom: `1px solid ${C.border}` }}>
           {tabBtn("users", "Users", Users)}

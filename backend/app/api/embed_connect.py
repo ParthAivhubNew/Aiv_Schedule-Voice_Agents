@@ -82,6 +82,8 @@ async def create_connect_session(body: ConnectSessionBody, request: Request) -> 
         raise HTTPException(status_code=429, detail="Too many requests. Slow down and try again shortly.")
     if body.component not in EM.COMPONENTS or body.access not in EM.ACCESS:
         raise HTTPException(status_code=422, detail=f"component must be one of: {', '.join(EM.COMPONENTS)}; access is full or view.")
+    if EM.account_blocked(partner, body.component):
+        raise HTTPException(status_code=403, detail=EM.account_blocked(partner, body.component))
     external = body.external_id.strip()
     with system_scope():
         async with AsyncSessionLocal() as db:
@@ -137,7 +139,8 @@ async def connect_info(request: Request) -> Dict[str, Any]:
     return {"partner": {"name": partner.name, "logoUrl": partner.logo_url or "", "accentColor": partner.accent_color or ""},
             "component": claims["cmp"], "access": claims["acc"], "consentVersion": PT.CONSENT_VERSION, "test": partner.status != "live",
             "origin": claims.get("pop") or "",
-            "remembered": bool(claims.get("pop") and EM.read_remember(request.cookies.get(EM.REMEMBER_COOKIE, "")))}
+            # the Account screen always asks for the password again: a remembered sign-in is never enough to change users, numbers, plans or keys
+            "remembered": bool(claims["cmp"] != "account" and claims.get("pop") and EM.read_remember(request.cookies.get(EM.REMEMBER_COOKIE, "")))}
 
 
 def _guard(request: Request, claims: Dict[str, Any], body: ConnectBody) -> str:
@@ -246,6 +249,8 @@ async def connect_resume(body: ConnectBody, request: Request, response: Response
     """A person this browser already signed in through our popup connects again with no password. The consent they gave
     before still stands; a person connecting to a new partner is asked to agree first."""
     claims = _claims(request)
+    if claims["cmp"] == "account":
+        raise HTTPException(status_code=401, detail="Sign in with your password to open the Account screen.")
     if not claims.get("pop"):
         raise HTTPException(status_code=400, detail="This is for the popup opened from a web page.")
     seen = EM.read_remember(request.cookies.get(EM.REMEMBER_COOKIE, ""))

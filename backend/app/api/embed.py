@@ -55,6 +55,8 @@ async def create_session(body: SessionBody, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"component must be one of: {', '.join(EM.COMPONENTS)}.")
     if body.access not in EM.ACCESS:
         raise HTTPException(status_code=422, detail="access must be full or view.")
+    if EM.account_blocked(partner, body.component):
+        raise HTTPException(status_code=403, detail=EM.account_blocked(partner, body.component))
     if bool(body.link_id) == bool(body.external_id.strip()):
         raise HTTPException(status_code=422, detail="Send either link_id or external_id.")
     q = select(PartnerLink).where(PartnerLink.partner_id == partner.id)
@@ -84,7 +86,7 @@ async def session(request: Request) -> Dict[str, Any]:
             "views": EM.VIEWS[ctx["component"]],
             "appearance": TH.clean_appearance(partner.theme if partner else None),
             "operator": {"id": ctx["operator_id"], "name": name, "username": ctx["username"], "email": "", "org_name": name, "org_id": ctx["org_id"],
-                         "role": "Embedded", "roles": [], "is_admin": False, "is_platform_org": False, "permissions": ctx["perms"],
+                         "role": "Admin" if ctx.get("is_admin") else "Embedded", "roles": [], "is_admin": bool(ctx.get("is_admin")), "is_platform_org": False, "permissions": ctx["perms"],
                          "grants": {}, "is_active": True, "must_change_password": False, "profile": {}},
             "partner": {"name": partner.name if partner else "", "logoUrl": (partner.logo_url if partner else "") or "",
                         "accentColor": (partner.accent_color if partner else "") or ""}}

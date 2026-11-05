@@ -93,6 +93,7 @@ export const adminApi = {
   approvePartnerApplication: (id, note = "") => request(`/partners/applications/${q(id)}/approve`, { method: "POST", body: { note } }),
   rejectPartnerApplication: (id, note = "") => request(`/partners/applications/${q(id)}/reject`, { method: "POST", body: { note } }),
   setPartnerStatus: (id, status) => request(`/partners/${q(id)}/status`, { method: "POST", body: { status } }),
+  setPartnerAdminScreens: (id, enabled) => request(`/partners/${q(id)}/admin-screens`, { method: "POST", body: { enabled } }),
   developerAccess: (orgId = "") => request(`/developer-access?org_id=${q(orgId)}`),
   revokeKey: (id) => request(`/developer-access/keys/${q(id)}/revoke`, { method: "POST" }),
   disableWebhook: (id) => request(`/developer-access/webhooks/${q(id)}/disable`, { method: "POST" }),

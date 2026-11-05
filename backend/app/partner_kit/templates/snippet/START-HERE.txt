@@ -14,6 +14,7 @@ STEP 2 - Put it in your own page
   Copy the two lines in  snippet.html  to the place in your page where Outreach should show.
   Change the colours on the same line: data-accent, data-radius, data-font, data-bg, data-text, data-logo, data-name.
   Other screens: change  data-outreach="leadgen"  (the whole Leads app) to  voice  or  social  (also: leads, campaigns, mail for a smaller slice).
+  For your account admins:  account  (users, phone numbers, plans, API keys). The Outreach team switches it on for you; the admin signs in with their password each time.
   Where the sign-in shows: add  data-login="popup"  (small window, the default),  "inline"  (inside your page) or  "page"  (the whole window, then back).
   Show it in a popup or side panel instead: use a button, like  <button data-outreach="voice" data-mode="popup">Calls</button>
 

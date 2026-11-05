@@ -242,6 +242,8 @@ async def connect(request: Request, db: AsyncSession, data: Dict[str, Any]) -> D
     component, access = _text(data, "component", 30) or "leads", _text(data, "access", 10) or "full"
     if component not in EM.COMPONENTS or access not in EM.ACCESS:
         fail(422, "invalid_request", f"component must be one of: {', '.join(EM.COMPONENTS)}; access is full or view.")
+    if EM.account_blocked(partner, component):
+        fail(403, "not_enabled", EM.account_blocked(partner, component))
     origin, ret = _page_origin(request), _text(data, "return_url", 500).split("#")[0]
     if ret and not (PT.extension_return_ok(origin, ret) if origin.startswith(PT._EXT_SCHEMES) else PT.page_origin(ret) == origin):
         fail(422, "return_url_not_allowed", "return_url must be a page on the same web address as the page that asked "
@@ -273,6 +275,8 @@ async def refresh(request: Request, db: AsyncSession, data: Dict[str, Any]) -> D
     ctx = await EM.context(_text(data, "token", 3000))  # still valid, link still active, partner not paused
     if ctx is None or ctx["partner_id"] != partner.id:
         fail(401, "token_expired", "This session has ended. Click Connect again.")
+    if ctx["component"] == "account":  # an admin session is never renewed by the page: it ends, and the person signs in again
+        fail(401, "token_expired", "The Account screen ended. Click Connect and sign in again.")
     token, expires_at = EM.mint(ctx["link_id"], partner.id, ctx["org_id"], ctx["component"], ctx["access"])
     return {"token": token, "expires_at": expires_at, "component": ctx["component"], "access": ctx["access"], "link_id": ctx["link_id"]}
 

@@ -1379,6 +1379,30 @@ async def partner_set_status(partner_id: str, body: PartnerStatusBody, request: 
     return {"id": partner_id, "status": body.status, "keysStopped": stopped}
 
 
+class AdminScreensBody(BaseModel):
+    enabled: bool = False
+
+
+@router.post("/partners/{partner_id}/admin-screens")
+async def partner_set_admin_screens(partner_id: str, body: AdminScreensBody, request: Request):
+    """Switch the embedded Account screen (users, roles, phone numbers, plans, API keys) on or off for one partner. Off by default: with it on,
+    an Outreach admin who connects through the partner's page can change those things from the partner's page."""
+    from app.models.models import Partner
+    from app.services import embed as EM
+    from app.services import partners as PT
+
+    staff = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        p = await db.get(Partner, partner_id)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Partner not found.")
+        PT.audit(db, p.id, f"staff:{staff.get('email', '')}", "admin_screens", "on" if body.enabled else "off")
+        p.allow_admin_screens = bool(body.enabled)
+        await db.commit()
+    EM.forget()  # open sessions notice at once
+    return {"id": partner_id, "adminScreens": bool(body.enabled)}
+
+
 # ── Platform AI (Post scheduler, Voice, Leadgen) ───────────────────────────
 @router.get("/platform-ai")
 @router.get("/platform-ai/{scope}")

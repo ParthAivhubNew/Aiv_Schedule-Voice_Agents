@@ -414,7 +414,7 @@ def partner_json(p: Partner, secret: bool = True) -> Dict[str, Any]:
         "scopes": p.scopes or DEFAULT_SCOPES, "logoUrl": p.logo_url or "", "accentColor": p.accent_color or "",
         "webhookUrl": p.webhook_url or "", "secretKeyPrefix": p.secret_prefix or "", "theme": p.theme or {"variables": {}}, "liveRequestedAt": p.live_requested_at.isoformat() if p.live_requested_at else None,
         "termsVersion": p.terms_version or "", "createdAt": p.created_at.isoformat() if p.created_at else None,
-        "welcomeCredits": int(p.welcome_credits or 0), "welcomeWallet": p.welcome_wallet or "leadgen",
+        "welcomeCredits": int(p.welcome_credits or 0), "welcomeWallet": p.welcome_wallet or "leadgen", "adminScreens": bool(p.allow_admin_screens),
     }
     if secret:
         out["webhookSecret"] = p.webhook_secret or ""

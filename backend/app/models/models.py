@@ -2149,6 +2149,7 @@ class Partner(Base):
     theme = Column(JSON, default=dict)  # the saved default look of embedded screens (see services/embed_theme.py)
     welcome_credits = Column(Integer, default=0)  # credits from the partner's own wallet given to each account created through it
     welcome_wallet = Column(String, default="leadgen")  # which wallet they go to
+    allow_admin_screens = Column(Boolean, default=False)  # staff switch: the embedded Account screen (users, numbers, plans, keys) for this partner's people
     terms_version = Column(String, default="")
     terms_accepted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
