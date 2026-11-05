@@ -359,19 +359,19 @@ def test_a_page_is_read_by_our_own_reader_first_and_deepseek_is_asked_only_when_
 
     monkeypatch.setattr(ES, "fetch_deepseek", deepseek)
 
-    async def ours_ok(url, max_chars=0, timeout=None):
+    async def ours_ok(url, max_chars=0, timeout=None, links_out=None):
         return "Ours", "our text"
 
     monkeypatch.setattr(H, "fetch_text", ours_ok)
     assert run(H._read_page("https://a.example")) == ("Ours", "our text") and asked == []  # quick and free: DeepSeek is not asked
 
-    async def dead(url, max_chars=0, timeout=None):
+    async def dead(url, max_chars=0, timeout=None, links_out=None):
         raise FetchRefused("the page could not be found")
 
     monkeypatch.setattr(H, "fetch_text", dead)
     assert run(H._read_page("https://gone.example")) is None and H._read_page.dead is True and asked == []  # a dead site never waits on a second reader
 
-    async def blocked(url, max_chars=0, timeout=None):
+    async def blocked(url, max_chars=0, timeout=None, links_out=None):
         raise FetchRefused("the site refused the request (403)")
 
     monkeypatch.setattr(H, "fetch_text", blocked)
@@ -474,3 +474,57 @@ def test_the_new_hosts_are_directories_and_the_old_rule_still_holds():
     for u in ("https://ico.org.uk/x", "https://www.ukphonebook.com/y", "https://www.192.com/z"):
         assert site_check.is_listing_host(u, "Anything Ltd")
     assert not site_check.is_listing_host("https://www.hunkydory.group", "Hunky Dory Restaurants Ltd")
+
+
+# ── Phase 2: a website we hold is read before any search; the company's own site gives its social pages ──
+HELD = "https://www.teddybears-preschool.co.uk"
+
+
+def test_a_held_website_answers_phone_and_email_without_any_search(monkeypatch):
+    log = _web(monkeypatch, {}, pages={HELD: ("Teddybears Pre-School", "Teddybears Pre-School, Hitchin SG4 0QY. Call 01462 123456 or email hello@teddybears-preschool.co.uk")})
+    out = run(H.find_company(None, name=NAME, place=FACTS["region"], facts={**FACTS, "website": HELD}, want="all"))
+    assert log["queries"] == []  # nothing was searched: the company's own homepage had both
+    assert out["phones"] == ["01462 123456"] and out["emails"] == ["hello@teddybears-preschool.co.uk"]
+
+
+def test_a_held_website_that_has_no_email_still_searches_for_the_rest(monkeypatch):
+    log = _web(monkeypatch, {}, pages={HELD: ("Teddybears Pre-School", "Teddybears Pre-School, Hitchin SG4 0QY. Call 01462 123456")})
+    run(H.find_company(None, name=NAME, place=FACTS["region"], facts={**FACTS, "website": HELD}, want="email"))
+    assert log["queries"]  # the homepage did not give an email, so the contact search ran
+
+
+def test_social_pages_the_companys_own_site_links_to_are_returned_and_share_buttons_are_not(monkeypatch):
+    _web(monkeypatch, {"Official website": [TEDDY_SITE]}, pages={OWN: ("Teddybears Pre-School", "Teddybears Pre-School, Hitchin SG4 0QY. Call 01462 123456")})
+    H.PAGE_LINKS[HELD] = ["https://www.facebook.com/TeddybearsHitchin", "https://www.facebook.com/sharer/sharer.php?u=x", "https://twitter.com/teddybears_htn",
+                         "https://www.instagram.com/p/ABC123", "https://www.linkedin.com/company/teddybears-preschool/about/"]
+    try:
+        out = run(H.find_company(None, name=NAME, place=FACTS["region"], facts=FACTS, want="all"))
+    finally:
+        H.PAGE_LINKS.pop(HELD, None)
+    assert out["social_links"] == {"facebook": "https://www.facebook.com/TeddybearsHitchin", "x": "https://x.com/teddybears_htn",
+                                   "linkedin": "https://www.linkedin.com/company/teddybears-preschool"}
+
+
+def test_the_saved_combined_lookup_shows_each_button_its_own_field_without_a_new_search(monkeypatch):
+    from app.services import company_contacts as CC
+
+    class Biz:
+        id, name, raw_data = "b1", NAME, {"contacts_web_all": {"guardrail": True, "fetched_at": "2026-11-05T00:00:00Z", "website": HELD, "phones": ["01462 123456"], "emails": [],
+                                                                "confidence": {"website": {"score": 90, "label": "high"}}}}
+
+    class Db:
+        async def flush(self):
+            return None
+
+    monkeypatch.setattr(CC.business_records, "refresh_rank", lambda b: None)
+    biz = Biz()
+    got = run(CC._reveal_saved(Db(), biz, biz.raw_data["contacts_web_all"], "phone", None))
+    assert got["found"] and got["phones"] == ["01462 123456"] and got["website"] == "" and got["cached"] is False  # only the phone is shown, and it is new to this person
+    assert biz.raw_data["contacts_web"]["phones"] == ["01462 123456"] and not biz.raw_data["contacts_web"]["website"]
+    none = run(CC._reveal_saved(Db(), biz, biz.raw_data["contacts_web_all"], "email", None))
+    assert none["found"] is False and none["cached"] is True and none["combined"] is True  # searched already: not found, nothing re-searched
+
+
+def test_person_email_asks_the_cheapest_providers_and_at_most_two():
+    from app.services import enrichment_waterfall as W
+    assert W.PROVIDERS[:2] == ["icypeas", "leadmagic"] and W.MAX_PROVIDERS_ASKED == 2

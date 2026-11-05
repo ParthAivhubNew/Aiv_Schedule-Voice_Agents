@@ -519,8 +519,6 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     charged, note, source = 0, "", ""
     try:
         web = await CC.web_contacts(db, biz, want="website", hint=body.hint)
-        if web.get("cached") and not web.get("website"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="website", hint=body.hint)  # an earlier lookup found a phone but no site: look again for the site
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
@@ -551,9 +549,19 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
                         "returned nothing or is not switched on")
         from app.services import web_harness
 
-        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {})
+        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place, biz.registration_number or "") if place else {})
         if place and not confirmed:
             logger.info("find-website: the deeper search named a site for %r but it could not be confirmed on the site itself", biz.name)
+        from app.services import listing_pages as _LPG
+
+        booking = _LPG.booking_label(place.get("website") or "") if place else ""
+        if booking and place.get("postcode_match") and not confirmed.get("website"):
+            # a booking-platform page is the company's listing, never its website: kept labelled, and not charged as a website
+            _LPG.keep(biz, {"url": place["website"], "site": booking, "kind": "booking", "confirmed": True, "how": "the deeper search lists it for this company at its postcode",
+                            "why": f"The deeper search lists this {booking} page for the company at its postcode", "also_seen": {}, "at": datetime.utcnow().isoformat() + "Z"})
+            await db.commit()
+        if place and not confirmed.get("website") and not booking:
+            await _suggest_place(db, biz, place, "website")
         if confirmed.get("website"):
             try:
                 # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
@@ -577,7 +585,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         shown = "the company's page" if listing.get("confirmed") else "a page that looks like the company's (not confirmed)"
         note = f"No website of its own found. Found {shown} on {listing['site']}. Nothing was charged for it."
     elif not got and not note and not _options(biz, "website", got):
-        note = "We couldn't find a confirmed website for this company right now. Try again later." + _closest(web)
+        note = "Nothing confirmed for the website yet. The links shown are where to look, or add details and search again." + _closest(web)
     await CP.sync_safely(db, biz)  # every website, phone, email and page found is also listed, searchable, on its own
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
@@ -665,8 +673,6 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     await _can_research(db)
     try:
         web = await CC.web_contacts(db, biz, want="email", hint=hint)
-        if web.get("cached") and not web.get("emails"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="email", hint=hint)
     except Exception:
         return {"found": False, "source": "", "charged": 0, "company": await RV.mask_one(db, have), "note": "The web lookup didn't finish just now. Nothing was charged."}
     if web.get("closed"):
@@ -682,7 +688,7 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     await CP.sync_safely(db, biz)
     shown = _options(biz, "email", got)
     return {"found": got, "source": "web" if got else "", "charged": charged, "options": shown, "company": await RV.mask_one(db, lead_filters.card(biz)),
-            "note": "" if got or shown else "We couldn't find an email for this company right now. Try again later."}
+            "note": "" if got or shown else "Nothing confirmed for the email yet. The links shown are where to look, or add details and search again."}
 
 
 def _vouched(place: Optional[Dict[str, Any]], confirmed: Dict[str, Any]) -> Dict[str, Any]:
@@ -691,9 +697,9 @@ def _vouched(place: Optional[Dict[str, Any]], confirmed: Dict[str, Any]) -> Dict
     from app.services import company_contacts as CC
 
     out = dict(confirmed or {})
-    if place and place.get("postcode_match"):
-        if not out.get("website") and place.get("website"):
-            out["website"] = place["website"]
+    if place and place.get("postcode_match") and place.get("name_match", True):
+        if not out.get("website") and place.get("website") and not site_check.is_listing_host(place["website"]):
+            out["website"] = place["website"]  # a booking platform or directory page is a listing, never the company's website
         if not out.get("phone") and place.get("phone") and CC.is_uk_phone(place["phone"]):
             out["phone"] = place["phone"]
     return out
@@ -734,8 +740,6 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     charged, note, source = 0, "", ""
     try:
         web = await CC.web_contacts(db, biz, want="phone", hint=hint)
-        if web.get("cached") and not web.get("phones"):
-            web = await CC.web_contacts(db, biz, refresh=True, want="phone", hint=hint)  # the earlier lookup was for a website: this one is for a phone
     except Exception:
         web = None
         note = "The web lookup didn't finish just now."
@@ -763,10 +767,12 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
                         biz.name, bool(web and web.get("found")))
         from app.services import web_harness
 
-        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place) if place else {})
+        confirmed = _vouched(place, await web_harness.confirm_place(biz.name, biz.postcode or "", place, biz.registration_number or "") if place else {})
         if place and not confirmed.get("phone"):
             logger.info("find-phone: the deeper search matched %r but %s", biz.name,
                         "its listing has no phone" if not place.get("phone") else "the number is not confirmed (no postcode match, and the company's own site does not show it)")
+        if place and not confirmed.get("phone"):
+            await _suggest_place(db, biz, place, "phone")
         if confirmed.get("phone"):
             try:
                 await _keep_place(db, biz, place, confirmed)
@@ -785,11 +791,38 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         await db.commit()
         card = lead_filters.card(biz)
     if not got and not note and not _options(biz, "phone", got):
-        note = "We couldn't find a phone number for this company right now. Try again later."
+        note = "Nothing confirmed for the phone yet. The links shown are where to look, or add details and search again."
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
             "options": _options(biz, "phone", got)}
+
+
+async def _suggest_place(db: AsyncSession, biz: BusinessRecord, place: Optional[Dict[str, Any]], kind: str) -> None:
+    """A Google listing for this company's own postcode that could not be confirmed on its own site: offered as a labelled suggestion with its
+    Google Maps page, never filled in. Added to the web lookup's suggestions, not instead of them."""
+    from app.services import company_contacts as CC
+
+    if not place or not place.get("postcode_match") or str(place.get("via") or "google_places") != "google_places":
+        return
+    ref = place.get("place_id") or ""
+    maps = f"https://www.google.com/maps/place/?q=place_id:{ref}" if ref else ""
+    if kind == "website":
+        value = _domain(place.get("website") or "")
+        if not value or site_check.is_listing_host(place.get("website") or ""):
+            return
+        value = "https://" + value
+    else:
+        value = _phone(place.get("phone") or "") if place.get("phone") else ""
+        from app.services.company_contacts import is_uk_phone
+
+        if not value or not is_uk_phone(value):
+            return
+    label = "Google lists this for the company" if place.get("name_match", True) else f"Google lists \"{place.get('name', 'a business')}\" at the company's address"
+    have = list(((biz.raw_data or {}).get("lookup_options") or {}).get(kind) or [])
+    if any(o.get("value") == value for o in have):
+        return
+    await CC._remember_options(db, biz, {kind: [*have, {"value": value, "score": 55, "label": label, "sources": [maps] if maps else []}]})
 
 
 def _options(biz: BusinessRecord, kind: str, got: bool) -> List[Dict[str, Any]]:
@@ -835,7 +868,7 @@ class ChooseIn(BaseModel):
 @router.post("/companies/{company_id}/choose")
 async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Depends(get_db)):
     """The person checked the suggestions and confirmed the correct one. It is kept as the answer and counted: more confirmations raise its score,
-    until the next lookup uses it without asking. A website, phone or email pick is charged here, once: showing suggestions is free, so a
+    until the next lookup uses it without asking. A website, phone, email, LinkedIn or social pick is charged here, once: showing suggestions is free, so a
     search that ends with nothing chosen costs nothing."""
     from app.services import company_contacts as CC, contact_choices as CH, linkedin_lookup as LI
 
@@ -849,11 +882,17 @@ async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Dep
             raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
         LI.chosen(biz, body.person, value)
         kind_key = LI.entry_key(body.person)
+        await db.commit()
+        await _charge_leads(db, 1, f"LinkedIn for {biz.name}", "lead_social")
+        charged = 1
     elif body.kind in SL.NETWORKS:
         if not SL.allowed(biz, body.kind, value):
             raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
         SL.chosen(biz, body.kind, value)
         kind_key = body.kind
+        await db.commit()
+        await _charge_leads(db, 1, f"{body.kind.title()} for {biz.name}", "lead_social")
+        charged = 1
     elif body.kind in RV.KINDS:
         shown = ((biz.raw_data or {}).get("lookup_options") or {}).get(body.kind) or []
         if value not in [o.get("value") for o in shown]:
@@ -935,10 +974,10 @@ async def find_linkedin(company_id: str, body: LinkedinIn = LinkedinIn(), db: As
     r = await LI.find(db, biz, person, hint=body.hint)
     await db.commit()
     charged = 0
-    if (r["url"] or r["options"]) and r.get("searched"):
-        await _charge_leads(db, 1, f"LinkedIn for {biz.name}")
+    if r["url"] and r.get("searched"):  # suggestions alone are free: a pick is charged when it is made (choose_contact)
+        await _charge_leads(db, 1, f"LinkedIn for {biz.name}", "lead_social")
         charged = 1
-    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "We couldn't find a LinkedIn page right now. Try again later.")
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Nothing was charged." if r.get("failed") else "Nothing confirmed for LinkedIn yet. The links shown are where to look.")
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()  # the rows remembered for searches carry the links
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note}
@@ -964,11 +1003,11 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
     r = await (LI.find(db, biz, hint=body.hint) if body.network == "linkedin" else SL.find(db, biz, body.network, hint=body.hint))
     await db.commit()
     charged = 0
-    if (r["url"] or r["options"]) and r.get("searched"):
-        await _charge_leads(db, 1, f"{body.network.title()} for {biz.name}")
+    if r["url"] and r.get("searched"):  # suggestions alone are free: a pick is charged when it is made (choose_contact)
+        await _charge_leads(db, 1, f"{body.network.title()} for {biz.name}", "lead_social")
         charged = 1
     label = "a LinkedIn page" if body.network == "linkedin" else f"{'an' if SL.NETWORKS[body.network]['label'][0] in 'AEIOUX' else 'a'} {SL.NETWORKS[body.network]['label']}"
-    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"We couldn't find {label} right now. Try again later.")
+    note = "" if r["url"] or r["options"] else ("The search didn't finish just now. Try again later." if r.get("failed") else f"Nothing confirmed for {label} yet. The links shown are where to look.")
     await CP.sync_safely(db, biz)
     _PAGE_CACHE.clear()
     return {"found": bool(r["url"]), "url": r["url"], "options": r["options"], "charged": charged, "note": note, "company": await RV.mask_one(db, lead_filters_card(biz))}

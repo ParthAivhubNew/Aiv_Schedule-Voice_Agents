@@ -209,7 +209,7 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     (no `guardrail` mark) is stale at once, because its phones and emails were never checked."""
     cached = (biz.raw_data or {}).get("contacts_web")
     fresh = bool(cached) and bool(cached.get("guardrail")) and _age_days(cached.get("fetched_at")) <= CACHE_DAYS
-    if cached and not refresh and fresh and not hint:  # extra words from the person always mean a new search
+    if cached and not refresh and fresh and not hint and (want == "all" or _has(cached, want)):  # extra words from the person always mean a new search
         if cached.get("audit") and _age_days(cached.get("fetched_at")) > AUDIT_DAYS:
             raw = dict(biz.raw_data or {})
             raw["contacts_web"] = {k: v for k, v in cached.items() if k != "audit"}
@@ -219,20 +219,24 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     taught = None if hint else await _taught(db, biz, want)
     if taught:
         return taught
+    saved = (biz.raw_data or {}).get("contacts_web_all")
+    if want in ("website", "phone", "email") and saved and saved.get("guardrail") and not refresh and not hint and _age_days(saved.get("fetched_at")) <= CACHE_DAYS:
+        return await _reveal_saved(db, biz, saved, want, cached)  # the earlier search looked for all three: this button shows its own, no new search
     from app.services import web_harness
 
     facts = {"address": biz.address, "postcode": biz.postcode, "industry": (biz.sic_text or biz.industry or "").split(" | ")[0],
              "company_number": biz.registration_number, "website": biz.website or biz.domain, "phone": biz.phone, "email": biz.email,
-             "status": biz.status}
+             "status": biz.status, "previous_names": _previous_names(biz)}
+    search_want = want if hint else "all"  # one search serves the website, phone and email buttons; extra words from the person search for their one field
     try:
         from app.services import contact_choices as CH
 
         try:
-            boosts = await CH.boosts_for(db, biz.id, [k for k in ("website", "phone", "email") if want in ("all", k)])
+            boosts = await CH.boosts_for(db, biz.id, [k for k in ("website", "phone", "email") if search_want in ("all", k)])
         except Exception as err:  # what users confirmed only improves a lookup; it must never stop one
             logger.warning("confirmed-answer boost unavailable for %s: %s", biz.name, err)
             boosts = {}
-        got = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts, want=want, boosts=boosts, hint=hint)
+        got = await web_harness.find_company(db, name=biz.name, place=biz.region or "", facts=facts, want=search_want, boosts=boosts, hint=hint)
     except Exception as err:
         logger.warning("web lookup failed for %s: %s", biz.name, err)
         raise
@@ -244,7 +248,12 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     found = {"website": got["website"], "phones": got["phones"][:1], "emails": got["emails"][:1], "team": [], "sources": got["sources"][:8],
              "source": "web", "verified": False, "guardrail": True, "confidence": got["confidence"], "audit": got["audit"], "ledger": got["ledger"],
              "fetched_at": stamp}
-    # One button looks for one thing: whatever else the search turned up on the way is dropped, never stored or shown without its own click.
+    if not hint:  # what the search found for all three is kept hidden; each button shows its own field when it is pressed (and paid for)
+        raw0 = dict(biz.raw_data or {})
+        raw0["contacts_web_all"] = dict(found)
+        biz.raw_data = raw0
+    _keep_socials(biz, got.get("social_links") or {}, stamp)
+    # One button shows one thing: the other fields stay hidden in contacts_web_all until their own button is pressed.
     if want in ("website", "phone", "email"):
         if want != "website":
             found["website"] = ""
@@ -275,6 +284,62 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     business_records.refresh_rank(biz)
     await db.flush()
     return {**found, "found": True, "cached": False, "options": options, "listing": listing}
+
+
+def _previous_names(biz: BusinessRecord) -> List[str]:
+    """The names the register says the company had before: a renamed company's website often still uses the old one."""
+    from app.services.company_profile import register_fields
+
+    ch = register_fields(biz)
+    return [n for n in (ch.get(f"PreviousName_{i}.CompanyName", "") for i in range(1, 4)) if n]
+
+
+def _has(found: Dict[str, Any], want: str) -> bool:
+    return bool({"website": found.get("website"), "phone": found.get("phones"), "email": found.get("emails")}.get(want))
+
+
+async def _reveal_saved(db: AsyncSession, biz: BusinessRecord, saved: Dict[str, Any], want: str, cached: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The saved combined lookup holds this button's field (or nothing for it): shown or answered as not found, with no new search."""
+    stamp = datetime.utcnow().isoformat() + "Z"
+    none = {"website": "", "phones": [], "emails": [], "team": [], "sources": [], "source": "web", "verified": False, "guardrail": True, "fetched_at": stamp}
+    if not _has(saved, want):
+        return {**none, "found": False, "cached": True, "combined": True, "reason": saved.get("reason", ""), "options": {}, "listing": (biz.raw_data or {}).get("listing_page") or {}}
+    shown = {**(cached if cached and cached.get("guardrail") else none)}
+    for k in ("website", "phones", "emails"):
+        shown.setdefault(k, none[k])
+    if want == "website":
+        shown["website"] = saved["website"]
+    elif want == "phone":
+        shown["phones"] = list(saved["phones"])[:1]
+    else:
+        shown["emails"] = list(saved["emails"])[:1]
+    shown.update({"source": "web", "guardrail": True, "fetched_at": saved.get("fetched_at") or stamp,
+                  "confidence": {**((cached or {}).get("confidence") or {}), **{k: v for k, v in (saved.get("confidence") or {}).items() if k == want}}})
+    raw = dict(biz.raw_data or {})
+    raw["contacts_web"] = shown
+    biz.raw_data = raw
+    business_records.refresh_rank(biz)
+    await db.flush()
+    return {**shown, "found": True, "cached": False, "from_saved": True, "options": {}, "listing": {}}
+
+
+def _keep_socials(biz: BusinessRecord, links: Dict[str, str], stamp: str) -> None:
+    """The company's own website links to these pages: free, said by the company itself. Only an empty icon is filled."""
+    if not links:
+        return
+    import copy
+
+    from app.services import social_lookup as SL
+
+    for net, url in links.items():
+        if net == "linkedin":
+            raw = copy.deepcopy(biz.raw_data or {})
+            store = raw.setdefault("linkedin", {})
+            if not (store.get("company") or {}).get("url"):
+                store["company"] = {"url": url, "options": [], "at": stamp, "by": "own_site", "title": "", "note": "Linked from the company's own website"}
+                biz.raw_data = raw
+        elif net in SL.NETWORKS and not SL._slot(biz, net).get("url"):
+            SL._put(biz, net, {"url": url, "options": [], "at": stamp, "by": "own_site", "title": "", "note": "Linked from the company's own website"})
 
 
 async def _listing_step(db: AsyncSession, biz: BusinessRecord, want: str, found: Dict[str, Any], options: Dict[str, List[Dict[str, Any]]],

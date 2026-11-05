@@ -1,6 +1,6 @@
 """Find a person's work email: shared cache first, then each email-finder provider in turn.
 
-Order: cache (free) -> Icypeas -> Hunter -> Findymail -> LeadMagic -> BetterContact. Only the
+Order: cache (free) -> Icypeas -> LeadMagic -> Hunter -> Findymail -> BetterContact (cheapest first; at most MAX_PROVIDERS_ASKED are asked). Only the
 providers whose key staff saved in the owner portal (Platform keys -> Email Finder) are tried.
 A provider is trusted only when it says the address is verified/deliverable; guesses are never
 returned or stored. The company pays 1 credit (lead_lookup) only when an email is found.
@@ -71,7 +71,8 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
     return "unknown"
 
 
-PROVIDERS = ["icypeas", "hunter", "findymail", "leadmagic", "bettercontact"]
+PROVIDERS = ["icypeas", "leadmagic", "hunter", "findymail", "bettercontact"]  # cheapest per call first (provider_prices: 0.01, 0.02, 0.03, 0.03, 0.05 USD)
+MAX_PROVIDERS_ASKED = 2  # a person nobody found costs at most two provider calls, never the whole chain
 LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
 # What one successful search costs us on each provider lives in the provider_prices table now
 # (Platform Keys -> Model Pricing), not here -- see app.services.ai_pricing.price_per_call.
@@ -365,11 +366,14 @@ async def lookup_person_waterfall(
         await db.commit()
         return {"found": False, "query": query, "detail": "No verified email found for this person."}
 
-    found_email, status, winner, catch_all, answered = "", "", "", None, 0
+    found_email, status, winner, catch_all, answered, asked = "", "", "", None, 0, 0
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         for provider, key in keys.items():
             if _PROVIDER_BACKOFF_UNTIL.get(provider, 0) > time.time():
                 continue
+            if asked >= MAX_PROVIDERS_ASKED:
+                break
+            asked += 1
             started = time.time()
             try:
                 email_addr, st = await ADAPTERS[provider](client, key, p)

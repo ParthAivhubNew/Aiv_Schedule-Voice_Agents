@@ -57,8 +57,8 @@ async def _check(url: str) -> None:
             raise FetchRefused("That address is not a public website.")
 
 
-async def fetch_text(url: str, max_chars: int = 6000, timeout: Optional[float] = None) -> Tuple[str, str]:
-    """(title, text) of a public page. Raises FetchRefused with a plain reason."""
+async def fetch_text(url: str, max_chars: int = 6000, timeout: Optional[float] = None, links_out: Optional[List[str]] = None) -> Tuple[str, str]:
+    """(title, text) of a public page. Raises FetchRefused with a plain reason. When links_out is a list, the page's link addresses are appended to it."""
     from app.services.crawler_service import USER_AGENT, extract_clean_text_from_html
 
     current = url
@@ -83,6 +83,8 @@ async def fetch_text(url: str, max_chars: int = 6000, timeout: Optional[float] =
                 break
         else:
             raise FetchRefused("Too many redirects.")
+    if links_out is not None:
+        links_out.extend(urljoin(current, h) for h in re.findall(r"""href\s*=\s*["']([^"'#\s]+)""", html, re.I)[:400])
     if "html" in kind or "<html" in html[:500].lower():
         title, text = extract_clean_text_from_html(html)
     else:

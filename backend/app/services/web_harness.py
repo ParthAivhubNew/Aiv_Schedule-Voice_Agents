@@ -39,6 +39,27 @@ def _homepage(url: str) -> str:
     return f"{p.scheme or 'https'}://{p.netloc}" if p.netloc else url
 
 
+PAGE_LINKS: Dict[str, List[str]] = {}  # page address -> the link addresses on it, for the pages our own reader opened
+
+
+def social_links_of(pages: List[str]) -> Dict[str, str]:
+    """Facebook, X, Instagram and LinkedIn company pages the company's OWN site links to: free, and the company itself says they are its pages.
+    Share buttons, posts and groups are not pages (they fail the profile check)."""
+    from app.services import listing_pages as LP
+
+    found: Dict[str, str] = {}
+    for page in pages:
+        for href in PAGE_LINKS.get(page, []):
+            key, entry = LP.site_of(href)
+            if not key or entry.get("kind") != "social":
+                continue
+            net = entry.get("network") or ("linkedin" if key == "linkedin.com" else "")
+            url = LP.exact(href, "")
+            if net and url and net not in found:
+                found[net] = url
+    return found
+
+
 _DEAD = ("could not be found", "error 404", "error 410")  # the site is gone; any other refusal (403, 429, a timeout) is a site that keeps bots out
 
 
@@ -49,7 +70,9 @@ async def _read_page(url: str) -> Optional[Tuple[str, str]]:
     means the site does not exist; a site that merely refuses our reader is not dead and we do not work around the refusal."""
     _read_page.dead = False
     try:
-        title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5, timeout=READ_TIMEOUT)
+        links: List[str] = []
+        title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5, timeout=READ_TIMEOUT, links_out=links)
+        PAGE_LINKS[url] = links
         return (title or ""), text
     except FetchRefused as err:
         if any(m in str(err) for m in _DEAD):
@@ -72,7 +95,7 @@ async def _read(url: str) -> Tuple[Optional[Tuple[str, str]], bool]:
     return page, bool(_read_page.dead)
 
 
-async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]]) -> Dict[str, str]:
+async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]], company_number: str = "") -> Dict[str, str]:
     """A Google business lookup is a LEAD, never a fact we keep. Its website is read, and it is kept only when that page is the
     company's own (it names the company, or shows its postcode). Its phone is kept only when the same page prints that number.
     Returns only what the company's own site confirmed, so nothing that only Google said is ever stored."""
@@ -87,7 +110,10 @@ async def confirm_place(name: str, postcode: str, place: Optional[Dict[str, Any]
         logger.info("confirm_place: could not read %s: %s", site, err)
         return {}
     page = f"{title} {text}"
-    own = G.mentions(name, page) or (bool(postcode) and G.squash(postcode) in G.squash(page))
+    if (place or {}).get("name_match", True):
+        own = G.mentions(name, page) or (bool(postcode) and G.squash(postcode) in G.squash(page))
+    else:  # another name at the same postcode (shared buildings and virtual offices exist): the postcode alone proves nothing
+        own = G.mentions(name, page) or bool(company_number and G.company_number_in(company_number, page))
     if not own:
         return {}
     out = {"website": site}
@@ -103,7 +129,7 @@ def _facts(name: str, place: str, facts: Dict[str, Any]) -> Dict[str, Any]:
     address = str(facts.get("address") or "").strip()
     return {"name": name, "region": place, "postcode": postcode, "area": R.area_of(place or address, postcode), "industry": facts.get("industry") or "",
             "website": facts.get("website") or "", "domain": facts.get("domain") or "", "phone": facts.get("phone") or "",
-            "email": facts.get("email") or "", "trading_as": facts.get("trading_as") or "", "status": facts.get("status") or "", "company_number": company_number, "address": address}
+            "email": facts.get("email") or "", "trading_as": facts.get("trading_as") or "", "previous_names": list(facts.get("previous_names") or [])[:3], "status": facts.get("status") or "", "company_number": company_number, "address": address}
 
 
 def _closed(status: str) -> bool:
@@ -184,6 +210,8 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         _boost(wc, "website")
         win_w, why_w = G.decide(wc, threshold, margin)
         own = [win_w["key"]] if win_w else [c["key"] for c in wc if not c["rejected"] and G.domain_matches_name(c["key"], name)]
+        if F["website"]:
+            own = list(dict.fromkeys([*own, G.registered_domain(F["website"])]))  # a website we already hold is the company's own
         pc, ec = G.phone_candidates(src), G.email_candidates(src, own)
         G.score(pc, src, F, own)
         G.score(ec, src, F, own)
@@ -233,19 +261,43 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
                         raw.append({"url": home + path, "title": sub[0], "text": sub[1], "score": found_with, "read": True})
         return bool(todo)
 
-    # 1. the website search and the phone/email search together
     # only what was asked for: Find website searches for the website, Find phone for the phone, and only "all" does both
     ask_site, ask_contact = want in ("all", "website"), want in ("all", "phone", "email")
-    first = [run(steps[0]["query"])] if ask_site else []
-    if ask_contact and len(steps) > 1:
-        first.append(run(steps[1]["query"]))
-    await asyncio.gather(*first)
-    state = evaluate()
-    if await read_own_sites(state):
+    known = _homepage(F["website"]) if F["website"] else ""
+
+    # 0. a website we already hold: its homepage and contact pages are read first (free). When they answer, no search is spent.
+    state = None
+    if known and ask_contact:
+        page, _dead = await _read(known)
+        meter["extract_pages"] += 1
+        if page is not None:
+            raw.append({"url": known, "title": page[0], "text": page[1], "score": 0.75, "read": True})
+            read_domains[G.registered_domain(known)] = True
+            if not complete(page[1]):
+                subs = await asyncio.gather(*(_read(known + path) for path in CONTACT_PATHS))
+                for path, (sub, _d) in zip(CONTACT_PATHS, subs):
+                    meter["extract_pages"] += 1
+                    if sub:
+                        raw.append({"url": known + path, "title": sub[0], "text": sub[1], "score": 0.75, "read": True})
+            state = evaluate()
+            needed = {"phone": [state["p"]], "email": [state["e"]], "all": [state["p"], state["e"]]}[want]
+            if not all(needed):
+                state = None  # the site did not give everything asked for: search for the rest
+    if known and ask_contact:
+        took("read the website we hold", t0)
+
+    # 1. the website search and the phone/email search together
+    if state is None:
+        first = [run(steps[0]["query"])] if ask_site and not known else []
+        if ask_contact and len(steps) > 1:
+            first.append(run(steps[1]["query"]))
+        await asyncio.gather(*first)
         state = evaluate()
+        if await read_own_sites(state):
+            state = evaluate()
 
     # 2. still no confident website: the name written differently and DeepSeek's second opinion, asked together (they do not depend on each other)
-    if ask_site and not state["w"] and not over_budget():
+    if ask_site and not known and not state["w"] and not over_budget():
         pending = [run(step["query"]) for step in steps if step["retry"]]
         if meter.get("tavily_used") and meter["searches"] + len(pending) < R.MAX_SEARCHES:
             pending.append(run(steps[0]["query"], engine="deepseek"))  # Tavily answers first, so DeepSeek is only ever the second opinion
@@ -254,7 +306,7 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
             await read_own_sites(evaluate())
             state = evaluate()
     no_candidate = not any(c["field"] == "website" and not c["rejected"] for c in state["cands"])  # advanced costs 2 credits: only when nothing was found at all
-    if ask_site and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES and not over_budget():
+    if ask_site and not known and not state["w"] and no_candidate and meter["searches"] < R.MAX_SEARCHES and not over_budget():
         if await run(steps[0]["query"], depth="advanced"):
             await read_own_sites(evaluate())
             state = evaluate()
@@ -279,6 +331,9 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
         out["emails"] = [e["value"]]
         out["confidence"]["email"] = {"score": e["score"], "label": G.label(e["score"])}
     out["found"] = bool(out["website"] or out["phones"] or out["emails"])
+    # the company's own site links to its social pages: free, and said by the company itself
+    own_dom = (w["key"] if w else "") or (G.registered_domain(F["website"]) if F["website"] else "")
+    out["social_links"] = social_links_of([r["url"] for r in raw if r.get("read") and own_dom and G.registered_domain(r["url"]) == own_dom]) if own_dom else {}
     # No clear winner for a field: the best few candidates, so the person can pick (and the pick teaches the next lookup)
     from app.services import contact_choices as CH
 

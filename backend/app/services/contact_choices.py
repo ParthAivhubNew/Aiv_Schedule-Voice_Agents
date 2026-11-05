@@ -14,7 +14,7 @@ from app.core.tenancy import current_org
 from app.models.models import ContactChoice
 
 TRUSTED_PICKS = 3  # picks from this many different organisations make a value trusted
-FLOOR = 30  # a candidate under this score is not worth showing
+FLOOR = 20  # a candidate under this score is not worth showing
 MAX_OPTIONS = 3  # the three closest matches
 BOOST_PER_ORG = 25  # points added to a candidate for each organisation that confirmed it as the correct one
 BOOST_CAP = 100

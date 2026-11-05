@@ -391,7 +391,10 @@ def _best_place(places: List[Dict[str, Any]], name: str, postcode: str) -> Dict[
     pc, district = squash(postcode), squash(str(postcode or "").split(" ")[0])
     named = [p for p in places if site_check.same_business(name, title(p))] if name else list(places)
     if not named:
-        return places[0]
+        # Another name. Only a business at the company's own full postcode is kept (it may trade under another name), and it is flagged so
+        # nothing is vouched for it on the postcode alone. Google's first result somewhere else is the wrong company: nothing.
+        same_address = [p for p in places if pc and pc in squash(p.get("formattedAddress"))]
+        return {**same_address[0], "_name_match": False} if same_address else {}
     if pc:
         for p in named:
             if pc in squash(p.get("formattedAddress")):
@@ -441,6 +444,7 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
         "name": found_name, "address": place.get("formattedAddress") or "",
         "phone": place.get("internationalPhoneNumber") or "", "website": place.get("websiteUri") or "",
         "rating": place.get("rating"), "place_id": place.get("id") or "",
+        "name_match": place.get("_name_match", True),  # False: a different name at the company's own postcode
         "business_status": place.get("businessStatus") or "",  # OPERATIONAL, CLOSED_TEMPORARILY, CLOSED_PERMANENTLY
         # True when Google's address is in the postcode we hold for the company: name and postcode both agree, so it is the same business.
         "postcode_match": bool(postcode) and re.sub(r"[^a-z0-9]", "", postcode.lower()) in re.sub(r"[^a-z0-9]", "", str(place.get("formattedAddress") or "").lower()),
@@ -544,15 +548,16 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
 async def search_deeper(query: str, *, name: str = "", postcode: str = "", domain: str = "", want: str = "") -> Optional[Dict[str, Any]]:
     """The deeper search: Google's listing first; when that does not have what is wanted ("phone" or "website"; either when not
     said), Apollo's company data. Shown to the user only as "Deep web search"."""
-    place = await search_google_places(query, name=name, postcode=postcode)
+    place = await search_google_places(query, name=name, postcode=postcode)  # only a business with our company's name, never Google's first guess
     needed = (want,) if want in ("phone", "website") else ("phone", "website")
-    if place and any(place.get(k) for k in needed):
+    has = lambda p: bool(p) and any(p.get(k) for k in needed)  # noqa: E731
+    if has(place) and (place.get("postcode_match") or not postcode):
         return place
     if place and not domain and place.get("website"):
         domain = _host_of(place["website"]) or ""  # Google knows the company's site: Apollo can be asked about that exact site
     found = await search_apollo(name or query, postcode=postcode, domain=domain)
-    if found and any(found.get(k) for k in needed):
-        return found
+    if has(found) and (found.get("postcode_match") or not has(place)):
+        return found  # Google's answer is at another postcode: a same-postcode Apollo answer is better
     return place or found
 
 

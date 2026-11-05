@@ -154,7 +154,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     try {
       const r = await api.findSocial(c.id, network);
       if (!r.found) { setPick({ kind: network, person: "", anchor: network, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [network]: r.options })); }
-      say(r.found ? `Found the ${NETS[network]}.` : (r.options || []).length ? "Pick the right one from the closest matches." : r.note || "We couldn't find it right now. Try again later.");
+      say(r.found ? `Found the ${NETS[network]}.` : (r.options || []).length ? "Pick the right one from the closest matches." : r.note || "Nothing confirmed yet. The links shown are where to look. Try again later.");
       await load();
     } catch (e) { say(e.message || "The lookup didn't finish. Try again later.", true); }
     setLi("");
@@ -200,7 +200,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     } catch (e) { setFound((m) => ({ ...m, [o.name]: { error: e.message || "Couldn't look that up." } })); }
   };
 
-  const pickEl = pick ? <PickOptions kind={pick.kind} company={name} options={pick.options} anchorKey={pick.anchor} onClose={() => setPick(null)}
+  const pickEl = pick ? <PickOptions kind={pick.kind} company={name} options={pick.options} closest={(c.closest || {})[pick.kind] || []} anchorKey={pick.anchor} onClose={() => setPick(null)}
     onRetry={async (hint) => {
       const k = pick.kind;
       const r = pick.names ? await api.findLinkedin(c.id, { ...pick.names, hint })
@@ -287,7 +287,8 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                   {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
                 {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
                 {k.canFind ? <button type="button" style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
-                  {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Not found · try later" : <>Find · <LookupCost /></>}</button> : null}
+                  {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Nothing confirmed · search again" : <>Find · <LookupCost /></>}</button> : null}
+                {k.missed && !k.value && ((c.closest || {})[k.kind] || []).length ? <span style={{ fontSize: 11.5, color: C.slate }}>Look here:{" "}{((c.closest || {})[k.kind] || []).slice(0, 3).map((l, i) => <span key={l.url}>{i ? " · " : ""}<a href={l.url} target="_blank" rel="noreferrer" title={l.note} style={{ color: C.cobalt }}>{l.label.replace(/^Search the web for the /, "Web search: ")}</a></span>)}</span> : null}
               </div>
             );
           })}

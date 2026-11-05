@@ -486,6 +486,8 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
             from app.services.enrichment_service import search_google_places
 
             place = await search_google_places(f"{row['name']} {row.get('region', '')}".strip(), name=row["name"], postcode=str(row.get("postcode") or ""))
+        if place and (not place.get("name_match", True) or (str(row.get("postcode") or "").strip() and not place.get("postcode_match"))):
+            place = None  # another name, or the same name elsewhere: not this company, not found, not charged  # the same name at another postcode is another business: not "found", not charged
         stages.append("deep_search")
         spent["deep"] = 1 if place else 0
         ev["deep"] = ({"found": True, "business_status": place.get("business_status", ""), "phone": place.get("phone", ""),

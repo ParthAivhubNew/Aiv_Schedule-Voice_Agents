@@ -100,6 +100,9 @@ def _own_site(biz) -> str:
     return site if site_check.plausible_site(biz.name, site, strict=False) else ""
 
 
+from app.services import closest_links  # noqa: E402
+
+
 def _web_site(biz) -> str:
     from app.services import site_check
 
@@ -142,6 +145,8 @@ def card(biz) -> Dict[str, Any]:
         # A phone or website the business itself gave through a form we emailed it (only where that question was marked to be shared).
         "confirmed_phone": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("phone") or ""),
         "confirmed_website": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("website") or ""),
+        # Links that are always available, so a Find click never ends on an empty box: its official record, its directory page, a Maps search, a prepared web search.
+        "closest": closest_links.all_kinds(biz),
         # No website of its own: the company's exact page on a directory or social site, labelled with the site and whether the page was confirmed.
         "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
     }

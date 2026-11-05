@@ -119,8 +119,8 @@ async def _can_deep_search(db: AsyncSession) -> None:
         raise HTTPException(status_code=402, detail=why)
 
 
-async def _charge_leads(db: AsyncSession, count: int, what: str) -> None:
-    """Charge leads researched, once each. Never fails the request."""
+async def _charge_leads(db: AsyncSession, count: int, what: str, item: str = "lead_lookup") -> None:
+    """Charge leads researched, once each (item: the rate card line, lead_lookup unless a cheaper one such as lead_social applies). Never fails the request."""
     import uuid
 
     from app.services.credits import charge
@@ -128,7 +128,7 @@ async def _charge_leads(db: AsyncSession, count: int, what: str) -> None:
     if count <= 0:
         return
     try:
-        await charge(db, "lead_lookup", count, f"lead:{uuid.uuid4().hex[:16]}", what)
+        await charge(db, item, count, f"lead:{uuid.uuid4().hex[:16]}", what)
         await db.commit()
     except Exception as err:
         logging.getLogger(__name__).warning(f"[credits] lead charge skipped: {err}")

@@ -50,7 +50,7 @@ function place(anchorKey) {
 
 // A lookup that could not be sure: the closest three, shown right under the button that was pressed. It stays until a match is chosen or it is
 // closed. One candidate: "is this the right one?". Several: each is a link to check, with its own "this is the correct one" button.
-export function PickOptions({ kind, company, options, anchorKey, onPick, onClose, onRetry }) {
+export function PickOptions({ kind, company, options, anchorKey, onPick, onClose, onRetry, closest = [] }) {
   const [items, setItems] = useState(options);
   const [text, setText] = useState("");
   const [again, setAgain] = useState(false);
@@ -104,15 +104,23 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
         ...(pos ? { position: "fixed", zIndex: 320, ...pos } : { width: "min(480px,100%)", maxHeight: "90vh" }) }}>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{!list.length ? `We couldn't find the ${word} for ${company}` : one ? `Is this the right ${word} for ${company}?` : `Which is the right ${word} for ${company}?`}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{!list.length ? `No confirmed ${word} for ${company} yet` : one ? `Is this the right ${word} for ${company}?` : `Which is the right ${word} for ${company}?`}</div>
           <div style={{ fontSize: 12.5, color: C.slate }}>
-            {!list.length ? "Tell us a little more below and we will search again." : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
+            {!list.length ? "Nothing was confirmed, so nothing is shown as theirs. These links are where to look, or tell us more below and we will search again." : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
           </div>
         </div>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Close"><X size={16} /></button>
       </div>
       {list.map((o) => <Candidate key={o.value} o={o} only={one} busy={busy === o.value} disabled={Boolean(busy)} onPick={pick} />)}
       {error ? <div role="alert" style={{ fontSize: 12.5, color: C.red }}>{error}</div> : null}
+      {closest.length ? (
+        <div style={{ display: "grid", gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Where to look</div>
+          {closest.map((l) => (
+            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: C.cobalt, overflowWrap: "anywhere" }}>{l.label}<span style={{ color: C.slate, fontSize: 12 }}> · {l.note}</span></a>
+          ))}
+        </div>
+      ) : null}
       {onRetry ? (
         <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
           <label htmlFor="pick-more" style={{ fontSize: 13, fontWeight: 600 }}>{list.length ? "None of these? Tell us more" : "Tell us more"}</label>

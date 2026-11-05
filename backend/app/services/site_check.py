@@ -46,7 +46,8 @@ def is_listing_host(url: str, name: str = "") -> bool:
         return True
     from app.services import listing_pages
 
-    if any(host == d or host.endswith("." + d) for d in listing_pages.hosts()):
+    # "gov.uk" stays with the registry rule below, which lets a council's own site through
+    if any(host == d or host.endswith("." + d) for d in listing_pages.hosts() if d != "gov.uk"):
         return True
     for bad in _REGISTRY_HOSTS:
         if host == bad or host.endswith("." + bad) or (bad.count(".") == 0 and bad in host):
@@ -77,6 +78,18 @@ def plausible_site(name: str, url: str, *, strict: bool = True) -> bool:
     return len(initials) >= 3 and site.startswith(initials)
 
 
+_UNITS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"}
+_TENS = {"twenty": "2", "thirty": "3", "forty": "4", "fifty": "5", "sixty": "6", "seventy": "7", "eighty": "8", "ninety": "9"}
+_TENS_UNITS = re.compile("(" + "|".join(_TENS) + ")(" + "|".join(_UNITS) + ")")
+_NUMWORD = re.compile("|".join(sorted([*_TENS, *_UNITS, "zero", "ten"], key=len, reverse=True)))
+
+
+def _digits_form(squashed: str) -> str:
+    """A squashed name with its number words written as digits: fiftythreetwo -> 532, 53two -> 532, so "Fifty Three Two" and "53two" meet."""
+    out = _TENS_UNITS.sub(lambda m: _TENS[m.group(1)] + _UNITS[m.group(2)], squashed)
+    return _NUMWORD.sub(lambda m: {**_TENS, **_UNITS, "zero": "0", "ten": "10"}[m.group(0)] if m.group(0) not in _TENS else _TENS[m.group(0)] + "0", out)
+
+
 def same_business(ours: str, theirs: str) -> bool:
     """Is the business a search returned the company we asked about? Every real word of the shorter name must be in the other
     name, with at most one extra word ("Teddy Bears Pre-School" and "Teddybears Pre-School" match, even though one is split and
@@ -86,6 +99,9 @@ def same_business(ours: str, theirs: str) -> bool:
     if not a or not b:
         return False
     if a in b or b in a:
+        return True
+    da, db_ = _digits_form(a), _digits_form(b)
+    if (da != a or db_ != b) and (da in db_ or db_ in da):
         return True
     wa, wb = _tokens(ours), _tokens(theirs)
     if not wa or not wb:

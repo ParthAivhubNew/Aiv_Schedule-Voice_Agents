@@ -48,7 +48,20 @@ OTHER_HOSTS: Tuple[str, ...] = (
     "opencorporates.com", "dnb.com", "companycheck.co.uk", "ratings.food.gov.uk", "wikipedia.org", "gov.uk", "tavily.com", "scamadviser.com",
     "scamdoc.com", "trustprofile.com", "ico.org.uk", "ukphonebook.com", "checkall.co.uk", "uksponsorlist.co.uk", "accountingfirms.co.uk", "churchlist.co.uk",
     "careinspectorate.scot",
+    # booking platforms: a business's page there is a listing, never its own website
+    "booksy.com", "fresha.com", "treatwell.co.uk", "treatwell.com", "setmore.com", "squareup.com", "square.site", "vagaro.com", "phorest.com",
+    "planity.com", "calendly.com", "resdiary.com", "opentable.co.uk", "opentable.com", "mindbodyonline.com",
 )
+BOOKING_LABELS = {"booksy.com": "Booksy", "fresha.com": "Fresha", "treatwell.co.uk": "Treatwell", "treatwell.com": "Treatwell", "setmore.com": "Setmore",
+                  "squareup.com": "Square", "square.site": "Square", "vagaro.com": "Vagaro", "phorest.com": "Phorest", "planity.com": "Planity",
+                  "calendly.com": "Calendly", "resdiary.com": "ResDiary", "opentable.co.uk": "OpenTable", "opentable.com": "OpenTable",
+                  "mindbodyonline.com": "Mindbody"}
+
+
+def booking_label(url: str) -> str:
+    """The platform's name when the address is a page on a booking site (mhaychcuts.booksy.com -> Booksy), else ""."""
+    host = _host(url)
+    return next((label for d, label in BOOKING_LABELS.items() if host == d or host.endswith("." + d)), "")
 _LISTS = {"search", "s", "find", "category", "categories", "directory", "browse", "near", "results", "list", "tag", "tags", "city", "cities",
           "location", "locations", "sitemap", "a-z", "atoz", "index", "login", "signup", "help", "about", "blog", "news"}
 PAGE_CHARS = 8000
@@ -232,6 +245,8 @@ def keep(biz: Any, listing: Dict[str, Any]) -> None:
     biz.raw_data = raw
     key, entry = site_of(listing["url"])
     net = entry.get("network")
+    if not listing.get("confirmed"):
+        return  # shown as "Listed on ..., unconfirmed" only; an unconfirmed page is not put under the Facebook, X or LinkedIn icon
     if net:
         from app.services import social_lookup as SL
 

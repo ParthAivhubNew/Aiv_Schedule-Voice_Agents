@@ -92,4 +92,7 @@ def plan(facts: Dict[str, Any]) -> List[Dict[str, Any]]:
     trading = str(facts.get("trading_as") or "").strip()
     if trading and trading.lower() != base.lower():
         steps.append({"want": "website", "query": build_query("website", facts, name=plain_name(trading)), "retry": True})
+    for prev in (facts.get("previous_names") or [])[:2]:  # a renamed company: its site may still carry the old name
+        if plain_name(prev) and plain_name(prev).lower() != base.lower():
+            steps.append({"want": "website", "query": build_query("website", facts, name=plain_name(prev)), "retry": True})
     return steps[:MAX_SEARCHES]
