@@ -122,6 +122,54 @@ async def ensure_connection(db) -> tuple:
         raise HumanCallError(503, scrub(err) or "The phone service did not answer. Try again in a minute.", "PHONE_DOWN")
 
 
+# A number typed in by hand (or carried over from the old caller ID setting) has no phone-provider number ID, and the browser phone only calls from
+# numbers the account provably holds. Looking the number up on the account fills the ID in, so the person does not have to.
+_CONFIRM_TRIED: Dict[str, float] = {}
+CONFIRM_RETRY_S = 600.0
+
+
+async def confirm_numbers(db) -> List[str]:
+    """Fills in the provider ID of this organisation's saved numbers that the phone account holds. Returns the numbers still not confirmed.
+    A number another organisation also holds is never confirmed here, and a failed lookup is not retried for ten minutes."""
+    import time
+
+    from app.core.tenancy import current_org, system_scope
+    from app.services import telnyx_provisioning as TP
+
+    mine = (await db.execute(select(OrgPhoneNumber).where(OrgPhoneNumber.provider == "telnyx", OrgPhoneNumber.provider_ref == "",
+                                                          OrgPhoneNumber.status == "active"))).scalars().all()
+    still: List[str] = []
+    if not mine:
+        return still
+    org = current_org()
+    client = None
+    for n in mine:
+        key = f"{org}:{n.e164}"
+        if time.monotonic() - _CONFIRM_TRIED.get(key, -CONFIRM_RETRY_S) < CONFIRM_RETRY_S:
+            still.append(n.e164)
+            continue
+        _CONFIRM_TRIED[key] = time.monotonic()
+        with system_scope():
+            shared = (await db.execute(select(OrgPhoneNumber.id).where(OrgPhoneNumber.e164 == n.e164, OrgPhoneNumber.org_id != org))).first()
+        if shared:
+            still.append(n.e164)
+            continue
+        try:
+            client = client or TP.client_for(await TP.get_setup(db))
+            found = await client.find_phone_number(n.e164)
+        except Exception as err:  # the lookup is a convenience: the number simply stays unconfirmed
+            logger.info("human calls: could not look up %s on the phone account: %s", n.e164, err)
+            still.append(n.e164)
+            continue
+        if found and found.get("id"):
+            n.provider_ref = str(found["id"])
+            _CONFIRM_TRIED.pop(key, None)
+        else:
+            still.append(n.e164)
+    await db.commit()
+    return still
+
+
 # ── Starting a call ────────────────────────────────────────────────────────────
 async def _owned_caller_id(db, from_number: str) -> Optional[OrgPhoneNumber]:
     from app.services.numbers import normalize

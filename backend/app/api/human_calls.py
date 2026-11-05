@@ -55,12 +55,13 @@ async def config(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[s
     from app.services import credits as K
 
     current(request)
+    unconfirmed = await HC.confirm_numbers(db)  # a number saved by hand gets its provider ID here when the phone account holds it
     numbers = (await db.execute(select(OrgPhoneNumber).where(
         OrgPhoneNumber.provider == "telnyx", OrgPhoneNumber.provider_ref != "", OrgPhoneNumber.status == "active"))).scalars().all()
     card = await K.rates(db)
     return {"numbers": [{"e164": n.e164, "label": n.label or "", "default": bool(n.is_default)} for n in numbers],
             "rates": {"call": card["voice_minute"]["credits"], "transcript": card["call_transcript"]["credits"]},
-            "minutes_left": await K.minutes_left(db), "record_default": False,
+            "unconfirmed": unconfirmed, "minutes_left": await K.minutes_left(db), "record_default": False,
             "audio_keep_days": HC.AUDIO_KEEP_DAYS}
 
 

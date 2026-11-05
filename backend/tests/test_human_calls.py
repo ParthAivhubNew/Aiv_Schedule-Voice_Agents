@@ -364,3 +364,43 @@ async def test_zero_credit_switch_off_also_stops_browser_calls_and_switch_on_res
     assert state["browser_calls"] is True and ("active", "conn_1", False) in phone.calls
     left = await VA._switch_on(db, setup, state)
     assert left == {} and ("active", "conn_1", True) in phone.calls
+
+
+@pytest.mark.db
+async def test_a_number_saved_by_hand_gets_its_provider_id_when_the_phone_account_holds_it(db, phone, monkeypatch):
+    phone.found = {"+447890994070": {"id": "pn_hand"}}
+
+    async def find(e164):
+        return phone.found.get(e164, {})
+
+    phone.find_phone_number = find
+    HC._CONFIRM_TRIED.clear()
+    db.add(OrgPhoneNumber(id="num_hand", e164="+447890994070", provider="telnyx", provider_ref="", status="active"))
+    db.add(OrgPhoneNumber(id="num_nope", e164="+442079461111", provider="telnyx", provider_ref="", status="active"))
+    await db.commit()
+    _, token = await make_user(db, "caller15", "Admin")
+    async with api(token) as c:
+        r = (await c.get("/api/human-calls/config")).json()
+    assert sorted(n["e164"] for n in r["numbers"]) == ["+442079460000", "+447890994070"]  # the one the account holds can now be called from
+    assert r["unconfirmed"] == ["+442079461111"]  # the other is said to be unconfirmed, never silently listed
+    assert (await db.get(OrgPhoneNumber, "num_hand")).provider_ref == "pn_hand"
+
+
+@pytest.mark.db
+async def test_a_failed_lookup_leaves_the_number_unconfirmed_and_is_not_asked_again_at_once(db, phone):
+    calls = []
+
+    async def find(e164):
+        calls.append(e164)
+        raise TelnyxError("down", 503)
+
+    phone.find_phone_number = find
+    HC._CONFIRM_TRIED.clear()
+    db.add(OrgPhoneNumber(id="num_hand", e164="+447890994070", provider="telnyx", provider_ref="", status="active"))
+    await db.commit()
+    _, token = await make_user(db, "caller16", "Admin")
+    async with api(token) as c:
+        first = (await c.get("/api/human-calls/config")).json()
+        second = (await c.get("/api/human-calls/config")).json()
+    assert first["unconfirmed"] == ["+447890994070"] == second["unconfirmed"] and len(calls) == 1
+    assert [n["e164"] for n in first["numbers"]] == ["+442079460000"]

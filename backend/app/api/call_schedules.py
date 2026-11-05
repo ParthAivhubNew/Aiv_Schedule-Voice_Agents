@@ -41,7 +41,11 @@ async def _get(db: AsyncSession, schedule_id: str) -> CallSchedule:
 
 
 async def _list_names(db: AsyncSession) -> Dict[str, str]:
-    return {l.id: l.name for l in (await db.execute(select(CallList))).scalars().all()}
+    from app.api.lead_lists import _load
+
+    names = {l.id: l.name for l in (await db.execute(select(CallList))).scalars().all()}
+    names.update({E.LEAD_PREFIX + str(l.get("id")): str(l.get("name") or "") for l in await _load(db)})
+    return names
 
 
 async def _one(db: AsyncSession, s: CallSchedule, tz: str) -> Dict[str, Any]:
@@ -54,11 +58,11 @@ async def _checked(db: AsyncSession, payload: Dict[str, Any], tz: str, existing:
         fields = E.clean(payload, org_today(tz), existing)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
-    the_list = (await db.execute(select(CallList).where(CallList.id == fields["list_id"]))).scalars().first()
-    if not the_list:
-        raise HTTPException(status_code=400, detail="That Call list doesn't exist. Pick another.")
-    if not E.prospects_from(the_list.rows or []):
-        raise HTTPException(status_code=400, detail=f"“{the_list.name}” has no phone numbers to dial yet.")
+    found = await E.resolve_list(db, fields["list_id"])
+    if not found:
+        raise HTTPException(status_code=400, detail="That list doesn't exist. Pick another.")
+    if not E.prospects_from(found[1]):
+        raise HTTPException(status_code=400, detail=f"“{found[0]}” has no phone numbers to dial yet.")
     return fields
 
 

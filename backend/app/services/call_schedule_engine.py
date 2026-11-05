@@ -188,6 +188,28 @@ def _phone(row: Dict[str, Any]) -> str:
     return ""
 
 
+LEAD_PREFIX = "lead:"  # a schedule's list id for a Leads list; Call lists keep their own "cl_" ids
+
+
+async def resolve_list(db: AsyncSession, list_id: str) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+    """(name, call rows) for a Call list or a Leads list, or None when it no longer exists. Leads lists are read
+    fresh each time, so a company added to the list later is dialled too. Only companies with a phone number become rows."""
+    if list_id.startswith(LEAD_PREFIX):
+        from app.api.lead_lists import _load
+        from app.models.models import LeadAccount
+
+        lst = next((l for l in await _load(db) if l.get("id") == list_id[len(LEAD_PREFIX):]), None)
+        if lst is None:
+            return None
+        ids = list(lst.get("ids") or [])[:2000]
+        leads = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all() if ids else []
+        rows = [{"phone": a.phone, "contact": a.contact_name or "", "company": a.name or "", "website": a.website or "",
+                 "leadId": a.id, "email": a.email or ""} for a in leads if (a.phone or "").strip()]
+        return str(lst.get("name") or "Leads list"), rows
+    hit = (await db.execute(select(CallList).where(CallList.id == list_id))).scalars().first()
+    return (hit.name, list(hit.rows or [])) if hit else None
+
+
 def prospects_from(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out = []
     for r in rows or []:
@@ -207,12 +229,13 @@ async def run_slot(db: AsyncSession, s: CallSchedule, slot: str, tz: str) -> Dic
     from app.services import numbers as numbers_service
     from app.services.outbound_dial import _has_minutes, launch_outbound_mission
 
-    the_list = (await db.execute(select(CallList).where(CallList.id == s.list_id))).scalars().first()
-    if not the_list:
-        return {"ok": False, "message": "The Call list was deleted, so nothing was dialled."}
-    prospects = prospects_from(the_list.rows or [])
+    found = await resolve_list(db, s.list_id)
+    if not found:
+        return {"ok": False, "message": "The list was deleted, so nothing was dialled."}
+    list_name, list_rows = found
+    prospects = prospects_from(list_rows)
     if not prospects:
-        return {"ok": False, "message": f"“{the_list.name}” has no phone numbers to dial."}
+        return {"ok": False, "message": f"“{list_name}” has no phone numbers to dial."}
     if not await _has_minutes(db):
         return {"ok": False, "message": "No call minutes left, so nothing was dialled. Top up and the next run will go ahead."}
     picked, number_err = await numbers_service.pick_caller_id(db, {"is_admin": True}, s.from_number or None)

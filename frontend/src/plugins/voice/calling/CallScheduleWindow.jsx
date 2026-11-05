@@ -70,6 +70,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
   const today = orgToday(org.timezone);
   const [list, setList] = useState([]);
   const [lists, setLists] = useState([]);
+  const [leadLists, setLeadLists] = useState([]); // Leads lists: a schedule can dial these directly (id "lead:<id>")
   const [numbers, setNumbers] = useState([]);
   const [form, setForm] = useState(() => blankForm(today));
   const [tab, setTab] = useState("calls");
@@ -95,6 +96,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
     loadList();
     setMessage("");
     api.getCallLists().then((r) => setLists((r && r.lists) || [])).catch(() => setLists([]));
+    api.listLeadLists().then((r) => setLeadLists((r && r.lists) || [])).catch(() => setLeadLists([]));
     api.getNumbers().then((r) => setNumbers(Array.isArray(r) ? r.filter((n) => n.usableByMe) : [])).catch(() => setNumbers([]));
   }, [open, loadList]);
 
@@ -193,7 +195,8 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
 
   const weekOrder = WEEK_ORDER[org.weekStart] || WEEK_ORDER.monday;
   const current = list.find((x) => x.id === form.id);
-  const picked = lists.find((l) => l.id === form.listId);
+  const pickedLead = leadLists.find((l) => "lead:" + l.id === form.listId);
+  const picked = pickedLead ? { count: (pickedLead.ids || []).length, lead: true } : lists.find((l) => l.id === form.listId);
 
   const summary = useMemo(() => {
     if (previewError) return { tone: "warn", text: previewError };
@@ -294,10 +297,11 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
                   <Field label="Name">
                     <input aria-label="Schedule name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Morning follow-ups" style={input} />
                   </Field>
-                  <Field label="Call list" hint={picked ? picked.count + " contact" + (picked.count === 1 ? "" : "s") + " on this list." : "The people to call. Make lists on the Call list page."}>
+                  <Field label="Call list" hint={picked ? picked.count + (picked.lead ? " compan" + (picked.count === 1 ? "y" : "ies") + " on this Leads list. Only those with a phone number are called." : " contact" + (picked.count === 1 ? "" : "s") + " on this list.") : "The people to call. Make lists on the Call list page."}>
                     <select aria-label="Call list" value={form.listId} onChange={(e) => set({ listId: e.target.value })} style={input}>
                       <option value="">Pick a list…</option>
-                      {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}
+                      {lists.length > 0 && <optgroup label="Call lists">{lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}</optgroup>}
+                      {leadLists.length > 0 && <optgroup label="Leads lists">{leadLists.map((l) => <option key={l.id} value={"lead:" + l.id}>{l.name} ({(l.ids || []).length})</option>)}</optgroup>}
                     </select>
                   </Field>
                   {numbers.length > 1 ? (

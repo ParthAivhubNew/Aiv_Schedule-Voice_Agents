@@ -58,6 +58,13 @@ async def _seed(db):
     await db.commit()
 
 
+async def _seed_software(db):
+    soft = "62012 - Business and domestic software development"
+    await BR.bulk_upsert(db, source_id="ds_ch", rows=[_row("201", "Brightcode Software Ltd", "05/05/2021", sic_text=soft, industry=soft, website="brightcode.co.uk", phone="0113 444", email="a@brightcode.co.uk", description="Software house"),
+                                                       _row("202", "Plain Software Ltd", "06/06/2019", sic_text=soft, industry=soft)])
+    await db.commit()
+
+
 async def _search(c, **body):
     r = await c.post("/api/leads/search", json={"filters": {"towns": ["Leeds"], **body.pop("filters", {})}, **body})
     assert r.status_code == 200, r.text
@@ -144,15 +151,21 @@ async def test_people_tab_lists_registry_people_and_says_which_companies_still_n
 
 
 @pytest.mark.db
-async def test_opening_with_no_filters_lists_the_whole_store_best_first(db):
+async def test_opening_with_no_filters_starts_on_software_and_a_filter_lists_the_rest_best_first(db):
     await _seed(db)
+    soft = "62012 - Business and domestic software development"
+    await BR.bulk_upsert(db, source_id="ds_ch", rows=[_row("201", "Brightcode Software Ltd", "05/05/2021", sic_text=soft, industry=soft)])
+    await db.commit()
     _, token = await make_user(db, "fl6", "Admin", org_id="org_acme")
     async with _client(token) as c:
         r = await c.post("/api/leads/search", json={"filters": {}})
         assert r.status_code == 200, r.text
         out = r.json()
-        assert out["total"] == 4 and out["companies"][0]["name"] == "Big Cafe Group PLC"
+        assert [x["name"] for x in out["companies"]] == ["Brightcode Software Ltd"]  # not the cafes that merely have the most filled-in fields
+        assert any("Starting with software companies" in chip for chip in out["chips"])
         assert out["total_all"] is None  # only counted separately when there are more than 10,000
+        cafes = (await c.post("/api/leads/search", json={"filters": {"towns": ["Leeds"]}})).json()
+        assert cafes["companies"][0]["name"] == "Big Cafe Group PLC" and not any("Starting with software" in chip for chip in cafes["chips"])
         assert (await c.post("/api/leads/people/search", json={"filters": {}})).status_code == 200
 
 
@@ -166,7 +179,7 @@ async def test_before_the_ranking_job_has_run_the_list_still_opens_newest_first(
     monkeypatch.setattr(BR, "ranking_ready", not_ready)
     _, token = await make_user(db, "fl7", "Admin", org_id="org_acme")
     async with _client(token) as c:
-        out = (await c.post("/api/leads/search", json={"filters": {}})).json()
+        out = (await c.post("/api/leads/search", json={"filters": {"towns": ["Leeds"]}})).json()
         assert out["ranked"] is False and out["tiers"] is None
         assert out["companies"][0]["name"] == "Tiny Cafe Ltd"  # newest first, no sort by rank
 
@@ -218,7 +231,7 @@ async def test_find_website_tries_the_web_then_the_deeper_search_and_charges_onl
         miss_r = await c.post(f"/api/leads/companies/{ids['Hidden Cafe Ltd']}/find-website")
         assert miss_r.status_code == 200, miss_r.text
         miss = miss_r.json()
-        assert not miss["found"] and miss["charged"] == 0 and "Try again later" in miss["note"]
+        assert not miss["found"] and miss["charged"] == 0 and "search again" in miss["note"]
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == before
 
@@ -263,13 +276,14 @@ async def test_the_opening_list_is_ready_before_anyone_asks(db):
     from app.api import lead_accounts
 
     await _seed(db)
+    await _seed_software(db)
     assert not lead_accounts._PAGE_CACHE
     await lead_accounts.warm_browse_pages()
     assert len(lead_accounts._PAGE_CACHE) == 3  # one per usual page size
     _, token = await make_user(db, "fl9", "Admin", org_id="org_acme")
     async with _client(token) as c:
         out = (await c.post("/api/leads/search", json={"filters": {}, "limit": 25})).json()
-        assert out["companies"][0]["name"] == "Big Cafe Group PLC" and out["timing_ms"] is not None
+        assert out["companies"][0]["name"] == "Brightcode Software Ltd" and out["timing_ms"] is not None
         assert "saved" in out["companies"][0]  # saved marks are still worked out for this organisation
 
 
@@ -280,9 +294,10 @@ async def test_an_empty_register_is_never_remembered_as_the_answer(db):
     await lead_accounts.warm_browse_pages()  # nothing imported yet
     assert not lead_accounts._PAGE_CACHE
     await _seed(db)
+    await _seed_software(db)
     _, token = await make_user(db, "fl10", "Admin", org_id="org_acme")
     async with _client(token) as c:
-        assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 4
+        assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 2  # the opening list starts on software
 
 
 def test_only_a_real_shaped_uk_phone_is_kept_from_the_web():
@@ -328,7 +343,7 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
         with org_scope("org_acme"):
             before = await K.wallet_balance(db, "leadgen")
         miss = (await c.post(f"/api/leads/companies/{ids['Silent Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
-        assert not miss["found"] and miss["charged"] == 0 and "Try again later" in miss["note"]
+        assert not miss["found"] and miss["charged"] == 0 and "search again" in miss["note"]
         with org_scope("org_acme"):
             assert await K.wallet_balance(db, "leadgen") == before
 

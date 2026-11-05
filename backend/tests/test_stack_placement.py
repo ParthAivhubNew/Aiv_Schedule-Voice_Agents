@@ -320,3 +320,23 @@ async def test_a_director_email_is_kept_as_the_companys_with_who_it_belongs_to()
     saved = biz.raw_data["contacts_web"]
     assert saved["emails"] == ["tom@acme.co.uk"] and saved["person"] == "JONES, Tom" and saved["guardrail"] is True
     assert lead_filters.card(biz)["web_email"] == "tom@acme.co.uk"
+
+
+def test_the_opening_list_starts_on_software_and_any_filter_the_person_sets_wins():
+    from app.services import business_records as BR
+
+    got, applied = BR.with_default_browse({})
+    assert applied and got["sector"] == ["software"]
+    for asked in ({"towns": ["Leeds"]}, {"sector": ["catering"]}, {"name_contains": "Tesco"}, {"sic_codes": ["56101"]}, {"keyword": ["cafe"]}):
+        same, applied = BR.with_default_browse(asked)
+        assert not applied and same == asked
+    # a setting that does not narrow (size, website, status) is still the opening list
+    assert BR.with_default_browse({"has_website": True, "size_bands": ["small"]})[1] is True
+
+
+def test_a_sort_that_fell_back_and_the_software_start_are_told_to_the_person():
+    from app.api import lead_accounts as LA
+
+    chips = LA._browse_chips(["Sector: software"], True, {"sort_asked": "name", "sort_used": "newest"})
+    assert any("Starting with software companies" in c for c in chips) and any("A to Z is not ready" in c for c in chips)
+    assert LA._browse_chips(["Sector: software"], False, {"sort_asked": "name", "sort_used": "name"}) == ["Sector: software"]

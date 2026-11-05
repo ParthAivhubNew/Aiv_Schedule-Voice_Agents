@@ -753,6 +753,44 @@ async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = 
     return (wide, m, True) if m > n else (strict, n, False)
 
 
+NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
+DEFAULT_BROWSE_SECTOR = "software"  # what Find Leads opens on when no filter is set: software companies, not whatever has the most filled-in fields
+
+
+def has_narrowing(f: Dict[str, Any]) -> bool:
+    """Whether the filters name a trade, place or company. Without one the search is the opening list of the whole register."""
+    return any(f.get(k) for k in NARROWING)
+
+
+def with_default_browse(filters: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    """(filters, applied). The opening list with nothing asked for starts on software companies; any filter the person sets wins."""
+    if has_narrowing(normalize_filters(filters)):
+        return filters, False
+    return {**(filters or {}), "sector": [DEFAULT_BROWSE_SECTOR]}, True
+
+
+_NAME_ORDER: List[Any] = [0.0, True]  # [when checked, ready]
+
+
+async def name_sort_ready(db: AsyncSession) -> bool:
+    """Whether A to Z can walk an index over the whole register. Without ix_business_records_name_order, sorting millions of names
+    for the opening list would hit the time limit, so that one case is shown newest-first and says so. Build it ahead without
+    blocking the app: CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_business_records_name_order ON business_records (lower(name), id);"""
+    import time
+
+    if time.monotonic() - _NAME_ORDER[0] < 60:
+        return bool(_NAME_ORDER[1])
+    ready = True
+    if db.get_bind().dialect.name == "postgresql":
+        small = (await db.execute(text("SELECT COALESCE(MAX(reltuples), 0) < 200000 FROM pg_class WHERE relname = 'business_records'"))).scalar()
+        indexed = (await db.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE c.relname = 'ix_business_records_name_order' AND i.indisvalid AND i.indisready)"))).scalar()
+        ready = bool(small or indexed)
+    _NAME_ORDER[0], _NAME_ORDER[1] = time.monotonic(), ready
+    return ready
+
+
 _RANKING: List[Any] = [0.0, True]  # [when checked, ready]
 
 
@@ -870,11 +908,14 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
 
     t0 = time.monotonic()
     ranked = await ranking_ready(db)
+    used = sort if ranked or sort != "best" else "newest"
+    if used == "name" and not has_narrowing(f) and not await name_sort_ready(db):
+        used = "newest"  # A to Z over the whole register needs its index: shown newest-first rather than timing out
     t1 = time.monotonic()
     where, total, broadened = await matching(db, f, extra, count=_capped_count, broaden=broaden)
     t2 = time.monotonic()
     rows = (await db.execute(
-        select(BusinessRecord).where(where).order_by(*_order(sort if ranked or sort != "best" else "newest", f, broadened))
+        select(BusinessRecord).where(where).order_by(*_order(used, f, broadened))
         .limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
     t3 = time.monotonic()
@@ -882,7 +923,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     if t3 - t0 > 3:
         logger.warning(f"[business_records] slow search {timing} ranked={ranked} sort={sort} filters={f}")
     out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked,
-           "timing_ms": timing, "broadened": broadened}
+           "timing_ms": timing, "broadened": broadened, "sort_used": used, "sort_asked": sort}
     if stats and ranked:
         out.update(await result_stats(db, where, out["total"]))
     elif stats:

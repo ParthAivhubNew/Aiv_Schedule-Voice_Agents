@@ -197,16 +197,27 @@ async def warm_browse_pages() -> None:
     from app.database import AsyncSessionLocal
     from app.services import lead_filters
 
+    opening, _ = business_records.with_default_browse({})
     for limit in (25, 50, 100):
         async with AsyncSessionLocal() as db:
-            out = await business_records.search_filtered(db, {}, limit=limit, offset=0, sort="best", stats=False)
+            out = await business_records.search_filtered(db, opening, limit=limit, offset=0, sort="best", stats=False)
             cards = [lead_filters.card(r) for r in out["rows"]]
         if not cards:
             continue  # an empty register (before an import) must never be remembered as "no companies"
         answer = {"companies": cards, "total": out["total"], "total_capped": out.get("total_capped", False), "filters": out["filters"],
-                  "chips": lead_filters.describe(out["filters"]), "points": {}, "next_scan": None, "understood": [],
+                  "chips": _browse_chips(lead_filters.describe(out["filters"]), True, out), "points": {}, "next_scan": None, "understood": [],
                   "tiers": None, "saved_total": None, "total_all": None, "ranked": out.get("ranked", True), "timing_ms": out.get("timing_ms")}
         _PAGE_CACHE[_page_key(out["filters"], "best", limit, 0, [])] = (time.monotonic(), answer, _BROWSE_TTL)
+
+
+def _browse_chips(chips: List[str], default_on: bool, out: Dict[str, Any]) -> List[str]:
+    """What the person is told when the list is not exactly what they asked for: software companies as the starting point, or a sort that fell back."""
+    chips = list(chips)
+    if default_on:
+        chips.append("Starting with software companies. Add an industry, town or name to search anything else.")
+    if out.get("sort_asked") == "name" and out.get("sort_used") != "name":
+        chips.append("A to Z is not ready for the whole register yet, so this is newest first. Add an industry or town to sort by name.")
+    return chips
 
 
 class SearchIn(BaseModel):
@@ -238,6 +249,9 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     from app.services import lead_filters, phrase_understanding
 
     _refuse_bad_filters(body.filters)
+    default_on = False
+    if not body.area and not body.exclude_ids:
+        body.filters, default_on = business_records.with_default_browse(body.filters)  # nothing asked for: open on software companies
     shown_filters = business_records.normalize_filters(body.filters)  # what the user typed: this is what comes back
     understood: List[Dict[str, Any]] = []
     try:
@@ -269,7 +283,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
     out["filters"] = shown_filters
-    chips = lead_filters.describe(out["filters"])
+    chips = _browse_chips(lead_filters.describe(out["filters"]), default_on, out)
     broadened = bool(out.get("broadened"))
     if broadened:  # too few have the trade as their main activity: the side-activity ones are in too, and the person is told
         chips.append(lead_filters.broadened_note(out["filters"]))

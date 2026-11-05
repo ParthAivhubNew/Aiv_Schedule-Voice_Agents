@@ -231,7 +231,10 @@ export default function HumanCallPanel({ request, onClose }) {
               <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="+44 118 900 0123" inputMode="tel" autoFocus
                 style={{ ...text, fontSize: 18, fontWeight: 700, padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8 }} />
             </label>
-            {noNumbers ? <div role="note" style={{ ...muted, color: C.amber, background: C.amberSoft, borderRadius: 8, padding: "8px 10px" }}>You need a phone number of your own to call from. Get one on the Numbers page first.</div> : (
+            {noNumbers ? <div role="note" style={{ ...muted, color: C.amber, background: C.amberSoft, borderRadius: 8, padding: "8px 10px" }}>
+              {(config.unconfirmed || []).length
+                ? `Your number ${config.unconfirmed[0]} could not be confirmed for browser calls yet. Check that it was ordered or added by our team on the Numbers page, or contact support.`
+                : "You need a phone number of your own to call from. Get one on the Numbers page first."}</div> : (
               <label style={{ ...muted, display: "grid", gap: 3 }}>Your caller ID
                 <select value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...text, fontSize: 14, padding: "7px 9px", border: `1px solid ${C.border}`, borderRadius: 8 }}>
                   {(config?.numbers || []).map((n) => <option key={n.e164} value={n.e164}>{n.e164}{n.label ? ` · ${n.label}` : ""}</option>)}
