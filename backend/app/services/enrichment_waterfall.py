@@ -71,9 +71,9 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
     return "unknown"
 
 
-PROVIDERS = ["icypeas", "leadmagic", "hunter", "findymail", "bettercontact"]  # cheapest per call first (provider_prices: 0.01, 0.02, 0.03, 0.03, 0.05 USD)
-MAX_PROVIDERS_ASKED = 2  # a person nobody found costs at most two provider calls, never the whole chain
-LABELS = {"icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
+PROVIDERS = ["icypeas", "leadmagic", "hunter", "apollo", "findymail", "bettercontact"]  # cheapest per call first (provider_prices: 0.01, 0.02, 0.03, 0.03, 0.05 USD); Apollo's people database is large, so it comes before the last two
+MAX_PROVIDERS_ASKED = 4  # a person nobody found costs at most four provider calls, never the whole chain. Two was too few: a person the first two did not know was never looked up by the rest, and that "nobody found" was then remembered
+LABELS = {"apollo": "Apollo", "icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
 # What one successful search costs us on each provider lives in the provider_prices table now
 # (Platform Keys -> Model Pricing), not here -- see app.services.ai_pricing.price_per_call.
 
@@ -111,6 +111,15 @@ async def finder_keys() -> Dict[str, str]:
                     found[prov] = key.strip()
     except Exception as err:
         logger.warning(f"Email Finder keys not read: {err}")
+    if "apollo" not in found:  # the key staff saved for Apollo's company data (Business Discovery) also opens its people search
+        try:
+            from app.services.enrichment_service import apollo_key
+
+            key = (await apollo_key() or "").strip()
+            if key:
+                found["apollo"] = key
+        except Exception as err:
+            logger.debug(f"Apollo key not read for email finding: {err}")
     return {p: found[p] for p in await finder_order() if p in found}
 
 
@@ -230,7 +239,26 @@ async def _bettercontact(client: httpx.AsyncClient, key: str, p: Dict[str, str])
     return "", ""
 
 
-ADAPTERS = {"icypeas": _icypeas, "hunter": _hunter, "findymail": _findymail, "leadmagic": _leadmagic, "bettercontact": _bettercontact}
+async def _apollo(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
+    """Apollo's people match. It only returns a real address on a plan that includes API email access; on a free plan the email comes back
+    locked ("email_not_unlocked@...") and is treated as nobody found."""
+    body = {"first_name": p["first_name"], "last_name": p["last_name"], "organization_name": p["company"], "reveal_personal_emails": False}
+    if p["domain"]:
+        body["domain"] = p["domain"]
+    res = await client.post("https://api.apollo.io/api/v1/people/match", json=body, headers={"X-Api-Key": key, "Content-Type": "application/json", "Cache-Control": "no-cache"})
+    person = (_check(res, "apollo") or {}).get("person") or {}
+    email_addr = str(person.get("email") or "")
+    status = str(person.get("email_status") or "").lower()
+    if not email_addr or "not_unlocked" in email_addr or "@" not in email_addr:
+        return "", ""
+    if status == "verified":
+        return email_addr, "verified"
+    if status in ("likely to engage", "extrapolated", "catch-all", "catch_all"):
+        return email_addr, "catch_all"
+    return "", ""
+
+
+ADAPTERS = {"apollo": _apollo, "icypeas": _icypeas, "hunter": _hunter, "findymail": _findymail, "leadmagic": _leadmagic, "bettercontact": _bettercontact}
 
 
 def _person_out(email_addr: str, p: Dict[str, str], entity: str, status: str, source: str) -> Dict[str, Any]:
@@ -360,7 +388,10 @@ async def lookup_person_waterfall(
     # A recent "nobody found" for this same person is answered without asking (or paying) anyone again.
     miss = (await db.execute(_same_person(select(PersonCache).where(PersonCache.verification_status == "not_found"), p)
                              .order_by(PersonCache.verified_at.desc()))).scalars().first()
-    if miss and miss.verified_at and now - miss.verified_at < timedelta(days=MISS_DAYS) and not stale:
+    needed = min(MAX_PROVIDERS_ASKED, len(keys))
+    asked_before = int(miss.source.split(":")[1]) if miss and (miss.source or "").startswith("asked:") and miss.source.split(":")[1].isdigit() else 0
+    # A "nobody found" is only trusted when enough providers were asked then; an older one (from when only two were asked) is asked again.
+    if miss and miss.verified_at and now - miss.verified_at < timedelta(days=MISS_DAYS) and not stale and asked_before >= needed:
         db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider="miss_cache",
                                  found_email="", cost_usd=0.0, latency_ms=0, hit=False))
         await db.commit()
@@ -404,11 +435,11 @@ async def lookup_person_waterfall(
             if stale:
                 stale.verification_status = "expired"
             if miss:
-                miss.verified_at, miss.updated_at = now, now
+                miss.verified_at, miss.updated_at, miss.source = now, now, f"asked:{asked}"
             else:
                 db.add(PersonCache(id=str(uuid.uuid4()), email="", first_name=p["first_name"], last_name=p["last_name"],
                                    company_name=p["company"], domain=p["domain"], verification_status="not_found",
-                                   verified_at=now, source=""))
+                                   verified_at=now, source=f"asked:{asked}"))
         await db.commit()
         return {"found": False, "query": query, "detail": "No verified email found for this person."}
 

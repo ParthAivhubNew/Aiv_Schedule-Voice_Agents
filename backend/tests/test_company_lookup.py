@@ -525,6 +525,6 @@ def test_the_saved_combined_lookup_shows_each_button_its_own_field_without_a_new
     assert none["found"] is False and none["cached"] is True and none["combined"] is True  # searched already: not found, nothing re-searched
 
 
-def test_person_email_asks_the_cheapest_providers_and_at_most_two():
+def test_person_email_asks_the_cheapest_providers_and_at_most_four():
     from app.services import enrichment_waterfall as W
-    assert W.PROVIDERS[:2] == ["icypeas", "leadmagic"] and W.MAX_PROVIDERS_ASKED == 2
+    assert W.PROVIDERS[:2] == ["icypeas", "leadmagic"] and W.MAX_PROVIDERS_ASKED == 4

@@ -158,3 +158,14 @@ async def staff(db):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
                                  headers={"Authorization": f"Bearer {token}"}) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _no_real_apollo_key(monkeypatch):
+    """A developer's own Apollo key (in .env) must never turn the email finders on in a test: the tests choose their providers."""
+    from app.services import enrichment_service
+
+    async def none():
+        return ""
+
+    monkeypatch.setattr(enrichment_service, "apollo_key", none)

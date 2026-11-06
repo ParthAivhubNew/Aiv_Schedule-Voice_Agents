@@ -119,6 +119,9 @@ class TelnyxClient:
             payload["email"] = email
         return (await self._req("POST", "/managed_accounts", json=payload)).get("data", {})
 
+    async def find_managed_account(self, business_name: str) -> Optional[Dict[str, Any]]:
+        return await self._find_by_name("/managed_accounts", "business_name", business_name, ["filter[business_name][contains]", "filter[business_name]"])
+
     async def get_managed_account(self, account_id: str) -> Dict[str, Any]:
         # The API key of a new managed account is only on this resource, not on the create reply.
         return (await self._req("GET", f"/managed_accounts/{account_id}")).get("data", {})

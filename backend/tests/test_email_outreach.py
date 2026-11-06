@@ -387,7 +387,7 @@ async def test_staff_set_the_platform_mailbox_and_it_answers_warmup_mail(staff, 
 
     keys = (await staff.get("/api/admin-api/platform-keys")).json()["groups"]
     finder = next(g for g in keys if g["group"] == "Email Finder")
-    assert [i["name"] for i in finder["items"]] == ["Icypeas", "Hunter", "Findymail", "LeadMagic", "BetterContact"]
+    assert [i["name"] for i in finder["items"]] == ["Icypeas", "LeadMagic", "Hunter", "Apollo", "Findymail", "BetterContact"]
 
 
 async def test_warming_mailboxes_warm_each_other_and_allow_a_few_real_emails_in_week_one(client, db, mail):

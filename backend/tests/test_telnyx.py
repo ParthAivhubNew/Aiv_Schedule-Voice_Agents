@@ -416,3 +416,29 @@ async def test_margin_report_puts_telnyx_cost_next_to_what_we_billed(staff, db, 
     _, other = await make_user(db, "acme_admin2", "Admin", org_id="org_acme")
     async with _as(other) as c:
         assert (await c.get(f"/api/admin-api/telnyx-costs?month={month}")).status_code == 401
+
+
+async def test_a_business_name_telnyx_already_has_gets_a_unique_account_not_someone_elses(monkeypatch):
+    """'The name you have chosen is already in use': the sub-account is made under a name that is this organisation's alone."""
+    from app.core.tenancy import org_scope
+    from app.services import telnyx_provisioning as TP
+    from app.services.telnyx_client import TelnyxError
+
+    made = []
+
+    class Manager:
+        async def create_managed_account(self, name, email=None):
+            if name == "Aivhub" or name in made:
+                raise TelnyxError("The name you have chosen is already in use. Please choose another name.", 422, {})
+            made.append(name)
+            return {"id": "acct_1", "business_name": name}
+
+        async def find_managed_account(self, name):
+            return {"id": "acct_old", "business_name": name} if name in made else None
+
+    with org_scope("org_x"):
+        first = await TP._managed_account_for(Manager(), "Aivhub", None)
+        assert first["business_name"] == "Aivhub (org_x)" and first["id"] == "acct_1"
+        # the attempt after a half-finished one finds this organisation's own account again
+        again = await TP._managed_account_for(Manager(), "Aivhub", None)
+        assert again["id"] == "acct_old"

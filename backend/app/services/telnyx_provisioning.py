@@ -123,6 +123,26 @@ async def _create_or_reuse(create, find):
         return found
 
 
+async def _managed_account_for(manager: TelnyxClient, org_name: str, email: Optional[str]) -> Dict[str, Any]:
+    """This organisation's own sub-account. Telnyx refuses a business name that any account already uses ("The name you have chosen is
+    already in use"), and another organisation's account must never be reused, so a taken name is made unique with the organisation's id.
+    That unique name belongs to this organisation alone, so an earlier attempt that half-finished is found and reused."""
+    unique = f"{org_name} ({_org()})"[:100]
+    for name in (org_name, unique):
+        try:
+            return await manager.create_managed_account(name, email)
+        except TelnyxError as err:
+            said = str(err).lower()
+            if not any(w in said for w in ("duplicate", "already exists", "already been taken", "already in use", "choose another name")):
+                raise
+            if name == unique:
+                found = await manager.find_managed_account(unique)
+                if found:
+                    return found
+                raise
+    raise TelnyxError("The phone service refused the account name.")
+
+
 def start_setup(org_id: str) -> None:
     """After a Voice plan is paid: make the organisation's Telnyx side now, so its Numbers page is
     ready when the client opens it (that page finishes it otherwise). Never raises."""
@@ -173,7 +193,8 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
     try:
         if setup.mode == "managed_account":
             if not setup.managed_account_id:
-                acct = await manager.create_managed_account(org_name or _org(), email or None)
+                step = "managed account"
+                acct = await _managed_account_for(manager, org_name or _org(), email or None)
                 setup.managed_account_id = str(acct.get("id") or "")
             if not setup.api_key_sealed and setup.managed_account_id:
                 acct = await manager.get_managed_account(setup.managed_account_id)

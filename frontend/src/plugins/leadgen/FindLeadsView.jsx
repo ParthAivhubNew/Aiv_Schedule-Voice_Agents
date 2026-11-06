@@ -427,6 +427,22 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     search(null, EMPTY_FORM, 0, null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The opening list never stays empty: if it failed (server busy, a restart, a slow first sort) or came back empty, it is tried
+  // again by itself, up to three times, until the person starts a search of their own.
+  const openingActive = useRef(true);
+  const openingTries = useRef(0);
+  useEffect(() => {
+    const emptyOpening = searched && !busy && companies.length === 0;
+    if (!(error || emptyOpening) || busy || !openingActive.current || openingTries.current >= 3) return undefined;
+    const n = openingTries.current;
+    const timer = setTimeout(() => {
+      if (!openingActive.current) return;
+      openingTries.current = n + 1;
+      search(null, EMPTY_FORM, 0, null, undefined, undefined, true);
+    }, [2000, 5000, 10000][n]);
+    return () => clearTimeout(timer);
+  }, [error, busy, searched, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const searchHold = useHold();
   const countHold = useHold();
   // Phones: a search shows its progress, then its companies or its error, on the Results pane.
@@ -449,6 +465,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride, force = false) => {
     if (e) e.preventDefault();
+    if (e || (overrideForm && overrideForm !== EMPTY_FORM)) openingActive.current = false; // the person's own search: no more automatic retries
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
     // A different search pressed while one is running replaces it (the old answer is dropped); only an exact repeat is ignored.

@@ -107,3 +107,22 @@ async def test_the_report_counts_calls_and_bounces_and_the_chosen_order_is_used(
     assert (await W.finder_order())[:2] == ["bettercontact", "hunter"] and set(await W.finder_order()) == set(W.PROVIDERS)
     with pytest.raises(ValueError):
         await V.save_order(db, ["nonsense"])
+
+
+async def test_apollo_is_one_of_the_finders_and_a_locked_email_is_not_an_answer():
+    import httpx
+
+    from app.services import enrichment_waterfall as W
+
+    assert "apollo" in W.PROVIDERS and W.MAX_PROVIDERS_ASKED >= 4
+    person = {"first_name": "Mayur", "last_name": "Doshi", "company": "Aivhub", "domain": "aivhub.com"}
+
+    def client(person_body):
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"person": person_body})))
+
+    async with client({"email": "mayur@aivhub.com", "email_status": "verified"}) as c:
+        assert await W._apollo(c, "k", person) == ("mayur@aivhub.com", "verified")
+    async with client({"email": "email_not_unlocked@aivhub.com", "email_status": "verified"}) as c:
+        assert await W._apollo(c, "k", person) == ("", "")
+    async with client({"email": "mayur@aivhub.com", "email_status": "guessed"}) as c:
+        assert await W._apollo(c, "k", person) == ("", "")
