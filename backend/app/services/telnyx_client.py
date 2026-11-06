@@ -147,7 +147,7 @@ class TelnyxClient:
                     data = (await self._req("GET", path, params=params)).get("data", []) or []
                 except TelnyxError:
                     break  # this filter spelling is not accepted here: try the next one
-                hit = next((r for r in data if r.get(key) == name), None)
+                hit = next((r for r in data if str(r.get(key) or "").strip().lower() == name.strip().lower()), None)  # Telnyx treats names as case-blind
                 if hit:
                     return hit
                 if len(data) < 250:

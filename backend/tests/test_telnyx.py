@@ -442,3 +442,27 @@ async def test_a_business_name_telnyx_already_has_gets_a_unique_account_not_some
         # the attempt after a half-finished one finds this organisation's own account again
         again = await TP._managed_account_for(Manager(), "Aivhub", None)
         assert again["id"] == "acct_old"
+
+
+async def test_a_taken_name_that_cannot_be_found_is_recreated_under_a_new_name():
+    from app.services import telnyx_provisioning as TP
+    from app.services.telnyx_client import TelnyxError
+
+    made = []
+
+    async def create():
+        raise TelnyxError("The name you have chosen is already in use. Please choose another name.", 422, {})
+
+    async def find():
+        return None
+
+    async def renamed(tag):
+        made.append(tag)
+        return {"id": "app_new"}
+
+    assert (await TP._create_or_reuse(create, find, renamed))["id"] == "app_new" and len(made[0]) == 6
+    try:
+        await TP._create_or_reuse(create, find)
+        assert False, "without a way to rename it still fails"
+    except TelnyxError:
+        pass

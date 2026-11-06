@@ -103,7 +103,7 @@ def _complete(setup) -> bool:
     return bool(setup.billing_group_id and setup.outbound_voice_profile_id and setup.outbound_connection_id)
 
 
-async def _create_or_reuse(create, find):
+async def _create_or_reuse(create, find, create_renamed=None):
     """Create a Telnyx resource, or reuse the existing one if Telnyx says it's already there.
     This happens for real: the previous attempt's create call can succeed on Telnyx's side while
     our own write of its id never lands (a crash, a dropped connection) — the next attempt then
@@ -118,9 +118,13 @@ async def _create_or_reuse(create, find):
         if not any(w in said for w in ("duplicate", "already exists", "already been taken", "already in use")):
             raise
         found = await find()
-        if not found:
-            raise
-        return found
+        if found:
+            return found
+        if create_renamed is not None:
+            # The name is taken but cannot be found by its exact name (Telnyx lists it differently, or by another account's setup):
+            # make this one under a name no one else has, so setup is never stuck on a name clash.
+            return await create_renamed(uuid.uuid4().hex[:6])
+        raise
 
 
 async def _managed_account_for(manager: TelnyxClient, org_name: str, email: Optional[str]) -> Dict[str, Any]:
@@ -220,7 +224,8 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
             label = f"{org_name or _org()} ({_org()})"
             if not setup.billing_group_id:
                 step = "billing group"
-                bg = await _create_or_reuse(lambda: manager.create_billing_group(label), lambda: manager.find_billing_group(label))
+                bg = await _create_or_reuse(lambda: manager.create_billing_group(label), lambda: manager.find_billing_group(label),
+                                            lambda tag: manager.create_billing_group(f"{label[:90]} [{tag}]"))
                 setup.billing_group_id = str(bg.get("id") or "")
             if not setup.outbound_voice_profile_id:
                 step = "outbound voice profile"
@@ -236,10 +241,11 @@ async def ensure_setup(db, org_name: str, email: str = "") -> Any:
                 step = "call control app"
                 # Same webhook as our other Call Control apps: it handles every kind of call we place.
                 app_name = f"Outreach calls: {label}"
+                hook = f"{public_http_base()}/api/sip-webhook"
                 app_ = await _create_or_reuse(
-                    lambda: manager.create_call_control_application(
-                        app_name, f"{public_http_base()}/api/sip-webhook", setup.outbound_voice_profile_id),
-                    lambda: manager.find_call_control_application(app_name))
+                    lambda: manager.create_call_control_application(app_name, hook, setup.outbound_voice_profile_id),
+                    lambda: manager.find_call_control_application(app_name),
+                    lambda tag: manager.create_call_control_application(f"{app_name[:90]} [{tag}]", hook, setup.outbound_voice_profile_id))
                 setup.outbound_connection_id = str(app_.get("id") or "")
             from app.services import voice_assistants as VA
             if VA.enabled_for_org(_org()):
