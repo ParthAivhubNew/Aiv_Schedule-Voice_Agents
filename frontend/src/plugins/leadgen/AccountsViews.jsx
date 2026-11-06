@@ -12,6 +12,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
 import { applyMapping, quarantineCsv, withPeople } from "./importMapping";
+import { pendingList } from "./openList";
 import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LOCK_TIP, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
@@ -618,12 +619,14 @@ function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
 
 export const openFixes = (a) => ((a.verification || {}).fixes || []).filter((f) => f.kind === "fix" && !f.applied);
 const GOOD_EMAIL = new Set(["ok", "verified", "found"]);
-const hasProblem = (a) => a.verification?.verdict === "problem" || a.verification?.email?.state === "invalid";
+const hasProblem = (a) => ["problem", "mismatch"].includes(a.verification?.verdict) || a.verification?.email?.state === "invalid";
 // Where a company stands for emailing: the one answer the list shows and filters by.
 export function readiness(a) {
   if (openFixes(a).length) return "fixes";
   if (hasProblem(a)) return "attention";
-  if (emailFor(a)?.text && GOOD_EMAIL.has(a.verification?.email?.state)) return "ready";
+  if ((a.import_flags || []).some((f) => /^REGNO_/.test(f.code))) return "attention"; // the company number in the file is wrong or used twice
+  if (a.send_block && a.send_block.code !== "unchecked") return "attention"; // an individual without consent, or a bad address: not sendable
+  if (!a.send_block && emailFor(a)?.text && GOOD_EMAIL.has(a.verification?.email?.state)) return "ready";
   if (!emailFor(a)?.text && wasLookedUp(a)) return "noemail";
   return "other";
 }
@@ -633,12 +636,14 @@ const ACCOUNT_CHIPS = [
   ["ready", "Ready to email", (a) => readiness(a) === "ready", "Has an email that passed the checks"],
   ["fixes", "Fixes to review", (a) => readiness(a) === "fixes", "We found a better value than the one you had. Nothing changes until you accept it"],
   ["attention", "Needs attention", (a) => readiness(a) === "attention", "The company looks closed, or its email can't receive mail"],
+  ["flagged", "Import warnings", (a) => (a.import_flags || []).length > 0, "Problems noticed when the file was imported, such as a company number that belongs to another company"],
   ["noemail", "No email found", (a) => readiness(a) === "noemail", "We looked and found no email"],
 ];
 const VERDICT_TIPS = {
   verified: "Confirmed active by the official register or our records",
   looks_ok: "Nothing wrong found, but no register confirmed it",
   problem: "Closed or dissolved, or its website or email doesn't work",
+  mismatch: "The company number in your file belongs to a different company",
   not_found: "We found no record of this company",
   unclear: "The check couldn't finish for these",
 };
@@ -710,6 +715,21 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const page = Math.min(pageNo, lastPage);
   const paged = shown.slice(page * pageSize, (page + 1) * pageSize);
   const pageIds = paged.map((a) => a.id);
+  const deleteTicked = async () => {
+    const n = pickedIds.length;
+    if (!n) return;
+    if (!(await askConfirm({ title: `Delete ${n.toLocaleString()} ${n === 1 ? "company" : "companies"}?`, body: "They are removed from your saved companies, every list and any journey they are in. This can't be undone.", confirm: `Delete ${n.toLocaleString()}`, danger: true }))) return;
+    const never = await askConfirm({ title: "Also stop anyone contacting them?", body: "Add their emails and phone numbers to your do-not-contact list, for an erasure request. Press Cancel to delete without blocking them.", confirm: "Yes, block them" });
+    try {
+      const out = await api.deleteLeadAccounts(pickedIds, Boolean(never));
+      setPicked(new Set());
+      await store.reload();
+      await listsStore?.reload?.();
+      store.toast?.(`Deleted ${out.deleted.toLocaleString()}.${out.locked?.length ? ` ${out.locked.length} are being checked right now and were kept.` : ""}`);
+    } catch (e) {
+      store.toast?.(e.message || "Couldn't delete them");
+    }
+  };
   const allShownPicked = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
   const allMatchingPicked = shownIds.every((id) => picked.has(id));
   const pickedIds = base.filter((a) => picked.has(a.id)).map((a) => a.id); // companies removed since are dropped
@@ -790,6 +810,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           ) : null}
           <ViewsMenu current={{ hidden, scope }} onToast={store.toast} onApply={(v) => { saveHidden(v.hidden || []); setScope(chips.some(([id]) => id === v.scope) ? v.scope : "all"); }} />
           <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => saveHidden([])} />
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} disabled={!pickedIds.length} onClick={deleteTicked}
+            title="Delete the ticked companies for good. They leave every list and journey.">
+            Delete {pickedIds.length || ""}
+          </button>
           {listId ? (
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || pickedIds.some((i) => locked.has(i))} onClick={() => removeFromList(pickedIds)}
               title={pickedIds.some((i) => locked.has(i)) ? LOCK_TIP : "Take the ticked companies out of this list"}>
@@ -1392,7 +1416,7 @@ function ImportReport({ done, onGo, onClose, onToast }) {
         </div>
       ) : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button title="Go to this list" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("lists")}>Open the list</button>
+        <button title="Go to this list" type="button" className="ui-btn ui-btn--primary" onClick={() => { if (done.list?.id) pendingList.id = done.list.id; onGo("lists"); }}>Open the list</button>
         {done.list?.id && (done.blanks?.phone ?? 0) < (done.list.count ?? Infinity) ? (
           <CallButton label="Call this list" lockedLabel="Call this list · add Voice" title="Skips anyone without a number, on your do-not-contact list or contacted lately, and shows you who before it dials"
             onClick={() => call.open({ kind: "list", id: done.list.id, name: done.list.name })} onLocked={() => call.open({ kind: "list", id: done.list.id, name: done.list.name }, true)} />
@@ -1450,7 +1474,7 @@ export function ImportView({ store, onGo, onAskAi }) {
     const data = (sheets[sheet] || []).filter((r) => Object.values(r).some((v) => String(v).trim()));
     const headers = data.length ? Object.keys(data[0]) : [];
     setActiveSheet(sheet);
-    setFields(withPeople(applyMapping(headers, data, map)));
+    setFields(withPeople(applyMapping(headers, data, map), Object.values(map).includes("name")));
     setShowMapper(false);
   };
 

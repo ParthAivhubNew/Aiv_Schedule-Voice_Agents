@@ -140,9 +140,24 @@ def alias_for(mb: EmailMailbox, address: str) -> Optional[Dict[str, Any]]:
     return next((a for a in (mb.aliases or []) if str(a.get("address", "")).lower() == want), None) if want else None
 
 
+async def _sender_line(db) -> str:
+    """Who is sending and where to reach them, printed in every cold email: the legal name and the postal address."""
+    from app.models.models import CompanyProfile
+
+    try:
+        prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    except Exception:
+        return ""
+    if not prof:
+        return ""
+    name = (prof.legal_name or prof.name or "").strip()
+    address = " ".join((getattr(prof, "postal_address", "") or "").split())
+    return ", ".join(x for x in (name, address) if x)
+
+
 def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, warmup_id: str = "",
           in_reply_to: str = "", references: str = "", from_alias: str = "", open_marker: str = "",
-          brand: Optional[Dict[str, Any]] = None, unsubscribe_override: str = "") -> MimeMessage:
+          brand: Optional[Dict[str, Any]] = None, unsubscribe_override: str = "", sender_line: str = "") -> MimeMessage:
     """The message. A plain email when `brand` is empty (exactly as before). With a brand, the HTML part is the designed layout and the
     plain-text part carries the same words; warm-up mail is never designed. `unsubscribe_override` is for a test send, where the
     footer link must not be a real token for anyone."""
@@ -169,6 +184,8 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
         if not unsubscribe_override:
             msg["List-Unsubscribe"] = f"<{link}>, <mailto:{mb.email}?subject=unsubscribe>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        if sender_line:
+            body += f"\n\n--\n{sender_line}"
         body += (f"\n\n--\nNot interested? Unsubscribe: {link}"
                  f"\nWhy you got this, and where we found your details: {why}")
     designed = ""
@@ -239,8 +256,9 @@ async def send_cold_email(
                 marker = open_url(org_id, row_id)
         except Exception:
             marker = ""
+    sender_line = "" if is_warmup else await _sender_line(db)
     msg = build(mailbox, to, subject, body_text, org_id=org_id, warmup_id=warmup_id if is_warmup else "",
-                in_reply_to=in_reply_to, from_alias=from_alias, open_marker=marker, brand=brand if not is_warmup else None)
+                in_reply_to=in_reply_to, from_alias=from_alias, open_marker=marker, brand=brand if not is_warmup else None, sender_line=sender_line)
     try:
         await T.send(mailbox_settings(mailbox), msg)
     except T.MailError as err:

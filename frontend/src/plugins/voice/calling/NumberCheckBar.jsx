@@ -123,7 +123,7 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
   };
 
   const label = selected.length ? `Check selected (${selected.length})` : `Check all (${withPhone.length})`;
-  const skipped = est ? est.rows.filter((r) => ["bad_format", "duplicate", "do_not_call"].includes(r.status)).length : 0;
+  const skipped = est ? est.rows.filter((r) => ["bad_format", "fictional", "duplicate", "do_not_call"].includes(r.status)).length : 0;
   const alreadyKnown = est ? est.rows.filter((r) => r.cached).length : 0;
   const lacking = est && est.enforced && est.credits > est.balance;
 

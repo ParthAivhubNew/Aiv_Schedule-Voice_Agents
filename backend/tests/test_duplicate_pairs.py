@@ -28,7 +28,7 @@ def test_missing_fields_become_empty_text_not_none():
 
 
 def test_a_phone_number_is_compared_in_one_form():
-    same = ["0113 496 0101", "+44 113 496 0101", "+44 (0)113 496 0101", "0044 113 496 0101", "01134960101"]
+    same = ["0113 550 0101", "+44 113 550 0101", "+44 (0)113 550 0101", "0044 113 550 0101", "01135500101"]
     assert len({LA.phone_key(n) for n in same}) == 1
 
 

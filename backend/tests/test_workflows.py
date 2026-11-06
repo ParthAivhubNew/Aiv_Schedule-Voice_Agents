@@ -28,7 +28,7 @@ def _rule(**kw):
 
 async def _lead(db, org, id="la_w1", **kw):
     with org_scope(org):
-        db.add(LeadAccount(id=id, name=kw.pop("name", "Kirkgate Dental"), phone=kw.pop("phone", "01134960001"), **kw))
+        db.add(LeadAccount(id=id, name=kw.pop("name", "Kirkgate Dental"), phone=kw.pop("phone", "01135500001"), **kw))
         await db.commit()
         await db.rollback()
 

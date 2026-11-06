@@ -19,7 +19,7 @@ async def test_saved_accounts_are_kept_without_copies_and_can_be_edited(db):
     _, token = await make_user(db, "la", "Admin", org_id="org_acme")
     async with _client(token) as c:
         r = await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Kirkgate Dental", "website": "www.kirkgatedental.co.uk", "phone": "0113 496 0412", "source": "scout"},
+            {"name": "Kirkgate Dental", "website": "www.kirkgatedental.co.uk", "phone": "0113 550 0412", "source": "scout"},
             {"name": "Headrow Lettings"},
             {"name": "Kirkgate Dental Studio", "website": "https://kirkgatedental.co.uk/contact"},  # same site
             {"name": "headrow lettings"},  # same name, no site
@@ -66,7 +66,7 @@ async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatc
         calls.append((company, place, page_url))
         if company == "Nothing Online Ltd":
             return {"phones": [], "emails": [], "keyPeople": [], "socials": {}, "overview": "No detailed summary found."}
-        return {"domain": "https://briggateoptics.example", "phones": ["0113 496 0377"], "primaryPhone": "0113 496 0377",
+        return {"domain": "https://briggateoptics.example", "phones": ["0113 550 0377"], "primaryPhone": "0113 550 0377",
                 "emails": ["hello@briggateoptics.example"], "primaryEmail": "hello@briggateoptics.example",
                 "otherOffices": [{"town": "York", "phone": "01904 496 0000"}],
                 "overview": "Independent opticians in Leeds.", "openingHook": "pitch about voice AI",
@@ -81,7 +81,7 @@ async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatc
         await db.commit()
     async with _client(token) as c:
         accs = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Briggate Opticians", "phone": "0113 496 0100", "region": "Leeds", "source": "scout",
+            {"name": "Briggate Opticians", "phone": "0113 550 0100", "region": "Leeds", "source": "scout",
              "source_url": "https://briggateoptics.example/leeds"}, {"name": "Nothing Online Ltd"}]})).json()["accounts"]
         brig = next(a for a in accs if a["name"] == "Briggate Opticians")
         none = next(a for a in accs if a["name"] == "Nothing Online Ltd")
@@ -95,7 +95,7 @@ async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatc
         r = await c.post(f"/api/leads/accounts/{brig['id']}/research")
         assert r.status_code == 200, r.text
         got = r.json()
-        assert got["phone"] == "0113 496 0100"  # the saved number is kept
+        assert got["phone"] == "0113 550 0100"  # the saved number is kept
         assert got["email"] == "hello@briggateoptics.example" and got["domain"] == "briggateoptics.example"
         assert got["contact_name"] == "Marcus Reid" and got["contact_title"] == "Owner"
         assert got["research"]["overview"] == "Independent opticians in Leeds."

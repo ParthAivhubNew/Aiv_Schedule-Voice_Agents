@@ -95,3 +95,26 @@ async def test_two_orgs_through_the_api(anon, db):
     a = (await anon.get("/api/analytics/overview", headers=_h(tok_a))).json()["current"]["calls"]
     b = (await anon.get("/api/analytics/overview", headers=_h(tok_b))).json()["current"]["calls"]
     assert a == 1 and b == 0
+
+
+async def test_one_organisations_check_job_is_invisible_to_another(db):
+    """N26: a Check & improve run belongs to the organisation that started it, by id and as 'latest'."""
+    import httpx
+
+    from app.core.tenancy import org_scope
+    from app.main import app
+    from app.services import company_check_job as job
+    from tests.conftest import make_user
+
+    with org_scope("org_chk_a"):
+        await job._write(job._key("org_chk_a", "job_a1"), {"id": "job_a1", "status": "running", "updated_at": "2099-01-01T00:00:00", "ids": ["acc_secret"]})
+        await job._write(job._latest_key("org_chk_a"), {"job_id": "job_a1"})
+    _, token_b = await make_user(db, "chk_b", "Admin", org_id="org_chk_b")
+    _, token_a = await make_user(db, "chk_a", "Admin", org_id="org_chk_a")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+        mine = await c.get("/api/leads/checks/latest", headers={"Authorization": f"Bearer {token_a}"})
+        theirs = await c.get("/api/leads/checks/latest", headers={"Authorization": f"Bearer {token_b}"})
+        by_id = await c.get("/api/leads/checks/job_a1", headers={"Authorization": f"Bearer {token_b}"})
+    assert mine.json()["job"]["id"] == "job_a1"
+    assert theirs.json() == {"job": None, "locked_ids": []}
+    assert by_id.status_code == 404

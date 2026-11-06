@@ -75,7 +75,7 @@ def test_a_check_fills_blanks_and_only_offers_a_fix_for_a_value_the_user_gave():
     from types import SimpleNamespace
 
     row = {"phone": "0113 000", "website": "https://old.example", "email": "", "domain": "old.example"}
-    deep = {"found": True, "phone": "0113 496 0412", "website": "https://new.example"}
+    deep = {"found": True, "phone": "0113 550 0412", "website": "https://new.example"}
     free = {"phone": {"state": "invalid"}, "website": {"state": "dead"}}
     fixes = build_fixes(row, deep, free, "ann@new.example")
     kinds = {f["field"]: f["kind"] for f in fixes}
@@ -87,7 +87,7 @@ def test_a_check_fills_blanks_and_only_offers_a_fix_for_a_value_the_user_gave():
     assert len(open_fixes(acc)) == 2
     assert accept(acc, ["website"]) == 1 and acc.website == "https://new.example" and acc.domain == "new.example"
     assert acc.phone == "0113 000"  # not accepted yet
-    assert accept(acc) == 1 and acc.phone == "0113 496 0412" and open_fixes(acc) == []
+    assert accept(acc) == 1 and acc.phone == "0113 550 0412" and open_fixes(acc) == []
 
 
 def test_found_lists_only_what_we_added_and_how_complete_it_is():
@@ -95,8 +95,8 @@ def test_found_lists_only_what_we_added_and_how_complete_it_is():
 
     from app.api.lead_accounts import _found
 
-    a = SimpleNamespace(website="acme.co.uk", phone="01134960412", email="a@acme.co.uk", contact_name="",
-                        research={"filled": [{"field": "phone", "value": "01134960412"}, {"field": "email", "value": "a@acme.co.uk"}],
+    a = SimpleNamespace(website="acme.co.uk", phone="01135500412", email="a@acme.co.uk", contact_name="",
+                        research={"filled": [{"field": "phone", "value": "01135500412"}, {"field": "email", "value": "a@acme.co.uk"}],
                                   "team": [{"name": "Tom"}], "emails": ["a@acme.co.uk", "b@acme.co.uk"]},
                         verification={"fixes": [{"field": "website", "to": "acme.co.uk", "kind": "fill", "applied": True},
                                                 {"field": "contact_name", "to": "Tom", "kind": "fix", "applied": False}]})

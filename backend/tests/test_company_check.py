@@ -38,7 +38,7 @@ def test_email_and_phone_shapes():
     assert cc.email_shape("Jo.Bloggs@Acme.co.uk") == (True, "acme.co.uk")
     assert cc.email_shape("not-an-email")[0] is False and cc.email_shape("a@b")[0] is False
     assert cc.phone_shape("") == "none"
-    assert cc.phone_shape("0113 496 0412") == "ok" and cc.phone_shape("+44 113 496 0412") == "ok"
+    assert cc.phone_shape("0113 550 0412") == "ok" and cc.phone_shape("+44 113 550 0412") == "ok"
     assert cc.phone_shape("12345") == "invalid" and cc.phone_shape("0000000000") == "invalid"
 
 
@@ -200,7 +200,7 @@ async def test_a_selected_list_is_checked_charged_once_and_nothing_saved_is_over
         await db.commit()
     async with _client(token) as c:
         saved = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Acme Ltd", "website": "acme.co.uk", "email": "info@acme.co.uk", "phone": "0113 496 0412", "contact_name": "Tom Barker"},
+            {"name": "Acme Ltd", "website": "acme.co.uk", "email": "info@acme.co.uk", "phone": "0113 550 0412", "contact_name": "Tom Barker"},
             {"name": "Gone Ltd", "website": "dead-gone.co.uk", "email": "x@nomail-gone.co.uk"},
             {"name": "Cafe Nero Local", "website": "nerolocal.co.uk", "phone": "123"},
             {"name": "Mystery Co", "website": ""},
@@ -383,6 +383,6 @@ def test_a_number_is_matched_to_what_the_company_publishes():
     assert "7702167658" in nums and "1865123456" in nums
     assert cc.phone_ownership("07702167658", site=nums)["match"] == "website"
     assert cc.phone_ownership("7702167658", site=nums)["match"] == "website"  # Excel dropped the 0
-    assert cc.phone_ownership("0113 496 0412", site=nums)["match"] == "differs"
-    assert cc.phone_ownership("0113 496 0412", site=[], place="+44 113 496 0412")["match"] == "Google listing"
-    assert cc.phone_ownership("0113 496 0412", site=[]) == {}
+    assert cc.phone_ownership("0113 550 0412", site=nums)["match"] == "differs"
+    assert cc.phone_ownership("0113 550 0412", site=[], place="+44 113 550 0412")["match"] == "Google listing"
+    assert cc.phone_ownership("0113 550 0412", site=[]) == {}

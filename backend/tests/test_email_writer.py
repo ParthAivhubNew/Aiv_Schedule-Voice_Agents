@@ -164,3 +164,18 @@ async def test_only_an_admin_can_change_the_shared_company_profile(db):
         blocked = await m.put("/api/email/ai/profile", json={**PROFILE, "company": "Hijacked Ltd"})
         assert blocked.status_code == 403
         assert (await a.get("/api/email/ai/profile")).json()["profile"]["company"] == "Brightside Accounting"
+
+
+async def test_the_brief_comes_before_the_sender_profile_in_the_prompt(monkeypatch):
+    from app.services import email_writer as W
+
+    seen = {}
+
+    async def fake(db, rules, prompt):
+        seen["prompt"] = prompt
+        return {"steps": [{"subject": "Hi", "body": "Hello {{first_name}}"}]}
+
+    monkeypatch.setattr(W, "_ask", fake)
+    await W.draft_sequence(None, {"company": "Acme", "sells": "enterprise BI platform"}, "UK accountants", count=1, instruction="introduce our bookkeeping service")
+    p = seen["prompt"]
+    assert p.startswith("THE BRIEF") and p.index("bookkeeping") < p.index("BACKGROUND ABOUT THE SENDER") < p.index("enterprise BI platform")

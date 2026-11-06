@@ -242,6 +242,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
   const cols = 10;
   const seen = new Set();
+  let last = null; // a divider is drawn whenever the group changes, so no row ever sits under the wrong heading
   return (
     <>
     <GridTools id="find-companies" />
@@ -250,7 +251,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
         <thead>
           <tr>
             <th style={{ ...th, ...pinned(0, 4), width: 36, background: "#FAFBFC" }}><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></th>
-            <th style={{ ...th, ...pinned(36, 4), background: "#FAFBFC", minWidth: 260 }}>Company</th>
+            <th style={{ ...th, ...pinned(36, 4), background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
             <th style={th}>Industry</th>
             <th style={th}>Location</th>
             <th style={th}>Website</th>
@@ -263,8 +264,12 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
         </thead>
         <tbody>
           {rows.map((c) => {
-            const head = grouped && !seen.has(c.profile) ? (seen.add(c.profile), c.profile) : null;
-            const tier = head && tiers ? { n: tiers[head] || 0, plus: capped && head !== "basic" && (tiers[head] || 0) >= 10000 ? "+" : "" } : null;
+            const head = grouped && c.profile !== last ? c.profile : null;
+            last = c.profile;
+            const firstOfGroup = head && !seen.has(head);
+            if (head) seen.add(head);
+            const groupCount = head && tiers ? tiers[head] : null; // null when it can't be known (past the 10,000 counted)
+            const tier = firstOfGroup && groupCount != null ? { n: groupCount, plus: tiers.capped && groupCount >= 10000 ? "+" : "" } : null;
             const on = picked.has(c.id);
             const bg = activeId === c.id ? C.cobaltSoft : on ? "#F6F8FE" : "#fff";
             return (
@@ -272,10 +277,10 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                 {head ? <Divider profile={head} count={tier} cols={cols} /> : null}
                 <tr onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
                   <Cell style={{ ...pinned(0), width: 36, background: bg }}><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onClick={(e) => e.stopPropagation()} onChange={() => onPick(c.id)} /></Cell>
-                  <Cell style={{ ...pinned(36), background: bg, minWidth: 260 }}>
+                  <Cell style={{ ...pinned(36), background: bg, minWidth: 260, maxWidth: 320 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <CompanyAvatar c={c} />
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}

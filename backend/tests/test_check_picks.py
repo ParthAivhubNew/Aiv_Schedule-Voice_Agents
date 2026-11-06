@@ -13,24 +13,24 @@ def acc(**kw):
 
 
 def test_two_phones_become_a_pick_and_the_guess_is_undone():
-    a = acc(phone="0113 496 0102", research={"phones": ["0113 496 0102", "0113 496 0188"], "filled": [{"field": "phone", "value": "0113 496 0102"}]})
+    a = acc(phone="0113 550 0102", research={"phones": ["0113 550 0102", "0113 550 0188"], "filled": [{"field": "phone", "value": "0113 550 0102"}]})
     result = {}
     assert P.add_picks(a, {"phone": "", "email": ""}, result) == 1
     assert a.phone == ""
     assert a.research["filled"] == []
     pick = result["fixes"][0]
-    assert pick["kind"] == "pick" and pick["field"] == "phone" and [o["value"] for o in pick["options"]] == ["0113 496 0102", "0113 496 0188"]
+    assert pick["kind"] == "pick" and pick["field"] == "phone" and [o["value"] for o in pick["options"]] == ["0113 550 0102", "0113 550 0188"]
 
 
 def test_one_candidate_or_a_saved_value_is_left_alone():
-    a = acc(phone="0113 496 0102", research={"phones": ["0113 496 0102"]})
-    assert P.add_picks(a, {"phone": "", "email": ""}, {}) == 0 and a.phone == "0113 496 0102"
+    a = acc(phone="0113 550 0102", research={"phones": ["0113 550 0102"]})
+    assert P.add_picks(a, {"phone": "", "email": ""}, {}) == 0 and a.phone == "0113 550 0102"
     b = acc(phone="0113 000", research={"phones": ["0113 1", "0113 2"]})
     assert P.add_picks(b, {"phone": "0113 000", "email": ""}, {}) == 0 and b.phone == "0113 000"
 
 
 def test_the_same_number_written_two_ways_is_one_option():
-    assert P.candidates({"phones": ["0113 496 0102", "01134960102", "(0113) 496 0102"]}, "phone") == ["0113 496 0102"]
+    assert P.candidates({"phones": ["0113 550 0102", "01135500102", "(0113) 550 0102"]}, "phone") == ["0113 550 0102"]
 
 
 def test_choosing_saves_the_value_and_closes_the_pick():

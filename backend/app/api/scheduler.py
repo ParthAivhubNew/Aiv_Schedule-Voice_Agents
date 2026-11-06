@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -517,7 +517,39 @@ async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: 
             raise platform_ai.AIUnavailable(img.get("warning") or "The image AI returned no image.")
         return img
 
-    return await platform_ai.run_with_backup(db, "image", attempt)
+    img = await platform_ai.run_with_backup(db, "image", attempt)
+    return await _with_logo(db, payload, img)
+
+
+async def _logo_settings(db: AsyncSession) -> Dict[str, Any]:
+    """This company's logo choice for pictures: off unless they turned it on and uploaded a logo."""
+    from app.services import logo_overlay as LO
+
+    data: Dict[str, Any] = {}
+    try:
+        row = (await db.execute(select(SchedulerSetting).where(SchedulerSetting.id == "default"))).scalars().first()
+        data = dict(row.data or {}) if row and isinstance(row.data, dict) else {}
+    except Exception:
+        data = {}
+    return {"on": bool(data.get("logoOn")), "url": str(data.get("logoUrl") or ""), "corner": LO.clean_corner(data.get("logoCorner")),
+            "size": LO.clean_size(data.get("logoSize"))}
+
+
+async def _with_logo(db: AsyncSession, payload: Dict[str, Any], img: Dict[str, Any]) -> Dict[str, Any]:
+    """Puts the company's real logo on a finished picture when they asked for it (setting, or `logo` true/false for this one picture).
+    If the logo can't be placed the picture is returned as drawn: a picture is never lost over a logo."""
+    from app.services import logo_overlay as LO
+
+    s = await _logo_settings(db)
+    wanted = payload.get("logo") if isinstance(payload.get("logo"), bool) else s["on"]
+    if not wanted or not s["url"] or not img.get("imageUrl"):
+        return img
+    try:
+        done = await LO.apply_logo(img["imageUrl"], s["url"], s["corner"], s["size"])
+    except Exception as err:
+        logger.info(f"[scheduler] logo not placed: {err}")
+        done = None
+    return {**img, "imageUrl": done, "logo": True} if done else img
 
 
 @router.get("/image-settings")
@@ -526,9 +558,11 @@ async def get_image_settings(db: AsyncSession = Depends(get_db)) -> Dict[str, An
     from app.services.post_writer import ASPECT_RATIOS, IMAGE_STYLES
 
     prefs = await _load_ai_settings(db)
+    logo = await _logo_settings(db)
     return {"style": prefs.get("imageStyle") or "modern_saas", "styleCustom": prefs.get("imageStyleCustom") or "",
             "aspectRatio": prefs.get("imageAspectRatio") or "4:5", "quality": prefs.get("imageQuality") or "standard",
-            "styles": list(IMAGE_STYLES) + ["custom"], "aspectRatios": list(ASPECT_RATIOS), "qualities": list(IMAGE_QUALITIES)}
+            "styles": list(IMAGE_STYLES) + ["custom"], "aspectRatios": list(ASPECT_RATIOS), "qualities": list(IMAGE_QUALITIES),
+            "logoOn": logo["on"], "logoUrl": logo["url"], "logoCorner": logo["corner"], "logoSize": logo["size"]}
 
 
 @router.put("/image-settings")
@@ -553,9 +587,36 @@ async def put_image_settings(payload: Dict[str, Any], db: AsyncSession = Depends
         db.add(row)
     data = dict(row.data or {})
     data.update({"imageStyle": style, "imageStyleCustom": custom, "imageAspectRatio": shape, "imageQuality": quality})
+    if "logoOn" in payload or "logoUrl" in payload:
+        from app.services import logo_overlay as LO
+        from app.services.media_store import local_media_path
+
+        url = str(payload.get("logoUrl") or data.get("logoUrl") or "")
+        if url and not local_media_path(url):
+            raise HTTPException(status_code=400, detail="Upload your logo with the Upload logo button.")
+        on = bool(payload.get("logoOn"))
+        if on and not url:
+            raise HTTPException(status_code=400, detail="Upload your logo first, then switch it on.")
+        data.update({"logoOn": on, "logoUrl": url, "logoCorner": LO.clean_corner(payload.get("logoCorner")),
+                     "logoSize": LO.clean_size(payload.get("logoSize"))})
     row.data = data
     await db.commit()
     return await get_image_settings(db)
+
+
+@router.post("/brand-logo")
+async def upload_brand_logo(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """The company's logo file (PNG with a clear background works best). Kept in our media store; used only when the logo is switched on."""
+    from app.services.media_store import IMAGE_TYPES, store_upload
+
+    mime = (file.content_type or "").lower()
+    if mime not in IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Use a PNG, JPG or WebP logo.")
+    try:
+        url, _ = await store_upload(file, mime)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return {"logoUrl": url}
 
 
 @router.get("/media/{filename}")

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { usageCount } from "./usageUnits";
 import { Loader } from "../app/Loader";
 import { AlertTriangle, CalendarDays, Coins, CreditCard, Download, ExternalLink, Mail, PhoneCall, Search } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { goExternal, inFrame } from "../utils/goExternal";
 import { APPS } from "../hub/apps";
+import { PeopleUsage } from "./PeopleUsage";
 
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box" };
 export const btn = (primary, disabled) => ({
@@ -16,6 +18,9 @@ export const heading = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14
 export const fmt = (n) => Number(n || 0).toLocaleString();
 export const money = (cents, currency) => new Intl.NumberFormat(undefined, { style: "currency", currency: (currency || "usd").toUpperCase() }).format(Number(cents || 0) / 100);
 export const day = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z")).toLocaleDateString([], { day: "numeric", month: "short" }) : "");
+
+export const loadPeople = (days, userId) => api.getCreditPeople(days, userId);
+export const saveCap = (userId, cap) => api.setCreditCap(userId, cap);
 
 const WALLET_ICON = { voice: PhoneCall, leadgen: Search, email: Mail, scheduler: CalendarDays };
 export const WALLET_COLOUR = { voice: C.cobalt, leadgen: "#8B5CF6", email: "#F59E0B", scheduler: C.teal };
@@ -31,7 +36,7 @@ export function WalletCard({ w }) {
   const soon = w.nextExpiry && (new Date(w.nextExpiry.at + (w.nextExpiry.at.endsWith("Z") ? "" : "Z")) - Date.now()) / 86400000 <= 7;
   const expiryText = w.nextExpiry
     ? `${fmt(w.nextExpiry.amount)} expire ${day(w.nextExpiry.at)}${never > 0 ? ` · ${fmt(never)} never expire` : ""}`
-    : "None of these credits expire";
+    : "No expiry date is set on these credits";
   return (
     <div style={{ border: `1px solid ${w.empty ? "#F0C4B8" : C.border}`, borderRadius: 14, padding: "14px 16px", background: "#fff" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.slate, fontWeight: 600 }}>
@@ -90,7 +95,7 @@ export function CreditsTab() {
 
   return (
     <div style={{ fontFamily: FONT_BODY }}>
-      {data.testMode && <div style={{ fontSize: 12, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "6px 10px", borderRadius: 8, marginBottom: 10 }}>Stripe test mode: no real money moves.</div>}
+      {data.testMode && <div style={{ fontSize: 12, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "6px 10px", borderRadius: 8, marginBottom: 10 }}>Payments are in test mode: no real money moves.</div>}
       {data.subscription.status === "past_due" && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.red, background: C.redSoft, padding: "8px 12px", borderRadius: 10, marginBottom: 10 }}>
           <AlertTriangle size={15} /> Your last payment failed. Update your card in Manage billing.
@@ -141,6 +146,8 @@ export function CreditsTab() {
       {error && <div role="alert" style={{ color: C.red, fontSize: 12.5, marginTop: 8 }}>{error}</div>}
 
       <MonthlyUsage wallets={data.wallets} />
+
+      <PeopleUsage load={loadPeople} saveCap={saveCap} />
 
       <div style={heading}>Latest changes</div>
       {data.history.length === 0 ? (
@@ -239,7 +246,7 @@ export function MonthlyUsage({ wallets, only = "" }) {
                     <tr key={it.item}>
                       <td style={cell}>{it.label}</td>
                       <td style={{ ...cell, color: WALLET_COLOUR[it.wallet] || C.slate, fontWeight: 600 }}>{names[it.wallet] || it.wallet}</td>
-                      <td style={{ ...cell, fontFamily: FONT_MONO }}>{fmt(it.units)} {it.unit}{it.units === 1 || !it.unit || it.unit.includes(" ") ? "" : "s"}</td>
+                      <td style={{ ...cell, fontFamily: FONT_MONO }}>{usageCount(it.units, it.unit).text}</td>
                       <td style={{ ...cell, fontFamily: FONT_MONO }}>{fmt(it.credits)}</td>
                     </tr>
                   ))}

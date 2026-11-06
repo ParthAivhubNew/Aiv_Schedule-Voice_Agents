@@ -984,6 +984,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={ShieldCheck} title="Compliance & legal" desc="Details needed for UK outbound-calling rules — shown to admins only, never spoken on calls." />
               <Field label="Registered legal company name" value={profile.legalName || ""} onChange={(v) => update("legalName", v)} placeholder="Legal entity name" />
+              <Field label="Postal address (printed in every marketing email)" value={profile.postalAddress || ""} onChange={(v) => update("postalAddress", v)} placeholder="Street, town, postcode" textarea />
               <Field label="ICO registration reference" value={profile.icoRef || ""} onChange={(v) => update("icoRef", v)} placeholder="ICO reference" />
               <Field label="Data protection contact" value={profile.dpoContact || ""} onChange={(v) => update("dpoContact", v)} placeholder="privacy@company.com" />
               <Field label="Do-not-call list handling notes" value={profile.dncNotes || ""} onChange={(v) => update("dncNotes", v)} placeholder="Opt-outs logged immediately and excluded from all future missions." textarea />

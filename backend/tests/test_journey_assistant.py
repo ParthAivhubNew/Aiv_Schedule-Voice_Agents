@@ -139,7 +139,7 @@ async def test_adding_people_is_offered_with_the_numbers_and_nobody_is_added(db,
     with org_scope("org_ja4"):
         ids = []
         for i, e in enumerate(["a@x.com", "b@x.com", "bad", "a@x.com"]):
-            db.add(LeadAccount(id=f"ld_ja4_{i}", name=f"Co {i}", email=e, contact_name="Sam Lee"))
+            db.add(LeadAccount(id=f"ld_ja4_{i}", name=f"Co {i} Ltd", email=e, contact_name="Sam Lee", verification={"verdict": "verified"}))
             ids.append(f"ld_ja4_{i}")
         await db.commit()
         await LL.put_in_list(db, "", "Leeds cafes", ids)

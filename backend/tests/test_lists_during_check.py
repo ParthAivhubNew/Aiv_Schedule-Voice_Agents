@@ -35,7 +35,7 @@ async def test_a_company_in_a_running_check_can_be_edited_but_not_deleted_or_rem
         lst = saved["list"]["id"]
         await _running_check(db, "org_chk1", [a])
 
-        assert (await c.patch(f"/api/leads/accounts/{a}", json={"phone": "0113 496 0000"})).status_code == 200  # editing stays open
+        assert (await c.patch(f"/api/leads/accounts/{a}", json={"phone": "0113 550 0000"})).status_code == 200  # editing stays open
         assert (await c.delete(f"/api/leads/accounts/{a}")).status_code == 409
         assert (await c.patch(f"/api/leads/lists/{lst}", json={"remove": [a]})).status_code == 409
         assert (await c.delete(f"/api/leads/lists/{lst}")).status_code == 409
@@ -118,9 +118,9 @@ async def test_a_person_with_no_company_can_be_saved_by_their_name(db):
 async def test_two_people_at_one_company_are_two_records_and_the_same_person_is_not_repeated(db):
     _, token = await make_user(db, "imp3", "Admin", org_id="org_imp3")
     async with _client(token) as c:
-        rows = [{"name": "AIVHUB LTD", "contact_name": "Hemant Mehta", "phone": "0113 496 0101", "source": "import"},
-                {"name": "AIVHUB LTD", "contact_name": "Jitendra Mehta", "phone": "0113 496 0102", "source": "import"},
-                {"name": "AIVHUB LTD", "contact_name": "hemant mehta", "phone": "0113 496 0101", "source": "import"}]
+        rows = [{"name": "AIVHUB LTD", "contact_name": "Hemant Mehta", "phone": "0113 550 0101", "source": "import"},
+                {"name": "AIVHUB LTD", "contact_name": "Jitendra Mehta", "phone": "0113 550 0102", "source": "import"},
+                {"name": "AIVHUB LTD", "contact_name": "hemant mehta", "phone": "0113 550 0101", "source": "import"}]
         r = (await c.post("/api/leads/accounts", json={"list_name": "People", "accounts": rows})).json()
         assert r["added"] == 2 and r["repeats"] == 1 and r["list"]["count"] == 2
         again = (await c.post("/api/leads/accounts", json={"list_name": "People", "accounts": rows})).json()

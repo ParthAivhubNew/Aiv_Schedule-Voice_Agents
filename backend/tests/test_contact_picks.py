@@ -7,12 +7,12 @@ from app.services import reveals as RV
 
 
 def test_registry_contacts_are_hidden_until_opened_and_the_copy_is_masked():
-    card = {"id": "b1", "website": "https://acme.co.uk", "phone": "0113 496 0000", "email": ""}
+    card = {"id": "b1", "website": "https://acme.co.uk", "phone": "0113 550 0000", "email": ""}
     shown = RV.mask_card(card, {("b1", "website")})
     assert shown["website"] == "https://acme.co.uk"
     assert shown["phone"] == "" and shown["closed"] == {"phone": True}
     assert shown["held"] == {"website": True, "phone": True}  # nothing held for email
-    assert card["phone"] == "0113 496 0000"  # the shared (cached) card is never changed
+    assert card["phone"] == "0113 550 0000"  # the shared (cached) card is never changed
 
 
 def test_options_only_when_there_is_no_winner_and_over_the_floor():

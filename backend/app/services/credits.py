@@ -36,6 +36,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func, or_
 from sqlalchemy.future import select
 
+from app.core.tenancy import actor_scope, current_actor
+
 logger = logging.getLogger("credits")
 
 WALLETS: Dict[str, str] = {
@@ -399,6 +401,15 @@ async def _charge_cost(db, item: str, quantity: float, cost: int, ref: str, note
     return cost
 
 
+async def charged_recently(db, ref: str, item: str, days: int = 90) -> bool:
+    """True when this exact thing (a ref such as a company's website lookup) was already charged to this organisation in the last `days`."""
+    from app.models.models import CreditEntry
+
+    since = datetime.utcnow() - timedelta(days=days)
+    return (await db.execute(select(CreditEntry.id).where(
+        CreditEntry.kind == "usage", CreditEntry.ref == ref, CreditEntry.item == item, CreditEntry.created_at >= since).limit(1))).first() is not None
+
+
 async def _already_charged(db, ref: str, item: str) -> bool:
     from app.models.models import CreditEntry
 
@@ -409,6 +420,68 @@ async def _already_charged(db, ref: str, item: str) -> bool:
 # ── Holds: price fixed when work starts, charged only if it succeeds ──────
 # A part is one thing to charge: {"ref", "item", "quantity", "note"}. ref is unique per thing
 # (e.g. "gen:<job>" for a written post, "genimg:<job>" for its image), so it is charged once.
+def _month_start(now: Optional[datetime] = None) -> datetime:
+    now = now or datetime.utcnow()
+    return datetime(now.year, now.month, 1)
+
+
+async def person_month_used(db, user_id: str, now: Optional[datetime] = None) -> int:
+    """Credits one person has used so far this calendar month (UTC)."""
+    from app.models.models import CreditEntry
+
+    total = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(
+        CreditEntry.kind == "usage", CreditEntry.user_id == user_id, CreditEntry.created_at >= _month_start(now)))).scalar() or 0
+    return -int(total)
+
+
+def limit_reached(cap: int, used: int, held: int) -> str:
+    return f"USR-02: Your monthly limit of {cap} credits, set by your admin, is reached ({used + held} used or reserved). Ask an admin to raise it."
+
+
+async def cap_room(db, actor: str, holds: Dict[str, dict]) -> Optional[int]:
+    """Credits left under this person's monthly limit (0 or more), or None when they have no limit."""
+    from app.models.models import Operator
+
+    if not actor or actor == "system":
+        return None
+    try:
+        op = await db.get(Operator, actor)
+        cap = getattr(op, "monthly_cap", None) if op else None
+        if cap is None:
+            return None
+        held = sum(int(h.get("credits", 0)) for h in holds.values() if h.get("actor") == actor)
+        return max(0, int(cap) - await person_month_used(db, actor) - held)
+    except Exception as err:
+        logger.warning(f"[credits] limit room skipped: {err}")
+        return None
+
+
+async def _cap_check(db, actor: str, cost: int, holds: Dict[str, dict]) -> Tuple[bool, str]:
+    """Whether this person may spend `cost` more credits this month under the limit their admin set. No limit, or no
+    person (a job, an API key without an owner): allowed. Once a limit is known, a failed check refuses (never fails open)."""
+    from app.models.models import Operator
+
+    if not actor or actor == "system" or cost <= 0:
+        return True, ""
+    try:
+        op = await db.get(Operator, actor)
+        cap = getattr(op, "monthly_cap", None) if op else None
+    except Exception as err:
+        logger.warning(f"[credits] limit lookup skipped: {err}")
+        return True, ""
+    if cap is None:
+        return True, ""
+    try:
+        used = await person_month_used(db, actor)
+        held = sum(int(h.get("credits", 0)) for h in holds.values() if h.get("actor") == actor)
+    except Exception as err:
+        logger.warning(f"[credits] limit check failed, refusing: {err}")
+        return False, "USR-02: Couldn't check your monthly credit limit just now. Try again in a moment."
+    if used + held + cost > int(cap):
+        return False, limit_reached(int(cap), used, held)
+    return True, ""
+
+
 async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
     """Hold credits for these parts, all or nothing, at today's prices. Parts already held stay
     held (safe to call again on a retry). Refused when the wallet would go below zero by even
@@ -432,10 +505,14 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
                 continue
             wallet = card[item]["wallet"]
             new[p["ref"]] = {"item": item, "quantity": qty, "credits": cost, "wallet": wallet,
-                             "note": str(p.get("note") or card[item]["label"])[:200], "at": datetime.utcnow().isoformat()}
+                             "note": str(p.get("note") or card[item]["label"])[:200], "at": datetime.utcnow().isoformat(),
+                             "actor": current_actor()}  # who started it: the charge is stamped with them when the work finishes
             need[wallet] = need.get(wallet, 0) + cost
         if not new:
             return True, ""
+        ok, why = await _cap_check(db, current_actor(), sum(need.values()), holds)
+        if not ok:
+            return False, why
         if s["enforce"]:
             for wallet, cost in need.items():
                 if await wallet_balance(db, wallet) < cost:
@@ -469,7 +546,9 @@ async def confirm(db, ref: str, item: str, quantity: float = 1, note: str = "") 
     if await _already_charged(db, ref, item):
         return 0
     if h is not None:
-        return await _charge_cost(db, h["item"], h["quantity"], int(h["credits"]), ref, note or h.get("note", ""))
+        # A background job has no signed-in person: use the one who started the work.
+        with actor_scope(h.get("actor") or current_actor()):
+            return await _charge_cost(db, h["item"], h["quantity"], int(h["credits"]), ref, note or h.get("note", ""))
     return await charge(db, item, quantity, ref, note)
 
 
@@ -518,7 +597,7 @@ async def confirm_safely(db, ref: str, item: str, quantity: float = 1, note: str
             await db.rollback()
         except Exception:
             pass
-        _OWED.setdefault(_org(), []).append({"ref": ref, "item": item, "quantity": quantity, "note": note})
+        _OWED.setdefault(_org(), []).append({"ref": ref, "item": item, "quantity": quantity, "note": note, "actor": current_actor()})
 
 
 async def pay_owed(db) -> int:
@@ -527,7 +606,8 @@ async def pay_owed(db) -> int:
     total = 0
     for i, o in enumerate(owed):
         try:
-            total += await confirm(db, o["ref"], o["item"], o["quantity"], o["note"])
+            with actor_scope(o.get("actor") or ""):
+                total += await confirm(db, o["ref"], o["item"], o["quantity"], o["note"])
         except Exception:
             _OWED.setdefault(_org(), []).extend(owed[i:])
             raise
@@ -575,14 +655,17 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
     """Whether the organisation can afford quantity units of item now (plus extra items that
     come with it, e.g. a post's image). Never raises."""
     try:
-        if not (await org_settings(db))["enforce"]:
-            return True, ""
         card = await rates(db)
         need: Dict[str, int] = {}
         for it, qty in [(item, quantity), *(extra or [])]:
             rate = card.get(it, {})
             wallet = rate.get("wallet", "voice")
             need[wallet] = need.get(wallet, 0) + int(math.ceil(qty * rate.get("credits", 0)))
+        ok, why = await _cap_check(db, current_actor(), sum(need.values()), _holds(await _get_doc(db, _settings_id())))
+        if not ok:
+            return False, why
+        if not (await org_settings(db))["enforce"]:
+            return True, ""
         for wallet, cost in need.items():
             if cost > 0 and await wallet_balance(db, wallet) < cost:
                 return False, out_of_credits(wallet)
@@ -650,6 +733,12 @@ async def reserve_call(db, call_id: str) -> Tuple[bool, str, Optional[int]]:
         if left < 1:
             return False, out_of_credits("voice"), None
         minutes = min(left, MAX_CALL_SECS // 60)
+        room = await cap_room(db, current_actor(), _holds(await _get_doc(db, _settings_id())))
+        if room is not None:  # a person with a monthly limit may only reserve what is left of it
+            per_min = max(1, int(math.ceil((await rates(db)).get("voice_minute", {}).get("credits", 1))))
+            minutes = min(minutes, room // per_min)
+            if minutes < 1:
+                return False, "USR-02: Your monthly credit limit, set by your admin, leaves no room for another call. Ask an admin to raise it.", None
         ok, why = await hold(db, [{"ref": f"{CALL_HOLD}{call_id}", "item": "voice_minute", "quantity": minutes,
                                    "note": "Call in progress"}])
         if not ok:
@@ -668,8 +757,10 @@ async def charge_finished_call(db, call_id: str, duration: str, label: str = "")
     try:
         ref = f"call:{log_id_for_call(call_id)}"
         used = minutes_of(duration) - (await _charged(db, [ref])).get(ref, 0)
+        who = _holds(await _get_doc(db, _settings_id())).get(f"{CALL_HOLD}{call_id}", {}).get("actor") or current_actor()
         if used > 0:
-            await charge(db, "voice_minute", used, ref, f"Call with {label}" if label else "Call")
+            with actor_scope(who):  # the call ended on its own: charge it to the person who started it
+                await charge(db, "voice_minute", used, ref, f"Call with {label}" if label else "Call")
         await release(db, [f"{CALL_HOLD}{call_id}"])
         await db.commit()
     except Exception as err:
@@ -980,6 +1071,74 @@ async def usage_month(db, month: str, wallet: str = "") -> Dict[str, Any]:
         "entries": [{"id": r.id, "kind": r.kind, "wallet": r.wallet, "item": r.item, "quantity": r.quantity, "amount": r.amount,
                      "note": r.note, "by": r.by, "at": r.created_at.isoformat() if r.created_at else None} for r in rows],
     }
+
+
+AUTOMATIC = "system"
+
+
+async def people_usage(db, viewer: str, is_admin: bool, days: int = 30, user_id: str = "", org_ids: Optional[List[str]] = None,
+                       partner_id: str = "") -> Dict[str, Any]:
+    """Who used how many credits over the last `days` days. Everyone sees the organisation's total and their own share;
+    an admin also sees each person (and any person's detail). `org_ids` + `partner_id` read the usage a partner's own
+    screens caused in its clients (see api/partners.py): the caller has already checked those organisations are its active links."""
+    from app.models.models import CreditEntry, Operator
+
+    since = datetime.utcnow() - timedelta(days=days)
+    q = select(CreditEntry).where(CreditEntry.kind == "usage", CreditEntry.created_at >= since)
+    if org_ids is not None:
+        q = q.where(CreditEntry.org_id.in_(org_ids), CreditEntry.partner_id == partner_id)
+    rows = (await db.execute(q.order_by(CreditEntry.created_at.desc()))).scalars().all()
+    oq = select(Operator) if org_ids is None else select(Operator).where(Operator.org_id.in_(org_ids))
+    ops = {o.id: o for o in (await db.execute(oq)).scalars().all()}
+
+    def label(uid: str) -> str:
+        o = ops.get(uid)
+        if o:
+            return o.name or o.username or uid
+        return {"": "Before people were recorded", AUTOMATIC: "Automatic (jobs and calls)"}.get(uid, "Account key or integration" if uid in ("api_client", "embed_client") else "Removed user")
+
+    seen_by = viewer if not is_admin else (user_id or "")
+    per: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        uid = r.user_id or ""
+        p = per.setdefault(uid, {"userId": uid, "name": label(uid), "used": 0, "lastAt": None, "byWallet": {}})
+        p["used"] -= int(r.amount)
+        p["byWallet"][r.wallet] = p["byWallet"].get(r.wallet, 0) - int(r.amount)
+        if p["lastAt"] is None:
+            p["lastAt"] = r.created_at.isoformat() if r.created_at else None
+    total = sum(p["used"] for p in per.values())
+    out: Dict[str, Any] = {"days": days, "orgTotal": total, "wallets": WALLETS}
+    me = per.get(viewer, {"userId": viewer, "name": label(viewer), "used": 0, "byWallet": {}})
+    mine = ops.get(viewer)
+    out["me"] = {**me, "cap": getattr(mine, "monthly_cap", None), "monthUsed": await person_month_used(db, viewer) if mine else 0,
+                 "share": round(me["used"] * 100 / total) if total else 0}
+    if is_admin:
+        people = []
+        for uid, o in ops.items():
+            p = per.pop(uid, {"userId": uid, "name": label(uid), "used": 0, "lastAt": None, "byWallet": {}})
+            people.append({**p, "username": o.username if org_ids is None else "", "cap": o.monthly_cap if org_ids is None else None,
+                           "monthUsed": await person_month_used(db, uid) if org_ids is None else None,
+                           "share": round(p["used"] * 100 / total) if total else 0})
+        people += [{**p, "username": "", "cap": None, "monthUsed": None, "share": round(p["used"] * 100 / total) if total else 0} for p in per.values()]
+        out["people"] = sorted(people, key=lambda p: -p["used"])
+    if seen_by:
+        mine_rows = [r for r in rows if (r.user_id or "") == seen_by]
+        items: Dict[str, Dict[str, Any]] = {}
+        day: Dict[str, int] = {}
+        for r in mine_rows:
+            it = items.setdefault(r.item or "other", {"item": r.item or "other", "wallet": r.wallet, "label": DEFAULT_RATES.get(r.item, {}).get("label", r.item or "Other"),
+                                                        "unit": DEFAULT_RATES.get(r.item, {}).get("unit", ""), "units": 0.0, "credits": 0})
+            it["units"] += float(r.quantity or 0)
+            it["credits"] -= int(r.amount)
+            d = r.created_at.strftime("%Y-%m-%d") if r.created_at else ""
+            day[d] = day.get(d, 0) - int(r.amount)
+        out["detail"] = {"userId": seen_by, "name": label(seen_by),
+                         "items": sorted(({**v, "units": round(v["units"], 2)} for v in items.values()), key=lambda v: -v["credits"]),
+                         "days": [{"day": d, "credits": c} for d, c in sorted(day.items())],
+                         "lines": [{"id": r.id, "item": r.item, "label": DEFAULT_RATES.get(r.item, {}).get("label", r.item or "Other"), "wallet": r.wallet,
+                                    "quantity": r.quantity, "credits": -int(r.amount), "note": r.note,
+                                    "at": r.created_at.isoformat() if r.created_at else None} for r in mine_rows[:200]]}
+    return out
 
 
 # Kept for callers from before wallets (staff grants without a wallet go to Voice).

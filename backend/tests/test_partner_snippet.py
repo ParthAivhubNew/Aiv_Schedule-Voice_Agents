@@ -282,7 +282,7 @@ async def test_a_page_can_put_its_own_records_into_the_users_account_and_the_scr
     token, _ = await _pass(anon, db, started)
     await _fund("org_ned", "leadgen", 100)  # a live account needs a Leads plan or credits, as for any API key
     r = await _api(anon, token, "leads", "lead.add", {"leads": [
-        {"name": "Acme Plumbing Ltd", "email": "jo@acme.test", "phone": "+441134960001", "contact_name": "Jo Acme", "industry": "plumbing"},
+        {"name": "Acme Plumbing Ltd", "email": "jo@acme.test", "phone": "+441135500001", "contact_name": "Jo Acme", "industry": "plumbing"},
         {"name": "Bright Accounts", "website": "https://bright.test", "region": "Leeds"}]})
     assert r.status_code in (200, 201), r.text
     made = await _api(anon, token, "leads", "list.list")
@@ -324,7 +324,7 @@ async def test_a_disconnected_user_stops_working_at_once(anon, client, db, start
 
 async def test_a_partner_in_test_mode_gets_simulated_results_not_real_ones(anon, db, started):
     token, _ = await _pass(anon, db, started, "voice", user="sid", org="org_sid")
-    r = await _api(anon, token, "voice", "call.start", {"to": "+441134960002"})
+    r = await _api(anon, token, "voice", "call.start", {"to": "+441135500002"})
     assert r.status_code in (200, 201, 202), r.text
     assert "test" in r.text.lower() or "simulated" in r.text.lower() or r.json().get("test_mode") is True, r.text
 

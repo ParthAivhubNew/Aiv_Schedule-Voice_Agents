@@ -1056,6 +1056,10 @@ function ApprovalsBoard({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [versionsKey, setVersionsKey] = useState(0);
   const [promptDraft, setPromptDraft] = useState("");
+  // Logo on the next redraw: "" = the company setting, "on" / "off" = this picture only. Offered once a logo has been uploaded.
+  const [logoChoice, setLogoChoice] = useState("");
+  const [logoReady, setLogoReady] = useState(false);
+  useEffect(() => { api.getImageSettings().then((d) => setLogoReady(Boolean(d && d.logoUrl))).catch(() => {}); }, []);
   const handEditAt = useRef(0);
   const uploadRef = useRef(null);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
@@ -2008,6 +2012,15 @@ function ApprovalsBoard({
                             rows={4}
                             style={{ width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical" }}
                           />
+                          {logoReady ? (
+                            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>Logo on this picture
+                              <select value={logoChoice} onChange={(e) => setLogoChoice(e.target.value)} style={{ height: 30, borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12 }}>
+                                <option value="">As in my picture settings</option>
+                                <option value="on">With my logo</option>
+                                <option value="off">Without my logo</option>
+                              </select>
+                            </label>
+                          ) : null}
                           <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.4, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
                             Say the look, shape or quality in the prompt, for example "cinematic", "square" or "high quality". Otherwise your picture settings apply.
                           </div>
@@ -2016,7 +2029,7 @@ function ApprovalsBoard({
                             disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
                             onClick={async () => {
                               if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
-                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "");
+                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "", logoChoice ? { logo: logoChoice === "on" } : undefined);
                             }}
                             style={{ ...secBtn, width: "100%", justifyContent: "center" }}
                           >
@@ -2025,7 +2038,7 @@ function ApprovalsBoard({
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
                           </button>
-                          <button type="button" onClick={() => regenImage(expandedPost, "")} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <button type="button" onClick={() => regenImage(expandedPost, "", logoChoice ? { logo: logoChoice === "on" } : undefined)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
                               : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
@@ -3574,6 +3587,7 @@ export function SocialWorkspace({
         ...(look && look.style ? { style: look.style } : {}),
         ...(look && look.quality ? { quality: look.quality } : {}),
         ...(look && look.aspectRatio ? { aspectRatio: look.aspectRatio } : {}),
+        ...(look && typeof look.logo === "boolean" ? { logo: look.logo } : {}),
       });
       if (res && res.imageUrl) {
         if (res.warning) showToast(res.warning);

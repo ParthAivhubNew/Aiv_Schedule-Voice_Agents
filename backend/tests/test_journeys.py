@@ -75,13 +75,27 @@ def test_advice_comes_from_the_numbers_and_works_without_the_ai():
 
 
 # ── on a real database ─────────────────────────────────────────────────────
+async def _sender(db, legal="Acme Outreach Ltd", address="1 High Street, Leeds LS1 1AA"):
+    """The sender identity every cold email must carry; a journey cannot start without it."""
+    from sqlalchemy import select
+
+    from app.models.models import CompanyProfile
+
+    prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+    if not prof:
+        prof = CompanyProfile(id="default", name="Acme")
+        db.add(prof)
+    prof.legal_name, prof.postal_address = legal, address
+    await db.commit()
+
+
 async def _ready(client, db, credits=50):
     from app.core.tenancy import org_scope
     from app.services import credits as K
 
     with org_scope("org_default"):
         await K.add_credits(db, "leadgen", credits, source="grant", note="Test")
-        await db.commit()
+        await _sender(db)
     mb = await _mailbox(client)
     await client.post(f"/api/email/mailboxes/{mb['id']}/warmup", json={"action": "skip"})
     return mb["id"]
@@ -94,7 +108,7 @@ async def _journey(client, mailbox, steps, **settings):
 
 
 async def _people(client, jid, *emails, lead_ids=None):
-    people = [{"email": e, "first_name": e.split("@")[0].title(), "company": "Co " + e.split("@")[0], **({"lead_id": lead_ids[i]} if lead_ids else {})} for i, e in enumerate(emails)]
+    people = [{"email": e, "first_name": e.split("@")[0].title(), "company": "Co " + e.split("@")[0] + " Ltd", **({"lead_id": lead_ids[i]} if lead_ids else {})} for i, e in enumerate(emails)]
     r = await client.post(f"/api/journeys/{jid}/people", json={"people": people})
     assert r.status_code == 200, r.text
     return r.json()
@@ -123,6 +137,7 @@ async def _lead(db, **kw):
     from app.core.tenancy import org_scope
 
     with org_scope("org_default"):
+        kw.setdefault("verification", {"verdict": "verified"})  # a checked company: unchecked ones are kept out of journeys
         a = LeadAccount(id=kw.pop("id"), name=kw.pop("name", "Acme Ltd"), **kw)
         db.add(a)
         await db.commit()
@@ -167,7 +182,7 @@ async def test_a_manual_step_makes_a_task_waits_for_it_and_then_carries_on(clien
     await _run(db, MONDAY_10 + timedelta(days=1, minutes=5))
     assert len(mail.sent) == 1  # the call is a task, nothing is sent
     tasks = (await client.get("/api/journeys/tasks")).json()["tasks"]
-    assert [(t["title"], t["kind"], t["notes"]) for t in tasks] == [("Call Co ann", "call_task", "Ask about Ann's week")]
+    assert [(t["title"], t["kind"], t["notes"]) for t in tasks] == [("Call Co ann Ltd", "call_task", "Ask about Ann's week")]
     enr = await _enr(db, j["id"], "ann@client.com")
     assert enr.status == "active" and enr.waiting_on == f"task:{tasks[0]['id']}" and enr.next_action_at is None
     await _run(db, MONDAY_10 + timedelta(days=2))
@@ -418,7 +433,7 @@ async def test_the_call_prompt_gets_the_goal_what_was_emailed_and_the_directors_
     step = (await J.steps_of(db, j["id"]))[1]
     brief = await J.call_brief(db, enr, step, await db.get(LeadAccount, "ld_4"))
     assert "Goal of this call: Book a 15 minute intro" in brief and "Talking points: Mention the case study" in brief
-    assert 'We emailed them "Hello Co ann"' in brief and "has not opened it" in brief
+    assert 'We emailed them "Hello Co ann Ltd"' in brief and "has not opened it" in brief
     assert "Ken Murphy" in brief and "leave one short message" in brief and "Never invent" in brief or "never invent" in brief
     quiet = await J.call_brief(db, enr, EmailSequenceStep(voicemail="hang_up", notes="", goal=""), None)
     assert "do not leave a message" in quiet and "Goal of this call" not in quiet or "Goal of this call: Get a reply" in quiet
@@ -431,7 +446,7 @@ async def test_people_already_in_another_running_journey_are_not_added_and_a_dry
     await _people(client, a["id"], "ann@client.com")
     await _go(client, a["id"])
     b = await _journey(client, mb, [EMAIL])
-    people = [{"email": "ann@client.com"}, {"email": "new@client.com"}, {"email": "bad"}, {"email": "new@client.com"}]
+    people = [{"email": e, "company": "Acme Ltd"} for e in ("ann@client.com", "new@client.com", "bad", "new@client.com")]
     dry = (await client.post(f"/api/journeys/{b['id']}/people", json={"people": people, "dry_run": True})).json()
     assert dry["added"] == 1 and dry["skipped"]["in_another_journey"] == 1 and dry["skipped"]["invalid"] == 1 and dry["skipped"]["duplicate"] == 1 and dry["dry_run"]
     assert await _enr(db, b["id"]) == []  # nothing was written
@@ -504,3 +519,80 @@ async def test_open_tasks_show_on_the_days_agenda_and_overdue_ones_on_today(clie
 
     assert await items(noon) == {"Today's task": "To do", "Late task": "Overdue"}  # today: what is due, and what is already late
     assert await items(noon - timedelta(days=3)) == {"Late task": "To do"}  # that day: only what was due then
+
+
+@pytest.mark.db
+async def test_unchecked_closed_and_individual_people_are_kept_out_with_the_reason(client, db, mail):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL])
+    await _lead(db, id="g_ok", name="Good Ltd", email="ok@good.com")
+    await _lead(db, id="g_dead", name="Dead Ltd", email="x@dead.com", verification={"verdict": "problem", "reasons": ["Company register: Dissolved"]})
+    await _lead(db, id="g_wrong", name="Wrong Ltd", email="x@wrong.com", verification={"verdict": "mismatch", "reasons": ["Company number 1 belongs to Other Ltd"]})
+    await _lead(db, id="g_new", name="Unchecked Ltd", email="x@new.com", verification=None)
+    await _lead(db, id="g_cafe", name="Harbour Cafe", email="info@harbour.com", verification={"verdict": "looks_ok"})
+    await _lead(db, id="g_cafe_ok", name="Harbour Bistro", email="info@bistro.com", verification={"verdict": "looks_ok"}, consent_basis="signed up on our site")
+    people = [{"email": a, "company": n, "lead_id": i} for i, n, a in [
+        ("g_ok", "Good Ltd", "ok@good.com"), ("g_dead", "Dead Ltd", "x@dead.com"), ("g_wrong", "Wrong Ltd", "x@wrong.com"),
+        ("g_new", "Unchecked Ltd", "x@new.com"), ("g_cafe", "Harbour Cafe", "info@harbour.com"), ("g_cafe_ok", "Harbour Bistro", "info@bistro.com")]]
+    out = (await client.post(f"/api/journeys/{j['id']}/people", json={"people": people})).json()
+    assert out["added"] == 2  # the verified company and the individual who gave consent
+    assert out["skipped"]["problem"] == 2 and out["skipped"]["unchecked"] == 1 and out["skipped"]["individual"] == 1
+    why = {e["lead_id"]: e["code"] for e in out["excluded"]}
+    assert why == {"g_dead": "problem", "g_wrong": "problem", "g_new": "unchecked", "g_cafe": "individual"}
+    assert all(e["reason"] for e in out["excluded"])
+
+
+@pytest.mark.db
+async def test_people_in_a_draft_are_queued_with_no_send_time_until_start(client, db, mail):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL])
+    out = await _people(client, j["id"], "ann@client.com")
+    assert out["queued"] is True
+    enr = await _enr(db, j["id"], "ann@client.com")
+    assert enr.next_action_at is None
+    await _go(client, j["id"])
+    await db.refresh(enr)
+    assert enr.next_action_at is not None
+
+
+@pytest.mark.db
+async def test_a_check_done_after_joining_still_stops_the_email(client, db, mail):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL])
+    lead = await _lead(db, id="g_late", name="Late Ltd", email="late@client.com")
+    await _people(client, j["id"], "late@client.com", lead_ids=["g_late"])
+    await _go(client, j["id"])
+    lead.verification = {"verdict": "problem", "reasons": ["Company register: Dissolved"]}
+    await db.commit()
+    await _run(db, MONDAY_10 + timedelta(minutes=5))
+    assert mail.sent == []
+    enr = await _enr(db, j["id"], "late@client.com")
+    assert enr.status == "finished" and enr.finish_reason == "not_eligible"
+
+
+@pytest.mark.db
+async def test_a_journey_cannot_start_without_the_sender_name_and_address(client, db, mail):
+    from app.core.tenancy import org_scope
+
+    mb = await _ready(client, db)
+    with org_scope("org_default"):
+        await _sender(db, legal="", address="")
+    j = await _journey(client, mb, [EMAIL])
+    await _people(client, j["id"], "ann@client.com")
+    r = await client.post(f"/api/journeys/{j['id']}/status", json={"status": "running"})
+    assert r.status_code != 200 and "postal address" in r.text
+    with org_scope("org_default"):
+        await _sender(db)
+    await _go(client, j["id"])
+
+
+@pytest.mark.db
+async def test_every_cold_email_carries_the_sender_and_the_unsubscribe_link(client, db, mail):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL])
+    await _people(client, j["id"], "ann@client.com")
+    await _go(client, j["id"])
+    await _run(db, MONDAY_10 + timedelta(minutes=5))
+    assert len(mail.sent) == 1
+    body = mail.sent[0][1].get_body(preferencelist=("plain",)).get_content()
+    assert "Acme Outreach Ltd, 1 High Street, Leeds LS1 1AA" in body and "Unsubscribe:" in body

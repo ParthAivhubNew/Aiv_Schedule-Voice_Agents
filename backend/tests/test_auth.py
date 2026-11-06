@@ -70,7 +70,18 @@ async def test_refresh_rotates_and_logout_revokes(anon, db):
     r = (await anon.post("/api/auth/login", json={"username": "rita", "password": "Rita-pass-123"})).json()
     r2 = await anon.post("/api/auth/refresh", json={"refresh_token": r["refresh_token"]})
     assert r2.status_code == 200
-    # The old refresh token no longer works after rotation.
+    # The old refresh token still works for a few seconds (another tab may have used it first), without getting a new refresh token...
+    again = await anon.post("/api/auth/refresh", json={"refresh_token": r["refresh_token"]})
+    assert again.status_code == 200 and "refresh_token" not in again.json()
+    # ...and then it stops.
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import update
+
+    from app.models.models import AuthSession
+
+    await db.execute(update(AuthSession).values(rotated_at=datetime.utcnow() - timedelta(minutes=5)))
+    await db.commit()
     assert (await anon.post("/api/auth/refresh", json={"refresh_token": r["refresh_token"]})).status_code == 401
     h = {"Authorization": f"Bearer {r2.json()['access_token']}"}
     assert (await anon.post("/api/auth/logout", headers=h)).status_code == 200
@@ -230,3 +241,18 @@ async def test_mail_problems_never_break_the_action(client, monkeypatch):
     monkeypatch.setattr(mailer, "_send_sync", boom)
     r = await client.post(f"/api/auth/users/{r.json()['id']}/reset-password")
     assert r.status_code == 200 and r.json()["emailed"] is False
+
+
+async def test_the_refresh_token_also_lives_in_a_cookie_that_every_tab_shares(anon, db):
+    await make_user(db, "cora", "Operator", password="Cora-pass-123")
+    login = await anon.post("/api/auth/login", json={"username": "cora", "password": "Cora-pass-123"})
+    cookie = login.headers.get("set-cookie", "")
+    assert "outreach_rt=" in cookie and "HttpOnly" in cookie and "SameSite=strict" in cookie and "Path=/api/auth" in cookie
+    anon.cookies.clear()
+    anon.cookies.set("outreach_rt", login.json()["refresh_token"], path="/api/auth")
+    # A new tab asks with no token of its own: it needs the header that only our pages send.
+    assert (await anon.post("/api/auth/refresh")).status_code == 401
+    ok = await anon.post("/api/auth/refresh", headers={"X-Requested-With": "outreach"})
+    assert ok.status_code == 200 and ok.json()["access_token"] and ok.json()["operator"]["username"] == "cora"
+    out = await anon.post("/api/auth/logout", headers={"Authorization": f"Bearer {ok.json()['access_token']}"})
+    assert 'outreach_rt=""' in out.headers.get("set-cookie", "") or "Max-Age=0" in out.headers.get("set-cookie", "")

@@ -53,9 +53,9 @@ def test_mapping_targets_are_limited_to_lead_columns_or_custom():
 
 def test_a_good_answer_passes_and_is_cleaned():
     clean, errs = IF.validate_answer(_fields(), SETTINGS, {
-        "name": "  Ann   <b>Lee</b> ", "email": "ANN@Acme.co.uk", "phone": "+44 20 7946 0958", "size": "11-50", "terms": True})
+        "name": "  Ann   <b>Lee</b> ", "email": "ANN@Acme.co.uk", "phone": "+44 20 7123 0958", "size": "11-50", "terms": True})
     assert not errs
-    assert clean["name"] == "Ann Lee" and clean["email"] == "ann@acme.co.uk" and clean["phone"] == "+44 20 7946 0958"
+    assert clean["name"] == "Ann Lee" and clean["email"] == "ann@acme.co.uk" and clean["phone"] == "+44 20 7123 0958"
     assert clean["terms"] == "yes"
 
 
@@ -82,7 +82,7 @@ def test_spreadsheet_formulas_are_neutralised_but_phone_plus_survives():
     assert IF.clean_text("=HYPERLINK(\"http://x\")").startswith("'")
     assert IF.clean_text("@SUM(A1)").startswith("'")
     assert IF.clean_text("-2+3").startswith("'")
-    assert IF.clean_text("+44 20 7946 0958", keep_plus=True) == "+44 20 7946 0958"
+    assert IF.clean_text("+44 20 7123 0958", keep_plus=True) == "+44 20 7123 0958"
 
 
 def test_markup_and_control_characters_are_removed():
@@ -95,7 +95,7 @@ def test_oversized_bodies_are_refused():
 
 
 def test_answers_are_laid_out_as_lead_columns_and_custom():
-    answers = {"name": "Ann Lee", "email": "ann@acme.co.uk", "phone": "+44 20 7946 0958", "size": "11-50", "terms": "yes"}
+    answers = {"name": "Ann Lee", "email": "ann@acme.co.uk", "phone": "+44 20 7123 0958", "size": "11-50", "terms": "yes"}
     cols = IF.lead_fields(_fields(), answers)
     assert cols["contact_name"] == "Ann Lee" and cols["email"] == "ann@acme.co.uk" and cols["phone"].startswith("+44")
     assert cols["custom"] == {"size": "11-50", "terms": "Happy to be contacted: yes"}
@@ -216,7 +216,7 @@ async def test_a_submission_becomes_a_lead_in_the_forms_list_once_the_email_doma
     app.include_router(API.public_router)
     url = "/f/" + "k" * 24 + "/submit"
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-        ok = await c.post(url, json={"name": "Ann Lee", "email": "ann@acme.co.uk", "phone": "+44 20 7946 0958"})
+        ok = await c.post(url, json={"name": "Ann Lee", "email": "ann@acme.co.uk", "phone": "+44 20 7123 0958"})
         assert ok.status_code == 200
         again = await c.post(url, json={"name": "Ann Lee", "email": "ann@acme.co.uk"})
         assert again.status_code == 200  # the same person, same day: no second row

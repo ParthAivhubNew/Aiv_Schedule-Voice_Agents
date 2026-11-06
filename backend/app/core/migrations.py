@@ -412,6 +412,43 @@ async def _lead_account_verification_column(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS verification JSON"))
 
 
+async def _lead_account_identity_columns(conn: AsyncConnection) -> None:
+    """Company number, postcode, address, country, LinkedIn, import flags and consent on a saved company."""
+    for col, kind in (("registration_number", "VARCHAR DEFAULT ''"), ("postcode", "VARCHAR DEFAULT ''"), ("address", "VARCHAR DEFAULT ''"),
+                      ("country", "VARCHAR DEFAULT ''"), ("linkedin_url", "VARCHAR DEFAULT ''"), ("import_flags", "JSON"),
+                      ("consent_basis", "VARCHAR DEFAULT ''"), ("consent_at", "TIMESTAMP")):
+        await conn.execute(text(f"ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS {col} {kind}"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_registration_number ON lead_accounts (registration_number)"))
+
+
+async def _company_profile_postal_address(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS postal_address TEXT DEFAULT ''"))
+
+
+async def _auth_session_rotation_grace(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS prev_refresh_jti VARCHAR"))
+    await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMP"))
+
+
+async def _clear_sample_company_profile(conn: AsyncConnection) -> None:
+    """Profiles of client orgs were created with AIVHub's own sample details (pitch, legal name,
+    registration number, site, privacy contact). Blank only the values that still equal that sample,
+    and never touch AIVHub's own org, so edits a client made are kept."""
+    sample = {
+        "pitch": "AI-powered business intelligence dashboards for mid-market operations teams",
+        "industry": "Business intelligence / data consulting",
+        "website": "https://aivhub.io",
+        "social": "linkedin.com/company/aivhub",
+        "legal_name": "AIVHub Ltd",
+        "ico_ref": "ZA774219",
+        "dpo_contact": "privacy@aivhub.io",
+    }
+    for col, value in sample.items():
+        await conn.execute(
+            text(f"UPDATE company_profile SET {col} = '' WHERE {col} = :v AND org_id IS DISTINCT FROM 'org_default'"),
+            {"v": value})
+
+
 async def _business_record_sic_text_trigram_index(conn: AsyncConnection) -> None:
     """The Find Leads box looks for a word in the name, the industry AND the official sector text
     (sic_text). The first two have trigram indexes (see _business_record_search_indexes); this one had
@@ -892,6 +929,13 @@ async def _embed_links_and_ledger_stamps(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_credit_ledger_partner_id ON credit_ledger (partner_id)"))
 
 
+async def _credit_user_and_caps(conn: AsyncConnection) -> None:
+    """Who spent each credit line (older lines stay blank = unknown) and an optional monthly limit per person."""
+    await conn.execute(text("ALTER TABLE credit_ledger ADD COLUMN IF NOT EXISTS user_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_credit_ledger_org_user_time ON credit_ledger (org_id, user_id, created_at)"))
+    await conn.execute(text("ALTER TABLE operators ADD COLUMN IF NOT EXISTS monthly_cap INTEGER"))
+
+
 async def _partner_embed_theme(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS theme JSON"))
 
@@ -966,10 +1010,15 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_16_business_record_rank_score", _business_record_rank_score),
     ("2026_11_17_clear_directory_websites", _clear_directory_websites),
     ("2026_11_18_companies_house_people_fields", _companies_house_people_fields),
+    ("2026_11_19_clear_sample_company_profile", _clear_sample_company_profile),
+    ("2026_11_20_lead_account_identity_columns", _lead_account_identity_columns),
+    ("2026_11_21_company_profile_postal_address", _company_profile_postal_address),
+    ("2026_11_22_auth_session_rotation_grace", _auth_session_rotation_grace),
     ("2026_11_19_business_record_people_checked", _business_record_people_checked),
     ("2026_11_20_journeys", _journeys),
     ("2026_11_21_people_todo_index_with_id", _people_todo_index_with_id),
     ("2026_11_22_partner_admin_screens", _partner_admin_screens),
+    ("2026_11_23_credit_user_and_caps", _credit_user_and_caps),
 ]
 
 

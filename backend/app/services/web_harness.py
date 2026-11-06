@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -60,6 +61,20 @@ def social_links_of(pages: List[str]) -> Dict[str, str]:
     return found
 
 
+_MAILTO = re.compile(r"^mailto:([^?\s]+)", re.I)
+
+
+def mailto_addresses(links: List[str]) -> List[str]:
+    """The addresses behind the page's mail-us links, lower case, without duplicates."""
+    out: List[str] = []
+    for href in links:
+        m = _MAILTO.match(href)
+        addr = (m.group(1) if m else "").strip().lower()
+        if addr and "@" in addr and addr not in out:
+            out.append(addr)
+    return out[:5]
+
+
 _DEAD = ("could not be found", "error 404", "error 410")  # the site is gone; any other refusal (403, 429, a timeout) is a site that keeps bots out
 
 
@@ -73,6 +88,9 @@ async def _read_page(url: str) -> Optional[Tuple[str, str]]:
         links: List[str] = []
         title, text = await fetch_text(url, max_chars=PAGE_CHARS * 5, timeout=READ_TIMEOUT, links_out=links)
         PAGE_LINKS[url] = links
+        shown = mailto_addresses(links)
+        if shown:  # an address that is only a "mail us" link has no visible text: add it so the email finder sees it
+            text = text + "\nEmail: " + ", ".join(shown)
         return (title or ""), text
     except FetchRefused as err:
         if any(m in str(err) for m in _DEAD):

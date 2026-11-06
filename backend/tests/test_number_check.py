@@ -44,7 +44,7 @@ def test_free_checks_come_first():
         {"key": "c", "phone": "+121"},              # too short
         {"key": "d", "phone": ""},
         {"key": "e", "phone": "+14155550000"},      # on the do-not-call list
-        {"key": "f", "phone": "+442079460000"},
+        {"key": "f", "phone": "+442071234567"},
     ], dnc={"+14155550000"})
     assert [r["status"] for r in rows] == ["", "duplicate", "bad_format", "bad_format", "do_not_call", ""]
     assert rows[0]["phone"] == "+12125550123"
@@ -56,7 +56,7 @@ class Hit:
 
 
 def test_answers_we_already_have_are_free():
-    rows = NC.prepare([{"key": "a", "phone": "+12125550123", "names": ["Acme Corp"]}, {"key": "b", "phone": "+442079460000"}], set())
+    rows = NC.prepare([{"key": "a", "phone": "+12125550123", "names": ["Acme Corp"]}, {"key": "b", "phone": "+442071234567"}], set())
     todo = NC.plan(rows, {"+12125550123": Hit()})
     assert [r["key"] for r in todo] == ["b"]
     assert rows[0]["status"] == "good" and rows[0]["cached"] and rows[0]["match"] == "match"
@@ -191,8 +191,8 @@ def body(API, *phones):
 async def test_estimate_prices_only_what_needs_a_lookup(wired):
     API, state = wired
     state["dnc"] = {"+14155550000"}
-    state["cache"] = {"+442079460000": Hit()}
-    out = await API.estimate(body(API, "+12125550101", "+442079460000", "+14155550000", "12", "+12125550101"), FakeDb())
+    state["cache"] = {"+442071234567": Hit()}
+    out = await API.estimate(body(API, "+12125550101", "+442071234567", "+14155550000", "12", "+12125550101"), FakeDb())
     assert [r["status"] for r in out["rows"]] == ["", "good", "do_not_call", "bad_format", "duplicate"]
     assert out["to_check"] == ["k0"] and out["credits"] == 1 and out["balance"] == 50
 

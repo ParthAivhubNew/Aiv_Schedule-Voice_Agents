@@ -89,6 +89,23 @@ async def test_best_match_puts_full_profiles_and_big_names_first_and_counts_the_
 
 
 @pytest.mark.db
+async def test_a_search_that_fits_nothing_shows_the_closest_companies_and_says_what_was_given_up(db):
+    await _seed(db)
+    _, token = await make_user(db, "fl2", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        out = await _search(c, filters={"size_bands": ["dormant"]})
+        assert out["companies"][0]["name"] == "Big Cafe Group PLC" and out["relaxed"] == ["company size and type"]
+        assert "closest" in out["broadened_note"]
+        named = await _search(c, filters={"name_contains": "Big Zzz Holdings", "has_email": True})
+        assert [x["name"] for x in named["companies"]] == ["Big Cafe Group PLC"]
+        assert named["relaxed"] == ["must-have email, phone and website", "the words after the first in the company name"]
+        exact = await _search(c)
+        assert exact["relaxed"] == []
+        nothing = await c.post("/api/leads/search", json={"filters": {"towns": ["Nowhereville"]}})
+        assert nothing.json()["companies"] == [] and nothing.json()["relaxed"] == []  # the bare place finds nothing: the true answer, nothing invented
+
+
+@pytest.mark.db
 async def test_saved_counts_and_filter_cover_only_your_own_lists(db):
     await _seed(db)
     _, token = await make_user(db, "fl2", "Admin", org_id="org_acme")
@@ -303,7 +320,7 @@ async def test_an_empty_register_is_never_remembered_as_the_answer(db):
 def test_only_a_real_shaped_uk_phone_is_kept_from_the_web():
     from app.services.company_contacts import is_uk_phone as ok
 
-    assert ok("0113 496 0123") and ok("+44 113 496 0123") and ok("07700 900123") and ok("01455 698494") and ok("0800 123 4567")
+    assert ok("0113 550 0123") and ok("+44 113 550 0123") and ok("07700 900123") and ok("01455 698494") and ok("0800 123 4567")
     assert not ok("0911 111 1111") and not ok("+1 415 555 2671") and not ok("12345") and not ok("0000000000") and not ok("01132")
 
 
@@ -320,7 +337,7 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
     async def fake_web(_db, biz, refresh=False, want="all", hint=""):
         calls.append(biz.name)
         if biz.name == "Phone Cafe Ltd":
-            found = {"found": True, "cached": False, "website": "", "phones": ["0113 496 0123"], "emails": [], "team": [], "guardrail": True}
+            found = {"found": True, "cached": False, "website": "", "phones": ["0113 550 0123"], "emails": [], "team": [], "guardrail": True}
             biz.raw_data = {**(biz.raw_data or {}), "contacts_web": found}
             return found
         return {"found": False, "cached": False, "website": "", "phones": [], "emails": [], "team": []}
@@ -336,7 +353,7 @@ async def test_find_phone_looks_for_a_phone_only_and_is_charged_only_for_a_find(
         await db.commit()
     async with _client(token) as c:
         got = (await c.post(f"/api/leads/companies/{ids['Phone Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
-        assert got["found"] and got["source"] == "web" and got["charged"] == 1 and got["company"]["web_phone"] == "0113 496 0123"
+        assert got["found"] and got["source"] == "web" and got["charged"] == 1 and got["company"]["web_phone"] == "0113 550 0123"
         assert got["company"]["website"] == "" and got["company"]["web_website"] == ""  # the website button is untouched
         again = (await c.post(f"/api/leads/companies/{ids['Phone Cafe Ltd']}/find-website", json={"kind": "phone"})).json()
         assert again["source"] == "stored" and again["charged"] == 0

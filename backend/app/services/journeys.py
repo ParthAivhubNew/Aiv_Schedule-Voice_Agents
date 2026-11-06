@@ -475,6 +475,12 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
     if lead is not None and (lead.stage or "new") in rules["skip_stages"]:
         await exit_enrollment(db, enr, "stage", now=now)
         return True
+    if enr.lead_id and ch in EMAIL_LIKE:  # a check done after they joined (closed company, wrong number) still stops the email
+        accounts, records = await _eligibility_inputs(db, [{"lead_id": enr.lead_id}])
+        saved = accounts.get(enr.lead_id)
+        if saved is not None and not eligible_person(saved, records, {})["ok"]:
+            await exit_enrollment(db, enr, "not_eligible", now=now)
+            return True
     if enr.waiting_on == "call":  # the call reported nothing in time: treat it as unanswered
         await apply_call_outcome(db, enr, camp, steps, "no_answer", now, waiting=True)
         return True
@@ -537,7 +543,12 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
     if camp.one_at_a_time:
         busy_elsewhere = set((await db.execute(select(EmailEnrollment.email).join(EmailCampaign, EmailCampaign.id == EmailEnrollment.campaign_id).where(
             EmailEnrollment.status == "active", EmailEnrollment.campaign_id != camp.id, EmailCampaign.status == "running"))).scalars().all())
-    added, skipped, now = 0, {"invalid": 0, "duplicate": 0, "do_not_email": 0, "in_another_journey": 0, "no_contact": 0}, datetime.utcnow()
+    added, now = 0, datetime.utcnow()
+    skipped = {"invalid": 0, "duplicate": 0, "do_not_email": 0, "in_another_journey": 0, "no_contact": 0, "problem": 0, "unchecked": 0, "individual": 0,
+               "email_bad": 0}
+    excluded: List[Dict[str, Any]] = []  # who was kept out for a safety reason, and why
+    accounts, records = await _eligibility_inputs(db, people)
+    running = camp.status == "running"
     for p in people:
         addr = str(p.get("email") or "").strip().lower()
         lead_id = str(p.get("lead_id") or "") or None
@@ -556,6 +567,12 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
         if addr and addr in busy_elsewhere:
             skipped["in_another_journey"] += 1
             continue
+        acc = accounts.get(lead_id) if lead_id else None
+        verdict = eligible_person(acc, records, p)
+        if not verdict["ok"]:
+            skipped[verdict["code"]] += 1
+            excluded.append({"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]})
+            continue
         if addr:
             have_email.add(addr)
         if lead_id:
@@ -567,10 +584,30 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
         db.add(EmailEnrollment(id=eid, campaign_id=camp.id, prospect_id=p.get("prospect_id") or None, lead_id=lead_id, email=addr,
                                first_name=str(p.get("first_name") or "").strip()[:80], last_name=str(p.get("last_name") or "").strip()[:80],
                                company=str(p.get("company") or "").strip()[:160], current_step=1, current_step_key=(first.step_key or first.id) if first else "",
-                               status="active", next_action_at=now, variant=variant_for(eid) if varied else "a", vars=p.get("vars") or None))
+                               status="active", next_action_at=now if running else None, variant=variant_for(eid) if varied else "a", vars=p.get("vars") or None))
     if not dry_run:
         await db.flush()
-    return {"added": added, "skipped": skipped}
+    return {"added": added, "skipped": skipped, "excluded": excluded[:200], "excluded_total": len(excluded), "queued": not running}
+
+
+async def _eligibility_inputs(db: AsyncSession, people: List[Dict[str, Any]]):
+    """The saved companies (and their register records) behind these people, loaded once for the whole batch."""
+    from app.models.models import BusinessRecord
+
+    ids = {str(p.get("lead_id")) for p in people if p.get("lead_id")}
+    accounts = {a.id: a for a in (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all()} if ids else {}
+    biz_ids = {a.business_record_id for a in accounts.values() if a.business_record_id}
+    records = {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(biz_ids)))).scalars().all()} if biz_ids else {}
+    return accounts, records
+
+
+def eligible_person(acc: Optional[LeadAccount], records: Dict[str, Any], person: Dict[str, Any]) -> Dict[str, Any]:
+    """May this person be written to? A saved company is judged by its check; a pasted person by the company named beside them."""
+    from app.services import send_readiness as SR
+
+    if acc is not None:
+        return SR.eligibility(acc, records.get(acc.business_record_id))
+    return SR.pasted_person(person.get("company"))
 
 
 # ── Reading a journey ───────────────────────────────────────────────────────
@@ -622,8 +659,15 @@ async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str) -> List[
     n_people = (await db.execute(select(func.count(EmailEnrollment.id)).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active"))).scalar() or 0
     if not steps:
         add("red", "There are no steps yet.", "steps")
+    total_people = (await db.execute(select(func.count(EmailEnrollment.id)).where(EmailEnrollment.campaign_id == camp.id))).scalar() or 0
     if not n_people:
-        add("red", "Nobody is in this journey yet.", "people")
+        add("red", "Nobody is waiting to start: everyone in it has finished or left." if total_people else "Nobody is in this journey yet.", "people")
+    if any(k == "email" for k in kinds):
+        from app.models.models import CompanyProfile
+
+        prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
+        if not prof or not (prof.legal_name or "").strip() or not (getattr(prof, "postal_address", "") or "").strip():
+            add("red", "Add your business name and postal address in About your business. UK law requires them in every marketing email.", "business")
     if any(k in EMAIL_LIKE for k in kinds) and any(k == "email" for k in kinds):
         boxes = [m for m in (await db.execute(select(EmailMailbox))).scalars().all() if m.id in (camp.mailbox_ids or [])]
         if not boxes:
@@ -687,6 +731,11 @@ async def set_status(db: AsyncSession, camp: EmailCampaign, status: str, org_id:
         if reds:
             raise JourneyError(reds[0])
         camp.status = "running"
+        now = datetime.utcnow()
+        for e in (await db.execute(select(EmailEnrollment).where(
+                EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.next_action_at.is_(None),
+                EmailEnrollment.waiting_on == ""))).scalars().all():
+            e.next_action_at = now
         try:
             from app.public_api.email import note_started_in_app
 

@@ -359,6 +359,27 @@ async def links(request: Request, status: str = "", offset: int = 0, db: AsyncSe
                       for l, name in rows]}
 
 
+@router.get("/links/{link_id}/usage")
+async def link_usage(link_id: str, request: Request, days: int = 30, user_id: str = "", db: AsyncSession = Depends(get_db)):
+    """One client's credit use through this partner's screens, per person: by area, action and day, and the latest lines.
+    The client comes from the partner's own link (never from the browser), and only while the link is active."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services import credits as K
+
+    ctx = admin_ctx(request)
+    p = await _partner_or_404(db, ctx["org_id"])
+    link = (await db.execute(select(PartnerLink).where(PartnerLink.id == link_id, PartnerLink.partner_id == p.id))).scalars().first()
+    if not link:
+        raise HTTPException(status_code=404, detail="That account isn't connected to you.")
+    if link.status != "active":
+        raise HTTPException(status_code=403, detail="This account is disconnected, so its usage is no longer shown.")
+    with system_scope():
+        async with AsyncSessionLocal() as s:
+            data = await K.people_usage(s, "", True, max(1, min(int(days or 30), 365)), user_id, org_ids=[link.org_id], partner_id=p.id)
+    return {"company": (await db.get(Organization, link.org_id)).name if link.org_id else "", **data}
+
+
 class GiftBody(BaseModel):
     wallet: str = Field("leadgen", max_length=20)
     amount: int = Field(..., ge=1, le=100000)

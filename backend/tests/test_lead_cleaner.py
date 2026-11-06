@@ -5,7 +5,7 @@ from app.services import lead_cleaner as LC
 
 
 def row(**kw):
-    base = {"name": "Acme Ltd", "email": "ann@acme.co.uk", "phone": "0113 496 0102", "website": "acme.co.uk", "contact_name": "Ann Lee"}
+    base = {"name": "Acme Ltd", "email": "ann@acme.co.uk", "phone": "0113 550 0102", "website": "acme.co.uk", "contact_name": "Ann Lee"}
     base.update(kw)
     return base
 
@@ -33,7 +33,7 @@ def test_a_name_only_row_is_kept_with_a_warning():
 
 
 def test_a_leading_plus_on_a_phone_is_not_a_formula():
-    assert "FORMULA_INJECTION" not in LC.check_row(row(phone="+44 113 496 0102"))["hard"]
+    assert "FORMULA_INJECTION" not in LC.check_row(row(phone="+44 113 550 0102"))["hard"]
 
 
 def test_warnings_keep_the_row():

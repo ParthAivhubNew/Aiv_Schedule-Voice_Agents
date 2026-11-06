@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Any, Deque, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -455,7 +455,7 @@ class FirebaseBody(BaseModel):
 
 
 @router.post("/firebase")
-async def firebase_sign_in(body: FirebaseBody, request: Request, db: AsyncSession = Depends(get_db)):
+async def firebase_sign_in(body: FirebaseBody, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     """The sign-in page signs in with Google through Firebase and sends us the ID token; we check
     it and sign the user in to Outreach (or create their company when signup is on)."""
     from app.api.auth import sign_in_as
@@ -492,7 +492,11 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, db: AsyncSessio
     if org and org.status == PENDING and verified and (op.email or "").lower() == email.lower():
         org.status = "active"  # Google already confirmed this email
     await db.commit()
-    return await sign_in_as(db, op, request)
+    out = await sign_in_as(db, op, request)
+    from app.api.auth import set_refresh_cookie
+
+    set_refresh_cookie(response, out["refresh_token"])
+    return out
 
 
 # ── First steps checklist (signed in) ───────────────────────────────────────

@@ -85,7 +85,7 @@ export default function JobDock() {
               </div>
               <div style={muted}>{job.done} of {job.total} checked{job.recent && job.recent[0] ? ` · last: ${job.recent[0].name}` : ""}</div>
               <div style={{ ...muted, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span>Verified {counts.verified || 0}</span><span>Looks OK {counts.looks_ok || 0}</span><span>Not found {counts.not_found || 0}</span><span>Problem {counts.problem || 0}</span>
+                <span>Verified {counts.verified || 0}</span><span>Looks OK {counts.looks_ok || 0}</span><span>Not found {counts.not_found || 0}</span><span>Problem {(counts.problem || 0) + (counts.mismatch || 0)}</span>
                 {job.charged && job.charged.total ? <span>{job.charged.total} credits used</span> : null}
               </div>
               {running ? (

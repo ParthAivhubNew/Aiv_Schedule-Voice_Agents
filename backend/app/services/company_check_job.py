@@ -25,6 +25,7 @@ logger = logging.getLogger("company_check_job")
 
 _TASKS: Dict[str, "asyncio.Task"] = {}
 FLUSH_EVERY = 10
+CHECK_TIMEOUT_S = 120  # one company never holds the whole run up longer than this
 POLL_SECONDS = 2.0
 _STEPS = (("registry", "check_registry", "Registry check"), ("deep", "google_deep_search", "Deep web search"),
           ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"),
@@ -230,7 +231,7 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                         return
                     report(row, "Starting")
                     try:
-                        result = await cc.check_row(row, ctx)
+                        result = await asyncio.wait_for(cc.check_row(row, ctx), timeout=CHECK_TIMEOUT_S)
                     except Exception as err:
                         logger.warning(f"[company_check] {row['name']} failed: {err}")
                         result = {"verdict": "unclear", "reasons": ["The check couldn't finish for this company"], "stages": [],

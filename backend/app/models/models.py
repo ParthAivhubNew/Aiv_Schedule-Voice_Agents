@@ -39,6 +39,7 @@ class Operator(Base):
     password_changed_at = Column(DateTime, nullable=True)
     last_login_at = Column(DateTime, nullable=True)
     notify_prefs = Column(JSON, nullable=True)  # {event_key: bool}; missing keys use the defaults
+    monthly_cap = Column(Integer, nullable=True)  # most credits this person may use in a calendar month (UTC); None = no limit
     email_verified = Column(Boolean, default=False)
     google_sub = Column(String, nullable=True, index=True)
     phone = Column(String, default="")  # rings for "Call my phone" tests and when taking over a call
@@ -66,6 +67,9 @@ class AuthSession(Base):
     last_used_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
+    # The token before the last rotation stays good for a few seconds, so two tabs refreshing together do not sign each other out.
+    prev_refresh_jti = Column(String, nullable=True)
+    rotated_at = Column(DateTime, nullable=True)
 
 
 class Role(Base):
@@ -129,17 +133,18 @@ class CompanyProfile(Base):
     name = Column(String, default="Your company")
     # How TTS should say the company name (optional). Empty → auto from name.
     spoken_name = Column(String, nullable=True)
-    pitch = Column(Text, default="AI-powered business intelligence dashboards for mid-market operations teams")
-    industry = Column(String, default="Business intelligence / data consulting")
-    website = Column(String, default="https://aivhub.io")
-    social = Column(String, default="linkedin.com/company/aivhub")
+    pitch = Column(Text, default="")
+    industry = Column(String, default="")
+    website = Column(String, default="")
+    social = Column(String, default="")
     caller_name = Column(String, default="Sam")
     caller_id = Column(String, nullable=True, default=None)
     tone = Column(String, default="Professional, concise, friendly")
     disclosure = Column(Text, default="This call may be recorded for quality and training purposes.")
-    legal_name = Column(String, default="AIVHub Ltd")
-    ico_ref = Column(String, default="ZA774219")
-    dpo_contact = Column(String, default="privacy@aivhub.io")
+    legal_name = Column(String, default="")
+    ico_ref = Column(String, default="")
+    dpo_contact = Column(String, default="")
+    postal_address = Column(Text, default="")  # printed under every cold email (PECR: who is sending, and where to reach them)
     dnc_notes = Column(Text, default="Opt-outs logged immediately and excluded from all future missions.")
     # Organisation time settings: the one source every feature reads (see org_settings.py).
     timezone = Column(String, default="Europe/London")
@@ -677,6 +682,7 @@ class CreditEntry(Base):
     by = Column(String, default="")
     partner_id = Column(String, nullable=True, index=True)  # the partner whose embedded screen caused this line
     payer_org_id = Column(String, nullable=True)  # the organisation whose balance this line changed (org_id is who used it)
+    user_id = Column(String, nullable=True, index=True)  # the person (operator id) who caused this usage; blank = before this was recorded, "system" = no person
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -1587,6 +1593,17 @@ class LeadAccount(Base):
     verification = Column(JSON, nullable=True)
     # The user's own extra columns from an imported file: {"column name": "value"} (see clean_custom).
     custom = Column(JSON, nullable=True)
+    # Identity as the file gave it, normalised on save (see services/normalise.py).
+    registration_number = Column(String, default="", index=True)
+    postcode = Column(String, default="")
+    address = Column(String, default="")
+    country = Column(String, default="")
+    linkedin_url = Column(String, default="")
+    # Problems found at import that stay open until fixed: [{code, text}] (see lead_cleaner).
+    import_flags = Column(JSON, nullable=True)
+    # Who may be emailed: a recorded consent lets an individual (sole trader) be contacted.
+    consent_basis = Column(String, default="")
+    consent_at = Column(DateTime, nullable=True)
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)

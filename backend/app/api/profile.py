@@ -39,6 +39,7 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
         "legalName": profile.legal_name,
         "icoRef": profile.ico_ref,
         "dpoContact": profile.dpo_contact,
+        "postalAddress": getattr(profile, "postal_address", "") or "",
         "dncNotes": profile.dnc_notes,
         **org_dict(profile),
         "lunchStart": profile.lunch_start,
@@ -114,6 +115,8 @@ async def update_profile(payload: Dict[str, Any], db: AsyncSession = Depends(get
         profile.ico_ref = payload.get("icoRef") or payload.get("ico_ref", profile.ico_ref)
     if "dpoContact" in payload or "dpo_contact" in payload:
         profile.dpo_contact = payload.get("dpoContact") or payload.get("dpo_contact", profile.dpo_contact)
+    if "postalAddress" in payload or "postal_address" in payload:
+        profile.postal_address = str(payload.get("postalAddress", payload.get("postal_address", "")) or "").strip()[:400]
     if "dncNotes" in payload or "dnc_notes" in payload:
         profile.dnc_notes = payload.get("dncNotes") or payload.get("dnc_notes", profile.dnc_notes)
     org_patch = {k: payload[k] for k in ("timezone", "weekStart", "week_start", "timeFormat", "time_format", "approverEmails", "approver_emails") if k in payload}

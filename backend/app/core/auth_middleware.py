@@ -321,8 +321,8 @@ class AuthMiddleware:
                 return await _deny(scope, receive, send, 403, "API keys can only be used with the /v1 API.", code="key_not_allowed")
             scope.setdefault("state", {})["auth"] = key_ctx
             scope.setdefault("state", {})["api_key"] = key_ctx
-            from app.core.tenancy import org_scope
-            with org_scope(key_ctx["org_id"]):
+            from app.core.tenancy import actor_scope, org_scope
+            with org_scope(key_ctx["org_id"]), actor_scope(key_ctx.get("operator_id") or ""):
                 return await self.app(scope, receive, send)
 
         if token and not websocket:
@@ -338,9 +338,9 @@ class AuthMiddleware:
                     return await _deny(scope, receive, send, 403, v1, code="embed_run_refused")
                 scope.setdefault("state", {})["auth"] = v1
                 scope.setdefault("state", {})["api_key"] = v1
-                from app.core.tenancy import org_scope
+                from app.core.tenancy import actor_scope, org_scope
 
-                with org_scope(v1["org_id"]), EM.partner_scope(v1["partner_id"]):
+                with org_scope(v1["org_id"]), EM.partner_scope(v1["partner_id"]), actor_scope(v1.get("operator_id") or ""):
                     return await self.app(scope, receive, send)
             if emb:
                 rel = api_path(path)
@@ -350,9 +350,9 @@ class AuthMiddleware:
                 if need and not P.allows(emb["perms"], need[0], need[1]):
                     return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
                 scope.setdefault("state", {})["auth"] = emb
-                from app.core.tenancy import org_scope
+                from app.core.tenancy import actor_scope, org_scope
 
-                with org_scope(emb["org_id"]), EM.partner_scope(emb["partner_id"]):
+                with org_scope(emb["org_id"]), EM.partner_scope(emb["partner_id"]), actor_scope(emb.get("operator_id") or ""):
                     return await self.app(scope, receive, send)
 
         claims = decode_token(token, "access") if token else None
@@ -388,9 +388,9 @@ class AuthMiddleware:
 
         scope.setdefault("state", {})["auth"] = ctx
         # Every database session in this request runs inside the user's organisation.
-        from app.core.tenancy import org_scope
+        from app.core.tenancy import actor_scope, org_scope
 
-        with org_scope(ctx["org_id"]):
+        with org_scope(ctx["org_id"]), actor_scope(ctx["operator_id"]):
             return await self.app(scope, receive, send)
 
 

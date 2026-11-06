@@ -184,8 +184,10 @@ def partner_scope(partner_id: str):
 def _stamp_credit_line(mapper, connection, target):
     """Every credit line records who is charged. Today that is the organisation that used it; a line caused by a
     partner's embedded screen also names the partner."""
-    from app.core.tenancy import current_org
+    from app.core.tenancy import current_actor, current_org
 
+    if target.user_id is None and target.kind == "usage":
+        target.user_id = current_actor() or "system"  # no signed-in person: a job, a webhook or a call that ended on its own
     if target.partner_id is None:
         target.partner_id = _partner_var.get()
     if target.payer_org_id is None:

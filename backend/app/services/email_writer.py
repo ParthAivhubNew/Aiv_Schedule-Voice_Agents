@@ -282,15 +282,14 @@ async def draft_sequence(db: Any, profile: Dict[str, Any], context: str, *, coun
     allowed = sender_texts(profile) + [context, instruction, goal]
     opener = ("Start email 1, right after the greeting, with the single line {{personal_line}} on its own line. "
               "Write the rest so it reads fine even if that line is empty.") if personalise else "Do not use {{personal_line}}."
+    brief = "\n".join(x for x in (f"What the emails must achieve: {goal}" if goal else "", f"The user's instruction: {instruction}" if instruction else "") if x)
     user = (
-        f"SENDER (the business sending these emails)\n{_profile_prompt(profile)}\n\n"
-        f"RECEIVERS (who the emails go to)\n{context or 'A list of UK small businesses.'}\n\n"
-        + (f"WHAT THE EMAILS MUST ACHIEVE (from the user)\n{goal}\n\n" if goal else "")
-        +
-        f"Write {count} emails: email 1 introduces the sender and asks one easy question; email 2 (sent 3 days later, replies in the same thread, "
+        (f"THE BRIEF (this decides what the emails are about; follow it exactly, and if the sender facts below point elsewhere, the brief wins)\n{brief}\n\n" if brief else "")
+        + f"RECEIVERS (who the emails go to)\n{context or 'A list of UK small businesses.'}\n\n"
+        + f"BACKGROUND ABOUT THE SENDER (facts you may use only where they fit the brief; never let them change the subject)\n{_profile_prompt(profile)}\n\n"
+        + f"Write {count} emails: email 1 introduces the sender and asks one easy question; email 2 (sent 3 days later, replies in the same thread, "
         "no subject) adds one new useful angle; email 3 (4 days after that, no subject) is a very short polite close. "
         f"{opener} Address the reader as {{{{first_name}}}} and refer to their business as {{{{company}}}}.\n"
-        + (f"Extra instruction from the user: {instruction}\n" if instruction else "")
         + 'Answer as JSON: {"steps":[{"subject":"...","body":"..."}]}. Follow-up emails have an empty subject.'
     )
     problems: List[List[str]] = []

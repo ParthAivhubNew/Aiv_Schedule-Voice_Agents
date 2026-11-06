@@ -211,7 +211,7 @@ async def test_you_can_bring_your_own_leads_and_the_original_single_form_still_w
 
     key = await _key(admin_token)
     async with _http(key) as c:
-        one = await c.post("/v1/leads", json={"name": "Jo Bloggs", "phone": "+447700900123", "company": "Bloggs Ltd", "notes": "Hot"})
+        one = await c.post("/v1/leads", json={"name": "Jo Bloggs", "phone": "+447911123456", "company": "Bloggs Ltd", "notes": "Hot"})
         assert one.status_code == 200 and one.json()["lead_id"].startswith("p_") and one.json()["company"] == "Bloggs Ltd"
         many = await c.post("/v1/leads", json={"leads": [{"name": "Acme Ltd", "website": "acme.test", "phone": "+441130000001"},
                                                           {"name": "Beta Ltd", "email": "hi@beta.test"}]})
@@ -244,14 +244,14 @@ async def test_a_list_you_bring_can_be_phone_checked_for_the_same_price_as_the_a
     monkeypatch.setattr(NC, "remember", remember)
     key = await _key(admin_token)
     async with _http(key) as c:
-        r = await c.post("/v1/leads", json={"leads": [{"name": "Acme Ltd", "phone": "+447700900123"}, {"name": "Beta Ltd", "phone": "+447700900124"}],
+        r = await c.post("/v1/leads", json={"leads": [{"name": "Acme Ltd", "phone": "+447911123456"}, {"name": "Beta Ltd", "phone": "+447911123457"}],
                                             "checks": ["phone"]})
         assert r.status_code == 202, r.text
         done = await _wait_done(c, r.json()["id"])
         assert done["status"] == "done"
         phones = {x["name"]: x["checks"]["phone"] for x in done["results"]["data"]}
         assert phones["Acme Ltd"]["state"] == "valid" and phones["Acme Ltd"]["line_type"] == "mobile"
-    assert sorted(asked) == ["+447700900123", "+447700900124"]
+    assert sorted(asked) == ["+447911123456", "+447911123457"]
 
 
 async def test_a_job_that_stalls_is_reported_not_left_running_forever(db, admin_token):

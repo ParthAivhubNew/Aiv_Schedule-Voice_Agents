@@ -41,6 +41,7 @@ def split_officer_name(name: str) -> Dict[str, str]:
     return {"first_name": first.title(), "last_name": last.title()}
 
 
+PEOPLE_MAX_AGE_DAYS = 90  # officers older than this are read again when the company is opened
 PEOPLE_V = 2  # officers saved with nationality, occupation and the rest carry this mark; older saves are read again when the company is opened
 
 
@@ -54,22 +55,43 @@ def _officer_id(link: Any) -> str:
     return m.group(1) if m else ""
 
 
+_COMPANY_NAME = re.compile(r"(^|[ ,.])(ltd|limited|llp|plc|l[.]?l[.]?p|inc|gmbh|corporation|corp|holdings|nominees|secretaries)[.]?$", re.I)
+
+
+def is_company_name(name: Any) -> bool:
+    """A corporate officer (a firm acting as secretary or director) is not a person: no first name, no email to find."""
+    return bool(_COMPANY_NAME.search(re.sub(r"\s+", " ", str(name or "")).strip()))
+
+
 def active_officers(officers: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """The people now in office. A firm acting as director or secretary is left out, and a person who holds two roles is listed once with both."""
     out = []
+    seen: Dict[str, Dict[str, Any]] = {}
     this_year = datetime.utcnow().year
     for o in officers or []:
         if not isinstance(o, dict) or not o.get("name") or o.get("resigned_on"):
             continue
         role = str(o.get("role") or "")
+        if role.lower().startswith("corporate") or is_company_name(o["name"]):
+            continue
         if role and not _ROLE_KEEP.search(role.replace("-", " ")):
             continue
+        key = re.sub(r"\s+", " ", str(o["name"]).strip().lower())
+        if key in seen:
+            have = seen[key]
+            extra = role.replace("-", " ").title()
+            if extra and extra not in have["role"].split(", "):
+                have["role"] = f'{have["role"]}, {extra}' if have["role"] else extra
+            continue
         since = _year_of(o.get("appointed_on"))
-        out.append({"name": o["name"], "role": role.replace("-", " ").title(), "appointed_on": o.get("appointed_on") or "",
-                    "years_in_role": max(this_year - since, 0) if since else None,
-                    "nationality": o.get("nationality") or "", "occupation": o.get("occupation") or "",
-                    "country_of_residence": o.get("country_of_residence") or "", "born_year": o.get("born_year") or "",
-                    "officer_id": _officer_id(o.get("appointments_link")),
-                    **split_officer_name(o["name"]), "source": "registry", "verified": True})
+        person = {"name": o["name"], "role": role.replace("-", " ").title(), "appointed_on": o.get("appointed_on") or "",
+                  "years_in_role": max(this_year - since, 0) if since else None,
+                  "nationality": o.get("nationality") or "", "occupation": o.get("occupation") or "",
+                  "country_of_residence": o.get("country_of_residence") or "", "born_year": o.get("born_year") or "",
+                  "officer_id": _officer_id(o.get("appointments_link")),
+                  **split_officer_name(o["name"]), "source": "registry", "verified": True}
+        seen[key] = person
+        out.append(person)
     return out
 
 
@@ -117,8 +139,11 @@ def controllers(psc: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
 def people_stale(biz: BusinessRecord) -> bool:
     """True when the officers still need reading: none saved yet, or saved before nationality, occupation and the rest were kept."""
     saved = biz.officers
+    checked = getattr(biz, "people_checked_at", None)
+    if checked is not None and (datetime.utcnow() - checked).days > PEOPLE_MAX_AGE_DAYS:
+        return True  # someone may have resigned or joined since: read again
     if not saved:
-        return getattr(biz, "people_checked_at", None) is None  # read before and it had none: leave it
+        return checked is None  # read before and it had none: leave it
     return any(isinstance(o, dict) and o.get("v") != PEOPLE_V for o in saved)
 
 
@@ -130,14 +155,18 @@ async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
     if not reg:
         return False
     sources = (await db.execute(select(DataSource).where(DataSource.kind == "api", DataSource.status == "active"))).scalars().all()
+    failed = False
+    asked = False
     for source in sources:
         cfg = source.config or {}
         if not cfg.get("officers_endpoint") or cfg.get("trust_tier") != "verified_registry":
             continue
+        asked = True
         try:
             hits = await connector.search(source, biz.registration_number, limit=5)
         except Exception as err:
             logger.warning(f"[company_contacts] {source.name} search failed: {err}")
+            failed = True
             continue
         id_field = cfg.get("id_field_from_search", "id")
         hit = next((h for h in hits if business_records._norm(connector._dig(h, id_field)) == reg), None)
@@ -147,6 +176,7 @@ async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
             profile = await connector.fetch_profile(source, hit)
         except Exception as err:
             logger.warning(f"[company_contacts] {source.name} profile failed: {err}")
+            failed = True
             continue
         for o in profile.get("officers") or []:
             if isinstance(o, dict):
@@ -156,6 +186,8 @@ async def refresh_from_registry(db: AsyncSession, biz: BusinessRecord) -> bool:
         await db.refresh(biz)
         biz.people_checked_at = datetime.utcnow()
         return True
+    if asked and not failed:
+        biz.people_checked_at = datetime.utcnow()  # the registry answered and does not list this company: not asked again until it is stale
     return False
 
 

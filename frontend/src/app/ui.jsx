@@ -1,3 +1,4 @@
+import { ago } from "../utils/notificationTime";
 import {
   AlertTriangle,
   ArrowRight,
@@ -285,7 +286,7 @@ export function NotificationBell({ notifications, setNotifications, onNavigate }
                           {n.text}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
-                          <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>{n.time}</span>
+                          <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight }}>{ago(n)}</span>
                           <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.cobalt }}>
                             {notificationActionLabel(n)}
                           </span>

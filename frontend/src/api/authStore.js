@@ -59,10 +59,39 @@ export function setSession({ access_token, refresh_token, operator } = {}) {
   if (operator) write(OPERATOR_KEY, JSON.stringify(operator));
 }
 
+// Personal data kept in this browser for convenience. It is removed on sign-out so it never outlives the session.
+const PERSONAL_KEYS = ["aivhub_company_profile", "aivhub_sources", "aivhub_services", "aivhub_faq", "aivhub_calling_v1_notes",
+  "aivhub_find_first", "aivhub_twilio_sid", "aivhub_twilio_token", "aivhub_common_ai"];
+
+export function clearPersonalData() {
+  try {
+    PERSONAL_KEYS.forEach((k) => {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    });
+  } catch (_) {}
+}
+
 export function clearSession() {
   write(ACCESS_KEY, "");
   write(REFRESH_KEY, "");
   write(OPERATOR_KEY, "");
+  clearPersonalData();
+}
+
+// A new tab has no tokens of its own but the browser still holds the sign-in cookie: ask for a session with it.
+// Resolves to the operator, or null when nobody is signed in.
+export async function restoreSession() {
+  if (embedAuth || read(ACCESS_KEY)) return null;
+  try {
+    const res = await fetch("/api/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "outreach" }, body: "{}" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    setSession(data);
+    return data.operator || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 export function hasSession() {
@@ -83,12 +112,12 @@ let refreshing = null;
 export function refreshSession() {
   if (embedAuth) return embedAuth.refresh();
   if (refreshing) return refreshing;
+  // With no token of its own (a new tab) the browser's shared cookie is used; the header tells the server this is our page asking.
   const refresh_token = read(REFRESH_KEY);
-  if (!refresh_token) return Promise.resolve(false);
   refreshing = fetch("/api/auth/refresh", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token }),
+    headers: { "Content-Type": "application/json", "X-Requested-With": "outreach" },
+    body: JSON.stringify(refresh_token ? { refresh_token } : {}),
   })
     .then(async (res) => {
       if (!res.ok) return false;

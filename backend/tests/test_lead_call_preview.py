@@ -32,15 +32,15 @@ async def test_preview_sorts_companies_by_why_they_can_or_cannot_be_called(db, m
     _, token = await make_user(db, "cp", "Admin", org_id="org_default")  # the house organisation owns every plugin
     async with _client(token) as c:
         saved = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Ready Dental", "phone": "0113 496 0001"},
+            {"name": "Ready Dental", "phone": "0113 550 0001"},
             {"name": "No Number Ltd"},
-            {"name": "Optout Lettings", "phone": "0113 496 0002"},
-            {"name": "Recent Plumbing", "phone": "0113 496 0003"},
-            {"name": "Researched Cafe", "phone": "0113 496 0004"},
+            {"name": "Optout Lettings", "phone": "0113 550 0002"},
+            {"name": "Recent Plumbing", "phone": "0113 550 0003"},
+            {"name": "Researched Cafe", "phone": "0113 550 0004"},
         ]})).json()["accounts"]
         by_name = {a["name"]: a["id"] for a in saved}
         with org_scope("org_default"):
-            db.add(ContactRegistry(id="reg_optout", canonical_name="Optout Lettings", phones=["0113 496 0002"], do_not_call=True))
+            db.add(ContactRegistry(id="reg_optout", canonical_name="Optout Lettings", phones=["0113 550 0002"], do_not_call=True))
             row = (await db.execute(select(LeadAccount).where(LeadAccount.id == by_name["Recent Plumbing"]))).scalar_one()
             row.last_called_at = datetime.utcnow() - timedelta(days=2)
             row.last_contact_at = row.last_called_at

@@ -62,3 +62,15 @@ describe("before starting", () => {
     expect(addedText({ added: 3, dry_run: true, skipped: {} })).toBe("Would add 3.");
   });
 });
+
+describe("people kept out and queued", () => {
+  it("says who was left out and that a draft waits for Start", () => {
+    const text = addedText({ added: 2, queued: true, excluded_total: 3, skipped: { problem: 1, unchecked: 1, individual: 1 } });
+    expect(text).toContain("3 left out for safety: 1 closed or wrong company number, 1 not checked yet, 1 individuals without consent.");
+    expect(text).toContain("They start when you press Start.");
+  });
+  it("counts a draft's people as queued and uses the singular", () => {
+    expect(headline({ in_progress: 4, by_status: {} }, 0, "draft")).toBe("4 queued");
+    expect(headline({ people: 1, in_progress: 0, by_status: {} })).toBe("1 person");
+  });
+});

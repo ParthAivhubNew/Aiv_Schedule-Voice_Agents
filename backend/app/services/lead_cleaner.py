@@ -9,6 +9,7 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+from app.services import normalise, uk_phone
 from app.services.business_records import DIRECTORY_SITES
 
 HARD_TEXT = {
@@ -18,12 +19,18 @@ HARD_TEXT = {
     "PHONE_INVALID": "The phone number is not a usable number.", "PHONE_FAKE": "The phone number looks made up.", "PHONE_PREMIUM": "The phone number is a premium-rate line.",
     "PERSON_INVALID": "The contact name holds digits, an @ or a placeholder.", "FORMULA_INJECTION": "A cell starts like a spreadsheet formula.",
     "POSTCODE_INVALID": "The postcode is not a UK postcode.",
+    "PHONE_FICTIONAL": "Reserved for TV and radio drama: not a real line.",
+    "NAME_MISSING": "The row has no company name.",
 }
 WARN_TEXT = {
     "EMAIL_PERSONAL": "A personal mailbox (Gmail, Outlook…), not a work address.", "EMAIL_ROLE": "A shared inbox such as info@.",
     "PHONE_MOBILE": "A mobile number.", "GDPR_INDIVIDUAL": "No Ltd, LLP or PLC in the name: may be a sole trader. Email marketing to individuals needs consent.",
     "NO_IDENTIFIER": "No email, phone or website yet. Check and improve it before a campaign.",
     "EMAIL_DOMAIN_MISMATCH": "The email's domain does not match the website: possibly the wrong person.",
+    "POSTCODE_PARTIAL": "Only the first part of the postcode (e.g. DN11): enough for an area, not an address.",
+    "REGNO_INVALID": "The company number is not in a form the register uses (8 digits, or SC/NI/OC plus digits).",
+    "REGNO_NAME_MISMATCH": "This company number belongs to a different company on the register.",
+    "REGNO_DUPLICATE": "Another company in this file or your saved companies has the same company number.",
 }
 _PLACEHOLDERS = {"test", "tests", "testing", "n/a", "na", "none", "null", "xxx", "xx", "asdf", "qwerty", "unknown", "tbc", "-", ".", "?"}
 _FREE = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com", "icloud.com", "aol.com", "btinternet.com", "sky.com", "proton.me", "protonmail.com"}
@@ -92,14 +99,25 @@ def check_row(item: Dict[str, Any]) -> Dict[str, List[str]]:
             hard.append("PHONE_INVALID")
         elif len(set(d)) <= 2 or d in {"1234567890", "01234567890", "12345678901"}:
             hard.append("PHONE_FAKE")
+        elif uk_phone.fictional(phone):
+            hard.append("PHONE_FICTIONAL")
         elif local.startswith("9"):
             hard.append("PHONE_PREMIUM")
         elif local.startswith("7"):
             warn.append("PHONE_MOBILE")
     custom = item.get("custom") or {}
-    pc = next((_s(v) for k, v in custom.items() if re.sub(r"[^a-z]", "", str(k).lower()) in ("postcode", "postalcode", "zip")), "")
-    if pc and not _POSTCODE.match(pc.upper().replace("  ", " ")):
-        hard.append("POSTCODE_INVALID")
+    pc = _s(item.get("postcode")) or next((_s(v) for k, v in custom.items() if re.sub(r"[^a-z]", "", str(k).lower()) in ("postcode", "postalcode", "zip")), "")
+    if pc:
+        pcu = pc.upper().replace("  ", " ")
+        if _POSTCODE.match(pcu):
+            pass
+        elif normalise.is_outward_only(pcu):
+            warn.append("POSTCODE_PARTIAL")
+        else:
+            hard.append("POSTCODE_INVALID")
+    regno = _s(item.get("registration_number"))
+    if regno and not normalise.company_number(regno):
+        warn.append("REGNO_INVALID")
     if not (email or phone or site):
         warn.append("NO_IDENTIFIER")  # a name-only file is a normal start: the check fills in the rest
     if name and not _LEGAL.search(name) and not _s(item.get("business_record_id")):

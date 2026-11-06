@@ -8,12 +8,13 @@ export const STATUS = {
   check: { label: "Check", tone: "warn", hint: "VoIP, toll-free or an unusual line" },
   not_working: { label: "Not working", tone: "bad", hint: "The network does not know this number" },
   do_not_call: { label: "Do not call", tone: "mute", hint: "On your do-not-call list" },
+  fictional: { label: "Not a real line", tone: "mute", hint: "Reserved for TV and radio drama" },
   bad_format: { label: "Bad format", tone: "mute", hint: "Not a complete phone number" },
   duplicate: { label: "Duplicate", tone: "mute", hint: "The same number appears earlier in the list" },
   couldnt_check: { label: "Couldn't check", tone: "mute", hint: "Could not be checked just now. Not charged, try again" },
   [NOT_CHECKED]: { label: "Not checked", tone: "mute", hint: "" },
 };
-export const STATUS_ORDER = ["good", "check", "not_working", "do_not_call", "bad_format", "duplicate", "couldnt_check", NOT_CHECKED];
+export const STATUS_ORDER = ["good", "check", "not_working", "do_not_call", "fictional", "bad_format", "duplicate", "couldnt_check", NOT_CHECKED];
 export const MATCH = { match: "Match", partial: "Partial", differs: "Differs", none: "No data" };
 export const LINE = { mobile: "Mobile", landline: "Landline", voip: "VoIP", toll_free: "Toll-free", other: "Other" };
 export const CHUNK = 100;

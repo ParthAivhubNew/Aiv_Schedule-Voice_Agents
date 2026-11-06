@@ -4,6 +4,7 @@ import { Check, Copy, Handshake, ExternalLink } from "lucide-react";
 import { C, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { EmbedSnippets, SecretKeyBox, ThemeBox } from "./PartnerEmbed";
+import { PeopleUsage } from "../team/PeopleUsage";
 
 const field = { width: "100%", padding: "8px 11px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, boxSizing: "border-box", background: "#fff" };
 const label = { display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, margin: "12px 0 4px" };
@@ -22,6 +23,16 @@ const pill = (tone) => ({
 const TONE = { pending: "amber", approved: "green", rejected: "red", sandbox: "blue", live: "green", suspended: "red", active: "green", revoked: "slate" };
 const lines = (v) => (v || "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
 const when = (iso) => (iso ? new Date(iso + (/[Z+]/.test(iso.slice(19)) ? "" : "Z")).toLocaleDateString([], { dateStyle: "medium" }) : "—");
+
+// One client's credit use through this partner's screens: who used what. The server finds the client from the partner's own link.
+function LinkUsage({ linkId }) {
+  const load = useCallback((days, userId) => api.getPartnerLinkUsage(linkId, days, userId), [linkId]);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <PeopleUsage load={load} title="Credits used through your screens" showMe={false} />
+    </div>
+  );
+}
 
 function CopyText({ text, onCopy }) {
   const [done, setDone] = useState(false);
@@ -174,6 +185,7 @@ export function PartnerProgram() {
   const [start, setStart] = useState({ name: "", agree: false });
   const [wallet, setWallet] = useState(null);
   const [giving, setGiving] = useState(null);
+  const [usageOpen, setUsageOpen] = useState("");
   const [welcome, setWelcome] = useState({ credits: "0", wallet: "leadgen" });
   const [kitDone, setKitDone] = useState(() => { try { return localStorage.getItem("aivhub_partner_kit") === "1"; } catch { return false; } });
 
@@ -431,7 +443,8 @@ export function PartnerProgram() {
                 <div style={{ ...hint, padding: "16px 0", textAlign: "center" }}>No accounts connected yet. Connected users will appear here when they link their Outreach account.</div>
               ) : (
                 links.map((l) => (
-                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${C.borderLight}` }}>
+                  <div key={l.id} style={{ padding: "12px 0", borderTop: `1px solid ${C.borderLight}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{l.company || l.orgId} <span style={pill(TONE[l.status])}>{l.status}</span></div>
                       <div style={hint}>
@@ -444,6 +457,7 @@ export function PartnerProgram() {
                     </div>
                     {l.status === "active" && (
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <button type="button" style={button(false)} aria-expanded={usageOpen === l.id} onClick={() => setUsageOpen(usageOpen === l.id ? "" : l.id)}>{usageOpen === l.id ? "Hide usage" : "See usage"}</button>
                         {giving && giving.id === l.id ? (
                           <form style={{ display: "flex", gap: 6, alignItems: "center" }} onSubmit={(e) => { e.preventDefault(); act(() => api.givePartnerCredits(l.id, { wallet: giving.wallet, amount: Number(giving.amount) }).then(() => setGiving(null)), "Credits allocated."); }}>
                             <select aria-label="Wallet" style={{ ...field, width: 110 }} value={giving.wallet} onChange={(e) => setGiving({ ...giving, wallet: e.target.value })}>
@@ -459,6 +473,8 @@ export function PartnerProgram() {
                         <button type="button" disabled={busy} style={button(false, busy)} onClick={() => window.confirm("Disconnect this account?") && act(() => api.disconnectPartnerLink(l.id), "Account disconnected.")}>Disconnect</button>
                       </div>
                     )}
+                  </div>
+                  {usageOpen === l.id && l.status === "active" && <LinkUsage linkId={l.id} />}
                   </div>
                 ))
               )}

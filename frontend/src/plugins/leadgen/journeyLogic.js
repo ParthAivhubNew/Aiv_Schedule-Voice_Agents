@@ -50,15 +50,15 @@ export function stepLine(step) {
 }
 
 // The numbers under a journey's name, in words. Only what is not zero.
-export function headline(results, tasksOpen = 0) {
+export function headline(results, tasksOpen = 0, status = "running") {
   if (!results) return "";
   const parts = [];
   const by = results.by_status || {};
-  if (results.in_progress) parts.push(`${results.in_progress} in progress`);
+  if (results.in_progress) parts.push(status === "running" || status === "paused" ? `${results.in_progress} in progress` : `${results.in_progress} queued`);
   if (by.replied) parts.push(`${by.replied} replied`);
   if (by.booked) parts.push(`${by.booked} booked`);
   if (tasksOpen) parts.push(`${tasksOpen} task${tasksOpen === 1 ? "" : "s"} for you`);
-  if (!parts.length) return results.people ? `${results.people} people` : "Nobody in it yet";
+  if (!parts.length) return results.people ? `${results.people} ${results.people === 1 ? "person" : "people"}` : "Nobody in it yet";
   return parts.join(" · ");
 }
 
@@ -100,7 +100,11 @@ export function addedText(out) {
   const s = out.skipped || {};
   const why = [[s.duplicate, "already in"], [s.do_not_email, "on the do-not-email list"], [s.invalid, "without a valid email"], [s.in_another_journey, "already in another journey"], [s.no_contact, "with no contact details"]]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
-  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}`;
+  const kept = out.excluded_total || 0;
+  const safety = kept ? ` ${kept} left out for safety: ${[[s.problem, "closed or wrong company number"], [s.unchecked, "not checked yet"], [s.individual, "individuals without consent"], [s.email_bad, "emails that can't receive mail"]]
+    .filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(", ")}.` : "";
+  const queued = out.queued && !out.dry_run && out.added ? " They start when you press Start." : "";
+  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}${safety}${queued}`;
 }
 
 // Tasks overdue or due today come first.

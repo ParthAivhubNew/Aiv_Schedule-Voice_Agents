@@ -29,19 +29,19 @@ class TokenResponse(BaseModel):
 # Company Profile Schemas
 class CompanyProfileSchema(BaseModel):
     id: Optional[str] = "default"
-    name: str = "AIVHub"
+    name: str = "Your company"
     spoken_name: Optional[str] = None
-    pitch: str = "AI-powered business intelligence dashboards for mid-market operations teams"
-    industry: str = "Business intelligence / data consulting"
-    website: str = "https://aivhub.io"
-    social: str = "linkedin.com/company/aivhub"
+    pitch: str = ""
+    industry: str = ""
+    website: str = ""
+    social: str = ""
     caller_name: str = "Sam"
     caller_id: Optional[str] = None
     tone: str = "Professional, concise, friendly"
     disclosure: str = "This call may be recorded for quality and training purposes."
-    legal_name: str = "AIVHub Ltd"
-    ico_ref: str = "ZA774219"
-    dpo_contact: str = "privacy@aivhub.io"
+    legal_name: str = ""
+    ico_ref: str = ""
+    dpo_contact: str = ""
     dnc_notes: str = "Opt-outs logged immediately and excluded from all future missions."
     timezone: str = "Europe/London"
     lunch_start: str = "12:00"

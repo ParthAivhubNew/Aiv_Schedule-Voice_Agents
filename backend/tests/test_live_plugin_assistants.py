@@ -41,7 +41,7 @@ async def world(db):
                     summary="Not interested, already has a supplier.", phone="+441130000002", created_at=now - timedelta(days=2)),
             CallLog(id="c3", canonical_name="Roast Lane", listed_as="Roast Lane", started_at="12:00", ended_at="12:03", duration="3 min", outcome="callback_requested",
                     summary="Call back next Monday morning.", phone="+441130000003", created_at=now - timedelta(days=3)),
-            OrgPhoneNumber(id="n1", e164="+441134960000", label="Main line", status="active", is_default=True),
+            OrgPhoneNumber(id="n1", e164="+441135500000", label="Main line", status="active", is_default=True),
             CallList(id="l1", name="Leeds cafes", row_count=40, called_count=3),
             CallSchedule(id="s1", name="Weekday mornings", list_id="l1", times=["10:00"], frequency="recurring", status="active"),
             SocialPost(id="p1", title="Our new oat latte", copy="x", channels=["linkedin"], status="approved", due_at_ms=(time.time() + 86400) * 1000),
@@ -65,7 +65,7 @@ async def test_the_real_model_answers_voice_questions_from_the_calls_it_was_give
     assert "Thursday" in r["reply"] or "sample" in r["reply"].lower()
 
     r = await ask(world, "voice", "Do I have any calls scheduled, and which numbers do I have?")
-    assert "+441134960000" in r["reply"] or "Weekday mornings" in r["reply"]
+    assert "+441135500000" in r["reply"] or "Weekday mornings" in r["reply"]
 
     r = await ask(world, "voice", "I want to change what the AI caller says in its greeting")
     assert [p["kind"] for p in r["proposals"]] == ["go"]  # a button to the right screen, never a change made by the chat

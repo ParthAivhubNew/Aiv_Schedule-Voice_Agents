@@ -185,6 +185,11 @@ def describe(filters: Dict[str, Any]) -> List[str]:
     return chips
 
 
+def closest_note(dropped: List[str]) -> str:
+    """What to tell the person when nothing matched every filter and the nearest companies are shown instead."""
+    return "No company matched every filter, so these are the closest: the search no longer requires " + ", ".join(dropped)
+
+
 def broadened_note(filters: Dict[str, Any]) -> str:
     """What to tell the person when a trade search took in side activities (see business_records.matching)."""
     trade = ", ".join(list(filters.get("keyword") or []) + list(filters.get("sector") or []) + list(filters.get("sic_codes") or [])) or "this trade"

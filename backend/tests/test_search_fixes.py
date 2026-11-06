@@ -30,8 +30,9 @@ def test_short_words_match_whole_words_in_names_and_trade_text():
     assert r"sic_text ~* '\mtax\M'" in q  # the trade text is whole-word too: "Taxi operation" is not "tax"
 
 
-def test_longer_words_keep_the_contains_match():
-    assert "ILIKE '%accountancy%'" in sql({"keyword": ["accountancy"]})
+def test_longer_words_must_start_a_word_and_other_text_keeps_the_contains_match():
+    assert r"~* '\maccountancy'" in sql({"keyword": ["accountancy"]})  # "Accountancy Ltd" and "Accountancyfirst", but "dental" is not "Accidental"
+    assert "ILIKE '%e-commerce%'" in sql({"keyword": ["e-commerce"]})
 
 
 def test_postcode_ls1_is_the_ls1_district_only():

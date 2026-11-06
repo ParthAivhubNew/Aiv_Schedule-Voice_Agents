@@ -88,6 +88,9 @@ export async function apiRequest(endpoint, options = {}) {
         if (response.status === 413) {
           msg = "Upload too large (413). Record 30–60 seconds; the app compresses audio before send.";
         }
+        if ([502, 503, 504].includes(response.status) && !errData.detail) {
+          msg = "The server didn't answer. Nothing was saved. Try again in a minute.";
+        }
         if (typeof errData.detail === 'string') {
           msg = errData.detail;
         } else if (Array.isArray(errData.detail)) {
@@ -205,6 +208,9 @@ export const api = {
   getBillingOverview: () => apiRequest('/billing/overview'),
   getBillingAccess: () => apiRequest('/billing/access'),
   getEmbedSession: () => apiRequest('/embed/session'),
+  getCreditPeople: (days = 30, userId = '') => apiRequest(`/credits/people?days=${days}&user_id=${encodeURIComponent(userId)}`),
+  setCreditCap: (userId, monthlyCap) => apiRequest(`/credits/people/${encodeURIComponent(userId)}/cap`, { method: 'PUT', body: { monthly_cap: monthlyCap } }),
+  getPartnerLinkUsage: (linkId, days = 30, userId = '') => apiRequest(`/partners/links/${encodeURIComponent(linkId)}/usage?days=${days}&user_id=${encodeURIComponent(userId)}`),
   getCreditUsage: (month, wallet = '') => apiRequest(`/credits/usage?month=${encodeURIComponent(month)}&wallet=${encodeURIComponent(wallet)}`),
   startCheckout: (plans, topups, back = '/', quantities = {}) => apiRequest('/billing/checkout', { method: 'POST', body: { plans, topups, back, quantities } }),
   openBillingPortal: (back = '/') => apiRequest('/billing/portal', { method: 'POST', body: { back } }),
@@ -362,6 +368,7 @@ export const api = {
   saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } })
     .then((r) => { if (r && r.duplicates_total > 0) announceDuplicates({ kind: 'save', total: r.duplicates_total, pairs: r.duplicates || [] }); return r; }),
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+  deleteLeadAccounts: (ids, doNotContact = false) => apiRequest('/leads/accounts/bulk-delete', { method: 'POST', body: { ids, do_not_contact: doNotContact } }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
   findCompanyWebsite: (id, kind = 'website', hint = '') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: { kind, hint }, timeoutMs: 60000 }),
@@ -574,6 +581,11 @@ export const api = {
   // How this company's AI pictures look
   getImageSettings: () => apiRequest('/scheduler/image-settings'),
   saveImageSettings: (body) => apiRequest('/scheduler/image-settings', { method: 'PUT', body }),
+  uploadBrandLogo: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiRequest('/scheduler/brand-logo', { method: 'POST', body: form, timeoutMs: 60000 });
+  },
   // AI video clips
   getVideos: (postId = '') => apiRequest(`/scheduler/videos?postId=${encodeURIComponent(postId)}`),
   makeVideo: (body) => apiRequest('/scheduler/videos', { method: 'POST', body }),

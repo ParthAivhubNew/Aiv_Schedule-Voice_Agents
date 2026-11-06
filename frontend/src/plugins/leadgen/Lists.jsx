@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { takePendingList } from "./openList";
 import { GridTools } from "../../components/GridTools";
 import { CardsSkeleton } from "../../app/Loader";
 import { Check, ListChecks, Megaphone, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
@@ -100,7 +101,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     const interested = ids.filter((i) => ["interested", "meeting", "won"].includes(reach[i]?.stage)).length;
     return called ? ` · called ${called.toLocaleString()} of ${ids.length.toLocaleString()}${interested ? ` · ${interested.toLocaleString()} interested` : ""}` : "";
   };
-  const [openId, setOpenId] = useState(""); // a list id, "all" for every company, or "" for the overview
+  const [openId, setOpenId] = useState(takePendingList); // a list id, "all" for every company, or "" for the overview
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
   const open = lists.find((l) => l.id === openId);

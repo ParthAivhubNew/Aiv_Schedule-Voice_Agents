@@ -8,7 +8,7 @@ from app.services import enrichment_service as E
     ("0121 456 7890", "01214567890", "0121"),
     ("+44 (0)121 456 7890", "01214567890", "0121"),
     ("+44 1752 262611", "01752262611", "01752"),
-    ("0044 20 7946 0000", "02079460000", "020"),
+    ("0044 20 7123 0000", "02071230000", "020"),
     ("0333 321 9000", "03333219000", ""),  # a national number: no town
 ])
 def test_a_number_is_read_as_dialled_in_the_uk_and_gives_its_town_code(phone, number, code):

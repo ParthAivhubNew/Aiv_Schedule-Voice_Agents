@@ -7,13 +7,13 @@ from app.services import optouts as OO
 
 
 def test_phone_key_matches_every_way_of_writing_a_number():
-    assert OO.phone_key("+44 20 7946 0958") == OO.phone_key("020 7946 0958") == "2079460958"
+    assert OO.phone_key("+44 20 7123 0958") == OO.phone_key("020 7123 0958") == "2071230958"
     assert OO.phone_key("12") == ""
 
 
 def test_the_confirmation_link_is_signed_and_expires():
-    token = OO.make_token("jo@acme.co.uk", "020 7946 0958", now=1000)
-    assert OO.read_token(token, now=1000 + 60) == ("jo@acme.co.uk", "020 7946 0958")
+    token = OO.make_token("jo@acme.co.uk", "020 7123 0958", now=1000)
+    assert OO.read_token(token, now=1000 + 60) == ("jo@acme.co.uk", "020 7123 0958")
     assert OO.read_token(token, now=1000 + OO.TOKEN_TTL_S + 5) is None
     body, mac = token.rsplit(".", 1)
     assert OO.read_token(f"{body}.{'0' * len(mac)}") is None
@@ -38,14 +38,14 @@ async def test_the_whole_opt_out_flow(anon, db):
         return {"ok": True}
 
     legal.send_system_email = fake_send
-    db.add(BusinessRecord(id="biz_1", identity_hash="h1", name="Acme Ltd", email="jo@acme.co.uk", phone="020 7946 0958",
+    db.add(BusinessRecord(id="biz_1", identity_hash="h1", name="Acme Ltd", email="jo@acme.co.uk", phone="020 7123 0958",
                           raw_data={"ds_x": {"Email": "jo@acme.co.uk"}}))
     await db.commit()
 
     assert (await anon.get("/api/legal/business-data")).status_code == 200
     assert "Opt out" in (await anon.get("/api/legal/opt-out")).text
     # The answer is the same for any address, and a trap field sends nothing
-    r = await anon.post("/api/legal/opt-out", content="email=jo%40acme.co.uk&phone=020+7946+0958", headers={"content-type": "application/x-www-form-urlencoded"})
+    r = await anon.post("/api/legal/opt-out", content="email=jo%40acme.co.uk&phone=020+7123+0958", headers={"content-type": "application/x-www-form-urlencoded"})
     assert r.status_code == 200 and len(sent) == 1
     await anon.post("/api/legal/opt-out", content="email=x%40y.com&website=spam", headers={"content-type": "application/x-www-form-urlencoded"})
     assert len(sent) == 1
@@ -67,13 +67,13 @@ async def test_the_whole_opt_out_flow(anon, db):
         await asyncio.sleep(0.1)
     assert rec.email == "" and rec.phone == "" and "acme.co.uk" not in str(rec.raw_data)
     entry = (await db.execute(select(PlatformOptOut))).scalars().first()
-    assert entry.email == "jo@acme.co.uk" and entry.phone_key == "2079460958"
+    assert entry.email == "jo@acme.co.uk" and entry.phone_key == "2071230958"
     assert (await db.execute(select(EmailSuppression).where(EmailSuppression.org_id.is_(None), EmailSuppression.email == "jo@acme.co.uk"))).scalars().first()
 
     # A later import does not put them back
     from app.services import business_records as BR
 
-    rows = [{"name": "Acme Ltd", "registration_number": "01234567", "email": "JO@acme.co.uk", "phone": "+44 20 7946 0958", "raw": {"e": "jo@acme.co.uk"}},
+    rows = [{"name": "Acme Ltd", "registration_number": "01234567", "email": "JO@acme.co.uk", "phone": "+44 20 7123 0958", "raw": {"e": "jo@acme.co.uk"}},
             {"name": "Other Ltd", "registration_number": "07654321", "email": "info@other.co.uk"}]
     await BR.bulk_upsert(db, source_id="ds_x", rows=rows)
     await db.commit()
@@ -83,4 +83,4 @@ async def test_the_whole_opt_out_flow(anon, db):
     # The call check refuses the number
     from app.services.compliance import is_opted_out
 
-    assert await is_opted_out(db, "02079460958")
+    assert await is_opted_out(db, "02071230958")

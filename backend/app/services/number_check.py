@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.future import select
 
 from app.core.brand import scrub
+from app.services import uk_phone
 
 CACHE_DAYS = 30
 MAX_PER_RUN = 1000
@@ -94,6 +95,8 @@ def prepare(items: List[Dict[str, Any]], dnc: set) -> List[Dict[str, Any]]:
                "checked_on": "", "cached": False}
         if not phone or not E164.match(phone):
             row["status"] = "bad_format"
+        elif uk_phone.fictional(phone):
+            row["status"] = "fictional"
         elif phone in seen:
             row["status"] = "duplicate"
         elif phone in dnc:

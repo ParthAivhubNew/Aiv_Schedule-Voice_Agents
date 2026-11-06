@@ -132,7 +132,7 @@ export function SubscriptionPage({ wallet, back }) {
 
   return (
     <div style={{ fontFamily: FONT_BODY }}>
-      {data.testMode && <div style={{ fontSize: 12, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "6px 10px", borderRadius: 8, marginBottom: 10 }}>Stripe test mode: no real money moves.</div>}
+      {data.testMode && <div style={{ fontSize: 12, fontWeight: 700, color: "#7A5200", background: "#FFF3D6", padding: "6px 10px", borderRadius: 8, marginBottom: 10 }}>Payments are in test mode: no real money moves.</div>}
       {notice && (
         <div role="status" style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.teal, background: C.tealSoft, padding: "8px 12px", borderRadius: 10, marginBottom: 10 }}>
           <CheckCircle2 size={15} /> {notice}
@@ -282,7 +282,7 @@ export function SubscriptionPage({ wallet, back }) {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 12, color: C.slate }}>Paid by card through Stripe. Cards from other countries see and pay in their own currency.</div>
+            <div style={{ fontSize: 12, color: C.slate }}>Paid securely by card. Cards from other countries see and pay in their own currency.</div>
             {data.subscription.hasCustomer && (
               <button type="button" style={btn(false, busy === "portal")} disabled={busy === "portal"} onClick={() => toStripe("portal", () => api.openBillingPortal(back))}>
                 <CreditCard size={13} /> Card & invoices <ExternalLink size={11} />

@@ -357,7 +357,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
   const red = blockers(j.preflight);
   const live = j.status === "running";
   const edit = (next) => { setSteps(next); setDirty(true); };
-  const fix = { people: () => setAdding(true), settings: () => setRules(true), mailboxes: () => onGo("mailboxes"), credits: () => onGo("subscription"), voice: () => openPlans("voice"), steps: () => setAddMenu(true) };
+  const fix = { people: () => setAdding(true), settings: () => setRules(true), mailboxes: () => onGo("mailboxes"), business: () => onGo("business"), credits: () => onGo("subscription"), voice: () => openPlans("voice"), steps: () => setAddMenu(true) };
   const people = j.people || [];
   const shown = showAll ? people : people.slice(0, 5);
   const mailList = parseLeads(paste);
@@ -374,11 +374,11 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
                 style={{ all: "unset", cursor: "pointer", fontSize: 18, fontWeight: 700, overflowWrap: "anywhere" }}>{j.name}</button>
               <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
             </div>
-            <div style={small}>{headline(j.results, j.tasks_open)}{j.goal ? ` · ${j.goal}` : ""}</div>
+            <div style={small}>{headline(j.results, j.tasks_open, j.status)}{j.goal ? ` · ${j.goal}` : ""}</div>
           </div>
           <div style={row}>
             {live ? <button type="button" style={btn(false)} onClick={() => run(() => api.journeyStatus(j.id, "paused"), "Paused. Nobody loses their place.")}><Pause size={14} /> Pause</button>
-              : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={() => run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window.")}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
+              : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={async () => { const n = j.results?.in_progress || 0; if (j.status !== "paused" && n && !(await askConfirm({ title: `Start sending to ${n} ${n === 1 ? "person" : "people"}?`, body: "The first step goes out in the next sending window. You can pause it at any time.", confirm: "Start" }))) return; run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window."); }}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
             <button type="button" style={btn(false)} onClick={() => setRules(true)}><SlidersHorizontal size={14} /> Rules</button>
             <button type="button" style={btn(false)} title="Send these emails with your logo, colours and buttons" onClick={() => setLooks(true)}><PenLine size={14} /> Design</button>
             <button type="button" style={btn(false)} title="Ask the AI about this journey" onClick={() => onAskAssistant?.()}><Bot size={14} /> Ask AI</button>
@@ -393,7 +393,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
                     {j.status !== "completed" && j.status !== "draft" ? (
                       <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped")); }}>Stop it</button>
                     ) : null}
-                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "The people in it and its tasks are deleted with it.", confirm: "Delete", danger: true })) { await api.journeyDelete(j.id); onGone?.(); } }}><Trash2 size={14} /> Delete</button>
+                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "This removes the journey, its tasks and everyone's place in it. Your saved companies and contacts are not deleted.", confirm: "Delete", danger: true })) { await api.journeyDelete(j.id); onGone?.(); } }}><Trash2 size={14} /> Delete</button>
                   </div>
                 </>
               ) : null}
@@ -485,7 +485,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{p.name || p.email || p.company}</div>
               <div style={small}>{[p.company, p.email].filter(Boolean).join(" · ")}</div>
-              <div style={small}>{PERSON_WORDS[p.status] || p.status}{p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
+              <div style={small}>{p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && j.status !== "running" && j.status !== "paused" ? " · starts when you press Start" : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
             <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id))}><X size={14} /></button>
           </div>
@@ -671,7 +671,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
                 <strong style={{ fontSize: 13.5, overflowWrap: "anywhere" }}>{j.name}</strong>
                 <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
               </span>
-              <span style={small}>{headline(j.results, j.tasks_open)}</span>
+              <span style={small}>{headline(j.results, j.tasks_open, j.status)}</span>
             </button>
           );
         })}

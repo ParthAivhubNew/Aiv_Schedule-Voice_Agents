@@ -82,7 +82,7 @@ def test_email_rules_off_domain_and_personal_looking_addresses_are_rejected():
 
 
 def test_a_page_about_another_place_is_rejected_but_a_branch_page_that_shows_our_town_is_not():
-    other = [{"url": "https://teddybears-preschool.co.uk/leeds", "title": "Teddy Bears Pre-School Leeds", "text": "Visit us in Leeds LS1 4AB. 0113 496 0123", "score": 0.9}]
+    other = [{"url": "https://teddybears-preschool.co.uk/leeds", "title": "Teddy Bears Pre-School Leeds", "text": "Visit us in Leeds LS1 4AB. 0113 550 0123", "score": 0.9}]
     _, wc, pc, _ = _state(other)
     assert wc[0]["rejected"] and pc[0]["rejected"]
     branch = [{"url": "https://teddybears-preschool.co.uk/", "title": "Teddybears Pre-School", "text": "Our branches: Leeds LS1 4AB and Hitchin SG4 0QY. 01462 123456", "score": 0.9}]
@@ -188,8 +188,8 @@ def test_scenario_d_two_phones_the_companys_own_site_wins_and_the_other_is_dropp
 
 
 def test_scenario_e_a_common_name_in_another_town_shows_nothing(monkeypatch):
-    other = {"url": "https://www.besweetbakery.co.uk/", "title": "Be Sweet Bakery Leeds", "snippet": "Cakes in Leeds LS1 4AB. 0113 496 0123", "score": 0.9}
-    _web(monkeypatch, {"Official website": [other], "Phone number": [other]}, pages={other["url"]: ("Be Sweet Bakery", "Leeds LS1 4AB. 0113 496 0123")})
+    other = {"url": "https://www.besweetbakery.co.uk/", "title": "Be Sweet Bakery Leeds", "snippet": "Cakes in Leeds LS1 4AB. 0113 550 0123", "score": 0.9}
+    _web(monkeypatch, {"Official website": [other], "Phone number": [other]}, pages={other["url"]: ("Be Sweet Bakery", "Leeds LS1 4AB. 0113 550 0123")})
     facts = {"name": "Be Sweet", "region": "Hinckley and Bosworth LE10 1DA", "postcode": "LE10 1DA", "industry": "Takeaway/sandwich shop", "status": "active"}
     out = run(H.find_company(None, name="Be Sweet", place=facts["region"], facts=facts))
     assert not out["found"] and out["website"] == "" and out["phones"] == []

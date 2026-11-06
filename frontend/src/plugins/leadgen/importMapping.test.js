@@ -75,7 +75,7 @@ describe("a real client file", () => {
     expect(map["Contact title"]).toBe(`${CUSTOM}Contact title`);
     expect(map["Easy Sector Code"]).toBe(`${CUSTOM}Easy Sector Code`);
     expect(map["Address Line 1"]).toBe(`${CUSTOM}Address Line 1`);
-    expect(map.Postcode).toBe(`${CUSTOM}Postcode`);
+    expect(map.Postcode).toBe("postcode");
     expect(map.Locality).toBe(`${CUSTOM}Locality`);
   });
 
@@ -115,5 +115,20 @@ describe("quarantineCsv", () => {
     expect(csv.split("\n")[0]).toBe("name,email,phone,website,why");
     expect(csv.split("\n")[1].startsWith("'=SUM(A1),a@example.com")).toBe(true);
     expect(csv).toContain("example or test address");
+  });
+});
+
+describe("identity columns", () => {
+  it("company number, postcode and LinkedIn are matched, and a blank company is not renamed when the file has a company column", async () => {
+    const { guessMapping, withPeople } = await import("./importMapping");
+    const m = guessMapping(["Company Name", "Company Number", "Post Code", "LinkedIn URL", "Country", "Address"]);
+    expect(m["Company Number"]).toBe("registration_number");
+    expect(m["Post Code"]).toBe("postcode");
+    expect(m["LinkedIn URL"]).toBe("linkedin_url");
+    expect(m["Country"]).toBe("country");
+    expect(m["Address"]).toBe("address");
+    expect(m["Company Name"]).toBe("name");
+    const rows = withPeople([{ name: "", contact_name: "Tom" }], true);
+    expect(rows[0].name).toBe("");
   });
 });

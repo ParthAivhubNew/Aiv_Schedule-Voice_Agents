@@ -55,7 +55,7 @@ async def phone(db, monkeypatch):
     monkeypatch.setattr("app.services.telnyx_provisioning.client_for", lambda setup: fake)
     monkeypatch.setenv("TELNYX_DAILY_SPEND_LIMIT_USD", "5")
     db.add(OrgTelnyx(id="org_default", mode="billing_group", status="ready", outbound_voice_profile_id="ovp_1", allowed_countries=["GB"]))
-    db.add(OrgPhoneNumber(id="num_1", e164="+442079460000", provider="telnyx", provider_ref="pn_1", status="active"))
+    db.add(OrgPhoneNumber(id="num_1", e164="+442071230000", provider="telnyx", provider_ref="pn_1", status="active"))
     await db.commit()
     await K.grant(db, 60, note="test", wallet="voice")
     await db.commit()
@@ -74,7 +74,7 @@ def api(token):
 
 
 async def begin(c, **kw):
-    body = {"to": "+441189000123", "from_number": "+442079460000", **kw}
+    body = {"to": "+441189000123", "from_number": "+442071230000", **kw}
     return await c.post("/api/human-calls/start", json=body)
 
 
@@ -104,7 +104,7 @@ async def test_refusals(db, phone, monkeypatch):
     _, token = await make_user(db, "caller2", "Admin")
     async with api(token) as c:
         assert (await begin(c, to="12")).status_code == 400  # not a number
-        assert (await begin(c, from_number="+442079469999")).status_code == 400  # not our number
+        assert (await begin(c, from_number="+442071239999")).status_code == 400  # not our number
         assert (await begin(c, to="+33612345678")).status_code == 400  # country not switched on
         assert (await begin(c, record=True)).status_code == 400  # recording needs the confirmation
 
@@ -325,7 +325,7 @@ async def test_the_phone_panel_config_lists_our_numbers_and_prices(db, phone):
     _, token = await make_user(db, "caller14", "Admin")
     async with api(token) as c:
         r = (await c.get("/api/human-calls/config")).json()
-        assert [n["e164"] for n in r["numbers"]] == ["+442079460000"] and r["rates"] == {"call": 1, "transcript": 1}
+        assert [n["e164"] for n in r["numbers"]] == ["+442071230000"] and r["rates"] == {"call": 1, "transcript": 1}
         assert (await c.get("/api/human-calls/mine")).json() == {"calls": []}
 
 
@@ -376,13 +376,13 @@ async def test_a_number_saved_by_hand_gets_its_provider_id_when_the_phone_accoun
     phone.find_phone_number = find
     HC._CONFIRM_TRIED.clear()
     db.add(OrgPhoneNumber(id="num_hand", e164="+447890994070", provider="telnyx", provider_ref="", status="active"))
-    db.add(OrgPhoneNumber(id="num_nope", e164="+442079461111", provider="telnyx", provider_ref="", status="active"))
+    db.add(OrgPhoneNumber(id="num_nope", e164="+442071231111", provider="telnyx", provider_ref="", status="active"))
     await db.commit()
     _, token = await make_user(db, "caller15", "Admin")
     async with api(token) as c:
         r = (await c.get("/api/human-calls/config")).json()
-    assert sorted(n["e164"] for n in r["numbers"]) == ["+442079460000", "+447890994070"]  # the one the account holds can now be called from
-    assert r["unconfirmed"] == ["+442079461111"]  # the other is said to be unconfirmed, never silently listed
+    assert sorted(n["e164"] for n in r["numbers"]) == ["+442071230000", "+447890994070"]  # the one the account holds can now be called from
+    assert r["unconfirmed"] == ["+442071231111"]  # the other is said to be unconfirmed, never silently listed
     assert (await db.get(OrgPhoneNumber, "num_hand")).provider_ref == "pn_hand"
 
 
@@ -403,7 +403,7 @@ async def test_a_failed_lookup_leaves_the_number_unconfirmed_and_is_not_asked_ag
         first = (await c.get("/api/human-calls/config")).json()
         second = (await c.get("/api/human-calls/config")).json()
     assert first["unconfirmed"] == ["+447890994070"] == second["unconfirmed"] and len(calls) == 1
-    assert [n["e164"] for n in first["numbers"]] == ["+442079460000"]
+    assert [n["e164"] for n in first["numbers"]] == ["+442071230000"]
 
 
 @pytest.mark.db
@@ -424,7 +424,7 @@ async def test_a_call_from_an_account_with_no_phone_setup_finishes_the_setup_ins
         return setup
 
     monkeypatch.setattr(TP, "ensure_setup", ensure)
-    db.add(OrgPhoneNumber(id="num_1", e164="+442079460000", provider="telnyx", provider_ref="pn_1", status="active"))
+    db.add(OrgPhoneNumber(id="num_1", e164="+442071230000", provider="telnyx", provider_ref="pn_1", status="active"))
     await db.commit()
     await K.grant(db, 60, note="test", wallet="voice")
     await db.commit()

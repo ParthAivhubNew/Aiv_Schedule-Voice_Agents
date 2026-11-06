@@ -34,7 +34,7 @@ def _client(token):
 
 
 async def _lead(db, id="la_1", **kw):
-    row = LeadAccount(id=id, name=kw.pop("name", "Kirkgate Dental"), phone=kw.pop("phone", "01134960001"), **kw)
+    row = LeadAccount(id=id, name=kw.pop("name", "Kirkgate Dental"), phone=kw.pop("phone", "01135500001"), **kw)
     db.add(row)
     await db.flush()
     return row
@@ -89,7 +89,7 @@ async def test_suggestions_are_used_only_when_accepted_or_switched_on(db):
         assert (await db.get(LeadAccount, "la_1")).suggestions is None
 
         await C.save_rules(db, {"auto_apply_suggestions": True})
-        lead2 = await _lead(db, id="la_2", name="Headrow Lettings", phone="01134960002")
+        lead2 = await _lead(db, id="la_2", name="Headrow Lettings", phone="01135500002")
         await db.commit()
         await _finished_call(db, lead2, lines=["It is info@headrow.example"], call_id="call_2")
         assert (await db.get(LeadAccount, "la_2")).email == "info@headrow.example"
@@ -103,7 +103,7 @@ async def test_a_wrong_number_is_remembered_for_the_number_check(db):
         lead = await db.get(LeadAccount, "la_1")
         assert lead.last_call_outcome == "wrong_number" and lead.stage == "new"
         assert lead.verification["phone"]["state"] == "invalid"
-        cached = (await db.execute(select(NumberCheck).where(NumberCheck.phone == "+441134960001"))).scalars().first()
+        cached = (await db.execute(select(NumberCheck).where(NumberCheck.phone == "+441135500001"))).scalars().first()
         assert cached is not None and cached.status == "not_working"
 
 
@@ -117,12 +117,12 @@ async def test_asking_not_to_be_called_blocks_calls_emails_and_posts_everywhere(
         await _finished_call(db, lead, outcome="contacted", lines=["Please stop calling me"])
         lead = await db.get(LeadAccount, "la_1")
         assert lead.stage == "do_not_contact"
-        assert await is_opted_out(db, "01134960001")
+        assert await is_opted_out(db, "01135500001")
         assert (await is_email_suppressed(db, "owner@kirkgate.example", ORG))[0]
-        assert await C.block_for(db, phone="+44 113 496 0001", channel="call")
+        assert await C.block_for(db, phone="+44 113 550 0001", channel="call")
         assert await C.block_for(db, email="OWNER@kirkgate.example", channel="email")
         # a person-level block does not catch a stranger
-        assert not await C.block_for(db, phone="01134960999", channel="call")
+        assert not await C.block_for(db, phone="01135500999", channel="call")
         entry = (await db.execute(select(DoNotContact))).scalars().first()
         assert entry.source == "call" and set(entry.channels) == {"call", "email", "social"}
 
@@ -145,7 +145,7 @@ async def test_booking_a_meeting_stops_the_rest_of_the_sequence(db):
         db.add(EmailCampaign(id="cp_x", name="X"))
         await db.flush()
         db.add(EmailEnrollment(id="en_1", campaign_id="cp_x", email="owner@kirkgate.example", status="active", current_step=2))
-        db.add(Prospect(id="p_q", name="Kirkgate Dental", phone="01134960001", lead_id="la_1", status="queued"))
+        db.add(Prospect(id="p_q", name="Kirkgate Dental", phone="01135500001", lead_id="la_1", status="queued"))
         meeting = Meeting(id="mt_1", prospect="Kirkgate Dental", mission="Calls", date="2026-11-20", time="10:00", attendee_email="owner@kirkgate.example")
         db.add(meeting)
         await db.commit()
@@ -217,7 +217,7 @@ async def test_the_same_event_id_is_handled_once():
 async def test_rules_blocklist_timeline_and_stage_through_the_api(db):
     _, token = await make_user(db, "boss2", "Admin", org_id=ORG)
     async with _client(token) as c:
-        lead = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "01134960001", "email": "a@kirkgate.example"}]})).json()["accounts"][0]
+        lead = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "01135500001", "email": "a@kirkgate.example"}]})).json()["accounts"][0]
         assert lead["connection"]["stage"] == "new" and lead["connection"]["can_call"] is True
 
         r = (await c.put("/api/together/rules", json={"rules": {"recontact_days": 30, "bogus": 1, "stop_on_booking": False}})).json()["rules"]
@@ -232,7 +232,7 @@ async def test_rules_blocklist_timeline_and_stage_through_the_api(db):
         assert (await c.get(f"/api/contacts/{lead['id']}/timeline?kinds=status")).json()["events"][0]["summary"].startswith("Moved to interested")
 
         # blocking by hand reaches the lead, and unblocking lets calls through again
-        added = (await c.post("/api/compliance/do-not-contact", json={"phone": "01134960001", "name": "Kirkgate"})).json()["entry"]
+        added = (await c.post("/api/compliance/do-not-contact", json={"phone": "01135500001", "name": "Kirkgate"})).json()["entry"]
         assert (await c.get("/api/leads/accounts")).json()["accounts"][0]["connection"]["stage"] == "do_not_contact"
         entries = (await c.get("/api/compliance/do-not-contact")).json()["entries"]
         assert any(e["id"] == added["id"] for e in entries)
@@ -247,8 +247,8 @@ async def test_home_views_pipeline_actions_search_inbox_and_export(db):
     await db.commit()
     async with _client(token) as c:
         accounts = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Kirkgate Dental", "phone": "01134960001", "email": "a@kirkgate.example"},
-            {"name": "Headrow Lettings", "phone": "01134960002"},
+            {"name": "Kirkgate Dental", "phone": "01135500001", "email": "a@kirkgate.example"},
+            {"name": "Headrow Lettings", "phone": "01135500002"},
         ]})).json()["accounts"]
         a, b = accounts[0]["id"], accounts[1]["id"]
         await c.post(f"/api/leads/accounts/{a}/stage", json={"stage": "interested"})
@@ -297,7 +297,7 @@ async def test_duplicates_are_found_and_merged_without_losing_history(db):
     async with _client(token) as c:
         one = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "website": "https://kirkgate.example"}]})).json()["accounts"][0]
         with org_scope(ORG):  # the same company saved a second time from another file, with a phone
-            db.add(LeadAccount(id="la_dup", name="Kirkgate Dental Ltd", domain="kirkgate.example", phone="01134960001", stage="interested"))
+            db.add(LeadAccount(id="la_dup", name="Kirkgate Dental Ltd", domain="kirkgate.example", phone="01135500001", stage="interested"))
             await db.commit()
         await c.post(f"/api/leads/accounts/la_dup/notes", json={"text": "Rang them"})
         lst = (await c.post("/api/leads/lists", json={"name": "Leeds", "ids": [one["id"], "la_dup"]})).json()["list"]
@@ -307,7 +307,7 @@ async def test_duplicates_are_found_and_merged_without_losing_history(db):
         done = (await c.post("/api/contacts/merge", json={"keep_id": one["id"], "merge_ids": ["la_dup"]})).json()
         assert done == {"kept": one["id"], "merged": 1}
         kept = [a for a in (await c.get("/api/leads/accounts")).json()["accounts"] if a["id"] == one["id"]][0]
-        assert kept["phone"] == "01134960001" and kept["connection"]["stage"] == "interested"  # gained what it lacked
+        assert kept["phone"] == "01135500001" and kept["connection"]["stage"] == "interested"  # gained what it lacked
         assert [l for l in (await c.get("/api/leads/lists")).json()["lists"] if l["id"] == lst["id"]][0]["ids"] == [one["id"]]
         assert any("Rang them" in e["summary"] for e in (await c.get(f"/api/contacts/{one['id']}/timeline")).json()["events"])
         assert (await c.post("/api/contacts/merge", json={"keep_id": one["id"], "merge_ids": [one["id"]]})).status_code == 404
@@ -316,10 +316,10 @@ async def test_duplicates_are_found_and_merged_without_losing_history(db):
 async def test_older_calls_are_linked_by_phone_without_overwriting(db):
     _, token = await make_user(db, "boss5", "Admin", org_id=ORG)
     async with _client(token) as c:
-        lead = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "0113 496 0001"}]})).json()["accounts"][0]
+        lead = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "0113 550 0001"}]})).json()["accounts"][0]
         with org_scope(ORG):
-            db.add(Prospect(id="p_old", name="Kirkgate", phone="+441134960001"))
-            db.add(Prospect(id="p_kept", name="Other", phone="+441134960001", lead_id="la_other"))
+            db.add(Prospect(id="p_old", name="Kirkgate", phone="+441135500001"))
+            db.add(Prospect(id="p_kept", name="Other", phone="+441135500001", lead_id="la_other"))
             await db.commit()
         dry = (await c.post("/api/together/backfill?dry_run=true")).json()
         assert dry["dry_run"] is True and dry["prospects_linked"] == 1
@@ -339,11 +339,11 @@ async def test_every_new_table_is_private_to_its_organisation(db):
         flag = (await db.execute(text("SELECT relrowsecurity FROM pg_class WHERE relname = :t"), {"t": table})).scalar()
         assert flag is True, f"{table} has no row-level security"
     with org_scope("org_a"):
-        await C.add_block(db, phone="01134960001", name="Kirkgate", source="manual")
+        await C.add_block(db, phone="01135500001", name="Kirkgate", source="manual")
         await C.record_event(db, "note", lead_id="la_a", ref_id="n1", summary="Private to A")
         await C.save_rules(db, {"recontact_days": 3})
     await db.rollback()
     with org_scope("org_b"):
-        assert await C.block_for(db, phone="01134960001", channel="call") is None
+        assert await C.block_for(db, phone="01135500001", channel="call") is None
         assert await C.timeline(db, lead_id="la_a") == []
         assert (await C.get_rules(db))["recontact_days"] == 14

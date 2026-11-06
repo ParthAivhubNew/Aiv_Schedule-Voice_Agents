@@ -340,3 +340,10 @@ def test_a_sort_that_fell_back_and_the_software_start_are_told_to_the_person():
     chips = LA._browse_chips(["Sector: software"], True, {"sort_asked": "name", "sort_used": "newest"})
     assert any("Starting with software companies" in c for c in chips) and any("A to Z is not ready" in c for c in chips)
     assert LA._browse_chips(["Sector: software"], False, {"sort_asked": "name", "sort_used": "name"}) == ["Sector: software"]
+
+
+def test_a_mail_us_link_counts_as_the_companys_email():
+    from app.services import web_harness as WH
+
+    links = ["https://www.northwayaccountants.co.uk/contact", "mailto:Info@NorthwayAccountants.co.uk?subject=Hello", "mailto:info@northwayaccountants.co.uk", "tel:01135502750"]
+    assert WH.mailto_addresses(links) == ["info@northwayaccountants.co.uk"]

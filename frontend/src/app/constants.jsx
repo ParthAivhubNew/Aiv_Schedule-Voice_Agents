@@ -461,39 +461,29 @@ export const CONNECTIONS = [
   { group: "Other", desc: "Anything else your team connects — CRM, spreadsheets, custom internal tools.", items: [] },
 ];
 
-export const INITIAL_KNOWLEDGE_SOURCES = [
-  { id: "k1", name: "Company website", type: "Website URL", value: "aivhub.io", status: "indexed", synced: "2 hours ago" },
-  { id: "k2", name: "Service catalogue & pricing", type: "Document upload", value: "aivhub-services-2026.pdf", status: "indexed", synced: "1 day ago" },
-  { id: "k3", name: "Case studies deck", type: "Google Drive link", value: "drive.google.com/aivhub-case-studies", status: "pending", synced: "—" },
-  { id: "k4", name: "Objection handling notes", type: "Manual text", value: "Internal notes on common pushback", status: "indexed", synced: "3 days ago" },
-];
+// A new organisation starts empty: nothing here may describe another company, because the email writer and the callers read what is saved.
+export const INITIAL_KNOWLEDGE_SOURCES = [];
 
-export const INITIAL_FAQ = [
-  { id: "f1", q: "What does your company do?", a: "We build AI-powered business intelligence dashboards that turn raw operational data into clear, real-time decisions for mid-market teams." },
-  { id: "f2", q: "How much does it cost?", a: "Pricing depends on team size and data sources — I can have someone send exact numbers, or we can cover it on the call we're booking." },
-  { id: "f3", q: "Who else uses this?", a: "We work with logistics, manufacturing, and retail operators across the UK — happy to share relevant examples on the call." },
-];
+export const INITIAL_FAQ = [];
 
-export const INITIAL_SERVICES = [
-  { id: "sv1", name: "BI Dashboard Platform", ideal: "Mid-market ops teams, 50-500 staff", desc: "Real-time operational dashboards pulling from existing systems." },
-  { id: "sv2", name: "Data Pipeline Consulting", ideal: "Companies with fragmented data sources", desc: "Set up reliable pipelines feeding clean data into reporting." },
-];
+export const INITIAL_SERVICES = [];
 
 export const INITIAL_COMPANY_PROFILE = {
   name: "Your company",
   spokenName: "",
-  pitch: "AI-powered business intelligence dashboards for mid-market operations teams",
-  industry: "Business intelligence / data consulting",
-  website: "https://aivhub.io",
-  social: "linkedin.com/company/aivhub",
+  pitch: "",
+  industry: "",
+  website: "",
+  social: "",
   callerName: "Sam",
   callerId: "",
   tone: "Professional, concise, friendly",
   disclosure: "This call may be recorded for quality and compliance purposes.",
   legalName: "",
-  icoRef: "ZA774219",
-  dpoContact: "privacy@aivhub.io",
-  dncNotes: "Opt-outs logged immediately and excluded from all future missions. Reviewed weekly by the ops admin.",
+  icoRef: "",
+  dpoContact: "",
+  postalAddress: "",
+  dncNotes: "Opt-outs logged immediately and excluded from all future missions.",
   timezone: "Europe/London",
   lunchStart: "12:00",
   lunchEnd: "13:00",

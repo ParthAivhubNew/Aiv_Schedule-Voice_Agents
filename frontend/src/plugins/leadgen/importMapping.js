@@ -15,6 +15,11 @@ export const STANDARD_FIELDS = [
   { key: "industry", label: "Industry" },
   { key: "region", label: "Town or region" },
   { key: "notes", label: "Notes" },
+  { key: "registration_number", label: "Company number" },
+  { key: "postcode", label: "Postcode" },
+  { key: "address", label: "Address" },
+  { key: "country", label: "Country" },
+  { key: "linkedin_url", label: "LinkedIn" },
 ];
 
 export const SKIP = "__skip__"; // do not import
@@ -26,15 +31,20 @@ export const customName = (target) => (isCustom(target) ? target.slice(CUSTOM.le
 // Fields are claimed in this order, and for each one the patterns are tried best-first, so the best column wins
 // whatever order the file has them in (e.g. "Town" beats "Locality", and "Sic Desc." beats "Sic Code").
 const GUESSES = [
-  ["website", [/web\s*address|website|web\s*site|homepage|url/i, /domain/i]],
+  ["registration_number", [/company\s*(no|num|number|reg)|\bcrn\b|registration\s*(no|num|number)|reg\.?\s*(no|number)/i]],
+  ["postcode", [/post\s*-?code(?!\s*district)|postal\s*code|\bzip\b/i]],
+  ["linkedin_url", [/linked\s*-?in/i]],
+  ["country", [/^country$/i]],
+  ["address", [/^(street\s*)?address(\s*1)?$|street/i]],
+  ["website", [/web\s*address|website|web\s*site|homepage|\burl\b/i, /domain/i]],
   ["email", [/e-?mail/i]],
-  ["phone", [/^(company |business |main |office )?(telephone|phone|mobile|tel)(\s*(no|number))?\.?$/i, /telephone|phone|mobile|tel|cell|contact\s*number|^number$/i]],
+  ["phone", [/^(company |business |main |office )?(telephone|phone|mobile|tel)(\s*(no|number))?\.?$/i, /telephone|phone|mobile|\btel\b|cell\b|contact\s*number|^number$/i]],
   ["contact_first", [/fore?name|first\s*name|given\s*name/i]],
   ["contact_last", [/surname|last\s*name|family\s*name/i]],
   ["contact_title", [/job.?title|position|designation|^role$|contact.?role/i, /^(contact\s*)?title$/i]],
   ["name", [/^(business|company|trading|organi[sz]ation|account|firm)(\s*name)?$/i, /business\s*name|company(?!.*(phone|tel|e-?mail|number|web|url|address))|trading|organi[sz]ation|account\s*name|^name$/i]],
   ["contact_name", [/contact\s*name|full.?name|contact person|^contact$|decision\s*maker|^owner/i]],
-  ["industry", [/(sic|sector|industry|category|business\s*type)[^a-z]*(desc|name|type)?(?!.*(code|no|number))/i, /^(industry|sector|category|type)$/i]],
+  ["industry", [/(sic|sector|industry|category|business\s*type)[^a-z]*(desc|name|type)?(?!.*(code|no\b|number))/i, /^(industry|sector|category|type)$/i]],
   ["region", [/^(town|city)$/i, /town|city/i, /locality/i, /^(county|region|area)$/i, /county|region/i]],
   ["notes", [/note|comment|description/i]],
 ];
@@ -47,7 +57,9 @@ const mostlyHonorifics = (header, records) => {
 };
 
 // A row with no company but a person's name is saved as that person, under their own name, so call lists of contacts import too.
-export function withPeople(rows) {
+// Not when the file has a company column: there an empty company is a mistake in the row, and it is refused, not renamed.
+export function withPeople(rows, hasCompanyColumn = false) {
+  if (hasCompanyColumn) return rows || [];
   return (rows || []).map((r) => (!r.name && !r.website && r.contact_name ? { ...r, name: r.contact_name } : r));
 }
 
@@ -159,7 +171,7 @@ export function mappingWarnings(mapping, records) {
   return warn;
 }
 
-const STORE = "leadgen_import_mappings_v3"; // v3: smarter guesses (names, towns, sector text), so older saved matches are not reused
+const STORE = "leadgen_import_mappings_v4"; // v4: company number, postcode, address, country and LinkedIn are fields now
 
 export function savedMappingFor(headers) {
   try {

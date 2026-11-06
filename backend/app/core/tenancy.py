@@ -85,6 +85,23 @@ def org_scope(org_id: str) -> Iterator[None]:
         _current_org.reset(token)
 
 
+# The person (operator id) whose action is running: stamped on the credit lines it causes. Blank outside a signed-in request.
+_current_actor: contextvars.ContextVar[str] = contextvars.ContextVar("current_actor", default="")
+
+
+def current_actor() -> str:
+    return _current_actor.get() or ""
+
+
+@contextmanager
+def actor_scope(operator_id: str) -> Iterator[None]:
+    token = _current_actor.set(operator_id or "")
+    try:
+        yield
+    finally:
+        _current_actor.reset(token)
+
+
 @contextmanager
 def system_scope() -> Iterator[None]:
     token = _current_org.set(SYSTEM)

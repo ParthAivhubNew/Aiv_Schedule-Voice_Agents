@@ -7,12 +7,13 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Any, Deque, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.config import settings
 from app.core import permissions as P
 from app.core import profile as prof
 from app.core.accounts import (
@@ -67,7 +68,21 @@ class LoginBody(BaseModel):
 
 
 class RefreshBody(BaseModel):
-    refresh_token: str
+    refresh_token: str = ""
+
+
+REFRESH_COOKIE = "outreach_rt"
+ROTATION_GRACE_S = 30
+
+
+def set_refresh_cookie(response: Response, token: str) -> None:
+    """The refresh token also travels in a cookie scripts cannot read, so every tab of the browser shares one sign-in."""
+    secure = str(getattr(settings, "PUBLIC_BASE_URL", "") or "").startswith("https")
+    response.set_cookie(REFRESH_COOKIE, token, max_age=REFRESH_TTL_S, httponly=True, secure=secure, samesite="strict", path="/api/auth")
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
 
 
 class ChangePasswordBody(BaseModel):
@@ -246,9 +261,11 @@ async def assert_can_sign_in(db: AsyncSession, op: Operator) -> None:
 
 
 @router.post("/login")
-async def login(body: LoginBody, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginBody, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     op = await check_credentials(db, body.username, body.password, request)
-    return await sign_in_as(db, op, request)
+    out = await sign_in_as(db, op, request)
+    set_refresh_cookie(response, out["refresh_token"])
+    return out
 
 
 async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[str, Any]:
@@ -270,12 +287,22 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[s
 
 
 @router.post("/refresh")
-async def refresh(body: RefreshBody, db: AsyncSession = Depends(get_db)):
-    claims = decode_token(body.refresh_token or "", "refresh")
+async def refresh(request: Request, response: Response, body: Optional[RefreshBody] = None, db: AsyncSession = Depends(get_db)):
+    token = (body.refresh_token if body else "") or ""
+    from_cookie = False
+    if not token:
+        token = request.cookies.get(REFRESH_COOKIE, "")
+        from_cookie = bool(token)
+        # A cookie is sent by the browser on its own, so a page of ours must say it is asking (SameSite=Strict does the rest).
+        if from_cookie and request.headers.get("x-requested-with", "").lower() != "outreach":
+            raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
+    claims = decode_token(token, "refresh")
     if not claims:
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     ses = (await db.execute(select(AuthSession).where(AuthSession.id == claims.get("sid")))).scalars().first()
-    if not ses or ses.revoked_at or ses.expires_at < datetime.utcnow() or ses.refresh_jti != claims.get("jti"):
+    just_rotated = bool(ses and ses.prev_refresh_jti == claims.get("jti") and ses.rotated_at
+                        and (datetime.utcnow() - ses.rotated_at).total_seconds() <= ROTATION_GRACE_S)
+    if not ses or ses.revoked_at or ses.expires_at < datetime.utcnow() or (ses.refresh_jti != claims.get("jti") and not just_rotated):
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     op = (await db.execute(select(Operator).where(Operator.id == ses.operator_id))).scalars().first()
     if not op or op.is_active is False:
@@ -284,18 +311,25 @@ async def refresh(body: RefreshBody, db: AsyncSession = Depends(get_db)):
     max_s = (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600
     if ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
-    # Rotate the refresh token: the old one stops working.
-    new_refresh = create_refresh_token(op.id, ses.id)
-    ses.refresh_jti = decode_token(new_refresh, "refresh")["jti"]
-    ses.last_used_at = datetime.utcnow()
     is_admin, _, roles = await effective_access(db, op)
     access = create_access_token(op.id, org_of(op), "Admin" if is_admin else (roles[0].name if roles else "Operator"), ses.id)
+    if just_rotated:
+        # Another tab rotated a moment ago and its new token is already in the shared cookie: only a fresh access token is needed.
+        await db.commit()
+        return {"access_token": access, "token_type": "bearer", "operator": await _operator_json(db, op)}
+    # Rotate the refresh token: the old one keeps working for a few seconds, then stops.
+    new_refresh = create_refresh_token(op.id, ses.id)
+    ses.prev_refresh_jti, ses.rotated_at = ses.refresh_jti, datetime.utcnow()
+    ses.refresh_jti = decode_token(new_refresh, "refresh")["jti"]
+    ses.last_used_at = datetime.utcnow()
     await db.commit()
+    set_refresh_cookie(response, new_refresh)
     return {"access_token": access, "refresh_token": new_refresh, "token_type": "bearer", "operator": await _operator_json(db, op)}
 
 
 @router.post("/logout")
-async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    clear_refresh_cookie(response)
     ctx = current(request)
     auth = request.headers.get("authorization", "")
     claims = decode_token(auth[7:], "access") if auth.lower().startswith("bearer ") else None

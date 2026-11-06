@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
-from app.services import lead_cleaner
+from app.services import company_check, lead_cleaner, normalise, send_readiness
 from app.services import business_lookup, business_records, site_check
 from app.services import contact_points as CP
 from app.services import reveals as RV
@@ -50,6 +50,11 @@ class AccountIn(BaseModel):
     source: str = "manual"
     source_url: str = ""
     business_record_id: str = ""  # set when saved from the company store, so the dossier shows its registry facts
+    registration_number: str = ""
+    postcode: str = ""
+    address: str = ""
+    country: str = ""
+    linkedin_url: str = ""
     custom: Dict[str, Any] = {}  # extra columns the user kept from an imported file
 
 
@@ -89,7 +94,8 @@ def _phone(value: Any) -> str:
 
 
 MAX_CUSTOM_COLUMNS = 30
-_RESERVED_COLUMNS = {"name", "website", "phone", "email", "contact", "contact_name", "contact_title", "industry", "region", "notes"}
+_RESERVED_COLUMNS = {"name", "website", "phone", "email", "contact", "contact_name", "contact_title", "industry", "region", "notes",
+                     "registration_number", "postcode", "address", "country", "linkedin_url"}
 
 
 def clean_custom(raw: Any) -> Optional[Dict[str, str]]:
@@ -156,6 +162,10 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "research_history": a.research_history or [],
         "verification": a.verification or None, "custom": a.custom or {},
+        "registration_number": a.registration_number or "", "postcode": a.postcode or "", "address": a.address or "",
+        "country": a.country or "", "linkedin_url": a.linkedin_url or "", "import_flags": a.import_flags or [],
+        "consent_basis": a.consent_basis or "",
+        "send_block": (lambda e: {"code": e["code"], "reason": e["reason"]} if not e["ok"] else None)(send_readiness.eligibility(a)),
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
         "kind": "person" if is_person_account(a) else "company",
@@ -181,12 +191,12 @@ _PAGE_TTL = 300.0
 _BROWSE_TTL = 1200.0  # the opening list (no filters) changes slowly; it is also made ready at start-up and every 15 minutes (see warm_browse_pages)
 
 
-def _page_key(filters, sort, limit, offset, drop_terms) -> str:
+def _page_key(filters, sort, limit, offset, drop_terms, default_on=False) -> str:
     import json
 
     # "main-activity": a trade now matches a company's main activity first (see business_records.matching), so pages kept
     # under the older any-activity rule are never served again.
-    return json.dumps(["main-activity", filters, sort, limit, offset, drop_terms, business_records._RANKING[1]], sort_keys=True, default=str)
+    return json.dumps(["main-activity-v2", filters, sort, limit, offset, drop_terms, business_records._RANKING[1], default_on], sort_keys=True, default=str)  # default_on: a page opened by default carries a note a typed search does not
 
 
 async def warm_browse_pages() -> None:
@@ -206,8 +216,9 @@ async def warm_browse_pages() -> None:
             continue  # an empty register (before an import) must never be remembered as "no companies"
         answer = {"companies": cards, "total": out["total"], "total_capped": out.get("total_capped", False), "filters": out["filters"],
                   "chips": _browse_chips(lead_filters.describe(out["filters"]), True, out), "points": {}, "next_scan": None, "understood": [],
-                  "tiers": None, "saved_total": None, "total_all": None, "ranked": out.get("ranked", True), "timing_ms": out.get("timing_ms")}
-        _PAGE_CACHE[_page_key(out["filters"], "best", limit, 0, [])] = (time.monotonic(), answer, _BROWSE_TTL)
+                  "tiers": None, "saved_total": None, "total_all": None, "ranked": out.get("ranked", True), "timing_ms": out.get("timing_ms"),
+                  "query_filters": out["filters"], "relaxed": []}
+        _PAGE_CACHE[_page_key(out["filters"], "best", limit, 0, [], True)] = (time.monotonic(), answer, _BROWSE_TTL)
 
 
 def _browse_chips(chips: List[str], default_on: bool, out: Dict[str, Any]) -> List[str]:
@@ -246,7 +257,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The Apollo-style filter search over the shared company store (the same one the chat runs).
     Free: it reads our own data and calls no paid service -- credits are only used when contacts
     are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
-    from app.services import lead_filters, phrase_understanding
+    from app.services import lead_filters, phrase_understanding, search_resolve
 
     _refuse_bad_filters(body.filters)
     default_on = False
@@ -265,28 +276,36 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         else:
             import time
 
-            key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms)
-            hit = _PAGE_CACHE.get(key) if not body.exclude_ids else None
+            key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms, default_on)
+            shareable = not body.exclude_ids and not shown_filters.get("saved")  # a "my saved lists" page depends on the organisation: never shared
+            hit = _PAGE_CACHE.get(key) if shareable else None
             if hit and time.monotonic() - hit[0] < hit[2]:
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
                 shown = await RV.mask(db, cached["companies"])
                 return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown]}
-            out, understood = await phrase_understanding.widen_if_empty(
-                db, body.filters, body.drop_terms,
-                lambda f: business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
-                                                           sort=body.sort if body.sort in business_records.SORTS else "best", stats=False))
+            def run(f):
+                return business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                                                        sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
+
+            out, understood, relaxed_by = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
+            out = {**out, "relaxed": relaxed_by}
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That search is too broad to finish. Add a town or a narrower sector and try again.")
         raise
+    applied = out["filters"]  # what was really searched (the default sector, nearby words, a corrected town): the figures beside the list use this
     out["filters"] = shown_filters
     chips = _browse_chips(lead_filters.describe(out["filters"]), default_on, out)
     broadened = bool(out.get("broadened"))
     if broadened:  # too few have the trade as their main activity: the side-activity ones are in too, and the person is told
         chips.append(lead_filters.broadened_note(out["filters"]))
+    relaxed = out.get("relaxed") or []
+    relaxed_note = lead_filters.closest_note(relaxed) if relaxed else ""
+    if relaxed_note:
+        chips.append(relaxed_note)
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
@@ -297,14 +316,14 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
               "next_scan": out.get("next_scan"), "understood": understood,
               "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
-              "timing_ms": out.get("timing_ms"), "broadened": broadened,
-              "broadened_note": lead_filters.broadened_note(out["filters"]) if broadened else ""}
+              "timing_ms": out.get("timing_ms"), "broadened": broadened or bool(relaxed),
+              "broadened_note": relaxed_note or (lead_filters.broadened_note(out["filters"]) if broadened else ""), "relaxed": relaxed, "query_filters": applied}
     from app.services import search_towns
 
     guess = search_towns.suggest((body.filters or {}).get("towns") or [])
-    if guess:
+    if guess and not out.get("total"):  # offered only when the typed town found nothing: "Boston" that found companies is not "Bolton"
         answer["did_you_mean"] = guess  # {"Leds": "Leeds"}: the screen offers the right town
-    if not body.area and not body.exclude_ids and not understood and cards:  # an empty answer is never remembered
+    if not body.area and not body.exclude_ids and not shown_filters.get("saved") and not understood and cards:  # an empty answer is never remembered
         import time
 
         if len(_PAGE_CACHE) > 200:
@@ -317,10 +336,13 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
 async def search_summary(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The slower figures for a search whose page is already on screen: real total, Full/Partial/Basic counts, how many are saved."""
     try:
-        return await business_records.search_summary(db, body.filters)
+        filters = body.filters if body.exclude_ids else business_records.with_default_browse(body.filters)[0]  # the same opening list the page showed
+        return await business_records.search_summary(db, filters, body.exclude_ids)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
         if "statement timeout" in str(err).lower():
-            return {"total": 0, "total_capped": False, "tiers": None, "saved_total": None, "total_all": None}
+            return {"total": None, "total_capped": False, "tiers": None, "saved_total": None, "total_all": None}  # unknown, not zero
         raise
 
 
@@ -365,10 +387,18 @@ async def company_logo(company_id: str, db: AsyncSession = Depends(get_db)):
 async def search_people(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The People tab: people the registry lists at the companies that match the same filters. Free. Names are
     public registry facts; an email or phone is only ever found (and charged) for one named person at a time."""
-    from app.services import lead_filters
+    from app.services import lead_filters, search_resolve
 
     try:
-        out = await business_records.search_people(db, body.filters, title=body.title, limit=body.limit, offset=body.offset,
+        _refuse_bad_filters(body.filters)
+        filters, _ = business_records.with_default_browse(body.filters)
+
+        def probe(f):
+            return business_records.search_filtered(db, f, limit=1, stats=False)
+
+        # The people of the same companies the Companies tab shows: its nearby words, corrected town and relaxed filters included.
+        first, _understood, relaxed = await search_resolve.resolve(db, filters, body.drop_terms, probe)
+        out = await business_records.search_people(db, first["filters"], title=body.title, limit=body.limit, offset=body.offset,
                                                    sort=body.sort if body.sort in business_records.SORTS else "best")
     except ValueError as err:
         raise HTTPException(status_code=422, detail=str(err))
@@ -383,9 +413,11 @@ async def search_people(body: SearchIn, db: AsyncSession = Depends(get_db)):
               for p in out["people"]]
     broadened = bool(out.get("broadened"))
     chips = lead_filters.describe(out["filters"]) + ([lead_filters.broadened_note(out["filters"])] if broadened else [])
-    return {"people": people, "companies_total": out["companies_total"], "total_capped": out["total_capped"],
-            "filters": out["filters"], "chips": chips, "fill_ids": out["fill_ids"], "broadened": broadened,
-            "broadened_note": lead_filters.broadened_note(out["filters"]) if broadened else ""}
+    if relaxed:
+        chips.append(lead_filters.closest_note(relaxed))
+    return {"relaxed": relaxed, "people": people, "companies_total": out["companies_total"], "total_capped": out["total_capped"],
+            "filters": out["filters"], "chips": chips, "fill_ids": out["fill_ids"], "broadened": broadened or bool(relaxed),
+            "broadened_note": lead_filters.closest_note(relaxed) if relaxed else (lead_filters.broadened_note(out["filters"]) if broadened else "")}
 
 
 async def _candidates_as_total(pending) -> Dict[str, Any]:
@@ -482,14 +514,14 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
             web = await CC.web_contacts(db, biz, refresh=body.refresh_web)
         except Exception:
             raise HTTPException(status_code=502, detail="The web lookup didn't finish. Nothing was charged; try again in a minute.")
-        if not body.find_site_only and web and not web.get("cached"):
+        if not body.find_site_only and web and not (web.get("cached") or web.get("from_saved")):
             CC.note_lookup(biz, "email", bool(web.get("emails") or biz.email))
     else:
         saved = (biz.raw_data or {}).get("contacts_web") or {}  # an earlier lookup is shown again free: it is already paid for
         if saved.get("guardrail") and (saved.get("website") or saved.get("phones") or saved.get("emails")):
             web = {**{k: v for k, v in saved.items() if k not in ("audit", "ledger")}, "found": True, "cached": True}
     await db.commit()
-    if web and web.get("found") and not web.get("cached") and not body.find_site_only:
+    if web and web.get("found") and not (web.get("cached") or web.get("from_saved")) and not body.find_site_only:
         await _charge_leads(db, 1, f"Contacts for {biz.name}")
     officers = CC.active_officers(biz.officers)
     return {
@@ -545,8 +577,8 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     if found_web:
         source = "web"
         await db.commit()
-        if not web.get("cached"):
-            await _charge_leads(db, 1, f"Website for {biz.name}")
+        if not (web.get("cached") or web.get("from_saved")):
+            await _charge_leads(db, 1, f"Website for {biz.name}", once=f"{biz.id}:website:{body.hint}")
             charged += 1
     if not (lead_filters.card(biz)["website"] or (web or {}).get("website")):
         try:
@@ -581,7 +613,7 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
                 # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
                 await _keep_place(db, biz, place, confirmed)
                 await db.commit()
-                await _charge_deep_search(db, f"Deeper search: {biz.name}")
+                await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:website:{body.hint}")
                 charged += 1
                 source = "deep"
                 await RV.open_one(db, biz.id, "website")  # paid for by the deeper search, so it is shown without another click
@@ -695,9 +727,9 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     got = bool(web.get("emails"))
     source, person = ("web" if got else ""), ""
     charged = 0
-    if got and not web.get("cached"):
+    if got and not (web.get("cached") or web.get("from_saved")):
         await db.commit()
-        await _charge_leads(db, 1, f"Email for {biz.name}")
+        await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email:{hint}")
         charged = 1
     elif not got:
         # Stage 2: the company published no address, so ask the email finders (cheapest first, two at most) for its directors.
@@ -706,7 +738,7 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
             await CC.keep_person_email(db, biz, hit[0], hit[1])
             got, source, person = True, "people", hit[1]
             await db.commit()
-            await _charge_leads(db, 1, f"Email for {biz.name}")
+            await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email:{hint}")
             charged = 1
     CC.note_lookup(biz, "email", got)
     await db.commit()
@@ -799,8 +831,8 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     if web and web.get("phones"):
         source = "web"
         await db.commit()
-        if not web.get("cached"):
-            await _charge_leads(db, 1, f"Phone for {biz.name}")
+        if not (web.get("cached") or web.get("from_saved")):
+            await _charge_leads(db, 1, f"Phone for {biz.name}", once=f"{biz.id}:phone:{hint}")
             charged += 1
     else:
         try:
@@ -827,7 +859,7 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
             try:
                 await _keep_place(db, biz, place, confirmed)
                 await db.commit()
-                await _charge_deep_search(db, f"Deeper search: {biz.name}")
+                await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:phone:{hint}")
                 charged += 1
                 source = "deep"
                 await RV.open_one(db, biz.id, "phone")
@@ -1122,6 +1154,25 @@ async def check_accounts(body: AccountsIn):
             "quarantined": sum(r["status"] == "quarantined" for r in rows), "rows": rows}
 
 
+async def _register_match(db: AsyncSession, name: str, regno: str, postcode: str, flags: List[Dict[str, str]]) -> Optional[BusinessRecord]:
+    """The register record an imported company really is, or None. A company number decides: it is used
+    only when the register's name for that number agrees with the file's name (otherwise the row is flagged
+    and left unlinked). With no number, the same name at the same postcode is accepted."""
+    if regno:
+        biz = await business_records.find(db, registration_number=regno)
+        if biz:
+            if company_check.name_score(name, biz.name) >= 0.9:
+                return biz
+            flags.append({"code": "REGNO_NAME_MISMATCH", "text": f"Company number {regno} belongs to {biz.name}, not {name}."})
+        return None
+    if postcode and not normalise.is_outward_only(postcode):
+        rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.postcode == postcode).limit(60))).scalars().all()
+        close = [b for b in rows if company_check.name_score(name, b.name) >= 0.97]
+        if len(close) == 1:
+            return close[0]
+    return None
+
+
 @router.post("/accounts")
 async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     """Save one or many accounts. A company already saved (same website, or same name when there
@@ -1176,14 +1227,22 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
     quarantined: List[Dict[str, Any]] = []  # imported rows that failed a hard check: not saved, listed with the reason
     warned = 0
+    # Company numbers already in use, so a second company with the same number is flagged, not silently saved.
+    seen_regno: Dict[str, str] = {
+        r[0]: r[1] for r in (await db.execute(select(LeadAccount.registration_number, LeadAccount.name).where(LeadAccount.registration_number != ""))).all() if r[0]}
     for item in body.accounts:
         website = _clean(item.website)
         domain = _domain(website)
         name = _clean(item.name) or domain
         if not name:
             skipped += 1
-            unnamed += 1
+            if item.source == "import":
+                quarantined.append({"name": "", "email": _clean(item.email, 200), "phone": _clean(item.phone, 60), "website": website,
+                                    "codes": ["NAME_MISSING"], "reasons": lead_cleaner.explain(["NAME_MISSING"])})
+            else:
+                unnamed += 1
             continue
+        flags: List[Dict[str, str]] = []
         if item.source == "import":
             verdict = lead_cleaner.check_row(item.model_dump())
             if verdict["hard"]:
@@ -1192,6 +1251,19 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
                                     "codes": verdict["hard"], "reasons": lead_cleaner.explain(verdict["hard"])})
                 continue
             warned += bool(verdict["warn"])
+            flags = [{"code": c, "text": t} for c, t in zip(verdict["warn"], lead_cleaner.explain(verdict["warn"]))]
+        regno = normalise.company_number(item.registration_number)
+        postcode = normalise.postcode(item.postcode)
+        if not item.business_record_id and item.source == "import":
+            biz = await _register_match(db, name, regno, postcode, flags)
+            if biz:
+                item.business_record_id = biz.id
+                known_biz.add(biz.id)
+        if regno:
+            other = seen_regno.get(regno)
+            if other is not None and company_check.name_key(other) != company_check.name_key(name):
+                flags.append({"code": "REGNO_DUPLICATE", "text": f"Company number {regno} is also used by {other}."})
+            seen_regno.setdefault(regno, name)
         key = (name.lower(), _place(item.region))
         person = _clean(item.contact_name, 120).lower()
         hit = (find(by_biz.get(item.business_record_id), person) if item.business_record_id else None)
@@ -1228,10 +1300,13 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
         row = LeadAccount(
             id=f"acc_{uuid.uuid4().hex[:16]}", name=name, domain=domain,
             website=website if "://" in website or not website else f"https://{website}",
-            phone=_clean(item.phone, 60), email=_clean(item.email, 200).lower(), contact_name=_clean(item.contact_name, 120),
+            phone=normalise.phone_display(_clean(item.phone, 60)), email=_clean(item.email, 200).lower(),
+            contact_name=normalise.person_name(_clean(item.contact_name, 120)),
             contact_title=_clean(item.contact_title, 120), industry=_clean(item.industry, 120), region=_clean(item.region, 120),
             notes=_clean(item.notes, 2000), source=item.source if item.source in _SOURCES else "manual",
             source_url=_clean(item.source_url, 500), custom=clean_custom(item.custom),
+            registration_number=regno, postcode=postcode, address=_clean(item.address, 300), country=_clean(item.country, 60),
+            linkedin_url=_clean(item.linkedin_url, 300), import_flags=flags or None,
             business_record_id=item.business_record_id if item.business_record_id in known_biz else None,
         )
         db.add(row)
@@ -1331,6 +1406,39 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
     await db.delete(row)
     await db.commit()
     return {"ok": True}
+
+
+class BulkDelete(BaseModel):
+    ids: List[str]
+    do_not_contact: bool = False  # erase and never contact again (an erasure request)
+
+
+@router.post("/accounts/bulk-delete")
+async def bulk_delete_accounts(body: BulkDelete, db: AsyncSession = Depends(get_db)):
+    """Delete many saved companies at once (up to 2,000): they leave their lists and any journey they are in. A company being
+    checked right now is left alone and reported. With do_not_contact, their email and phone go on the do-not-contact list first."""
+    from app.services import company_check_job, connections as C, journeys as J
+
+    ids = list(dict.fromkeys(i for i in body.ids if i))[:2000]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Choose at least one company to delete.")
+    locked = await company_check_job.locked_ids()
+    rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all()
+    deleted, skipped_locked = 0, []
+    for row in rows:
+        if row.id in locked:
+            skipped_locked.append(row.id)
+            continue
+        if body.do_not_contact:  # the address and the number are blocked separately: a shared switchboard must not hide a person's email
+            if row.email:
+                await C.add_block(db, email=row.email, name=row.name or "", reason="Erased at the owner's request", source="manual")
+            if row.phone:
+                await C.add_block(db, phone=row.phone, name=row.name or "", reason="Erased at the owner's request", source="manual")
+        await J.exit_for_lead(db, row, "", "deleted")
+        await db.delete(row)
+        deleted += 1
+    await db.commit()
+    return {"deleted": deleted, "locked": skipped_locked, "not_found": len(ids) - len(rows)}
 
 
 async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[BusinessRecord]:

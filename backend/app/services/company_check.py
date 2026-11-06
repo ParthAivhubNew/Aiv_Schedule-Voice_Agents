@@ -38,7 +38,7 @@ THROTTLE_PAUSE_S = 60
 WORKERS = 8
 STALL_AFTER = timedelta(minutes=5)
 
-VERDICTS = ("verified", "looks_ok", "not_found", "problem", "unclear", "person")
+VERDICTS = ("verified", "looks_ok", "not_found", "problem", "unclear", "person", "mismatch")
 
 _NAME_NOISE = {"ltd", "limited", "plc", "llp", "lp", "co", "company", "the", "inc", "uk", "group", "holdings"}
 _ACTIVE_WORDS = ("active", "registered", "open", "operational", "trading")
@@ -47,6 +47,12 @@ _PARKED = ("domain is for sale", "this domain may be for sale", "buy this domain
            "this domain is parked", "domain parking", "sedoparking", "hugedomains", "is for sale!", "coming soon - this domain")
 _WEBMAIL = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com", "icloud.com", "aol.com", "btinternet.com", "msn.com"}
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-']+@([A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)$")
+
+
+def normalise_postcode(raw: Any) -> str:
+    from app.services import normalise
+
+    return normalise.postcode(raw)
 
 
 # ── pure rules ───────────────────────────────────────────────────────────────────────────────────
@@ -103,6 +109,10 @@ def phone_shape(raw: str) -> str:
     from app.services.enrichment_service import _is_real_phone
     from app.services.timezone_service import normalize_phone
 
+    from app.services import uk_phone
+
+    if uk_phone.fictional(raw):
+        return "invalid"
     e164 = normalize_phone(raw)
     digits = re.sub(r"\D", "", e164)
     if not _is_real_phone(raw) or not (10 <= len(digits) <= 15):
@@ -152,6 +162,17 @@ def decide(ev: Dict[str, Any]) -> Dict[str, Any]:
     """
     reasons: List[str] = []
     store, reg, deep, web = ev.get("store"), ev.get("registry"), ev.get("deep"), ev.get("website") or {}
+    num = ev.get("number") or {}
+    if num.get("state") == "mismatch":
+        reasons.append(f"Company number {num.get('regno', '')} belongs to {num.get('name', 'another company')}, not this company")
+        return {"verdict": "mismatch", "reasons": reasons}
+    if num.get("state") == "unknown":
+        reasons.append(f"No company on the register has number {num.get('regno', '')}")
+        return {"verdict": "mismatch", "reasons": reasons}
+    if num.get("state") == "match":
+        # The number and the name agree: the register's own status for that number is what counts.
+        reg = {"found": True, "status": num.get("status", "")}
+        reasons.append(f"Company number {num.get('regno', '')} matches the name on the register")
     reg_state = (reg or {}).get("state", "")
     reg_class = status_class(reg.get("status", "")) if reg and reg.get("found") else ""
     store_class = status_class(store.get("status", "")) if store else ""
@@ -199,6 +220,10 @@ def decide(ev: Dict[str, Any]) -> Dict[str, Any]:
         else:
             verdict = "not_found"
             reasons.append("No register, record or search result for this company")
+
+    if verdict == "verified" and ev.get("identity") is False:
+        verdict = "looks_ok"
+        reasons.append("Matched by name only: add the company number or postcode to confirm it is the same company")
 
     if web.get("state") in ("dead", "parked") and verdict != "problem":
         reasons.append("Website isn't working" if web["state"] == "dead" else "Website looks parked or for sale")
@@ -331,7 +356,7 @@ class Pace:
             self.last = time.monotonic()
 
 
-async def live_registry(sources: List[Any], paces: Dict[str, Pace], name: str) -> Dict[str, Any]:
+async def live_registry(sources: List[Any], paces: Dict[str, Pace], name: str, reg_no: str = "") -> Dict[str, Any]:
     """Ask each register that can be searched live. Returns {found, ...match} when one knows the
     company, {"state": "pending"} if a register asked us to slow down, {"state": "off"} if none could
     be reached, or {"found": False, "asked": True} when it answered and the company isn't there."""
@@ -366,12 +391,54 @@ async def live_registry(sources: List[Any], paces: Dict[str, Pace], name: str) -
                 row.setdefault(k, v)
             if row.get("name"):
                 mapped.append({**row, "_source": src.id, "_tier": cfg.get("trust_tier", "scraped")})
-        hit, score = best_hit(mapped, name)
+        hit, score = best_hit(mapped, name, reg_no)
         if hit:
             return {"found": True, "score": round(score, 3), **hit}
     if answered:
         return {"found": False, "asked": True}
     return {"state": "pending" if throttled else "off"}
+
+
+async def number_check(row: Dict[str, Any], sources: List[Any], paces: Dict[str, "Pace"]) -> Optional[Dict[str, Any]]:
+    """Look the company up by its number, never by name: our own records first (free), then the register itself.
+    Returns {state: match|mismatch|unknown, regno, name, status} or None when there is no number or nobody could answer."""
+    from sqlalchemy import select
+
+    from app.database import AsyncSessionLocal
+    from app.models.models import BusinessRecord
+    from app.services import data_source_connector as connector
+    from app.services import normalise
+
+    regno = normalise.company_number(row.get("registration_number"))
+    if not regno:
+        return None
+    found: Optional[Dict[str, Any]] = None
+    try:
+        async with AsyncSessionLocal() as db:
+            rec = (await db.execute(select(BusinessRecord).where(BusinessRecord.registration_number.in_([regno, regno.lstrip("0")])).limit(1))).scalars().first()
+            if rec:
+                found = {"name": rec.name, "status": rec.status or "", "postcode": rec.postcode or "", "id": rec.id}
+    except Exception as err:
+        logger.warning(f"[company_check] number lookup in our records failed: {err}")
+    asked = False
+    if not found:
+        for src in sources:
+            pace = paces.get(src.id)
+            if pace and time.monotonic() < pace.paused_until:
+                continue
+            if pace:
+                await pace.wait(max(REGISTRY_MIN_GAP_S, (getattr(src, "min_delay_ms", 0) or 0) / 1000.0))
+            res = await connector.fetch_by_number(src, regno)
+            if res is None:
+                continue
+            asked = True
+            if res.get("found"):
+                found = {"name": res.get("name", ""), "status": res.get("status", ""), "postcode": res.get("postcode", ""), "id": ""}
+                break
+    if not found:
+        return {"state": "unknown", "regno": regno} if asked else None
+    state = "match" if name_score(row["name"], found["name"]) >= 0.9 else "mismatch"
+    return {"state": state, "regno": regno, **found}
 
 
 # ── the pipeline for one company ─────────────────────────────────────────────────────────────────
@@ -413,7 +480,8 @@ async def store_check(db, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     when = rec.last_verified_at or rec.fetched_at or rec.updated_at
     fresh = bool(when and when >= datetime.utcnow() - timedelta(days=FRESH_DAYS))
     return {"id": rec.id, "name": rec.name, "status": rec.status or "", "tier": rec.confidence_tier or "",
-            "strong": strong, "fresh": fresh, "ago": _ago(when), "registration_number": rec.registration_number or "", "phone": rec.phone or ""}
+            "strong": strong, "fresh": fresh, "ago": _ago(when), "registration_number": rec.registration_number or "", "phone": rec.phone or "",
+            "postcode": rec.postcode or ""}
 
 
 async def save_register_answer(db, reg: Dict[str, Any], store: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -448,6 +516,15 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
     say(row, "Looking in our own records")
     free_task = asyncio.create_task(_free_checks(row, ctx))
 
+    # 0. the company number, when the file gave one: it decides who this company is
+    num = None
+    if row.get("registration_number"):
+        say(row, "Checking the company number")
+        num = await number_check(row, getattr(ctx, "registry_sources", None) or [], getattr(ctx, "paces", None) or {})
+        if num:
+            ev["number"] = num
+            stages.append("company_number")
+
     # A. our own records
     store = None
     try:
@@ -457,14 +534,21 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
         logger.warning(f"[company_check] records lookup failed for {row['name']}: {err}")
     stages.append("our_records")
     ev["store"] = store
+    row_pc = normalise_postcode(row.get("postcode"))
+    ev["identity"] = bool(
+        (num and num["state"] == "match")
+        or row.get("business_record_id")
+        or (row_pc and store and normalise_postcode(store.get("postcode")) == row_pc))
 
     # B. the register, asked directly -- skipped when our own copy is solid and recent
     settled_by_store = bool(store and store["strong"] and store["fresh"] and status_class(store["status"]))
     link_id = None
     if ctx.registry_sources and not settled_by_store:
         say(row, "Asking the company register")
-        reg = await live_registry(ctx.registry_sources, ctx.paces, row["name"])
+        reg = await live_registry(ctx.registry_sources, ctx.paces, row["name"], row.get("registration_number") or "")
         ev["registry"] = reg
+        if reg.get("found") and not ev["identity"] and row_pc and normalise_postcode(reg.get("postcode")) == row_pc:
+            ev["identity"] = True
         if reg.get("found") or reg.get("asked"):
             stages.append("registry")
             spent["registry"] = 1
@@ -729,7 +813,8 @@ class Context(SimpleNamespace):
 def _account_row(a) -> Dict[str, Any]:
     return {"id": a.id, "name": a.name or "", "website": a.website or "", "domain": a.domain or "", "phone": a.phone or "",
             "email": a.email or "", "contact_name": a.contact_name or "", "region": a.region or "",
-            "business_record_id": a.business_record_id or "", "researched": bool(a.researched_at)}
+            "business_record_id": a.business_record_id or "", "researched": bool(a.researched_at),
+            "registration_number": getattr(a, "registration_number", "") or "", "postcode": getattr(a, "postcode", "") or ""}
 
 
 async def live_sources() -> List[Any]:

@@ -78,7 +78,7 @@ def test_the_summary_restates_stored_facts_and_leaves_out_what_is_not_stored():
 
 
 def test_each_contact_detail_says_where_it_came_from():
-    got = CP._contact({"website": "bright.co.uk", "web_website": "", "phone": "", "web_phone": "0113 496 0123", "email": ""})
+    got = CP._contact({"website": "bright.co.uk", "web_website": "", "phone": "", "web_phone": "0113 550 0123", "email": ""})
     assert (got["website"]["source"], got["phone"]["source"], got["email"]["source"]) == ("register", "web", "missing")
     assert "found on the web" in got["phone"]["label"].lower() and got["email"]["value"] == ""
 

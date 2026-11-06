@@ -119,31 +119,59 @@ async def _can_deep_search(db: AsyncSession) -> None:
         raise HTTPException(status_code=402, detail=why)
 
 
-async def _charge_leads(db: AsyncSession, count: int, what: str, item: str = "lead_lookup") -> None:
-    """Charge leads researched, once each (item: the rate card line, lead_lookup unless a cheaper one such as lead_social applies). Never fails the request."""
+_ONCE_LOCKS: dict = {}  # a double-click sends two requests at once: they queue here so the second sees the first one's charge
+
+
+def _once_lock(ref: str):
+    import asyncio
+
+    from app.core.tenancy import current_org
+
+    return _ONCE_LOCKS.setdefault((current_org(), ref), asyncio.Lock())
+
+
+async def _charge_leads(db: AsyncSession, count: int, what: str, item: str = "lead_lookup", once: str = "") -> None:
+    """Charge leads researched, once each (item: the rate card line, lead_lookup unless a cheaper one such as lead_social applies). Never fails the request.
+    With `once` (a key such as "<company>:website"), the same thing is never charged twice within 90 days, however many times it is asked for."""
     import uuid
 
-    from app.services.credits import charge
+    from app.services.credits import charge, charged_recently
 
     if count <= 0:
         return
     try:
-        await charge(db, item, count, f"lead:{uuid.uuid4().hex[:16]}", what)
+        ref = f"lead:{once}" if once else f"lead:{uuid.uuid4().hex[:16]}"
+        if once:
+            async with _once_lock(ref):
+                if await charged_recently(db, ref, item):
+                    return
+                await charge(db, item, count, ref, what)
+                await db.commit()
+            return
+        await charge(db, item, count, ref, what)
         await db.commit()
     except Exception as err:
         logging.getLogger(__name__).warning(f"[credits] lead charge skipped: {err}")
         await db.rollback()
 
 
-async def _charge_deep_search(db: AsyncSession, what: str) -> None:
+async def _charge_deep_search(db: AsyncSession, what: str, once: str = "") -> None:
     """Charge one Google Places lookup ("Deep web search" -- never named Google to the user).
-    Never fails the request."""
+    Never fails the request. With `once`, the same search is never charged twice within 90 days."""
     import uuid
 
-    from app.services.credits import charge
+    from app.services.credits import charge, charged_recently
 
     try:
-        await charge(db, "google_deep_search", 1, f"deepsearch:{uuid.uuid4().hex[:16]}", what)
+        ref = f"deepsearch:{once}" if once else f"deepsearch:{uuid.uuid4().hex[:16]}"
+        if once:
+            async with _once_lock(ref):
+                if await charged_recently(db, ref, "google_deep_search"):
+                    return
+                await charge(db, "google_deep_search", 1, ref, what)
+                await db.commit()
+            return
+        await charge(db, "google_deep_search", 1, ref, what)
         await db.commit()
     except Exception as err:
         logging.getLogger(__name__).warning(f"[credits] deep search charge skipped: {err}")

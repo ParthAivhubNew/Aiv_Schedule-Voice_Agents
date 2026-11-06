@@ -27,6 +27,8 @@ const CLIENT_FILES = [
   "plugins/voice/calling/NumberCheckBar.jsx",
   "plugins/voice/calling/numberCheck.js",
   "team/NumbersTab.jsx",
+  "team/CreditsTab.jsx",
+  "team/SubscriptionPage.jsx",
   "plugins/leadgen/CheckCompanies.jsx",
   "plugins/leadgen/CallFlow.jsx",
   "plugins/leadgen/LeadActivity.jsx",
@@ -44,6 +46,8 @@ const CLIENT_FILES = [
   "settings/developerSnippets.js",
   "settings/DeveloperDocs.jsx",
 ];
+
+const PAYMENT_SUPPLIERS = /\bstripe\b/i;
 
 // Words a person can read: string literals that contain a space, and text between JSX tags.
 function visibleText(source) {
@@ -63,7 +67,7 @@ describe("client screens do not name the platform's suppliers", () => {
   for (const file of CLIENT_FILES) {
     it(file, () => {
       const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      const hits = visibleText(source).filter(([, text]) => SUPPLIERS.test(text)).map(([line, text]) => `${file}:${line} ${text.trim().slice(0, 80)}`);
+      const hits = visibleText(source).filter(([, text]) => SUPPLIERS.test(text) || PAYMENT_SUPPLIERS.test(text)).map(([line, text]) => `${file}:${line} ${text.trim().slice(0, 80)}`);
       expect(hits).toEqual([]);
     });
   }

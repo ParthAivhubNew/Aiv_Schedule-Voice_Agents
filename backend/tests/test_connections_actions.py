@@ -65,7 +65,7 @@ async def test_calling_a_list_starts_one_round_with_each_company_carried_over(db
     _, token = await make_user(db, "caller", "Admin", org_id=ORG)
     async with _client(token) as c:
         made = (await c.post("/api/leads/accounts", json={"accounts": [
-            {"name": "Kirkgate Dental", "phone": "01134960001", "email": "a@kirkgate.example", "contact_name": "Maria Lopez"},
+            {"name": "Kirkgate Dental", "phone": "01135500001", "email": "a@kirkgate.example", "contact_name": "Maria Lopez"},
             {"name": "No Number Ltd"},
         ]})).json()["accounts"]
         lst = (await c.post("/api/leads/lists", json={"name": "Leeds", "ids": [a["id"] for a in made]})).json()["list"]
@@ -105,7 +105,7 @@ async def test_a_call_step_rings_only_when_its_condition_and_the_plans_allow(db,
         return {}
     monkeypatch.setattr(LC, "start_calls", start)
     with org_scope(ORG):
-        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", phone="01134960001", email="a@kirkgate.example"))
+        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", phone="01135500001", email="a@kirkgate.example"))
         db.add(EmailCampaign(id="cp_1", name="Spring"))
         await db.flush()
         db.add(EmailEnrollment(id="en_1", campaign_id="cp_1", lead_id="la_1", email="a@kirkgate.example", status="active"))
@@ -194,7 +194,7 @@ async def test_a_booking_link_shows_free_times_and_a_post_gets_the_credit(db):
 
     _, token = await make_user(db, "booker", "Admin", org_id=ORG)
     with org_scope(ORG):
-        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", contact_name="Maria Lopez", email="m@kirkgate.example", phone="01134960001"))
+        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", contact_name="Maria Lopez", email="m@kirkgate.example", phone="01135500001"))
         db.add(SocialPost(id="post_1", title="Event", copy="x", status="published"))
         await db.commit()
     async with _client(token) as c:
@@ -300,10 +300,10 @@ async def test_a_round_started_from_lead_gen_dials_through_the_assistant_when_th
     with org_scope(ORG):
         db.add(Mission(id="m_lg", title="Calls: Leeds", status="active", source="leadgen", concurrency=1))
         await db.flush()
-        db.add(Prospect(id="p_lg", mission_id="m_lg", name="Kirkgate Dental", phone="+441134960001", status="queued", lead_id="la_1"))
+        db.add(Prospect(id="p_lg", mission_id="m_lg", name="Kirkgate Dental", phone="+441135500001", status="queued", lead_id="la_1"))
         await db.commit()
         out = await OD.start_mission_dials("m_lg")
-        assert placed == [("+441134960001", "p_lg", "m_lg")]
+        assert placed == [("+441135500001", "p_lg", "m_lg")]
         assert out[0]["status"] == "calling" and out[0]["call_id"] == "call_x"
         db.expire_all()
         assert (await db.get(Prospect, "p_lg")).status == "calling"
@@ -313,8 +313,8 @@ async def test_the_real_call_log_writer_updates_the_lead_it_called(db):
     from app.services.call_log_writer import upsert_call_log_from_live
 
     with org_scope(ORG):
-        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", phone="01134960001"))
-        db.add(Prospect(id="p_1", name="Kirkgate Dental", phone="01134960001", lead_id="la_1"))
+        db.add(LeadAccount(id="la_1", name="Kirkgate Dental", phone="01135500001"))
+        db.add(Prospect(id="p_1", name="Kirkgate Dental", phone="01135500001", lead_id="la_1"))
         await db.flush()
         call = LiveCall(id="call_w1", prospect="Kirkgate Dental", mission="Calls", prospect_id="p_1", transcript=["AI: Hello", "Prospect: Not now, thanks"])
         db.add(call)
@@ -337,7 +337,7 @@ async def test_a_start_that_cannot_dial_leaves_no_half_made_round_behind(db, mon
     monkeypatch.setattr(outbound_dial, "resolve_from_number", no_line)
     _, token = await make_user(db, "noline", "Admin", org_id=ORG)
     async with _client(token) as c:
-        made = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "01134960001"}]})).json()["accounts"]
+        made = (await c.post("/api/leads/accounts", json={"accounts": [{"name": "Kirkgate Dental", "phone": "01135500001"}]})).json()["accounts"]
         res = await c.post("/api/leads/accounts/call", json={"ids": [made[0]["id"]]})
         assert res.status_code == 400 and "Caller ID" in res.json()["detail"]
     with org_scope(ORG):

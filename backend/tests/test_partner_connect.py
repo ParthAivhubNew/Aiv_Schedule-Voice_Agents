@@ -463,7 +463,7 @@ async def test_the_whatsapp_inbox_reads_replies_and_tells_the_partner_when_someo
 
     key, org = await _live(client, staff, anon, partner)
     with org_scope(org):
-        thread = await WA.record_inbound(db, "+442079460000", "+447700900123", "Can you do Thursday?", telnyx_id="tx_1", name="Jo")
+        thread = await WA.record_inbound(db, "+442071230000", "+447700900123", "Can you do Thursday?", telnyx_id="tx_1", name="Jo")
         await db.commit()
         tid = thread.id
     assert [e[1] for e in events] == ["whatsapp.message.received"]
@@ -490,7 +490,7 @@ async def test_the_whatsapp_inbox_reads_replies_and_tells_the_partner_when_someo
     monkeypatch.setattr(WA, "send", closed)
     r = await call(anon, key, "whatsapp", "threads.send", {"text": "Hello?"}, id=tid)
     assert r.status_code == 400 and r.json()["error"]["code"] == "window_closed"
-    assert (await call(anon, key, "whatsapp", "threads.start", {"our_number": "+442079460000", "contact_number": "+447700900123", "template": {"name": "hello"}})).status_code == 400
+    assert (await call(anon, key, "whatsapp", "threads.start", {"our_number": "+442071230000", "contact_number": "+447700900123", "template": {"name": "hello"}})).status_code == 400
 
 
 async def test_whatsapp_for_test_keys_is_an_empty_inbox(anon, partner):

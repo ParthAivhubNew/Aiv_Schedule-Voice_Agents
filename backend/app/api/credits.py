@@ -2,9 +2,10 @@
 plans and the rate card in the staff admin portal (app/api/admin_portal.py)."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_middleware import current
@@ -85,6 +86,36 @@ def _month(month: str) -> str:
     if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
         raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
     return month
+
+
+@router.get("/people")
+async def people(request: Request, days: int = 30, user_id: str = "", db: AsyncSession = Depends(get_db)):
+    """Who used how many credits. Everyone: the organisation's total and their own share and detail. Admins: every person,
+    and any person's detail (?user_id=)."""
+    ctx = current(request)
+    days = max(1, min(int(days or 30), 365))
+    return await K.people_usage(db, ctx["operator_id"], bool(ctx["is_admin"]), days, user_id if ctx["is_admin"] else "")
+
+
+class CapIn(BaseModel):
+    monthly_cap: Optional[int] = Field(None, ge=0, le=10_000_000)  # None removes the limit
+
+
+@router.put("/people/{user_id}/cap")
+async def set_cap(user_id: str, body: CapIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """An admin sets (or clears) the most credits one person may use per calendar month. Written to the credit history."""
+    from app.models.models import Operator
+
+    ctx = _admin(request)
+    op = await db.get(Operator, user_id)  # row security: only this organisation's people can be found
+    if not op:
+        raise HTTPException(status_code=404, detail="That person isn't in your team.")
+    before = op.monthly_cap
+    op.monthly_cap = body.monthly_cap
+    db.add(K._entry("adjust", 0, "voice", note=f"Monthly limit for {op.name or op.username}: {before if before is not None else 'none'} -> {body.monthly_cap if body.monthly_cap is not None else 'none'}",
+                    by=str(ctx.get("name") or ctx.get("email") or ctx["operator_id"])))
+    await db.commit()
+    return {"userId": op.id, "monthlyCap": op.monthly_cap}
 
 
 @router.get("/usage")

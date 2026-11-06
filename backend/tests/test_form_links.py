@@ -51,8 +51,8 @@ def test_only_marked_phone_and_website_questions_are_shared():
         {"id": "site", "type": "text", "label": "Website", "maps_to": "website", "share_to_company": False},
         {"id": "role", "type": "text", "label": "Role", "maps_to": "contact_title", "share_to_company": True},
     ]
-    answers = {"phone": "020 7946 0958", "site": "acme.co.uk", "role": "Owner"}
-    assert FL.shared_values(fields, answers) == {"phone": "020 7946 0958"}
+    answers = {"phone": "020 7123 0958", "site": "acme.co.uk", "role": "Owner"}
+    assert FL.shared_values(fields, answers) == {"phone": "020 7123 0958"}
 
 
 def test_the_share_choice_is_kept_only_for_phone_and_website():

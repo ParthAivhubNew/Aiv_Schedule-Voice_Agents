@@ -662,6 +662,26 @@ async def _fetch_list(source, url_template: str, id_value: str, items_path: str,
     return [map_fields(it, field_map) for it in items[:limit] if isinstance(it, dict)]
 
 
+async def fetch_by_number(source, number: str) -> Optional[Dict[str, Any]]:
+    """One company straight from the register by its number: {found: True, ...mapped fields}, {found: False} when
+    no company has that number, None when the register could not be reached or has no per-company address."""
+    cfg = source.config or {}
+    endpoint = cfg.get("profile_endpoint")
+    if not endpoint or not number:
+        return None
+    try:
+        async with _client(source) as client:
+            resp = await client.get(endpoint.format(id=number))
+            if resp.status_code == 404:
+                return {"found": False}
+            resp.raise_for_status()
+            raw = resp.json()
+    except httpx.HTTPError as err:
+        logger.warning(f"[data_source_connector] number lookup failed for {source.name} {number}: {err}")
+        return None
+    return {"found": True, **map_fields(raw, cfg.get("field_map") or {})}
+
+
 async def fetch_profile(source, item: Dict[str, Any]) -> Dict[str, Any]:
     """The mapped BusinessRecord fields for one search hit, plus the raw payload they came from.
     If the source config sets officers_endpoint/psc_endpoint, this is also where that per-company

@@ -2,7 +2,7 @@ import JobDock from "./hub/JobDock";
 import HumanCallHost from "./hub/HumanCallHost";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
-import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT } from "./api/authStore";
+import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT, restoreSession } from "./api/authStore";
 import { WebSocketClient } from "./api/wsClient";
 import { INITIAL_COMMON_AI_CONFIG, INITIAL_COMPANY_PROFILE, INITIAL_FAQ, INITIAL_KNOWLEDGE_SOURCES, INITIAL_SERVICES, syncCommonAiWithBackend } from "./app/constants";
 import { callingPageFromTarget, dedupeNotifications, resolveNotificationTarget } from "./tokens";
@@ -161,6 +161,21 @@ export default function App() {
     return op ? { operator: op, key: op.id + ":" + Date.now() } : null;
   });
   const [mustChangePassword, setMustChangePassword] = useState(() => Boolean(session && session.operator.must_change_password));
+  const [restoring, setRestoring] = useState(() => !session); // a new tab: look for the shared sign-in before showing the sign-in page
+
+  useEffect(() => {
+    if (!restoring) return undefined;
+    let live = true;
+    restoreSession().then((op) => {
+      if (!live) return;
+      if (op) {
+        setMustChangePassword(Boolean(op.must_change_password));
+        setSession({ operator: op, key: op.id + ":" + Date.now() });
+      }
+      setRestoring(false);
+    });
+    return () => { live = false; };
+  }, [restoring]);
 
   useEffect(() => {
     const lost = () => {
@@ -182,6 +197,7 @@ export default function App() {
     setMustChangePassword(false);
   };
 
+  if (!session && restoring) return <AppChrome />;
   if (!session) {
     return (
       <>

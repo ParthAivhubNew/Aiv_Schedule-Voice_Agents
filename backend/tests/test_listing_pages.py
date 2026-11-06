@@ -37,12 +37,12 @@ def test_blocked_site_is_unconfirmed_and_a_read_page_confirms(monkeypatch):
     rows = [{"url": "https://www.facebook.com/AcmePlumbing", "title": "Acme Plumbing", "snippet": "Plumbers in Wakefield", "score": 0.5}]
     got = asyncio.run(L.find(rows, NAME, PC, AREA))
     assert got["confirmed"] is False and got["site"] == "Facebook"  # names the company, shows no place
-    rows = [{"url": "https://www.facebook.com/AcmePlumbing", "title": "Acme Plumbing", "snippet": "Leeds. Call 0113 496 0101", "score": 0.5}]
+    rows = [{"url": "https://www.facebook.com/AcmePlumbing", "title": "Acme Plumbing", "snippet": "Leeds. Call 0113 550 0101", "score": 0.5}]
     got = asyncio.run(L.find(rows, NAME, PC, AREA))
-    assert got["confirmed"] is True and "search returned" in got["how"] and got["also_seen"]["phones"] == ["0113 496 0101"]
+    assert got["confirmed"] is True and "search returned" in got["how"] and got["also_seen"]["phones"] == ["0113 550 0101"]
 
     async def read(url):
-        return "Acme Plumbing", "Acme Plumbing, 5 High St, Leeds LS1 4AB. Call 0113 496 0101 or info@acmeplumbing.co.uk"
+        return "Acme Plumbing", "Acme Plumbing, 5 High St, Leeds LS1 4AB. Call 0113 550 0101 or info@acmeplumbing.co.uk"
     monkeypatch.setattr(L, "_read", read)
     rows = [{"url": "https://www.yell.com/biz/acme-plumbing-leeds-123/", "title": "Acme Plumbing", "snippet": "Leeds", "score": 0.5}]
     got = asyncio.run(L.find(rows, NAME, PC, AREA))

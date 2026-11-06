@@ -116,18 +116,22 @@ async def estimate(db: AsyncSession, companies: int, contacts: str, checks: List
 
 # ── Searching ────────────────────────────────────────────────────────────────
 async def _find(db: AsyncSession, filters: Dict[str, Any], area: Optional[List[List[float]]], limit: int, progress) -> List[BusinessRecord]:
-    from app.services import business_records
+    from app.services import business_records, lead_filters, search_resolve
 
     if not area:
-        out = await business_records.search_filtered(db, filters, limit=limit, offset=0, stats=False)
+        # The same answer the app gives for the same filters: nearby words and, when nothing fits, the closest companies, said so.
+        out, _understood, relaxed = await search_resolve.resolve(
+            db, filters, None, lambda f: business_records.search_filtered(db, f, limit=limit, offset=0, stats=False))
+        if relaxed:
+            await progress(lead_filters.closest_note(relaxed))
         return list(out["rows"])
     rows: List[BusinessRecord] = []
     scan: Optional[int] = 0
-    seen: List[str] = []
     for step in range(MAX_AREA_STEPS):
-        out = await business_records.search_in_area(db, filters, area, scan=scan or 0, exclude_ids=seen or None)
+        # No exclude list: `scan` already walks forward through the area, and excluding rows would shrink the set it counts over
+        # and make each step skip companies that were never read.
+        out = await business_records.search_in_area(db, filters, area, scan=scan or 0)
         rows += out["rows"]
-        seen += [r.id for r in out["rows"]]
         scan = out.get("next_scan")
         await progress(f"Looking inside the area ({len(rows)} found so far)")
         if scan is None or len(rows) >= limit:

@@ -16,7 +16,7 @@ import hashlib
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import JSON, String, and_, case, cast, func, literal, literal_column, or_, select, text
@@ -174,6 +174,28 @@ def own_site(url: Any) -> str:
     return "" if u and any(d in u.lower() for d in DIRECTORY_SITES) else u
 
 
+def tidy_field(field: str, value: str) -> str:
+    """The stored form of a value: a register type code becomes its label, a lower-case status gets a capital."""
+    from app.services import normalise
+
+    if field == "company_category":
+        return normalise.category_label(value)
+    if field == "status" and value and value[0].islower() and " " not in value:
+        return value[:1].upper() + value[1:]
+    return value
+
+
+def is_rawer(field: str, value: str, existing: str) -> bool:
+    """True when `value` is a bare code and `existing` already says the same thing in words."""
+    from app.services import normalise
+
+    if field in ("industry", "sic_text"):
+        return normalise.sic_is_bare(value) and not normalise.sic_is_bare(existing)
+    if field == "company_category":
+        return normalise.is_raw_category(value) and not normalise.is_raw_category(existing)
+    return False
+
+
 async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confidence_tier: str, data: Dict[str, Any]) -> BusinessRecord:
     """Merge `data` into the shared record for the company it identifies, adding this source's
     citation. Only columns BusinessRecord actually has are ever read out of `data` -- anything
@@ -200,14 +222,19 @@ async def upsert(db: AsyncSession, *, source_id: str, source_type: str, confiden
     else:
         current_rank = _TRUST.get(row.confidence_tier or "llm_fallback", 0)
     for field in _FIELDS:
-        value = _clean(data.get(field), 2000 if field == "description" else 300)
+        value = tidy_field(field, _clean(data.get(field), 2000 if field == "description" else 300))
         if not value:
             continue
         existing = getattr(row, field, "") or ""
+        if existing and is_rawer(field, value, existing):
+            continue  # a lookup never swaps a clean value for a code ("Private Limited Company" for "ltd")
         if not existing or incoming_rank >= current_rank:
             setattr(row, field, value)
     for field, value in derive_search_fields(data).items():
-        if not getattr(row, field, None) or incoming_rank >= current_rank:
+        existing = getattr(row, field, None)
+        if existing and is_rawer(field, value, existing):
+            continue
+        if not existing or incoming_rank >= current_rank:
             setattr(row, field, value)
     for field in _LIST_FIELDS:
         value = data.get(field)
@@ -488,10 +515,13 @@ _SHORT_WORD = re.compile(r"[A-Za-z]{2,5}")
 
 
 def _whole_word(term: str, col: Any) -> Any:
-    """A short word must be a word on its own: "tax" is not "Stax" or "Taxi". Longer words keep the plain contains match."""
+    """A short word must be a word on its own: "tax" is not "Stax" or "Taxi". A longer plain word must start a word ("dental"
+    is "Dental care" and "Dentalcare", not "Accidental Films"). Anything else (spaces, digits, hyphens) keeps the contains match."""
     t = str(term).strip()
     if _SHORT_WORD.fullmatch(t):
         return col.op("~*")(r"\m" + t + r"\M")
+    if re.fullmatch(r"[A-Za-z]{6,}", t):
+        return col.op("~*")(r"\m" + t)
     return col.ilike(_like(term), escape="\\")
 
 
@@ -537,7 +567,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word"):
         if (filters or {}).get(key):
             out[key] = True
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
@@ -664,23 +694,27 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
     today = datetime.utcnow().date()
 
     def years_ago(years: float):
-        target_year = today.year - int(years)
+        whole = int(years)
         try:
-            return today.replace(year=target_year)
+            base = today.replace(year=today.year - whole)
         except ValueError:  # 29 Feb in a non-leap year
-            return today.replace(year=target_year, day=28)
+            base = today.replace(year=today.year - whole, day=28)
+        return base - timedelta(days=round((years - whole) * 365.25))  # 2.5 years is two years and half a year, not two
 
     if f.get("min_age_years") is not None:  # at least this old
         conds.append(B.incorporated_on <= years_ago(f["min_age_years"]))
     if f.get("max_age_years") is not None:  # no older than this
         conds.append(B.incorporated_on >= years_ago(f["max_age_years"]))
     if f.get("name_contains"):
-        conds.append(_by_name_or_number(f["name_contains"], B.name))
-    for key, col in (("has_website", B.website), ("has_email", B.email), ("has_phone", B.phone)):
+        conds.append(_by_name_or_number(f["name_contains"], B.name, words=bool(f.get("name_whole_word"))))
+    for key, col in (("has_email", B.email), ("has_phone", B.phone)):
         if f.get(key):
             conds.append(func.coalesce(col, "") != "")
-    if f.get("has_website"):  # a rating site, register or social page saved as the "website" is not the company's own
-        conds.append(~or_(*[B.website.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
+    if f.get("has_website"):  # the same rule the rank and the card use: the stored website, else the company's domain
+        site = func.coalesce(func.nullif(B.website, ""), B.domain, "")
+        conds.append(site != "")
+        # a rating site, register or social page saved as the "website" is not the company's own
+        conds.append(~or_(*[site.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
     # "Is none of": the same columns and the same main-activity rule as the include filters, negated.
     if f.get("not_keyword"):
         conds.append(~or_(*[or_(_whole_word(t, B.name), _trade_text(t, func.coalesce(B.sic_text, ""), any_activity),
@@ -729,6 +763,11 @@ def _order(sort: str, f: Optional[Dict[str, Any]] = None, broadened: bool = Fals
         # Plain DESC (empty dates first, there are almost none) is the order the existing date index can walk; NULLS LAST is not,
         # and would read and sort every company.
         return first + [B.incorporated_on.desc(), B.id]  # also while the rank index is missing: main trade first
+    if first:
+        # Fullest profiles first even inside a trade search: the tier (Full / Partial / Basic) leads, so each tier is one block
+        # under one divider, and the main-activity companies come first within it.
+        tier = func.floor(func.coalesce(B.rank_score, 0) / TIER_STEP).desc()
+        return [tier] + first + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
     return first + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 
 
@@ -759,7 +798,7 @@ DEFAULT_BROWSE_SECTOR = "software"  # what Find Leads opens on when no filter is
 
 def has_narrowing(f: Dict[str, Any]) -> bool:
     """Whether the filters name a trade, place or company. Without one the search is the opening list of the whole register."""
-    return any(f.get(k) for k in NARROWING)
+    return any(f.get(k) for k in NARROWING) or f.get("saved") == "only"  # "only my saved companies" is already a small, chosen list
 
 
 def with_default_browse(filters: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
@@ -767,6 +806,77 @@ def with_default_browse(filters: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
     if has_narrowing(normalize_filters(filters)):
         return filters, False
     return {**(filters or {}), "sector": [DEFAULT_BROWSE_SECTOR]}, True
+
+
+# Filters given up one step at a time, least important first, when nothing matches all of them. The trade (keyword, sector,
+# SIC code) and the status are never given up, so every row shown is still a real company of the kind asked for.
+RELAX_STEPS = (
+    ("must-have email, phone and website", ("has_email", "has_phone", "has_website")),
+    ("leave-out filters", ("not_keyword", "not_towns", "not_company_category")),
+    ("company age", ("min_age_years", "max_age_years")),
+    ("company size and type", ("size_bands", "company_category")),
+    ("postcode", ("postcode_prefixes",)),
+    ("the full company name", ("name_contains",)),
+    ("town", ("towns",)),
+)
+_NAME_NOISE = {"the", "and", "ltd", "limited", "plc", "llp", "uk", "co", "company", "group", "services", "holdings"}
+
+
+def _first_name_word(name: str) -> str:
+    words = [w for w in re.findall(r"[0-9A-Za-z]+", name) if w.lower() not in _NAME_NOISE and len(w) >= 2]
+    return words[0] if words else ""
+
+
+def _is_set(value: Any) -> bool:
+    """A filter that was given. A max age of 0 counts; an empty list, empty text, None and False do not."""
+    return not (value is None or value is False or value == "" or value == [])
+
+
+async def closest_match(filters: Dict[str, Any], run, *, seconds: float = 20.0) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """When a search finds nothing, correct a misspelt town, then give up the least important filters one step at a time, and
+    return the first search that finds companies with the names of what was changed so the person is told. (None, []) when even
+    the bare trade finds nothing: an empty answer is then the true one. `run(filters)` is the search itself. Nothing is invented:
+    every row is a stored company. Stops after `seconds`, so a slow register never makes the screen wait for every step."""
+    import time
+
+    from app.services import search_towns
+
+    started = time.monotonic()
+    f = normalize_filters(filters)
+    dropped: List[str] = []
+
+    async def attempt() -> Optional[Dict[str, Any]]:
+        if not has_narrowing(f) or time.monotonic() - started > seconds:
+            return None
+        out = await run(f)
+        return out if out.get("total") else None
+
+    fix = search_towns.suggest(f.get("towns") or [])
+    if fix:
+        f = {**f, "towns": [fix.get(t, t) for t in f["towns"]]}
+        dropped.append("the town spelling (" + ", ".join(f"{a} read as {b}" for a, b in fix.items()) + ")")
+        out = await attempt()
+        if out:
+            return out, dropped
+    for label, keys in RELAX_STEPS:
+        if not any(_is_set(f.get(k)) for k in keys):
+            continue
+        if label == "the full company name":
+            typed = str(f.get("name_contains") or "").strip()
+            first = _first_name_word(typed)
+            if not first or first.lower() == typed.lower():
+                continue  # one word already: nothing shorter to try, and the name stays a requirement
+            f = {**f, "name_contains": first, "name_whole_word": True}  # a whole word: "Acme" is not "Placme"
+            label = "the words after the first in the company name"
+        else:
+            f = {k: v for k, v in f.items() if k not in keys}
+        dropped.append(label)
+        if not has_narrowing(f):
+            return None, []  # nothing left to search on: never open the whole register as an "answer"
+        out = await attempt()
+        if out:
+            return out, dropped
+    return None, []
 
 
 _NAME_ORDER: List[Any] = [0.0, True]  # [when checked, ready]
@@ -842,7 +952,13 @@ async def result_stats(db: AsyncSession, where, total: int) -> Dict[str, Any]:
     mine = select(LeadAccount.business_record_id).where(LeadAccount.business_record_id.isnot(None))
     saved = await _guarded_count(db, and_(where, B.id.in_(mine)))
     out: Dict[str, Any] = {"saved_total": None if saved is None else min(saved, total)}
-    out["tiers"] = None if full is None or partial is None else {"full": full, "partial": partial, "basic": max(total - full - partial, 0)}
+    if full is None or partial is None:
+        out["tiers"] = None
+    else:
+        full, partial = min(full, COUNT_CAP), min(partial, COUNT_CAP)
+        # Past the cap the three counts are each "at least": Basic can't be worked out by subtraction, so it is left out (None).
+        capped = total >= COUNT_CAP
+        out["tiers"] = {"full": full, "partial": partial, "basic": None if capped else max(total - full - partial, 0), "capped": capped}
     return out
 
 
@@ -857,8 +973,8 @@ async def exact_total(db: AsyncSession, where, f: Dict[str, Any], exclude_ids: O
     import json
     import time
 
-    if exclude_ids:
-        return None
+    if exclude_ids or f.get("saved"):
+        return None  # a count that depends on this organisation's own lists is never shared through the cache
     key = json.dumps(f, sort_keys=True, default=str)
     hit = _TOTALS.get(key)
     if hit and time.monotonic() - hit[0] < _TOTALS_TTL:
@@ -931,20 +1047,22 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     return out
 
 
-async def search_summary(db: AsyncSession, filters: Dict[str, Any]) -> Dict[str, Any]:
+async def search_summary(db: AsyncSession, filters: Dict[str, Any], exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     """The figures that sit beside a page of results but are slower to count: the real total (past 10,000), how many are Full,
-    Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen."""
+    Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen, with the
+    filters the search actually ran (see /search "query_filters"), so the figures describe the list that is shown."""
     check_filters(filters)
     f = normalize_filters(filters)
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
-    where, total, broadened = await matching(db, f, count=_capped_count)
+    extra = [BusinessRecord.id.notin_(list(exclude_ids))] if exclude_ids else []
+    where, total, broadened = await matching(db, f, extra, count=_capped_count)
     out: Dict[str, Any] = {"total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "tiers": None, "saved_total": None, "total_all": None,
                            "broadened": broadened}
     if await ranking_ready(db):
         out.update(await result_stats(db, where, out["total"]))
     if out["total_capped"]:
-        out["total_all"] = await exact_total(db, where, {**f, "_broadened": broadened})
+        out["total_all"] = await exact_total(db, where, {**f, "_broadened": broadened}, exclude_ids)
     return out
 
 
@@ -963,22 +1081,26 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     base, _, broadened = await matching(db, f)  # the same companies as the Companies tab
-    with_people = and_(base, B.officers.isnot(None))
+    with_people = and_(base, B.officers.isnot(None), cast(B.officers, String) != "[]")  # a company read and found to have no officers is not a result
     word = str(title or "").strip().lower()[:60]
     if word:  # a cheap pre-filter on the stored JSON text; the exact role match is made below
         with_people = and_(with_people, cast(B.officers, String).ilike(_like(word), escape="\\"))
     ranked = await ranking_ready(db)
     order = _order(sort if ranked or sort != "best" else "newest", f, broadened)
     total = await _capped_count(db, with_people)
+    matching_total = await _capped_count(db, base)  # all matching companies, so the screen can say "people at 50 of 503"
     rows = (await db.execute(select(B).where(with_people).order_by(*order).limit(limit).offset(max(0, int(offset or 0))))).scalars().all()
     people = []
     for biz in rows:
         for o in CC.active_officers(biz.officers):
-            if word and not re.search(r"" + re.escape(word) + r"", (o["role"] or "").lower()) and word not in o["name"].lower():  # a whole word: "cto" is not "Director"
+            if word and not re.search(r"\b" + re.escape(word) + r"\b", (o["role"] or "").lower()) and word not in o["name"].lower():  # a whole word: "cto" is not "Director"
                 continue
             people.append({**o, "company": biz})
-    fill = (await db.execute(select(B.id).where(and_(base, B.officers.is_(None))).order_by(*order).limit(25))).scalars().all()
-    return {"people": people, "companies_total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill),
+    # Only companies the registry can still be asked about: not yet read, and with a company number to ask by. One that was read
+    # and had no officers is marked as read, so "find people" moves on to new companies each time instead of repeating itself.
+    unread = and_(base, B.officers.is_(None), B.people_checked_at.is_(None), func.coalesce(B.registration_number, "") != "")
+    fill = (await db.execute(select(B.id).where(unread).order_by(*order).limit(25))).scalars().all()
+    return {"people": people, "companies_total": min(total, COUNT_CAP), "companies_matching": min(matching_total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "fill_ids": list(fill),
             "broadened": broadened}
 
 

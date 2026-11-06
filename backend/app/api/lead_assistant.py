@@ -178,12 +178,17 @@ async def _run_search(db: AsyncSession, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"needs": str(err), "filters": business_records.normalize_filters(args), "total": 0, "top": []}
     filters = business_records.normalize_filters(args)
     try:
-        found, _ = await phrase_understanding.widen_if_empty(
+        from app.services import search_resolve
+
+        found, _, relaxed = await search_resolve.resolve(
             db, filters, None, lambda f: business_records.search_filtered(db, f, limit=shown, exclude_ids=[], stats=False))
     except ValueError as err:
         return {"needs": str(err), "filters": filters, "total": 0, "top": []}
-    return {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"], "asked": asked,
-            "broadened": bool(found.get("broadened")), "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
+    out = {"filters": business_records.normalize_filters(filters), "total": found["total"], "capped": found["total_capped"], "asked": asked,
+           "broadened": bool(found.get("broadened")), "top": await RV.mask(db, [lead_filters.card(r) for r in found["rows"]])}
+    if relaxed:  # the same closest companies the panel shows, with what was changed, so the assistant says "closest", not "none found"
+        out["closest_match"] = lead_filters.closest_note(relaxed)
+    return out
 
 
 async def _pipeline(db: AsyncSession) -> Dict[str, Any]:

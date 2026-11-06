@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react";
+import { ago } from "../utils/notificationTime";
 import { Bell, PlusCircle, CheckCircle2, AlertTriangle, Info, X, Trash2, ExternalLink } from "lucide-react";
 import {
   C,
@@ -316,7 +317,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
                           {n.text}
                         </div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.slate, marginTop: 3 }}>
-                          {n.time}
+                          {ago(n)}
                         </div>
                       </div>
                     </div>

@@ -389,7 +389,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const savedKeys = useMemo(() => new Set(store.accounts.flatMap((a) => [a.business_record_id, a.domain, a.name.toLowerCase()]).filter(Boolean)), [store.accounts]);
   const isSaved = (c) => {
     const d = domainOf(c.website);
-    return savedKeys.has(c.id) || (d ? savedKeys.has(d) : savedKeys.has(String(c.name || "").toLowerCase()));
+    // By the register record, or by the company's own website. A name alone is not enough: another company can share it.
+    return savedKeys.has(c.id) || Boolean(d && savedKeys.has(d));
   };
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleSize = (s) => setForm((f) => ({ ...f, sizes: f.sizes.includes(s) ? f.sizes.filter((x) => x !== s) : [...f.sizes, s] }));
@@ -488,7 +489,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setTotal(r.total_all ?? r.total);
       setCapped(r.total_all == null && r.total_capped);
       // The slower figures (real total, group counts, saved) arrive a moment after the page is already on screen.
-      if (!(r.understood || []).length) loadSummary(formToFilters(f));
+      loadSummary(r.query_filters || formToFilters(f), excluded); // counted on the filters the search really ran, so the figures match the list shown
       setApplied(r.filters);
       setChips(r.chips || []);
       setDidYouMean(r.did_you_mean || {});
@@ -505,10 +506,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   };
 
   const sumRun = useRef(0);
-  const loadSummary = async (filtersObj) => {
+  const loadSummary = async (filtersObj, excludeIds = []) => {
     const mine = ++sumRun.current;
     try {
-      const r = await api.searchSummary({ filters: filtersObj });
+      const r = await api.searchSummary({ filters: filtersObj, exclude_ids: excludeIds });
       if (mine !== sumRun.current) return;
       if (r.tiers) setTiers(r.tiers);
       if (r.saved_total != null) setSavedTotal(r.saved_total);
@@ -607,6 +608,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (myRun !== runId.current) return;
     setPeople(r.people);
     setPeopleTotal(r.companies_total);
+    setPeopleOf(r.companies_matching ?? null);
     setTotal(r.companies_total);
     setCapped(r.total_capped);
     setApplied(r.filters);
@@ -757,7 +759,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const saveOne = (c) => store.save([asAccount(c)]);
   // One click on an empty website or phone: look on the web (and, if that finds no website, the deeper search), fill the row.
   const [lookups, setLookups] = useState({}); // `${company id}:${website|phone}` -> "busy" | "none": each button has its own lookup
+  const [peopleOf, setPeopleOf] = useState(null); // how many companies match, of which peopleTotal have people on file
   const [pick, setPick] = useState(null); // {company, kind, options}: a lookup that was not sure, waiting for the person to choose
+  useEffect(() => { setPick(null); }, [tab, view]); // a pop-up for a company never follows the person to another view
   const [waiting, setWaiting] = useState({}); // `${company id}:${kind}` -> the matches the person has not chosen from yet
   const applyCompany = (id, company) => {
     if (!company) return;
@@ -938,9 +942,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP" /></label>
             <div style={{ display: "flex", gap: 8 }}>
               <label style={field} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
-                <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="5" /></label>
+                <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="e.g. 5" /></label>
               <label style={field} title="Only companies that are no older than this many years"><span style={label}>Trading ≤ years</span>
-                <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="2" /></label>
+                <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="e.g. 2" /></label>
             </div>
             {check("includeClosed", "Include closed / dissolved")}
           </FilterGroup>
@@ -1174,12 +1178,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                   </button>
                 </div>
               ) : null}
+              {people.length && peopleOf != null && peopleOf > peopleTotal ? (
+                <div style={{ ...muted, fontSize: 12.5, padding: "6px 14px" }}>People are on file for {peopleTotal.toLocaleString()} of {peopleOf.toLocaleString()} matching companies.</div>
+              ) : null}
               {people.length ? (
                 <PeopleTable rows={people} onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
               ) : searched && !busy && !filling ? (
-                <div style={{ ...muted, padding: 16 }}>No people are on file yet for these companies{form.title ? ` with "${form.title}" in their role` : ""}. Use "Find people" above to read them from the registry.</div>
+                <div style={{ ...muted, padding: 16 }}>
+                  {fillIds.length
+                    ? `No people are on file yet for these companies${form.title ? ` with "${form.title}" in their role` : ""}. Use "Find people" above to read them from the registry.`
+                    : `No current directors or officers are listed for these companies${form.title ? ` with "${form.title}" in their role` : ""}. Try another role word, or widen the search.`}
+                </div>
               ) : null}
-              {people.length ? <Pager page={page} size={pageSize} total={peopleTotal} capped={capped} shown={new Set(people.map((x) => x.company.id)).size} onPage={goPage} busy={busy} unit="Companies" /> : null}
+              {peopleTotal > 0 || people.length ? <Pager page={page} size={pageSize} total={peopleTotal} capped={capped} shown={new Set(people.map((x) => x.company.id)).size} onPage={goPage} busy={busy} unit="Companies" /> : null}
             </>
           ) : (
             <>
