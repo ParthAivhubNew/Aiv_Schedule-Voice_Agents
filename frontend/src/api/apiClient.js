@@ -368,6 +368,7 @@ export const api = {
   saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } })
     .then((r) => { if (r && r.duplicates_total > 0) announceDuplicates({ kind: 'save', total: r.duplicates_total, pairs: r.duplicates || [] }); return r; }),
   updateLeadAccount: (id, changes) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: changes }),
+  accountRegisterPage: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/register`, { method: 'POST' }),
   deleteLeadAccounts: (ids, doNotContact = false) => apiRequest('/leads/accounts/bulk-delete', { method: 'POST', body: { ids, do_not_contact: doNotContact } }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),

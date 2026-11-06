@@ -1408,6 +1408,27 @@ async def delete_account(account_id: str, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/accounts/{account_id}/register")
+async def register_page_for(account_id: str, db: AsyncSession = Depends(get_db)):
+    """The register record behind a saved company, found free from our own store when it was not linked yet (by its company number,
+    its website, or its exact name). {business_record_id: ""} when there is none: the company then has its own page."""
+    row = await _account(db, account_id)
+    if not row.business_record_id:
+        biz = None
+        regno = normalise.company_number(row.registration_number)
+        if regno:
+            biz = await business_records.find(db, registration_number=regno)
+            if biz and company_check.name_score(row.name, biz.name) < 0.9:
+                biz = None  # that number belongs to another company: never linked
+        if biz is None:
+            biz = await _apply_shared_record(db, row)
+        elif not row.business_record_id:
+            row.business_record_id = biz.id
+        if row.business_record_id:
+            await db.commit()
+    return {"business_record_id": row.business_record_id or ""}
+
+
 class BulkDelete(BaseModel):
     ids: List[str]
     do_not_contact: bool = False  # erase and never contact again (an erasure request)

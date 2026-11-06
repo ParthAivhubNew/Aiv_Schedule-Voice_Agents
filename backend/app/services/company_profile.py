@@ -185,7 +185,7 @@ def _contact(card: Dict[str, Any]) -> Dict[str, Any]:
 async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
-        return {"saved": False, "lead_id": "", "stage": "", "lists": [], "journeys": [], "activity": []}
+        return {"saved": False, "lead_id": "", "stage": "", "lists": [], "journeys": [], "activity": [], "mine": None}
     lists: List[str] = []
     try:
         from app.api import lead_lists as LL
@@ -198,7 +198,16 @@ async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     journeys = [{"id": c.id, "name": c.name, "status": c.status, "person_status": e.status, "step": e.current_step} for e, c in rows]
     events = (await db.execute(select(ContactEvent).where(ContactEvent.lead_id == lead.id).order_by(ContactEvent.at.desc()).limit(25))).scalars().all()
     activity = [{"kind": ev.kind, "summary": ev.summary, "at": ev.at.isoformat() + "Z" if ev.at else None} for ev in events]
-    return {"saved": True, "lead_id": lead.id, "stage": lead.stage or "new", "lists": lists, "journeys": journeys, "activity": activity}
+    verdict = lead.verification or {}
+    mine = {
+        "name": lead.name or "", "source": lead.source or "", "contact_name": lead.contact_name or "", "contact_title": lead.contact_title or "",
+        "phone": lead.phone or "", "email": lead.email or "", "website": lead.website or "", "notes": lead.notes or "",
+        "registration_number": getattr(lead, "registration_number", "") or "", "postcode": getattr(lead, "postcode", "") or "",
+        "custom": lead.custom or {}, "import_flags": getattr(lead, "import_flags", None) or [],
+        "check": {"verdict": verdict.get("verdict", ""), "reasons": verdict.get("reasons") or [], "checked_at": verdict.get("checked_at", "")} if verdict else None,
+        "added": lead.created_at.isoformat() + "Z" if lead.created_at else None,
+    }
+    return {"saved": True, "lead_id": lead.id, "stage": lead.stage or "new", "lists": lists, "journeys": journeys, "activity": activity, "mine": mine}
 
 
 async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = None) -> Dict[str, Any]:

@@ -1,4 +1,5 @@
 import { cloneElement, useState, useEffect, useRef, useMemo } from "react";
+import { api } from "../../api/apiClient";
 import { takePendingDraft } from "../../utils/draftHandoff";
 import {
   Search,
@@ -100,7 +101,15 @@ export default function LeadGenerationPlugin({
   const cameFrom = useRef("find_leads"); // where the company page's back button goes
   const [assistantSeed, setAssistantSeed] = useState(null); // a message the assistant sends when opened from a page ("Ask AI" on a company)
   const [accountPageId, setAccountPageId] = useState(""); // the saved company whose full profile page is shown
-  const openAccountPage = (id) => { cameFrom.current = view === "account" ? cameFrom.current : view; setOpenAccount(null); setAccountPageId(id); setView("account"); };
+  const openAccountPage = async (id) => {
+    cameFrom.current = view === "account" || view === "company" ? cameFrom.current : view;
+    setOpenAccount(null);
+    let register = "";
+    try { register = (await api.accountRegisterPage(id)).business_record_id || ""; } catch (_) { /* the company's own page still opens */ }
+    if (register) { setCompanyId(register); setView("company"); return; } // the same page the Find Leads window gives, with what you gave us added
+    setAccountPageId(id);
+    setView("account");
+  };
   const openCompany = (id) => { cameFrom.current = view === "company" ? cameFrom.current : view; setCompanyId(id); setView("company"); };
   const askAbout = (message) => { setAssistantSeed({ id: Date.now(), text: message }); setAssistantOpen(true); };
   const nav = useMobileNav(view);

@@ -44,6 +44,28 @@ function Fact({ label, children, warn }) {
 
 const personCard = (o) => ({ key: `officer:${o.name}`, kind: "officer", name: `${o.first_name} ${o.last_name}`.trim(), raw: o, role: o.role || "Officer", meta: personMeta(o), reason: o.reason || "", alsoOwner: false, ownership: "" });
 
+const SOURCE_WORDS = { import: "Imported from your file", manual: "You added it", scout: "From a search", copilot: "From the assistant" };
+
+// What the person gave us about this company (their file's own columns, notes, the contact they named) and what the check said, apart from the register's facts.
+function FromYou({ mine }) {
+  const custom = Object.entries(mine.custom || {}).filter(([, v]) => String(v || "").trim());
+  const flags = mine.import_flags || [];
+  return (
+    <Facts title="From you">
+      <div style={small}>{SOURCE_WORDS[mine.source] || "Saved by you"}{mine.added ? ` · ${shortDate(mine.added)}` : ""}</div>
+      <Fact label="Contact">{[mine.contact_name, mine.contact_title].filter(Boolean).join(" · ")}</Fact>
+      <Fact label="Website">{mine.website}</Fact>
+      <Fact label="Phone">{mine.phone}</Fact>
+      <Fact label="Email">{mine.email}</Fact>
+      <Fact label="Your number">{mine.registration_number}</Fact>
+      <Fact label="Notes">{mine.notes}</Fact>
+      {custom.map(([k, v]) => <Fact key={k} label={k}>{v}</Fact>)}
+      {mine.check?.verdict ? <Fact label="Check">{mine.check.verdict.replace(/_/g, " ")}{mine.check.reasons?.[0] ? ` · ${mine.check.reasons[0]}` : ""}</Fact> : null}
+      {flags.map((f) => <Fact key={f.code} label="Warning" warn>{f.text}</Fact>)}
+    </Facts>
+  );
+}
+
 // The people on the register, one row each, with the reason they are worth a look and a way to find their email.
 function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
   const [view, setView] = useState("chart");
@@ -317,6 +339,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             <Fact label="Address">{c.address ? (
               <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
           </Facts>
+          {c.mine ? <FromYou mine={c.mine} /> : null}
           <ContactPoints id={c.id} stamp={`${c.phone || ""}|${c.email || ""}|${c.website || ""}|${JSON.stringify(c.links || {})}`} />
           <Facts title="In your account">
             {c.saved ? (

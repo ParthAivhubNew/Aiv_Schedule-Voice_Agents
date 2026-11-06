@@ -210,3 +210,23 @@ async def test_the_chat_can_read_one_company_and_offers_to_open_its_page(db, mon
         assert r["proposals"] == []
     brief = CP.brief_text(await CP.build(db, await db.get(BusinessRecord, "br_t1")))
     assert "Bright Cafe Limited is a private limited company in Leeds" in brief and "Contact details we hold: none yet" in brief
+
+
+@pytest.mark.db
+async def test_a_saved_company_page_shows_what_the_user_gave_us_and_a_saved_company_finds_its_register_page(client, db):
+    from app.core.tenancy import org_scope
+
+    db.add(_biz(email="hello@bright.co.uk"))
+    await db.commit()
+    with org_scope("org_default"):
+        mine = LeadAccount(id="acc_mine", name="Bright Cafe Ltd", registration_number="", source="import", contact_name="Ann Lee", notes="Met at the show",
+                           custom={"Account owner": "Sam"}, import_flags=[{"code": "EMAIL_ROLE", "text": "A shared inbox such as info@."}],
+                           business_record_id="br_t1", verification={"verdict": "looks_ok", "reasons": ["Our records: Active"]})
+        lonely = LeadAccount(id="acc_lonely", name="Nowhere Special Ltd", source="import")
+        db.add_all([mine, lonely])
+        await db.commit()
+    page = (await client.get("/api/leads/companies/br_t1/profile")).json()["company"]
+    assert page["mine"]["contact_name"] == "Ann Lee" and page["mine"]["custom"] == {"Account owner": "Sam"} and page["mine"]["notes"] == "Met at the show"
+    assert page["mine"]["check"]["verdict"] == "looks_ok" and page["mine"]["import_flags"][0]["code"] == "EMAIL_ROLE"
+    assert (await client.post("/api/leads/accounts/acc_mine/register")).json() == {"business_record_id": "br_t1"}
+    assert (await client.post("/api/leads/accounts/acc_lonely/register")).json() == {"business_record_id": ""}
