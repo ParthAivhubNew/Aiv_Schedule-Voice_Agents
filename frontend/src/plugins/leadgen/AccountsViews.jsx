@@ -434,7 +434,7 @@ function fileContact(a) {
 }
 
 // "What we found": every contact detail with where it came from -- yours, found by us, or still missing -- and how complete it is now.
-function FoundSummary({ account }) {
+function FoundSummary({ account, store }) {
   const f = account.found || { filled: [], extra: {}, had: [], before_pct: 0, after_pct: 0 };
   const looked = wasLookedUp(account);
   const extra = [["people", "people"], ["emails", "emails"], ["phones", "phone numbers"], ["socials", "social profiles"], ["offices", "other offices"]]
@@ -444,11 +444,13 @@ function FoundSummary({ account }) {
     const value = (account[k] || "").trim();
     if (made && value) return { k, label, value, tone: "new", badge: `Found by us · ${HOW_WORD[made.how] || made.how}` };
     if (value) return { k, label, value, tone: "yours", badge: account.source === "import" ? "From your file" : account.source === "manual" ? "You added" : "From the search" };
+    const researched = k === "email" ? emailFor(account) : k === "phone" ? phoneFor(account) : null;
+    if (researched?.fromResearch) return { k, label, value: researched.text, tone: "research", badge: "Found by research · not saved yet", use: true };
     const hint = k === "contact_name" ? fileContact(account) : "";
     if (hint) return { k, label, value: hint, tone: "hint", badge: "In your file, not saved as the contact yet" };
     return { k, label, value: "", tone: "missing", badge: looked ? "Not found" : "Not checked yet" };
   });
-  const tone = { new: ["#15803D", "#DCFCE7"], yours: [C.slate, "#F1F5F9"], hint: ["#92400E", "#FFFBEB"], missing: [C.slateLight, "#F8FAFC"] };
+  const tone = { research: ["#1D4ED8", "#DBEAFE"], new: ["#15803D", "#DCFCE7"], yours: [C.slate, "#F1F5F9"], hint: ["#92400E", "#FFFBEB"], missing: [C.slateLight, "#F8FAFC"] };
   const tried = [account.verification?.checked_at && `company check ${new Date(account.verification.checked_at).toLocaleDateString()}`,
     account.researched_at && `web look-up ${new Date(account.researched_at).toLocaleDateString()}`, account.registry && "our records"].filter(Boolean);
   const missing = rows.filter((r) => r.tone === "missing");
@@ -466,7 +468,10 @@ function FoundSummary({ account }) {
           <React.Fragment key={r.k}>
             <span style={{ color: C.slate }}>{r.label}</span>
             <span style={{ overflowWrap: "anywhere", color: r.value ? C.textInk : C.slateLight }}>{r.value || "—"}</span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: tone[r.tone][0], background: tone[r.tone][1], borderRadius: 4, padding: "2px 7px", whiteSpace: "nowrap" }}>{r.badge}</span>
+            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: tone[r.tone][0], background: tone[r.tone][1], borderRadius: 4, padding: "2px 7px", whiteSpace: "nowrap" }}>{r.badge}</span>
+              {r.use && store ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={`Save this ${r.label.toLowerCase()} on the company`} onClick={() => store.update(account.id, { [r.k]: r.value })}>Use this</button> : null}
+            </span>
           </React.Fragment>
         ))}
       </div>
@@ -1191,7 +1196,7 @@ function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirs
   );
 }
 
-export function AccountPanel({ account, store, onClose }) {
+export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegister, page = false }) {
   const live = store.accounts.find((a) => a.id === account.id) || account;
   const lockedIds = useLocked();
   const inCheck = lockedIds.has(live.id);
@@ -1199,10 +1204,11 @@ export function AccountPanel({ account, store, onClose }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const changed = [...ACCOUNT_FIELDS.map(([k]) => k), "notes"].some((k) => (form[k] || "") !== (live[k] || ""));
   useEffect(() => {
+    if (page) return undefined;
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, page]);
   // Research can fill empty fields: show what it found in any field not being edited.
   const lastResearch = useRef(live.researched_at);
   useEffect(() => {
@@ -1212,22 +1218,25 @@ export function AccountPanel({ account, store, onClose }) {
   }, [live]);
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
-      <div role="dialog" aria-label={live.name} onClick={(e) => e.stopPropagation()} className="ui-scroll"
-        style={{ width: "min(100%, 520px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 12px 20px", borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+    <div onClick={page ? undefined : onClose} style={page ? { display: "flex", justifyContent: "center" } : { position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
+      <div role={page ? undefined : "dialog"} aria-label={live.name} onClick={(e) => e.stopPropagation()} className="ui-scroll"
+        style={page ? { width: "min(100%, 980px)", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column" }
+          : { width: "min(100%, 520px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 12px 20px", borderBottom: `1px solid ${C.border}`, position: page ? "static" : "sticky", top: 0, background: "#fff", zIndex: 1 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>{live.name}</div>
             <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <SiteLink account={live} /><span title="How this company got into your account">{sourceWords(live.source)}</span>
             </div>
           </div>
-          <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
+          {!page && onOpenPage ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Everything about this company on one page: what you gave us, what we found, checks, research, journeys and activity" onClick={() => onOpenPage(live.id)}>Open full profile</button> : null}
+          {page && live.business_record_id && onOpenRegister ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="The register page for this company" onClick={() => onOpenRegister(live.business_record_id)}>Register page</button> : null}
+          {page ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose}>Back</button> : <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>}
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
           <EndedBanner account={live} />
           {["problem", "not_found"].includes(live.verification?.verdict) ? <CheckDetails account={live} /> : null}
-          <FoundSummary account={live} />
+          <FoundSummary account={live} store={store} />
           <DetailChecks account={live} />
           {["problem", "not_found"].includes(live.verification?.verdict) ? null : <CheckDetails account={live} />}
           {Object.keys(live.custom || {}).length ? (

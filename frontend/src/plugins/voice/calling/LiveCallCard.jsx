@@ -11,6 +11,7 @@ const STATE_META = {
   pitching: { label: "Live", fg: C.green, bg: C.greenSoft, pulse: true },
   negotiating: { label: "Live", fg: C.green, bg: C.greenSoft, pulse: true },
   human_review: { label: "Needs you", fg: C.red, bg: C.redSoft, pulse: true },
+  human: { label: "Your call", fg: C.cobaltDeep, bg: C.cobaltSoft, pulse: true },
   ended: { label: "Ended", fg: C.slate, bg: C.paperSoft },
   failed: { label: "Not reached", fg: C.red, bg: C.redSoft },
   canceled: { label: "Canceled", fg: C.slate, bg: C.paperSoft },
@@ -135,7 +136,8 @@ export function LiveCallCard({
   const name = call.prospect || call.prospect_name || call.contact || call.name || "Unknown";
   const state = String(call.state || call.status || "calling").toLowerCase();
   const isAssistant = call.carrier === "telnyx_assistant";
-  const canListen = call.supportsListen !== false && !String(id || "").startsWith("pending_") && !String(id || "").startsWith("batch_pending_");
+  const isHuman = state === "human" || call.mission === "Human call"; // placed by a person from the phone window: they are already on it
+  const canListen = !isHuman && call.supportsListen !== false && !String(id || "").startsWith("pending_") && !String(id || "").startsWith("batch_pending_");
   const pending = String(id || "").includes("pending_");
   const lines = call.transcript || [];
 
@@ -162,7 +164,7 @@ export function LiveCallCard({
             ) : null}
           </div>
           <div style={{ fontSize: 12, color: C.slate, marginTop: 5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: C.textInk }}>{call.duration || "00:00"}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: call.ringing ? C.amber : C.textInk }}>{call.ringing ? "Ringing…" : call.duration || "00:00"}</span>
             {call.mission ? <span>· {call.mission}</span> : null}
             {isAssistant ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.cobaltDeep, fontWeight: 700 }}>
@@ -205,7 +207,11 @@ export function LiveCallCard({
         </div>
       ) : (
         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-          {canListen ? (
+          {isHuman ? (
+            <span style={{ fontSize: 12.5, color: C.slate, alignSelf: "center", maxWidth: 360 }}>
+              You are on this call in the phone window. Hang up there; this card closes by itself.
+            </span>
+          ) : canListen ? (
             <>
               <button type="button" onClick={() => run("listen", onListen)} style={btn({ borderColor: listening ? C.cobalt : C.border, background: listening ? C.cobaltSoft : "#fff", color: listening ? C.cobalt : C.textInk })}>
                 <Headphones size={14} /> {listening ? "Stop listening" : "Listen"}
@@ -243,9 +249,11 @@ export function LiveCallCard({
           >
             <Calendar size={14} /> {call.booked ? "Booked" : busy === "book" ? "Booking…" : "Book from call"}
           </button>
-          <button type="button" disabled={pending} onClick={onAskEnd} style={btn({ border: "none", background: C.redSoft, color: C.red, opacity: pending ? 0.5 : 1 })}>
-            <PhoneOff size={14} /> End
-          </button>
+          {isHuman ? null : (
+            <button type="button" disabled={pending} onClick={onAskEnd} style={btn({ border: "none", background: C.redSoft, color: C.red, opacity: pending ? 0.5 : 1 })}>
+              <PhoneOff size={14} /> End
+            </button>
+          )}
         </div>
       )}
     </div>

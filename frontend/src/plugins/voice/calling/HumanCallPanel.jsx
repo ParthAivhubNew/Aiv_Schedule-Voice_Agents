@@ -181,7 +181,7 @@ export default function HumanCallPanel({ request, onClose }) {
       rtc.on("telnyx.ready", () => {
         call.current = rtc.newCall({ destinationNumber: s.to, callerNumber: s.from, clientState: btoa(s.call_ref), audio: true, video: false });
       });
-      rtc.on("telnyx.error", () => { setError("The phone connection failed. Try again."); finish(); });
+      rtc.on("telnyx.error", () => { if (ended.current) return; setError("The phone connection failed. Try again."); finish(); }); // after a hang-up the closing line may still report: that is not a failure
       rtc.on("telnyx.socket.close", () => { if (!ended.current) { setError("Connection lost."); finish(); } });
       rtc.on("telnyx.notification", (n) => {
         if (n.type === "userMediaError") { setError("Allow the microphone to make calls."); finish(); return; }

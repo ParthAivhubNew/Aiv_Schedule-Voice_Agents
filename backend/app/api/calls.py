@@ -65,10 +65,18 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
     
     out_calls = []
     now_utc = datetime.utcnow()
+    from app.models.models import HumanCall
+
+    human_ids = [c.id for c in calls if c.state == "human"]
+    answered_at = {h.id: h.answered_at for h in (await db.execute(select(HumanCall).where(HumanCall.id.in_(human_ids)))).scalars().all()} if human_ids else {}
     for c in calls:
         dur = c.duration
-        if not c.ended and c.state not in ["ended", "failed", "canceled"] and c.created_at:
-            secs = max(0, int((now_utc - c.created_at).total_seconds()))
+        started = c.created_at
+        if c.state == "human":  # a call a person places from the browser: it is timed from when the other person answers, not from when it started ringing
+            started = answered_at.get(c.id)
+            dur = "00:00"
+        if not c.ended and c.state not in ["ended", "failed", "canceled"] and started:
+            secs = max(0, int((now_utc - started).total_seconds()))
             dur = f"{secs // 60:02d}:{secs % 60:02d}"
         out_calls.append({
             "id": c.id,
@@ -81,6 +89,7 @@ async def get_live_calls(include_ended: bool = False, db: AsyncSession = Depends
             "channel": c.channel,
             "duration": dur,
             "startedAt": c.created_at.isoformat() + "Z" if c.created_at else None,
+            "ringing": c.state == "human" and not answered_at.get(c.id) and not c.ended,  # placed by a person, not answered yet
             "flag": c.flag,
             "taken": c.taken,
             "listening": c.listening,

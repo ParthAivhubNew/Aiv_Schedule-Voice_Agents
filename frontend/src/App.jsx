@@ -342,6 +342,7 @@ function MainApp({ onSignedOut }) {
   };
 
   const triggerCallNotification = (call) => {
+    if (call && (call.state === "human" || call.mission === "Human call")) return; // a call the person places themselves is not announced to them
     try {
       playIncomingChime();
       if ("Notification" in window) {
@@ -957,7 +958,7 @@ function MainApp({ onSignedOut }) {
       {/* Universal Floating Incoming Call Banner across ALL Plugins */}
       <UniversalCallNotificationBanner
         activeCalls={liveCalls.filter(
-          (c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled" && !dismissedCallIds.includes(c.id || c.call_sid)
+          (c) => !c.ended && c.state !== "ended" && c.state !== "failed" && c.state !== "canceled" && c.state !== "human" && c.mission !== "Human call" && !dismissedCallIds.includes(c.id || c.call_sid)
         )}
         currentPlugin={plugin}
         onJumpToVoice={handleJumpToVoice}

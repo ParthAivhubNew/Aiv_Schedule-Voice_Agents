@@ -99,6 +99,8 @@ export default function LeadGenerationPlugin({
   const [companyId, setCompanyId] = useState(() => { try { const p = routeHash().replace(/^#\/?/, "").split("/"); return p[0] === "leadgen" && p[1] === "company" ? p[2] || "" : ""; } catch (_) { return ""; } }); // the company page being shown
   const cameFrom = useRef("find_leads"); // where the company page's back button goes
   const [assistantSeed, setAssistantSeed] = useState(null); // a message the assistant sends when opened from a page ("Ask AI" on a company)
+  const [accountPageId, setAccountPageId] = useState(""); // the saved company whose full profile page is shown
+  const openAccountPage = (id) => { cameFrom.current = view === "account" ? cameFrom.current : view; setOpenAccount(null); setAccountPageId(id); setView("account"); };
   const openCompany = (id) => { cameFrom.current = view === "company" ? cameFrom.current : view; setCompanyId(id); setView("company"); };
   const askAbout = (message) => { setAssistantSeed({ id: Date.now(), text: message }); setAssistantOpen(true); };
   const nav = useMobileNav(view);
@@ -122,7 +124,7 @@ export default function LeadGenerationPlugin({
 
   useEffect(() => {
     try {
-      if (view !== "company") localStorage.setItem("aivhub_leadgen_view", view);
+      if (view !== "company" && view !== "account") localStorage.setItem("aivhub_leadgen_view", view);
       const target = view === "company" && companyId ? `#/leadgen/company/${companyId}` : `#/leadgen/${view}`;
       if (routeHash() !== target) {
         replaceHash(target);
@@ -149,6 +151,7 @@ export default function LeadGenerationPlugin({
     return onRouteChange(onHash);
   }, [view, companyId]);
   const [openAccount, setOpenAccount] = useState(null); // the saved account shown in the side panel
+  useEffect(() => { if (view === "account" && !accountPageId) setView("saved_companies"); }, [view, accountPageId]); // a reload has no company to show
   const [toastMessage, setToastMessage] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
@@ -348,6 +351,10 @@ export default function LeadGenerationPlugin({
 
           {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
+          {view === "account" && accountPageId && (store.accounts.find((a) => a.id === accountPageId)
+            ? <AccountPanel key={accountPageId} page account={store.accounts.find((a) => a.id === accountPageId)} store={store}
+                onClose={() => setView(cameFrom.current && cameFrom.current !== "account" ? cameFrom.current : "saved_companies")} onOpenRegister={openCompany} />
+            : <div style={{ padding: 24 }}>{store.loading ? "Loading…" : "That company is no longer in your account."}</div>)}
           {view === "company" && companyId && (
             <CompanyPage id={companyId} store={store} onBack={() => setView(cameFrom.current || "find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
           )}
@@ -379,7 +386,7 @@ export default function LeadGenerationPlugin({
           onShowResults={(filters, meta) => { setIncoming({ id: Date.now(), filters, meta }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />
       ) : null}
 
-      {openAccount && <AccountPanel key={openAccount.id} account={openAccount} store={store} onClose={() => setOpenAccount(null)} />}
+      {openAccount && <AccountPanel key={openAccount.id} account={openAccount} store={store} onClose={() => setOpenAccount(null)} onOpenPage={openAccountPage} />}
 
       {showAddModal && <AddAccountForm store={store} onClose={() => setShowAddModal(false)} />}
 

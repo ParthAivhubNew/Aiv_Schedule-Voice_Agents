@@ -462,3 +462,31 @@ async def test_an_existing_resource_is_found_by_its_exact_name_even_when_telnyx_
     assert found and found["id"] == "ovp_real"  # read page by page, and only the exact name counts, not "... extended"
     none = await client.find_outbound_voice_profile("AIVHub (org_other)")
     assert none is None
+
+
+@pytest.mark.db
+async def test_a_browser_call_is_timed_from_the_answer_not_from_the_ring(db):
+    """The live list shows 'ringing' with no timer until the other person answers, then counts from that moment."""
+    from datetime import datetime, timedelta
+
+    import httpx
+
+    from app.core.tenancy import org_scope
+    from app.main import app
+    from app.models.models import HumanCall, LiveCall
+    from tests.conftest import make_user
+
+    _, token = await make_user(db, "hc_t", "Admin", org_id="org_hc_t")
+    with org_scope("org_hc_t"):
+        db.add(LiveCall(id="call_t1", prospect="Jo", mission="Human call", state="human", direction="outbound", phone="+442071234567", transcript=[]))
+        db.add(HumanCall(id="call_t1", user_id="u", to_e164="+442071234567", from_e164="+14302446060", state="ringing", started_at=datetime.utcnow(), max_seconds=600))
+        await db.commit()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as c:
+        row = (await c.get("/api/calls/live")).json()[0]
+        assert row["ringing"] is True and row["duration"] == "00:00"
+        with org_scope("org_hc_t"):
+            hc = await db.get(HumanCall, "call_t1")
+            hc.state, hc.answered_at = "answered", datetime.utcnow() - timedelta(seconds=75)
+            await db.commit()
+        row = (await c.get("/api/calls/live")).json()[0]
+        assert row["ringing"] is False and row["duration"] in ("01:15", "01:16")
