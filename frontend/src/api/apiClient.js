@@ -387,6 +387,8 @@ export const api = {
   companyProfile: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/profile`, { timeoutMs: 120000 }),
   companyAddToJourney: (id, journeyId) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/add-to-journey`, { method: 'POST', body: { journey_id: journeyId } }),
   companyContacts: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/contacts`, { method: 'POST', body, timeoutMs: 120000 }),
+  // body: { name (as the register gives it), first_name, last_name }. Kept for the organisation; a repeat for the same person is free.
+  findPersonEmail: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/person-email`, { method: 'POST', body, timeoutMs: 90000 }),
   researchLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/research`, { method: 'POST', timeoutMs: 120000 }),
   quickCheckLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}/quick-check`, { method: 'POST' }),
   // Check companies (Saved Accounts): validate a list against our records, the registers and the web

@@ -1,8 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Columns3, Copy, RotateCcw, Undo2, X } from "lucide-react";
+import { Check, Columns3, Copy, RotateCcw, Undo2, X } from "lucide-react";
 
 // Column tools for any table: sort, filter, rename, pin, hide and resize each column, a Default / My layout switch, Undo,
-// and a click on a cut-off cell to read all of it.
+// and, on a cut-off cell, its full text as a hover tooltip plus a small copy button. A click on the cell still reaches the row.
 // Put <GridTools id="a-name-for-this-table" /> directly before the element that holds the table (or before the table itself).
 // It finds that table by itself, so the table's own code stays as it is. Columns are told apart by their header text, and the
 // layout is kept per table in this browser. Hiding, pinning, widths and names are written as CSS on the table's columns, and
@@ -120,7 +120,7 @@ export function GridTools({ id, className = "" }) {
   const [lefts, setLefts] = useState({}); // where each pinned column sticks, from the left
   const [tick, setTick] = useState(0); // bumps when the table's size changes, so pinned columns are measured again
   const [menu, setMenu] = useState(null); // { top, right } while the column list is open
-  const [peek, setPeek] = useState(null); // { x, y, label, text } while a cut-off cell is open
+  const [peek, setPeek] = useState(null); // { x, y, label, text } while the pointer is on a cut-off cell (or its copy button)
   const [pop, setPop] = useState(null); // { kind: "filter" | "rename", label, x, y, value } while a header box is open
   const [copied, setCopied] = useState(false);
   const [histLen, setHistLen] = useState(0);
@@ -131,6 +131,14 @@ export function GridTools({ id, className = "" }) {
   const viewRef = useRef({ sort, filters });
   viewRef.current = { sort, filters };
   const history = useRef([]);
+  const peekCell = useRef(null);
+  const hideTimer = useRef(0);
+  const keepPeek = () => { clearTimeout(hideTimer.current); };
+  const dropPeek = () => {
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => { peekCell.current = null; setPeek(null); }, 150);
+  };
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
 
   // Every change to the layout goes through here, so Undo can step back through them.
   const change = (fn, record = true) => {
@@ -235,7 +243,7 @@ export function GridTools({ id, className = "" }) {
     setLefts((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, [table, labels, eff, tick]);
 
-  // Clicks and drags on the table: the header buttons, the resize handle, and a cut-off cell.
+  // Clicks and drags on the table: the header buttons and the resize handle. A hover on a cut-off cell shows its copy button.
   useEffect(() => {
     if (!table) return undefined;
     const indexOf = (cell) => Array.from(cell.parentElement.children).indexOf(cell);
@@ -260,19 +268,27 @@ export function GridTools({ id, className = "" }) {
         setPop({ kind, label, value, x: Math.max(8, Math.min(r.left - 120, window.innerWidth - 288)), y: r.bottom + 6 });
         return;
       }
-      if (t.closest && t.closest(".gt-handle")) { e.stopPropagation(); return; }
-      const td = t.closest && t.closest("tbody td");
-      if (!td || !table.contains(td) || t.closest("a,button,input,select,textarea,label,[role=button]")) return;
-      if (window.getSelection && String(window.getSelection())) return;
+      if (t.closest && t.closest(".gt-handle")) e.stopPropagation();
+    };
+    const onOver = (e) => {
+      const td = e.target.closest && e.target.closest("tbody td");
+      if (!td || !table.contains(td)) return;
+      if (td === peekCell.current) { keepPeek(); return; }
       const cut = [td, ...td.querySelectorAll("*")].some((n) => n.scrollWidth > n.clientWidth + 1);
-      const text = (td.innerText || "").trim();
-      if (!cut || !text) return;
-      e.preventDefault();
-      e.stopPropagation(); // a row that opens something on click stays shut: the click was for reading the cell
+      const text = (td.innerText || "").replace(/\s*\n\s*/g, " · ").trim();
+      if (!cut || !text) { if (peekCell.current) dropPeek(); return; }
+      if (!td.title) td.title = text;
+      keepPeek();
+      peekCell.current = td;
       const r = td.getBoundingClientRect();
       setCopied(false);
-      setPop(null);
-      setPeek({ x: Math.max(8, Math.min(r.left, window.innerWidth - 448)), y: r.bottom + 4, label: labelsRef.current[indexOf(td)] || "", text });
+      setPeek({ x: Math.max(4, r.right - 30), y: r.top + r.height / 2 - 12, label: labelsRef.current[indexOf(td)] || "", text });
+    };
+    const onOut = (e) => {
+      const to = e.relatedTarget;
+      if (peekCell.current && to && peekCell.current.contains(to)) return;
+      if (to && to.closest && to.closest(".gt-copy")) return;
+      if (peekCell.current) dropPeek();
     };
     const onDown = (e) => {
       const h = e.target.closest && e.target.closest(".gt-handle");
@@ -312,10 +328,14 @@ export function GridTools({ id, className = "" }) {
     table.addEventListener("click", onClick, true);
     table.addEventListener("mousedown", onDown, true);
     table.addEventListener("dblclick", onDouble, true);
+    table.addEventListener("mouseover", onOver);
+    table.addEventListener("mouseout", onOut);
     return () => {
       table.removeEventListener("click", onClick, true);
       table.removeEventListener("mousedown", onDown, true);
       table.removeEventListener("dblclick", onDouble, true);
+      table.removeEventListener("mouseover", onOver);
+      table.removeEventListener("mouseout", onOut);
     };
   // change() and toggle() only use refs and state setters, so the first ones stay correct
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -325,7 +345,7 @@ export function GridTools({ id, className = "" }) {
   useEffect(() => {
     if (!menu && !peek && !pop) return undefined;
     const close = () => { setMenu(null); setPeek(null); setPop(null); };
-    const inside = (e) => e.target.closest && e.target.closest(".gt-menu, .gt-peek, .gt-pop");
+    const inside = (e) => e.target.closest && e.target.closest(".gt-menu, .gt-copy, .gt-pop");
     const away = (e) => { if (!inside(e) && !(e.target.closest && e.target.closest(".gt-btn, [data-gt-act]"))) close(); };
     const esc = (e) => { if (e.key === "Escape") close(); };
     const scrolled = (e) => { if (!inside(e)) close(); };
@@ -363,7 +383,8 @@ export function GridTools({ id, className = "" }) {
     setPop(null);
     setMenu({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
   };
-  const copy = () => {
+  const copy = (e) => {
+    e.stopPropagation();
     if (!peek || !navigator.clipboard) return;
     navigator.clipboard.writeText(peek.text).then(() => setCopied(true), () => {});
   };
@@ -427,14 +448,10 @@ export function GridTools({ id, className = "" }) {
         </form>
       ) : null}
       {peek ? (
-        <div className="gt-peek" role="dialog" aria-label={peek.label || "Cell"} style={{ left: peek.x, top: Math.min(peek.y, window.innerHeight - 220) }}>
-          <div className="gt-peek-head">
-            <span>{peek.label}</span>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={copy}><Copy size={13} /> {copied ? "Copied" : "Copy"}</button>
-            <button type="button" className="ui-icon-btn" aria-label="Close" onClick={() => setPeek(null)}><X size={15} /></button>
-          </div>
-          <div className="gt-peek-text">{peek.text}</div>
-        </div>
+        <button type="button" className="gt-copy" style={{ left: peek.x, top: peek.y }} onMouseEnter={keepPeek} onMouseLeave={dropPeek} onClick={copy}
+          title={copied ? "Copied" : `Copy: ${peek.text}`} aria-label={copied ? "Copied" : `Copy the full ${peek.label || "cell"} text`}>
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
       ) : null}
     </div>
   );

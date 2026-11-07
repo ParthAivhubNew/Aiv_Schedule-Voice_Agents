@@ -55,6 +55,13 @@ export function filingRows(c) {
 
 // An owner who is also a director is one person: "Mr Martin Richard Zawadzki" is officer Martin Zawadzki.
 const words = (t) => String(t || "").toLowerCase().replace(/\b(mr|mrs|ms|miss|dr|sir|dame|prof)\b\.?/g, " ").split(/[^a-z']+/).filter(Boolean);
+// A person's email lookup as the screens show it: what was found in this visit, else the email kept from an earlier find.
+export function personEmail(found, o) {
+  const now = (found || {})[o.name];
+  if (now && (now.email || now.busy || now.none || now.error)) return now;
+  return o.work_email ? { email: o.work_email, status: o.work_email_status || "" } : now || {};
+}
+
 export function sameOfficer(controller, officers) {
   const w = words(controller.name);
   return (officers || []).some((o) => { const f = words(o.first_name)[0], l = words(o.last_name).pop(); return f && l && w.includes(f) && w[w.length - 1] === l; });

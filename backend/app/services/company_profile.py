@@ -227,6 +227,9 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
     for o in officers:
         li = (linked.get("people") or {}).get(f"{o.get('first_name', '')} {o.get('last_name', '')}".strip()) or {}
         o["linkedin"], o["linkedin_title"], o["linkedin_note"] = li.get("url", ""), li.get("title", ""), li.get("note", "")
+    from app.services import person_emails as PE
+
+    PE.attach(officers, await PE.kept_for(db, biz.id))
     born = biz.incorporated_on or _date(biz.incorporation_date)
     previous = [{"name": ch.get(f"PreviousName_{i}.CompanyName"), "until": _human(_date(ch.get(f"PreviousName_{i}.CONDATE")))} for i in range(1, 11) if ch.get(f"PreviousName_{i}.CompanyName")]
     sic = []

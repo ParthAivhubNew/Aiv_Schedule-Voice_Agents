@@ -6,6 +6,7 @@ import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, Globe, List, Map 
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
+import { personEmail } from "./companyLogic";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
@@ -164,10 +165,9 @@ function ContactsPanel({ company }) {
     const key = o.name;
     setEmails((m) => ({ ...m, [key]: { busy: true } }));
     try {
-      // This button looks for an email only. It never searches for the website: that has its own button.
-      const site = domain;
-      if (!site) { setEmails((m) => ({ ...m, [key]: { nosite: true } })); return; }
-      const r = await api.emailFind({ first_name: o.first_name, last_name: o.last_name, company_name: company.name, domain: site });
+      // Searched with the company's name, plus its website when we know one. It never searches for the website itself.
+      const r = await api.findPersonEmail(company.id, { name: o.name, first_name: o.first_name, last_name: o.last_name });
+      if (r.charged) announceCreditsChanged();
       setEmails((m) => ({ ...m, [key]: r.found ? { email: r.email, status: r.verification_status } : { none: true } }));
     } catch (e) {
       setEmails((m) => ({ ...m, [key]: { error: e.message || "Couldn't look that up." } }));
@@ -191,7 +191,7 @@ function ContactsPanel({ company }) {
               <Users size={13} /> People on the public register {data.officers.length ? <span style={{ fontWeight: 400, color: C.green }}>(verified)</span> : null}
             </div>
             {data.officers.length ? data.officers.map((o) => {
-              const e = emails[o.name] || {};
+              const e = personEmail(emails, o);
               return (
                 <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${C.borderLight}` }}>
                   <span style={{ ...text, fontSize: 13, flex: "1 1 200px", minWidth: 0 }}>
@@ -199,12 +199,13 @@ function ContactsPanel({ company }) {
                     {personLine(o) ? <span style={{ ...muted, fontSize: 12, display: "block", marginTop: 1 }}>{personLine(o)}</span> : null}
                   </span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
-                    : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person at that website. Nothing charged.</span>
-                    : e.nosite ? <span style={{ ...muted, fontSize: 12.5 }}>{data.stored?.closed?.website ? "Open this company's website first (free), then look for the email. Nothing charged." : "This company's website isn't known yet. Find the website first, then look for the email. Nothing charged."}</span>
-                    : e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span>
-                    : <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
-                        {e.busy ? <Spinner size={13} /> : null} Find email · <LookupCost />
-                      </button>}
+                    : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person. Nothing charged.</span>
+                    : <>
+                        {e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span> : null}
+                        <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
+                          {e.busy ? <Spinner size={13} /> : null} Find email · <LookupCost />
+                        </button>
+                      </>}
                 </div>
               );
             }) : <div style={{ ...muted, fontSize: 12.5 }}>{data.officers_note || "No current officers listed."}</div>}
@@ -297,7 +298,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   if (!state.rows.length) return <span style={{ ...muted, fontSize: 12 }}>No postcode areas found for {one}. Check the spelling, or type a postcode.</span>;
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <button type="button" title="Show the people we hold for this company" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" title={`Pick postcode areas in ${one}`} className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none" }} />
         {ticked.length ? `${ticked.length} postcode area${ticked.length === 1 ? "" : "s"} chosen` : `Choose postcode areas in ${one} (${state.rows.length})`}
       </button>
@@ -305,8 +306,8 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
         <div role="listbox" aria-label={`Postcode areas in ${one}`} className="ui-card"
           style={{ position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 30, width: 280, maxHeight: 320, overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
           <div style={{ display: "flex", gap: 6, padding: "2px 4px 6px" }}>
-            <button title="Tick every company shown" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => set(state.rows.map((r) => r.district))}>Select all</button>
-            <button title="Untick everything" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!ticked.length} onClick={() => set([])}>Clear</button>
+            <button title="Tick every postcode area" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => set(state.rows.map((r) => r.district))}>Select all</button>
+            <button title="Untick every postcode area" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!ticked.length} onClick={() => set([])}>Clear</button>
           </div>
           {state.rows.map((r) => (
             <label key={r.district} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
@@ -800,10 +801,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     setLookups((m) => ({ ...m, [key]: "busy" }));
     try {
       const r = SOCIAL.includes(kind) ? await api.findSocial(c.id, kind) : await api.findCompanyWebsite(c.id, kind);
+      if (r.charged) announceCreditsChanged();
       if (r.company) setCompanies((rows) => rows.map((x) => (x.id === c.id ? { ...x, ...r.company, saved: x.saved } : x)));
       setOpenCo((o) => (o && o.id === c.id && r.company ? { ...o, ...r.company, saved: o.saved } : o));
-      setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches ? "options" : "none"; return n; });
       const matches = !r.found && (r.options || []).length ? r.options : null;
+      setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches ? "options" : "none"; return n; });
       const listed = !r.found && r.listing && r.listing.url; // no site of its own, but the company's exact directory page: shown in the cell, no box
       if (!r.found && !listed) setPick({ company: c, kind, options: matches || [] }); // a miss opens the box too, so the person can add details and search again
       if (matches) setWaiting((w) => ({ ...w, [key]: matches }));
@@ -884,12 +886,13 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   return (
     <div className="pane-root fl-root" data-active={pane} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
-      {pick ? <PickOptions kind={pick.kind} company={pick.company.name} options={pick.options} anchorKey={`${pick.company.id}:${pick.kind}`} onClose={() => setPick(null)}
+      {pick ? <PickOptions key={`${pick.company.id}:${pick.kind}`} kind={pick.kind} company={pick.company.name} options={pick.options} anchorKey={`${pick.company.id}:${pick.kind}`} onClose={() => setPick(null)}
         onRetry={async (hint) => {
           const { company: co, kind } = pick;
           const key = `${co.id}:${kind}`;
           const r = SOCIAL.includes(kind) ? await api.findSocial(co.id, kind, hint) : await api.findCompanyWebsite(co.id, kind, hint);
-          if (r.company) setCompanies((rows) => rows.map((x) => (x.id === co.id ? { ...x, ...r.company, saved: x.saved } : x)));
+          applyCompany(co.id, r.company);
+          if (r.charged) announceCreditsChanged();
           const matches = !r.found && (r.options || []).length ? r.options : [];
           setWaiting((w) => ({ ...w, [key]: matches.length ? matches : null }));
           setLookups((m) => { const n = { ...m }; if (r.found) delete n[key]; else n[key] = matches.length ? "options" : "none"; return n; });

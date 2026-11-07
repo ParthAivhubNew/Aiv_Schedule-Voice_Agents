@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactRows, filingRows, orgGroups, niceName, orderSignals, peopleCount, personMeta, personName, shortDate, subLine } from "./companyLogic";
+import { contactRows, filingRows, orgGroups, niceName, orderSignals, peopleCount, personEmail, personMeta, personName, shortDate, subLine } from "./companyLogic";
 
 describe("how a company is named and described", () => {
   it("makes an all-capitals register name readable and leaves mixed case alone", () => {
@@ -84,5 +84,19 @@ describe("the people org chart", () => {
   it("filters by name or role and drops empty columns", () => {
     expect(orgGroups(people, "secretary").map((x) => x.key)).toEqual(["secretaries"]);
     expect(orgGroups(null)).toEqual([]);
+  });
+});
+
+describe("a person's work email", () => {
+  const o = { name: "SMITH, John", work_email: "john@acme.co.uk", work_email_status: "verified" };
+  it("shows the email kept from an earlier find with no click", () => {
+    expect(personEmail({}, o)).toEqual({ email: "john@acme.co.uk", status: "verified" });
+  });
+  it("prefers what this visit found or is doing", () => {
+    expect(personEmail({ "SMITH, John": { busy: true } }, o)).toEqual({ busy: true });
+    expect(personEmail({ "SMITH, John": { email: "j@acme.co.uk", status: "catch_all" } }, o).email).toBe("j@acme.co.uk");
+  });
+  it("is empty for a person nobody looked up", () => {
+    expect(personEmail({}, { name: "LEE, Ann" })).toEqual({});
   });
 });

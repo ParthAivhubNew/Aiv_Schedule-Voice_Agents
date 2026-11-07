@@ -3,7 +3,7 @@ import { C } from "../../tokens";
 import { Spinner } from "../../app/Loader";
 import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
 import { ArrowLeft, Bot, Link2, Mail, Search } from "lucide-react";
-import { niceName, shortDate } from "./companyLogic";
+import { niceName, personEmail, shortDate } from "./companyLogic";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
@@ -36,7 +36,7 @@ const initials = (n) => String(n || "").split(/\s+/).filter(Boolean).slice(0, 2)
 export function PersonPage({ person, company, found, onBack, onFindEmail, onFindLinkedin, onAskAi, onOpenCompany }) {
   const o = person.raw || {};
   const officer = person.kind === "officer";
-  const email = found[o.name] || {};
+  const email = officer ? personEmail(found, o) : {};
   const li = found[`li:${o.name}`] || {};
   const liUrl = o.linkedin || li.url || "";
   const company_ = niceName(company.name);
@@ -82,23 +82,26 @@ export function PersonPage({ person, company, found, onBack, onFindEmail, onFind
                 <div><a href={liUrl} target="_blank" rel="noreferrer" style={{ ...btn(false), textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}><Link2 size={14} /> Open the LinkedIn page</a></div>
               </>
             ) : !officer ? <div style={small}>LinkedIn can be searched for directors and officers.</div>
-              : li.none ? <Note>We couldn't find a LinkedIn page right now. Try again later.</Note>
-              : li.error ? <Note error>{li.error}</Note>
               : (
-                <div data-reach={`li:${o.name}`} style={{ justifySelf: "start" }}>
-                  <button type="button" style={btn(true, li.busy)} disabled={li.busy} onClick={() => onFindLinkedin(o)}>
-                    {li.busy ? <Spinner size={13} /> : <Search size={13} />} {(li.options || []).length ? "Check matches" : "Find LinkedIn"}
-                  </button>
-                </div>
+                <>
+                  {li.none ? <Note>{li.note || "Nothing confirmed for LinkedIn yet. Add details and search again."}</Note> : li.error ? <Note error>{li.error}</Note> : null}
+                  <div data-reach={`li:${o.name}`} style={{ justifySelf: "start" }}>
+                    <button type="button" style={btn(true, li.busy)} disabled={li.busy} onClick={() => onFindLinkedin(o)}>
+                      {li.busy ? <Spinner size={13} /> : <Search size={13} />} {(li.options || []).length ? "Check matches" : li.none || li.error ? "Search again" : "Find LinkedIn"}
+                    </button>
+                  </div>
+                </>
               )}
           </Block>
 
           {officer ? (
             <Block title="Contact" source="Work email">
               {email.email ? <a href={`mailto:${email.email}`} style={{ color: C.cobalt, fontSize: 14 }}>{email.email} <span style={small}>({email.status})</span></a>
-                : email.none ? <Note>We couldn't find an email right now. Try again later.</Note>
-                : email.error ? <Note error>{email.error}</Note>
-                : <div style={{ justifySelf: "start" }}><button type="button" style={btn(false, email.busy)} disabled={email.busy} onClick={() => onFindEmail(o)}>{email.busy ? <Spinner size={13} /> : <Mail size={13} />} Find email</button></div>}
+                : email.none ? <Note>No email found for this person. Nothing charged.</Note>
+                : <>
+                    {email.error ? <Note error>{email.error}</Note> : null}
+                    <div style={{ justifySelf: "start" }}><button type="button" style={btn(false, email.busy)} disabled={email.busy} onClick={() => onFindEmail(o)}>{email.busy ? <Spinner size={13} /> : <Mail size={13} />} {email.error ? "Search again" : "Find email"}</button></div>
+                  </>}
             </Block>
           ) : null}
         </div>

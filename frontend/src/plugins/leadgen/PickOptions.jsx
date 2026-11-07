@@ -105,7 +105,7 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{!list.length ? `No confirmed ${word} for ${company} yet` : one ? `Is this the right ${word} for ${company}?` : `Which is the right ${word} for ${company}?`}</div>
           <div style={{ fontSize: 12.5, color: C.slate }}>
-            {!list.length ? "We searched the web, read the company's own pages and ran the deep web search. Nothing was confirmed, so nothing is shown as theirs. Add details and we will search again." : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
+            {!list.length ? `${SOCIAL.includes(kind) ? `We searched the web for the ${word}.` : "We searched the web, read the company's own pages and ran the deep web search."} Nothing was confirmed, so nothing is shown as theirs. Add details and we will search again.` : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
           </div>
         </div>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Close"><X size={16} /></button>

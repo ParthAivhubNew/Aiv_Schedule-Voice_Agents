@@ -365,7 +365,7 @@ export default function LeadGenerationPlugin({
                 onClose={() => setView(cameFrom.current && cameFrom.current !== "account" ? cameFrom.current : "saved_companies")} onOpenRegister={openCompany} />
             : <div style={{ padding: 24 }}>{store.loading ? "Loading…" : "That company is no longer in your account."}</div>)}
           {view === "company" && companyId && (
-            <CompanyPage id={companyId} store={store} onBack={() => setView(cameFrom.current || "find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
+            <CompanyPage key={companyId} id={companyId} store={store} onBack={() => setView(cameFrom.current || "find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
           )}
 
           {view === "outreach" && (wizard

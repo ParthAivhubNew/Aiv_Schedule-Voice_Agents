@@ -2332,6 +2332,24 @@ class ContactReveal(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PersonEmail(Base):
+    """A director's work email this organisation found (and paid for) with the email finder, kept against the company and the person,
+    so the company page, the person page and the results drawer show it again and a second lookup is free. Never shared between organisations."""
+    __tablename__ = "person_emails"
+    __table_args__ = (UniqueConstraint("org_id", "business_id", "person_key", name="uq_person_email"),)
+
+    id = Column(String, primary_key=True, default=lambda: f"pe_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    business_id = Column(String, index=True, nullable=False)
+    person_key = Column(String, nullable=False)  # the register name, lower-cased with single spaces
+    first_name = Column(String, default="")
+    last_name = Column(String, default="")
+    email = Column(String, nullable=False)
+    status = Column(String, default="")  # verified | catch_all, as the finder answered
+    source = Column(String, default="")  # which finder answered, or "cache"; kept for staff, never shown to clients
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ContactChoice(Base):
     """What users picked as the right answer when a lookup was not sure. Public facts about a company, so it is shared across organisations
     (like the company store): a value that enough different organisations picked is trusted for the next person. Holds only organisation ids."""

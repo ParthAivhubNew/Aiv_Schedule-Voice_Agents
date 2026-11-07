@@ -326,7 +326,7 @@ def test_the_opening_list_starts_on_complete_trading_companies_and_any_filter_th
     from app.services import business_records as BR
 
     got, applied = BR.with_default_browse({})
-    assert applied and got["complete_commercial"] is True and "sector" not in got
+    assert applied and got["complete_first"] is True and "sector" not in got
     for asked in ({"towns": ["Leeds"]}, {"sector": ["catering"]}, {"name_contains": "Tesco"}, {"sic_codes": ["56101"]}, {"keyword": ["cafe"]}):
         same, applied = BR.with_default_browse(asked)
         assert not applied and same == asked
@@ -338,7 +338,7 @@ def test_a_sort_that_fell_back_and_the_software_start_are_told_to_the_person():
     from app.api import lead_accounts as LA
 
     chips = LA._browse_chips(["Sector: software"], True, {"sort_asked": "name", "sort_used": "newest"})
-    assert any("Starting with trading companies" in c for c in chips) and any("A to Z is not ready" in c for c in chips)
+    assert any("trading companies with the fullest records first" in c for c in chips) and any("A to Z is not ready" in c for c in chips)
     assert LA._browse_chips(["Sector: software"], False, {"sort_asked": "name", "sort_used": "name"}) == ["Sector: software"]
 
 

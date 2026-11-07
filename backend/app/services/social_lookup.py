@@ -117,6 +117,43 @@ def rank(rows: List[Dict[str, Any]], network: str, name: str, postcode: str, are
     return sorted(by.values(), key=lambda c: -c["score"])
 
 
+SITE_READ_DAYS = 30
+
+
+async def read_own_site(biz: Any, *, site: str = "", force: bool = False) -> Dict[str, str]:
+    """The pages the company's own website links to (its footer and contact page): free, and the company itself says they are its pages.
+    Read at most once in SITE_READ_DAYS; a network already held is never overwritten. Search engines often do not list X or Facebook pages
+    at all, so this is the first place to look. Returns what was kept, by network."""
+    from app.services import company_contacts as CC
+    from app.services import enrichment_service as ES
+
+    site = (site or getattr(biz, "website", "") or getattr(biz, "domain", "") or "").strip()  # `site` is a website found by the Google step
+    raw = biz.raw_data or {}
+    if not site or (not force and CC._age_days(raw.get("site_socials_at")) <= SITE_READ_DAYS):
+        return {}
+    try:
+        import asyncio
+
+        crawled = await asyncio.wait_for(ES.crawl_homepage_contacts(site), timeout=25)
+    except Exception as err:
+        logger.info("own-site read failed for %s: %s", getattr(biz, "name", ""), err)
+        return {}  # nothing is remembered, so the next press reads it again
+    links: Dict[str, str] = {}
+    for key, url in (crawled.get("socials") or {}).items():
+        net = "x" if key in ("twitter", "x") else key
+        if net in NETWORKS and not links.get(net):
+            links[net] = clean_url(net, url if isinstance(url, str) else "")
+        elif net == "linkedin" and "/company/" in str(url):
+            links[net] = str(url).split("?")[0]
+    links = {n: u for n, u in links.items() if u}
+    stamp = datetime.utcnow().isoformat() + "Z"
+    CC._keep_socials(biz, links, stamp)
+    raw2 = copy.deepcopy(biz.raw_data or {})
+    raw2["site_socials_at"] = stamp
+    biz.raw_data = raw2
+    return links
+
+
 def _slot(biz: Any, network: str) -> Dict[str, Any]:
     return (((biz.raw_data or {}).get("socials") or {}).get(network)) or {}
 

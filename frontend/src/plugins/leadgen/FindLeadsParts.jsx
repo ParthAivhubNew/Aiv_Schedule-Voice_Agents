@@ -131,8 +131,8 @@ const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTrans
 const td = { ...text, fontSize: 13, color: C.textInk, padding: "9px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
 const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: "#fff" });
 
-function Cell({ children, style }) {
-  return <td style={{ ...td, ...style }}>{children}</td>;
+function Cell({ children, style, title }) {
+  return <td style={{ ...td, ...style }} title={title || undefined}>{children}</td>;
 }
 
 function link(url) {
@@ -246,7 +246,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   return (
     <>
     <GridTools id="find-companies" />
-    <div className="ui-scroll fl-table" style={busy ? { opacity: 0.55, pointerEvents: "none", transition: "opacity .15s" } : { transition: "opacity .15s" }}>
+    <div className="ui-scroll fl-table" aria-busy={busy || undefined} style={{ opacity: busy ? 0.55 : 1, transition: "opacity .15s" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
         <thead>
           <tr>
@@ -277,7 +277,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                 {head ? <Divider profile={head} count={tier} cols={cols} /> : null}
                 <tr onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
                   <Cell style={{ ...pinned(0), width: 36, background: bg }}><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onClick={(e) => e.stopPropagation()} onChange={() => onPick(c.id)} /></Cell>
-                  <Cell style={{ ...pinned(36), background: bg, minWidth: 260, maxWidth: 320 }}>
+                  <Cell style={{ ...pinned(36), background: bg, minWidth: 260, maxWidth: 320 }} title={c.name}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <CompanyAvatar c={c} />
                       <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -290,7 +290,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       </div>
                     </div>
                   </Cell>
-                  <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={c.industry}>{plainSector(c.industry) || "–"}</Cell>
+                  <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={plainSector(c.industry)}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>

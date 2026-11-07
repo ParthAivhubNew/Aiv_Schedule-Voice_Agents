@@ -210,7 +210,7 @@ async def warm_browse_pages() -> None:
     opening, _ = business_records.with_default_browse({})
     for limit in (25, 50, 100):
         async with AsyncSessionLocal() as db:
-            out = await business_records.search_filtered(db, opening, limit=limit, offset=0, sort="best", stats=False)
+            out = await business_records.opening_page(db, opening, limit=limit, offset=0, sort="best")
             cards = [lead_filters.card(r) for r in out["rows"]]
         if not cards:
             continue  # an empty register (before an import) must never be remembered as "no companies"
@@ -225,7 +225,7 @@ def _browse_chips(chips: List[str], default_on: bool, out: Dict[str, Any]) -> Li
     """What the person is told when the list is not exactly what they asked for: software companies as the starting point, or a sort that fell back."""
     chips = list(chips)
     if default_on:
-        chips.append("Starting with trading companies that have the fullest records. Add an industry, town or name to search anything else.")
+        chips.append("Every company on the register, trading companies with the fullest records first. Add an industry, town or name to search anything else.")
     if out.get("sort_asked") == "name" and out.get("sort_used") != "name":
         chips.append("A to Z is not ready for the whole register yet, so this is newest first. Add an industry or town to sort by name.")
     return chips
@@ -284,15 +284,11 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
                 shown = await RV.mask(db, cached["companies"])
                 return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown]}
-            async def run(f):
-                out = await business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
-                                                             sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
-                if default_on and not out.get("total"):  # the full-record list is not built yet: open on software rather than on nothing
-                    plain = {k: v for k, v in f.items() if k != "complete_commercial"}
-                    out = await business_records.search_filtered(db, {**plain, "sector": [business_records.DEFAULT_BROWSE_SECTOR]}, limit=body.limit,
-                                                                 offset=body.offset, exclude_ids=body.exclude_ids,
-                                                                 sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
-                return out
+            def run(f):
+                opening = bool(f.get("complete_first"))
+                return (business_records.opening_page if opening else business_records.search_filtered)(
+                    db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                    sort=body.sort if body.sort in business_records.SORTS else "best", **({} if opening else {"stats": False}))
 
             out, understood, relaxed_by = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
             out = {**out, "relaxed": relaxed_by}
@@ -529,7 +525,9 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
     await db.commit()
     if web and web.get("found") and not (web.get("cached") or web.get("from_saved")) and not body.find_site_only:
         await _charge_leads(db, 1, f"Contacts for {biz.name}")
-    officers = CC.active_officers(biz.officers)
+    from app.services import person_emails as PE
+
+    officers = PE.attach(CC.active_officers(biz.officers), await PE.kept_for(db, biz.id))
     return {
         "company": await RV.mask_one(db, lead_filters.card(biz)),
         "officers": officers,
@@ -676,6 +674,40 @@ async def company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
     return {"company": await CP.build(db, biz)}
 
 
+class PersonEmailIn(BaseModel):
+    name: str  # the officer's name as the register gives it: the key the found email is kept under
+    first_name: str
+    last_name: str
+
+
+@router.post("/companies/{company_id}/person-email")
+async def find_person_email(company_id: str, body: PersonEmailIn, db: AsyncSession = Depends(get_db)):
+    """The Find email button next to one director. The finder searches with the company's name, plus its website when we know one.
+    1 credit only when it finds one. What this organisation found is kept and shown again on load; asking again for the same person is free."""
+    from app.core.tenancy import current_org
+    from app.services import person_emails as PE
+    from app.services.enrichment_waterfall import lookup_person_waterfall
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    kept = await PE.kept_one(db, biz.id, body.name)
+    if kept and kept.email:
+        return {"found": True, **PE.shown(kept), "verification_status": kept.status or "", "kept": True, "charged": 0}
+    res = await lookup_person_waterfall(db=db, org_id=current_org(), first_name=body.first_name, last_name=body.last_name,
+                                        company_name=biz.name, domain=PE.finder_domain(biz))
+    if res.get("error") == "insufficient_credits":
+        raise HTTPException(status_code=402, detail=res["detail"])
+    if res.get("error") in ("bad_input", "not_configured"):
+        raise HTTPException(status_code=400 if res["error"] == "bad_input" else 503, detail=res["detail"])
+    if not (res.get("found") and res.get("email")):
+        return {"found": False, "charged": 0}
+    await PE.keep(db, biz.id, body.name, body.first_name, body.last_name, res["email"], res.get("verification_status", ""), res.get("source", ""))
+    await db.commit()
+    return {"found": True, "email": res["email"], "status": res.get("verification_status", ""), "verification_status": res.get("verification_status", ""),
+            "kept": False, "charged": 1}
+
+
 class JourneyIn(BaseModel):
     journey_id: str
 
@@ -696,14 +728,15 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
     lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
         card = lead_filters.card(biz)
-        await add_accounts(AccountsIn(accounts=[AccountIn(name=biz.name, website=card["website"] or card["web_website"], phone=card["phone"] or card["web_phone"], email=card["email"],
+        await add_accounts(AccountsIn(accounts=[AccountIn(name=biz.name, website=card["website"] or card["web_website"], phone=card["phone"] or card["web_phone"], email=card["email"] or card["web_email"],
                                                           industry=card["industry"], region=card["region"], source="scout", business_record_id=biz.id)], list_name="Unsorted"), db)
         lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
         raise HTTPException(status_code=400, detail="This company couldn't be saved, so it can't be added.")
     first = (CC.active_officers(biz.officers) or [{}])[0]
     parts = (lead.contact_name or "").split()
-    person = {"email": lead.email or lead_filters.card(biz)["email"] or "", "first_name": parts[0] if parts else first.get("first_name", ""),
+    card = lead_filters.card(biz)
+    person = {"email": lead.email or card["email"] or card["web_email"] or "", "first_name": parts[0] if parts else first.get("first_name", ""),
               "last_name": " ".join(parts[1:]) if parts else first.get("last_name", ""), "company": biz.name, "lead_id": lead.id}
     out = await J.enrol(db, camp, [person], current_org())
     await db.commit()
@@ -713,6 +746,36 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
                  "do_not_email": "It is on your do-not-email list.", "in_another_journey": "It is already in another running journey.", "no_contact": "It has no contact details."}
         raise HTTPException(status_code=400, detail=words.get(why, "It couldn't be added."))
     return {"added": out["added"], "journey": camp.name}
+
+
+async def _email_through_google(db: AsyncSession, biz: BusinessRecord, hint: str) -> bool:
+    """Last resort for a company email: Google's listing for the company (only one whose name matches), then the address that listing's own
+    website publishes. Only an address on that website's own domain is kept, so it is the company's and never a third party's. Charged as a
+    deep search, and only when an address is found."""
+    from app.services import enrichment_service as ES, guardrail as G, site_check
+
+    try:
+        await _can_deep_search(db)
+    except HTTPException:
+        return False
+    place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="website")
+    site = (place or {}).get("website") or ""
+    if not site or not site_check.same_business(biz.name, place.get("name") or ""):
+        return False
+    own = G.registered_domain(site)
+    crawled = await ES.crawl_homepage_contacts(site)
+    emails = [e for e in crawled.get("emails") or [] if own and G.registered_domain("https://" + e.split("@")[-1]) == own]
+    if not emails:
+        return False
+    raw = dict(biz.raw_data or {})
+    web = dict(raw.get("contacts_web") or {})
+    web.update({"emails": emails[:1], "source": "web", "guardrail": True, "verified": False, "fetched_at": datetime.utcnow().isoformat() + "Z"})
+    raw["contacts_web"] = web
+    biz.raw_data = raw
+    await db.commit()
+    await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:email:{hint}")
+    await RV.open_one(db, biz.id, "email")
+    return True
 
 
 async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> Dict[str, Any]:
@@ -741,11 +804,18 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         # Stage 2: the company published no address, so ask the email finders (cheapest first, two at most) for its directors.
         hit = await _email_from_people(db, biz)
         if hit:
+            from app.services import person_emails as PE
+
             await CC.keep_person_email(db, biz, hit[0], hit[1])
+            names = CC.split_officer_name(hit[1])
+            await PE.keep(db, biz.id, hit[1], names["first_name"], names["last_name"], hit[0], "verified", "")  # paid for here, so the person's own row shows it too
             got, source, person = True, "people", hit[1]
             await db.commit()
             await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email:{hint}")
             charged = 1
+        else:
+            if await _email_through_google(db, biz, hint):  # Stage 3: Google's listing, then the address its own site publishes
+                got, source, charged = True, "deep", 1
     CC.note_lookup(biz, "email", got)
     await db.commit()
     await CP.sync_safely(db, biz)
@@ -1076,6 +1146,32 @@ class SocialIn(BaseModel):
     hint: str = ""
 
 
+async def _social_through_google(db: AsyncSession, biz: BusinessRecord, body: "SocialIn", r: Dict[str, Any]):
+    """Last resort when the web search found no page: Google's listing for this company (only one whose name and place match), then the
+    website that listing names is read for the company's own links. Charged as a deep search, and only when it finds the page.
+    Returns (the lookup result, credits charged)."""
+    from app.services import linkedin_lookup as LI
+    from app.services import site_check
+
+    try:
+        await _can_deep_search(db)
+    except HTTPException:
+        return r, 0  # not switched on, or not enough credits: the person is told nothing was confirmed
+    place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="website")
+    site = (place or {}).get("website") or ""
+    if not site or not site_check.same_business(biz.name, place.get("name") or ""):
+        return r, 0
+    links = await SL.read_own_site(biz, site=site, force=True)
+    if not links.get(body.network):
+        return r, 0
+    again = await (LI.find(db, biz) if body.network == "linkedin" else SL.find(db, biz, body.network))
+    if not again["url"]:
+        return r, 0
+    await db.commit()
+    await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:{body.network}")
+    return {**again, "searched": False}, 1
+
+
 @router.post("/companies/{company_id}/find-social")
 async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depends(get_db)):
     """Look for one public page of the company: LinkedIn, Facebook or X. Only that network is searched. 1 Leads credit when a page or close matches
@@ -1088,9 +1184,13 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     await _can_research(db)
+    if not body.hint:  # the company's own website links to its pages: read that first (free); the web search is for what it does not link to
+        await SL.read_own_site(biz)
     r = await (LI.find(db, biz, hint=body.hint) if body.network == "linkedin" else SL.find(db, biz, body.network, hint=body.hint))
-    await db.commit()
     charged = 0
+    if not (r["url"] or r["options"] or r.get("failed")):
+        r, charged = await _social_through_google(db, biz, body, r)  # the web search found nothing: Google's listing for the company, then the site it names
+    await db.commit()
     if r["url"] and r.get("searched"):  # suggestions alone are free: a pick is charged when it is made (choose_contact)
         await _charge_leads(db, 1, f"{body.network.title()} for {biz.name}", "lead_social")
         charged = 1

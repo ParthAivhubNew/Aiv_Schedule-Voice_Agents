@@ -3,7 +3,6 @@ import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Spinner } from "../../app/Loader";
 import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
-import { domainOf } from "./AccountsViews";
 import { CompanyAvatar, ProfileBadge } from "./FindLeadsParts";
 import { asAccount } from "./FindLeadsView";
 import { ContactPoints } from "./ContactPoints";
@@ -11,7 +10,7 @@ import { OrgChart } from "./OrgChart";
 import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
-import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
+import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personEmail, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
@@ -72,7 +71,6 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
   const { officers, leavers, read, from_registry: fromRegistry } = c.people;
   const controllers = c.people.controllers;
   const alsoDirector = (p) => sameOfficer(p, officers);
-  const domain = domainOf(c.contact.website.value);
   const hasPeople = officers.length > 0 || controllers.length > 0;
   const showChart = hasPeople && view === "chart";
   return (
@@ -87,7 +85,7 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
         <div style={{ ...card, padding: 0 }}>
           <div style={{ padding: "12px 14px", fontWeight: 700, fontSize: 14 }}>Directors and officers <span style={{ ...small, fontWeight: 500 }}>verified from the register</span></div>
           {officers.map((o) => {
-            const f = found[o.name] || {};
+            const f = personEmail(found, o);
             return (
               <div key={o.name} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", borderTop: `1px solid ${C.borderLight}` }}>
                 <div style={{ minWidth: 0, flex: "1 1 220px" }}>
@@ -98,9 +96,11 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
                 <button type="button" style={btn(false)} onClick={() => onOpenPerson(personCard(o))}>Open profile</button>
                 {f.email ? <span style={{ fontSize: 12.5, color: C.green }}>{f.email} ({f.status})</span>
                   : f.none ? <span style={small}>No email found. Nothing charged.</span>
-                  : f.error ? <span style={{ ...small, color: C.red }}>{f.error}</span>
-                  : <button type="button" style={btn(false, f.busy)} disabled={f.busy} title={domain ? "Look for this person's work email. 1 Leads credit only if one is found" : "Find the company's website first"}
-                      onClick={() => onFindEmail(o)}>{f.busy ? <Spinner size={12} /> : <Mail size={13} />} Find email · <LookupCost /></button>}
+                  : <>
+                      {f.error ? <span style={{ ...small, color: C.red }}>{f.error}</span> : null}
+                      <button type="button" style={btn(false, f.busy)} disabled={f.busy} title="Look for this person's work email. 1 Leads credit only if one is found"
+                        onClick={() => onFindEmail(o)}>{f.busy ? <Spinner size={12} /> : <Mail size={13} />} Find email · <LookupCost /></button>
+                    </>}
               </div>
             );
           })}
@@ -160,7 +160,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const find = async (kind) => {
     if (waiting[kind]) { setPick({ kind, person: "", anchor: kind, options: waiting[kind] }); return; }
     setBusy(kind);
-    try { const r = await api.findCompanyWebsite(c.id, kind); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
+    try { const r = await api.findCompanyWebsite(c.id, kind); if (r.charged) announceCreditsChanged(); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
     setBusy("");
   };
   // Opens one contact our registry holds. Free, once. It never searches for anything.
@@ -175,6 +175,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     setLi(network);
     try {
       const r = await api.findSocial(c.id, network);
+      if (r.charged) announceCreditsChanged();
       if (!r.found) { setPick({ kind: network, person: "", anchor: network, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [network]: r.options })); }
       say(r.found ? `Found the ${NETS[network]}.` : (r.options || []).length ? "Pick the right one from the closest matches." : r.note || "Nothing confirmed yet. Add details and search again.");
       await load();
@@ -187,8 +188,9 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     setFound((m) => ({ ...m, [key]: { busy: true } }));
     try {
       const r = await api.findLinkedin(c.id, { first_name: o.first_name, last_name: o.last_name });
+      if (r.charged) announceCreditsChanged();
       if (!r.found) setPick({ kind: "linkedin", person: `${o.first_name} ${o.last_name}`.trim(), names: { first_name: o.first_name, last_name: o.last_name }, anchor: key, options: r.options || [] });
-      setFound((m) => ({ ...m, [key]: r.found ? { url: r.url } : (r.options || []).length ? { options: r.options } : { none: true } }));
+      setFound((m) => ({ ...m, [key]: r.found ? { url: r.url } : (r.options || []).length ? { options: r.options } : { none: true, note: r.note || "" } }));
       if (r.found) await load();
     } catch (e) { setFound((m) => ({ ...m, [key]: { error: e.message || "Couldn't look that up." } })); }
   };
@@ -196,9 +198,10 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     setBusy("save");
     try {
       const card_ = { id: c.id, name: c.name, website: c.contact.website.value, phone: c.contact.phone.value, email: c.contact.email.value, industry: first ? first.text : "", region: c.region, registration_number: c.registration_number, status: c.status, postcode: c.postcode };
-      await store.save([asAccount(card_)]);
-      say("Saved to your Unsorted list.");
-      await load();
+      if (await store.save([asAccount(card_)], "Unsorted", { quiet: true })) {
+        say("Saved to your Unsorted list.");
+        await load();
+      }
     } catch (e) { say(e.message || "Couldn't save it.", true); }
     setBusy("");
   };
@@ -213,16 +216,15 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     setBusy("");
   };
   const findEmail = async (o) => {
-    const domain = domainOf(c.contact.website.value);
-    if (!domain) { setFound((m) => ({ ...m, [o.name]: { error: "Find the company's website first, then ask again." } })); return; }
     setFound((m) => ({ ...m, [o.name]: { busy: true } }));
     try {
-      const r = await api.emailFind({ first_name: o.first_name, last_name: o.last_name, company_name: c.name, domain });
+      const r = await api.findPersonEmail(c.id, { name: o.name, first_name: o.first_name, last_name: o.last_name });
+      if (r.charged) announceCreditsChanged();
       setFound((m) => ({ ...m, [o.name]: r.found ? { email: r.email, status: r.verification_status } : { none: true } }));
     } catch (e) { setFound((m) => ({ ...m, [o.name]: { error: e.message || "Couldn't look that up." } })); }
   };
 
-  const pickEl = pick ? <PickOptions kind={pick.kind} company={name} options={pick.options} anchorKey={pick.anchor} onClose={() => setPick(null)}
+  const pickEl = pick ? <PickOptions key={pick.anchor} kind={pick.kind} company={name} options={pick.options} anchorKey={pick.anchor} onClose={() => setPick(null)}
     onRetry={async (hint) => {
       const k = pick.kind;
       const r = pick.names ? await api.findLinkedin(c.id, { ...pick.names, hint })
@@ -278,9 +280,9 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                 <>
                   <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
                   <div className="ui-menu" role="menu" style={{ zIndex: 80, minWidth: 240, right: 0 }}>
-                    {journeys === null ? <div style={{ padding: 10 }}><Spinner size={14} /></div> : journeys.length ? journeys.filter((j) => j.status !== "completed").map((j) => (
+                    {journeys === null ? <div style={{ padding: 10 }}><Spinner size={14} /></div> : journeys.some((j) => j.status !== "completed") ? journeys.filter((j) => j.status !== "completed").map((j) => (
                       <button key={j.id} type="button" role="menuitem" className="ui-menu-item" onClick={() => addTo(j)}>{j.name} <span style={small}>· {j.status}</span></button>
-                    )) : <div style={{ ...small, padding: 10 }}>No journeys yet. Make one on the Journeys page.</div>}
+                    )) : <div style={{ ...small, padding: 10 }}>{journeys.length ? "Every journey has finished." : "No journeys yet."} Make one on the Journeys page.</div>}
                     <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); onGo("outreach"); }}><Plus size={14} /> New journey</button>
                   </div>
                 </>
