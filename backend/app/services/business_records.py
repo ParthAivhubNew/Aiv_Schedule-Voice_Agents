@@ -567,7 +567,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "not_complete_commercial", "complete_first"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first"):
         if (filters or {}).get(key):
             out[key] = True
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
@@ -723,9 +723,8 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
         conds.append(~or_(*[func.coalesce(B.company_category, "").ilike(_like(t), escape="\\") for t in f["not_company_category"]]))
-    if f.get("complete_commercial") or f.get("not_complete_commercial"):  # the two halves of the opening list
-        complete = func.coalesce(_complete_commercial(), False)
-        conds.append(complete if f.get("complete_commercial") else ~complete)
+    if f.get("complete_commercial"):  # the first half of the opening list (see complete_ids)
+        conds.append(func.coalesce(_complete_commercial(), False))
     if not _wants_non_business(f):  # a school, nursery, church or community place without a company number is not a business lead
         conds.append(~and_(func.coalesce(B.registration_number, "") == "",
                            or_(func.coalesce(B.industry, "").op("~*")(_NB_INDUSTRY), B.name.op("~*")(_NB_NAME))))
@@ -825,22 +824,57 @@ def _complete_commercial() -> Any:
                 site != "", ~or_(*[site.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
 
 
+COMPLETE_CAP = 5000  # how many complete companies lead the opening list; their ids are kept so the page never has to search for them again
+_COMPLETE: List[Any] = [0.0, []]  # [when read, ids best first]
+_COMPLETE_TTL = 1200.0
+
+
+async def complete_ids(db: AsyncSession) -> List[str]:
+    """The ids of the best complete trading companies (see _complete_commercial), best first, read once in a while with its own short
+    time limit. [] when it can't be read in time: the opening list then runs as the plain whole register instead of failing."""
+    import time
+
+    if time.monotonic() - _COMPLETE[0] < _COMPLETE_TTL:
+        return list(_COMPLETE[1])
+    ids: List[str] = []
+    ttl_back = 0.0
+    try:
+        async with db.begin_nested():
+            if db.get_bind().dialect.name == "postgresql":
+                await db.execute(text("SET LOCAL statement_timeout = '20s'"))
+            where = and_(*_filter_conditions(normalize_filters({"complete_commercial": True})))
+            ids = [r[0] for r in (await db.execute(select(BusinessRecord.id).where(where)
+                                                    .order_by(BusinessRecord.rank_score.desc().nullslast()).limit(COMPLETE_CAP))).all()]
+    except Exception as err:
+        logger.warning(f"[business_records] complete companies could not be read: {err}")
+        ttl_back = _COMPLETE_TTL - 60  # try again in a minute, not in twenty
+    _COMPLETE[0], _COMPLETE[1] = time.monotonic() - ttl_back, ids
+    return list(ids)
+
+
 async def opening_page(db: AsyncSession, filters: Dict[str, Any], *, limit: int = 25, offset: int = 0, sort: str = "best",
                        exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     """The whole register as one list: first the trading companies with full records, then every other company, best first.
     A page that runs past the end of the first group carries on into the second, so no company is shown twice or left out."""
     base = {k: v for k, v in (filters or {}).items() if k != "complete_first"}
     offset = max(0, int(offset or 0))
-    first = await search_filtered(db, {**base, "complete_commercial": True}, limit=limit, offset=offset, sort=sort, stats=False,
-                                  exclude_ids=exclude_ids, broaden=False)
-    rows = list(first["rows"])
+    skip = set(exclude_ids or [])
+    ids = [i for i in (await complete_ids(db) if sort == "best" else []) if i not in skip]
+    if not ids:  # another sort, or the complete companies are not ready: the whole register in the order asked
+        out = await search_filtered(db, base, limit=limit, offset=offset, sort=sort, stats=False, exclude_ids=exclude_ids, broaden=False)
+        return {**out, "filters": normalize_filters(filters)}
+    page = ids[offset:offset + limit]
+    rows: List[Any] = []
+    if page:
+        got = {r.id: r for r in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(page)))).scalars().all()}
+        rows = [got[i] for i in page if i in got]
     need = limit - len(rows)
-    rest = await search_filtered(db, {**base, "not_complete_commercial": True}, limit=max(need, 1), offset=max(0, offset - first["total"]),
-                                 sort=sort, stats=False, exclude_ids=exclude_ids, broaden=False)
+    rest = await search_filtered(db, base, limit=max(need, 1), offset=max(0, offset - len(ids)), sort=sort, stats=False,
+                                 exclude_ids=list(skip | set(ids)), broaden=False)
     if need > 0:
         rows += rest["rows"][:need]
-    total = first["total"] + rest["total"]
-    return {**first, "rows": rows, "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP or first["total_capped"] or rest["total_capped"],
+    total = len(ids) + rest["total"]
+    return {**rest, "rows": rows, "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP or rest["total_capped"],
             "filters": normalize_filters(filters)}
 
 
