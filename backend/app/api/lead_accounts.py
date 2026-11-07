@@ -225,7 +225,7 @@ def _browse_chips(chips: List[str], default_on: bool, out: Dict[str, Any]) -> Li
     """What the person is told when the list is not exactly what they asked for: software companies as the starting point, or a sort that fell back."""
     chips = list(chips)
     if default_on:
-        chips.append("Starting with software companies. Add an industry, town or name to search anything else.")
+        chips.append("Starting with trading companies that have the fullest records. Add an industry, town or name to search anything else.")
     if out.get("sort_asked") == "name" and out.get("sort_used") != "name":
         chips.append("A to Z is not ready for the whole register yet, so this is newest first. Add an industry or town to sort by name.")
     return chips
@@ -284,9 +284,15 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
                 shown = await RV.mask(db, cached["companies"])
                 return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown]}
-            def run(f):
-                return business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
-                                                        sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
+            async def run(f):
+                out = await business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                                                             sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
+                if default_on and not out.get("total"):  # the full-record list is not built yet: open on software rather than on nothing
+                    plain = {k: v for k, v in f.items() if k != "complete_commercial"}
+                    out = await business_records.search_filtered(db, {**plain, "sector": [business_records.DEFAULT_BROWSE_SECTOR]}, limit=body.limit,
+                                                                 offset=body.offset, exclude_ids=body.exclude_ids,
+                                                                 sort=body.sort if body.sort in business_records.SORTS else "best", stats=False)
+                return out
 
             out, understood, relaxed_by = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
             out = {**out, "relaxed": relaxed_by}

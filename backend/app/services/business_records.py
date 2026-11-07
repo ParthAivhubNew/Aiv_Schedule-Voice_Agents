@@ -567,7 +567,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial"):
         if (filters or {}).get(key):
             out[key] = True
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
@@ -723,6 +723,12 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
         conds.append(~or_(*[func.coalesce(B.company_category, "").ilike(_like(t), escape="\\") for t in f["not_company_category"]]))
+    if f.get("complete_commercial"):  # the opening list: fullest-data trading companies, in no one industry
+        main_sic = func.split_part(func.btrim(func.coalesce(B.sic_codes, ""), "|"), "|", 1)
+        conds += [B.rank_score >= 2 * TIER_STEP, main_sic != "", ~main_sic.op("~")(NON_COMMERCIAL_SIC),
+                  ~func.coalesce(B.company_category, "").op("~*")(NON_COMMERCIAL_CATEGORY)]
+        site = func.coalesce(func.nullif(B.website, ""), B.domain, "")
+        conds += [site != "", ~or_(*[site.ilike(f"%{h}%") for h in DIRECTORY_SITES])]
     if not _wants_non_business(f):  # a school, nursery, church or community place without a company number is not a business lead
         conds.append(~and_(func.coalesce(B.registration_number, "") == "",
                            or_(func.coalesce(B.industry, "").op("~*")(_NB_INDUSTRY), B.name.op("~*")(_NB_NAME))))
@@ -793,7 +799,10 @@ async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = 
 
 
 NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
-DEFAULT_BROWSE_SECTOR = "software"  # what Find Leads opens on when no filter is set: software companies, not whatever has the most filled-in fields
+DEFAULT_BROWSE_SECTOR = "software"  # the opening list falls back to this when the complete trading companies are not ready yet
+# Main SIC divisions that are not trading: education, health, social work, membership and religious bodies, public bodies, dormant and non-trading.
+NON_COMMERCIAL_SIC = r"^(84|85|86|87|88|91|94|97|98|99|74990)"
+NON_COMMERCIAL_CATEGORY = r"(charit|community interest|industrial|unincorporated|royal charter)"
 
 
 def has_narrowing(f: Dict[str, Any]) -> bool:
@@ -802,10 +811,11 @@ def has_narrowing(f: Dict[str, Any]) -> bool:
 
 
 def with_default_browse(filters: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
-    """(filters, applied). The opening list with nothing asked for starts on software companies; any filter the person sets wins."""
+    """(filters, applied). The opening list with nothing asked for starts on the trading companies with the fullest records,
+    across every industry; any filter the person sets wins."""
     if has_narrowing(normalize_filters(filters)):
         return filters, False
-    return {**(filters or {}), "sector": [DEFAULT_BROWSE_SECTOR]}, True
+    return {**(filters or {}), "complete_commercial": True}, True
 
 
 # Filters given up one step at a time, least important first, when nothing matches all of them. The trade (keyword, sector,
