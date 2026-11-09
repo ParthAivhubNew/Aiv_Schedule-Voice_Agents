@@ -22,6 +22,9 @@ import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { LeadActivity, StageBadge } from "./LeadActivity";
 import { FilterCards, buildFilterCards } from "./FilterCards";
+import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout.jsx";
+import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
+import { filledSummary } from "./profileLayout";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -894,6 +897,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <td><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
+                    <span style={{ marginLeft: 4 }}><NotesButton companyId={a.id} name={a.name} /></span>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
                   </td>
                   {showing("phone") ? (
@@ -1212,13 +1216,27 @@ function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirs
   );
 }
 
+const PANEL_TABS = [
+  { id: "overview", label: "Overview", tip: "Contact details, checks and what came from your file" },
+  { id: "research", label: "Research", tip: "Improve this company and read the research" },
+  { id: "details", label: "Details", tip: "Edit the saved details" },
+  { id: "notes", label: "Notes", tip: "Notes your team wrote on this company" },
+  { id: "activity", label: "Activity", tip: "Stage, calls, meetings, emails and the timeline" },
+];
+
 export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegister, page = false }) {
   const live = store.accounts.find((a) => a.id === account.id) || account;
   const lockedIds = useLocked();
   const inCheck = lockedIds.has(live.id);
-  const [form, setForm] = useState(() => Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]));
+  // The old single notes field is no longer edited here: notes are a list now (Notes tab), and the old text shows there as "Earlier note".
+  const [form, setForm] = useState(() => Object.fromEntries(ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""])));
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const changed = [...ACCOUNT_FIELDS.map(([k]) => k), "notes"].some((k) => (form[k] || "") !== (live[k] || ""));
+  const changed = ACCOUNT_FIELDS.some(([k]) => (form[k] || "") !== (live[k] || ""));
+  const [tab, setTab] = useProfileTab("account", PANEL_TABS.map((t) => t.id), "overview");
+  const notesApi = useNotes({ companyId: live.business_record_id || "", accountId: live.id });
+  const tabBase = `acct-${live.id}`;
+  const custom = Object.entries(live.custom || {});
+  const openNotes = () => setTab("notes");
   useEffect(() => {
     if (page) return undefined;
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -1238,9 +1256,11 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
       <div role={page ? undefined : "dialog"} aria-label={live.name} onClick={(e) => e.stopPropagation()} className="ui-scroll"
         style={page ? { width: "min(100%, 980px)", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column" }
           : { width: "min(100%, 520px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 12px 20px", borderBottom: `1px solid ${C.border}`, position: page ? "static" : "sticky", top: 0, background: "#fff", zIndex: 1 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>{live.name}</div>
+        <div style={{ position: "sticky", top: 0, background: "#fff", zIndex: 4, borderRadius: page ? "14px 14px 0 0" : 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 10px 20px", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+            <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{live.name}</div>
+            <LatestNote note={notesApi.notes[0]} onOpen={openNotes} style={{ marginTop: 2, maxWidth: "100%" }} />
             <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <SiteLink account={live} /><span title="How this company got into your account">{sourceWords(live.source)}</span>
             </div>
@@ -1253,65 +1273,91 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
           </div>
           {!page && onOpenPage ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Everything about this company on one page: what you gave us, what we found, checks, research, journeys and activity" onClick={() => onOpenPage(live.id)}>Open full profile</button> : null}
           {page && live.business_record_id && onOpenRegister ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="The register page for this company" onClick={() => onOpenRegister(live.business_record_id)}>Register page</button> : null}
-          {page ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose}>Back</button> : <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>}
+          {page ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Go back to the list" onClick={onClose}>Back</button> : <button type="button" className="ui-icon-btn" aria-label="Close the company panel" title="Close the company panel" onClick={onClose}><X size={18} /></button>}
         </div>
-        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
-          <EndedBanner account={live} />
-          {["problem", "not_found"].includes(live.verification?.verdict) ? <CheckDetails account={live} /> : null}
-          <FoundSummary account={live} store={store} />
-          <DetailChecks account={live} />
-          {["problem", "not_found"].includes(live.verification?.verdict) ? null : <CheckDetails account={live} />}
-          {Object.keys(live.custom || {}).length ? (
-            <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>From your file</div>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: "4px 12px", ...text, fontSize: 13 }}>
-                {Object.entries(live.custom).map(([k, v]) => (
-                  <React.Fragment key={k}>
-                    <span style={{ color: C.slate, overflowWrap: "anywhere" }}>{k}</span>
-                    <span style={{ color: C.textInk, overflowWrap: "anywhere" }}>{v || "—"}</span>
-                  </React.Fragment>
-                ))}
+        <ProfileTabs idBase={tabBase} label={`${live.name} sections`} value={tab} onChange={setTab} style={{ padding: "0 12px" }}
+          tabs={PANEL_TABS.map((t) => (t.id === "notes" ? { ...t, count: notesApi.notes.length || 0 } : t))} />
+        </div>
+        <div style={{ padding: "4px 20px 20px", display: "flex", flexDirection: "column", gap: 0, flex: 1 }}>
+          <TabPanel idBase={tabBase} id="overview" value={tab}>
+            <EndedBanner account={live} />
+            {["problem", "not_found"].includes(live.verification?.verdict) ? <div style={{ paddingTop: 12 }}><CheckDetails account={live} /></div> : null}
+            <Collapsible id="account:contact" defaultOpen title="Contact details"
+              summary={filledSummary([live.website, phoneFor(live)?.text, emailFor(live)?.text, contactFor(live)?.text, live.industry, live.region, live.address])}>
+              <FoundSummary account={live} store={store} />
+            </Collapsible>
+            <Collapsible id="account:checks" title="Checks" summary={live.verification?.verdict ? (VERDICTS[live.verification.verdict]?.label || "Checked") : "Not checked yet"}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <DetailChecks account={live} />
+                {["problem", "not_found"].includes(live.verification?.verdict) ? null : <CheckDetails account={live} />}
               </div>
-            </section>
-          ) : null}
-          <LeadActivity account={live} store={store} />
-          <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Improve this company</div>
-            <ImproveCard store={store} account={live} />
-            <TipsCard account={live} />
-            {store.researching[live.id] && store.researching[live.id] !== "improve" ? (
-              <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
-                detail={store.researching[live.id] === "quick" ? "Looking only at our own records. This is free." : "Reading public pages for its people, phone numbers and sources. A credit is used only if something is found."}
-                cancelLabel="Stop waiting" onCancel={() => store.stopWaiting(live.id)} />
+            </Collapsible>
+            {custom.length ? (
+              <Collapsible id="account:file" title="From your file" summary={`${custom.length} ${custom.length === 1 ? "column" : "columns"}`}>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: "4px 12px", ...text, fontSize: 13 }}>
+                  {custom.map(([k, v]) => (
+                    <React.Fragment key={k}>
+                      <span style={{ color: C.slate, overflowWrap: "anywhere" }}>{k}</span>
+                      <span style={{ color: C.textInk, overflowWrap: "anywhere" }}>{v || "—"}</span>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </Collapsible>
             ) : null}
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginTop: 6 }}>Research</div>
-            <Dossier account={live} store={store} />
-          </section>
-          <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Details</div>
-            <AccountFieldGrid fields={ACCOUNT_FIELDS} form={form} setForm={setForm} minWidth={200} />
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
-              Notes
-              <textarea className="ui-input" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} style={{ height: "auto", padding: "8px 10px", resize: "vertical", lineHeight: 1.5 }} />
-            </label>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button title="Save the changes to this company" type="button" className="ui-btn ui-btn--primary" disabled={!changed || !form.name.trim()}
-                onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
-              <button type="button" className="ui-btn ui-btn--ghost" disabled={!changed} title="Put every field back to what is saved"
-                onClick={() => setForm(Object.fromEntries([...ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""]), ["notes", live.notes || ""]]))}>Reset</button>
-              <span style={{ flex: 1 }} />
-              {confirmRemove ? (
-                <>
-                  <span style={{ ...muted, fontSize: 12.5 }}>Remove {live.name}?</span>
-                  <button title="Remove this company from all your lists for good" type="button" className="ui-btn ui-btn--danger" onClick={async () => { if (await store.remove(live.id)) onClose(); }}>Remove</button>
-                  <button title="Don't remove it" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(false)}>Keep</button>
-                </>
-              ) : (
-                <button title={inCheck ? LOCK_TIP : "Remove this company from your account. You will be asked to confirm"} type="button" className="ui-btn ui-btn--ghost" disabled={inCheck} onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
-              )}
-            </div>
-          </section>
+          </TabPanel>
+          <TabPanel idBase={tabBase} id="research" value={tab}>
+            <Collapsible id="account:improve" defaultOpen title="Improve this company" summary={store.researching[live.id] ? "Running now" : tipsFor(live).length ? `${tipsFor(live).length} ${tipsFor(live).length === 1 ? "tip" : "tips"}` : ""}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <ImproveCard store={store} account={live} />
+                <TipsCard account={live} />
+                {store.researching[live.id] && store.researching[live.id] !== "improve" ? (
+                  <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
+                    detail={store.researching[live.id] === "quick" ? "Looking only at our own records. This is free." : "Reading public pages for its people, phone numbers and sources. A credit is used only if something is found."}
+                    cancelLabel="Stop waiting" onCancel={() => store.stopWaiting(live.id)} />
+                ) : null}
+              </div>
+            </Collapsible>
+            <Collapsible id="account:dossier" title="Research"
+              summary={live.researched_at ? `Researched ${new Date(live.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "Not researched yet"}>
+              <Dossier account={live} store={store} />
+            </Collapsible>
+          </TabPanel>
+          <TabPanel idBase={tabBase} id="details" value={tab}>
+            <Collapsible id="account:details" defaultOpen title="Details" summary={changed ? "Changes not saved" : filledSummary(ACCOUNT_FIELDS.map(([k]) => live[k]))}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <AccountFieldGrid fields={ACCOUNT_FIELDS} form={form} setForm={setForm} minWidth={200} />
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button type="button" className="ui-btn ui-btn--ghost" disabled={!changed} title="Put every field back to what is saved"
+                    onClick={() => setForm(Object.fromEntries(ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""])))}>Reset</button>
+                  <span style={{ flex: 1 }} />
+                  {confirmRemove ? (
+                    <>
+                      <span style={{ ...muted, fontSize: 12.5 }}>Remove {live.name}?</span>
+                      <button title="Remove this company from all your lists for good" type="button" className="ui-btn ui-btn--danger" onClick={async () => { if (await store.remove(live.id)) onClose(); }}>Remove</button>
+                      <button title="Don't remove it" type="button" className="ui-btn ui-btn--ghost" onClick={() => setConfirmRemove(false)}>Keep</button>
+                    </>
+                  ) : (
+                    <button title={inCheck ? LOCK_TIP : "Remove this company from your account. You will be asked to confirm"} type="button" className="ui-btn ui-btn--ghost" disabled={inCheck} onClick={() => setConfirmRemove(true)}><Trash2 size={15} /> Remove</button>
+                  )}
+                </div>
+              </div>
+            </Collapsible>
+          </TabPanel>
+          <TabPanel idBase={tabBase} id="notes" value={tab} style={{ paddingTop: 12 }}>
+            <NotesTab notesApi={notesApi} />
+          </TabPanel>
+          <TabPanel idBase={tabBase} id="activity" value={tab}>
+            <Collapsible id="account:activity" defaultOpen title="Activity" summary={live.connection?.stage ? `Stage: ${String(live.connection.stage).replace(/_/g, " ")}` : ""}>
+              <LeadActivity account={live} store={store} />
+            </Collapsible>
+          </TabPanel>
         </div>
+        <BottomBar note={notesApi.notes[0]} onOpenNotes={openNotes}
+          journey={<JourneyControl companyId={live.business_record_id || ""} accountId={live.id} />}
+          actions={(
+            <button title={changed ? "Save the changes to this company" : "Nothing to save. Change a field on the Details tab first"} type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!changed || !form.name.trim()}
+              onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>
+          )} />
       </div>
     </div>
   );
