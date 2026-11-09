@@ -27,7 +27,7 @@ function Candidate({ o, only, busy, disabled, onPick }) {
         <div style={{ fontSize: 12, color: C.slate }}>Seen on {o.sources.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={{ color: C.cobalt, marginRight: 8, overflowWrap: "anywhere" }}>{shortSource(u)}</a>)}</div>
       ) : null}
       <div>
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={disabled} onClick={() => onPick(o)}>
+        <button type="button" title="Use this one for the company" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={disabled} onClick={() => onPick(o)}>
           {busy ? <Spinner size={12} /> : null} {only ? "Yes, this is the correct one" : "This is the correct one"}
         </button>
       </div>
@@ -108,12 +108,12 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
             {!list.length ? `${SOCIAL.includes(kind) ? `We searched the web for the ${word}.` : "We searched the web, read the company's own pages and ran the deep web search."} Nothing was confirmed, so nothing is shown as theirs. Add details and we will search again.` : <>{one ? "We found one possible match but are not sure. Open it and check." : "These are the closest matches. Open each one and check."} Choose the correct one and it is kept for you from then on.</>}
           </div>
         </div>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose} aria-label="Close the matches" title="Close the matches"><X size={16} /></button>
       </div>
       {list.map((o) => <Candidate key={o.value} o={o} only={one} busy={busy === o.value} disabled={Boolean(busy)} onPick={pick} />)}
       {error ? <div role="alert" style={{ fontSize: 12.5, color: C.red }}>{error}</div> : null}
       {onRetry && !more ? (
-        <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setMore(true)}>{list.length ? "None of these? Add details" : "Add details"}</button></div>
+        <div><button type="button" title="Add what you know to help the search" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => setMore(true)}>{list.length ? "None of these? Add details" : "Add details"}</button></div>
       ) : null}
       {onRetry && more ? (
         <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
@@ -122,12 +122,12 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
             placeholder="Anything that helps: the town, the name they trade under, what they do, a person who works there"
             style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, font: "inherit", fontSize: 13, resize: "vertical" }} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!text.trim() || again} onClick={retry}>{again ? <Spinner size={12} /> : null} Search again</button>
+            <button type="button" title="Search again with these details" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!text.trim() || again} onClick={retry}>{again ? <Spinner size={12} /> : null} Search again</button>
             {miss ? <span role="status" style={{ fontSize: 12.5, color: C.slate }}>{miss}</span> : null}
           </div>
         </div>
       ) : null}
-      <div><button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose}>{one ? "No, this is not it" : "None of these"}</button></div>
+      <div><button type="button" title="Close without choosing" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onClose}>{one ? "No, this is not it" : "None of these"}</button></div>
     </div>
   );
   if (pos) return panel;

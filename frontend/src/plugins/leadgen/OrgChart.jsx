@@ -57,7 +57,7 @@ export function OrgChart({ c, onOpenPerson, onOverview }) {
                 const closed = Boolean(shut[g.key]) && !query;
                 return (
                   <div key={g.key} className="oc-col">
-                    <button type="button" className="oc-head" aria-expanded={!closed} style={{ background: t.bg, color: t.ink, borderColor: t.bar }} onClick={() => setShut((s) => ({ ...s, [g.key]: !s[g.key] }))}>
+                    <button type="button" className="oc-head" title={closed ? "Show this group" : "Fold this group"} aria-expanded={!closed} style={{ background: t.bg, color: t.ink, borderColor: t.bar }} onClick={() => setShut((s) => ({ ...s, [g.key]: !s[g.key] }))}>
                       {closed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />} {g.title} <span style={{ fontWeight: 500 }}>· {g.people.length}</span>
                     </button>
                     {closed ? null : (

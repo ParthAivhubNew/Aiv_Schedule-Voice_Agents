@@ -43,19 +43,19 @@ export function PersonPage({ person, company, found, onBack, onFindEmail, onFind
   const years = o.years_in_role == null ? "" : o.years_in_role === 0 ? "Joined this year" : `${o.years_in_role} ${o.years_in_role === 1 ? "year" : "years"}`;
   return (
     <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
-      <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> Back to {company_}</button>
+      <button type="button" title={`Back to ${company_}`} style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> Back to {company_}</button>
 
       <header style={{ ...card, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", padding: 16 }}>
         <div aria-hidden="true" style={{ width: 56, height: 56, borderRadius: 14, background: "#e9f6cf", color: "#2f4a0c", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 20 }}>{initials(person.name)}</div>
         <div style={{ flex: "1 1 260px", minWidth: 0, display: "grid", gap: 4 }}>
           <h2 style={{ margin: 0, fontSize: 21, overflowWrap: "anywhere" }}>{person.name}</h2>
-          <div style={{ fontSize: 13.5, color: C.slate }}>{person.role} at <button type="button" onClick={onOpenCompany} style={{ all: "unset", cursor: "pointer", color: C.cobalt }}>{company_}</button></div>
+          <div style={{ fontSize: 13.5, color: C.slate }}>{person.role} at <button type="button" title={`Open ${company_}`} onClick={onOpenCompany} style={{ all: "unset", cursor: "pointer", color: C.cobalt }}>{company_}</button></div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {person.alsoOwner ? <Pill tone="amber">Also an owner</Pill> : null}
             {person.reason ? <Pill tone={person.reason === "New in role" ? "green" : "slate"}>{person.reason}</Pill> : null}
           </div>
         </div>
-        {onAskAi ? <button type="button" style={btn(false)} onClick={() => onAskAi(`Who is ${person.name} at ${company_} (${person.role}), and how should I approach them?`)}><Bot size={14} /> Ask AI</button> : null}
+        {onAskAi ? <button type="button" title="Ask the assistant who this person is and how to approach them" style={btn(false)} onClick={() => onAskAi(`Who is ${person.name} at ${company_} (${person.role}), and how should I approach them?`)}><Bot size={14} /> Ask AI</button> : null}
       </header>
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -86,7 +86,7 @@ export function PersonPage({ person, company, found, onBack, onFindEmail, onFind
                 <>
                   {li.none ? <Note>{li.note || "Nothing confirmed for LinkedIn yet. Add details and search again."}</Note> : li.error ? <Note error>{li.error}</Note> : null}
                   <div data-reach={`li:${o.name}`} style={{ justifySelf: "start" }}>
-                    <button type="button" style={btn(true, li.busy)} disabled={li.busy} onClick={() => onFindLinkedin(o)}>
+                    <button type="button" title="Look for this person's LinkedIn profile" style={btn(true, li.busy)} disabled={li.busy} onClick={() => onFindLinkedin(o)}>
                       {li.busy ? <Spinner size={13} /> : <Search size={13} />} {(li.options || []).length ? "Check matches" : li.none || li.error ? "Search again" : "Find LinkedIn"}
                     </button>
                   </div>
@@ -100,7 +100,7 @@ export function PersonPage({ person, company, found, onBack, onFindEmail, onFind
                 : email.none ? <Note>No email found for this person. Nothing charged.</Note>
                 : <>
                     {email.error ? <Note error>{email.error}</Note> : null}
-                    <div style={{ justifySelf: "start" }}><button type="button" style={btn(false, email.busy)} disabled={email.busy} onClick={() => onFindEmail(o)}>{email.busy ? <Spinner size={13} /> : <Mail size={13} />} {email.error ? "Search again" : "Find email"}</button></div>
+                    <div style={{ justifySelf: "start" }}><button type="button" title="Look for this person's work email. Charged only if one is found" style={btn(false, email.busy)} disabled={email.busy} onClick={() => onFindEmail(o)}>{email.busy ? <Spinner size={13} /> : <Mail size={13} />} {email.error ? "Search again" : "Find email"}</button></div>
                   </>}
             </Block>
           ) : null}

@@ -9,7 +9,7 @@ import { ContactPoints } from "./ContactPoints";
 import { OrgChart } from "./OrgChart";
 import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
+import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personEmail, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
@@ -82,7 +82,7 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
     <div style={{ display: "grid", gap: 14 }}>
       {hasPeople ? (
         <div role="group" aria-label="How to show people" style={{ display: "flex", gap: 6 }}>
-          {[["chart", "Org chart"], ["list", "List"]].map(([k, w]) => <button key={k} type="button" aria-pressed={view === k} style={btn(view === k)} onClick={() => setView(k)}>{w}</button>)}
+          {[["chart", "Org chart"], ["list", "List"]].map(([k, w]) => <button key={k} type="button" aria-pressed={view === k} title={k === "chart" ? "Show the people as an org chart" : "Show the people as a list"} style={btn(view === k)} onClick={() => setView(k)}>{w}</button>)}
         </div>
       ) : null}
       {showChart ? <OrgChart c={c} onOpenPerson={onOpenPerson} onOverview={onOverview} /> : null}
@@ -98,7 +98,8 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
                   {personMeta(o) ? <div style={small}>{personMeta(o)}</div> : null}
                 </div>
                 {o.reason ? <Pill tone={o.reason === "New in role" ? "green" : "slate"}>{o.reason}</Pill> : null}
-                <button type="button" style={btn(false)} onClick={() => onOpenPerson(personCard(o))}>Open profile</button>
+                <NotesButton companyId={c.id} person={o.name} name={`${o.first_name} ${o.last_name}`.trim() || o.name} />
+                <button type="button" title={`Open ${o.first_name} ${o.last_name}'s own page`} style={btn(false)} onClick={() => onOpenPerson(personCard(o))}>Open profile</button>
                 {f.email ? <span style={{ fontSize: 12.5, color: C.green }}>{f.email} ({f.status})</span>
                   : f.none ? <span style={small}>No email found. Nothing charged.</span>
                   : <>

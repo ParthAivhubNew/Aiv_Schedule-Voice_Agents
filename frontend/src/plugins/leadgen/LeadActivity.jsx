@@ -155,8 +155,8 @@ export function LeadActivity({ account, store }) {
           {suggestions.map((s) => (
             <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ ...text, fontSize: 13, flex: 1, minWidth: 160 }}>{SUGGEST_WORD[s.field] || s.field}: <b>{s.value}</b></span>
-              <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy === s.id} onClick={() => run(s.id, () => api.resolveSuggestion(account.id, s.id, true), "Updated.")}><Check size={13} /> Use it</button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy === s.id} onClick={() => run(s.id, () => api.resolveSuggestion(account.id, s.id, false))}><X size={13} /> Ignore</button>
+              <button type="button" title="Put this on the company record" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy === s.id} onClick={() => run(s.id, () => api.resolveSuggestion(account.id, s.id, true), "Updated.")}><Check size={13} /> Use it</button>
+              <button type="button" title="Leave the company record as it is" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy === s.id} onClick={() => run(s.id, () => api.resolveSuggestion(account.id, s.id, false))}><X size={13} /> Ignore</button>
             </div>
           ))}
         </div>
@@ -166,7 +166,7 @@ export function LeadActivity({ account, store }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", ...text, fontSize: 12.5 }}>
           <span style={muted}>Find them on:</span>
           {Object.entries(account.research.socials).filter(([, url]) => url).map(([network, url]) => (
-            <a key={network} className="ui-link" href={String(url).startsWith("http") ? url : `https://${url}`} target="_blank" rel="noreferrer">{network}</a>
+            <a key={network} className="ui-link" title={`Open their ${network} page`} href={String(url).startsWith("http") ? url : `https://${url}`} target="_blank" rel="noreferrer">{network}</a>
           ))}
         </div>
       ) : null}
@@ -177,7 +177,7 @@ export function LeadActivity({ account, store }) {
           {data.meetings.map((m) => (
             <div key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", ...text, fontSize: 13 }}>
               <span style={{ flex: 1, minWidth: 160 }}>{m.date} {m.time} · {m.outcome === "no_show" ? "Did not attend" : m.status.replace("_", " ")}</span>
-              {m.video_link ? <a className="ui-link" href={m.video_link} target="_blank" rel="noreferrer">Join link</a> : null}
+              {m.video_link ? <a className="ui-link" title="Open the meeting's video link" href={m.video_link} target="_blank" rel="noreferrer">Join link</a> : null}
               {m.call_id ? <span style={muted}>booked on a call</span> : null}
               {m.status !== "converted" && m.outcome !== "no_show" ? (
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy === m.id} title="They didn't come. Runs the follow-ups you switched on"
@@ -196,7 +196,7 @@ export function LeadActivity({ account, store }) {
               <div style={{ display: "flex", gap: 8, alignItems: "center", ...text, fontSize: 13 }}>
                 <b style={{ flex: 1 }}>{OUTCOME_WORD[c.outcome] || c.outcome}</b>
                 <span style={muted}>{c.started_at} · {c.duration}</span>
-                {c.summary ? <button type="button" className="ui-link" onClick={() => setOpenCall(openCall === c.id ? "" : c.id)}>{openCall === c.id ? "Hide summary" : "Summary"}</button> : null}
+                {c.summary ? <button type="button" className="ui-link" title={openCall === c.id ? "Hide what was said on the call" : "Show what was said on the call"} onClick={() => setOpenCall(openCall === c.id ? "" : c.id)}>{openCall === c.id ? "Hide summary" : "Summary"}</button> : null}
               </div>
               {openCall === c.id && c.summary ? <div style={{ ...muted, whiteSpace: "pre-wrap", marginTop: 6 }}>{c.summary}</div> : null}
             </div>
@@ -207,13 +207,13 @@ export function LeadActivity({ account, store }) {
       <div style={heading}>Timeline</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {KIND_FILTERS.map(([k, label]) => (
-          <button key={k || "all"} type="button" className={`ui-btn ui-btn--sm ${kind === k ? "ui-btn--primary" : "ui-btn--ghost"}`} onClick={() => setKind(k)}>{label}</button>
+          <button key={k || "all"} type="button" title={k ? `Show only ${label.toLowerCase()}` : "Show everything"} aria-pressed={kind === k} className={`ui-btn ui-btn--sm ${kind === k ? "ui-btn--primary" : "ui-btn--ghost"}`} onClick={() => setKind(k)}>{label}</button>
         ))}
       </div>
       <div style={{ display: "flex", gap: 6 }}>
-        <input className="ui-input" style={{ flex: 1 }} placeholder="Add a note" aria-label="Add a note" value={note} maxLength={500}
+        <input className="ui-input" style={{ flex: 1 }} placeholder="Add a line to the timeline" aria-label="Add a line to the timeline" title="Adds a line to this company's timeline. Notes for your team go on the Notes tab" value={note} maxLength={500}
           onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && note.trim()) run("note", async () => { await api.addLeadNote(account.id, note.trim()); setNote(""); }); }} />
-        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!note.trim() || busy === "note"} onClick={() => run("note", async () => { await api.addLeadNote(account.id, note.trim()); setNote(""); })}>Add</button>
+        <button type="button" title="Add this line to the timeline" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!note.trim() || busy === "note"} onClick={() => run("note", async () => { await api.addLeadNote(account.id, note.trim()); setNote(""); })}>Add</button>
       </div>
       {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
       {!data && !error ? <Loader compact label="Loading" /> : null}
@@ -225,7 +225,7 @@ export function LeadActivity({ account, store }) {
             <span style={{ ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, width: 62, flex: "none" }}>{KIND_WORD[e.kind] || e.kind}</span>
             <span style={{ ...text, fontSize: 13, color: C.textInk, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
               {e.summary}
-              {e.kind === "call" && e.detail?.log_id && callsById[e.detail.log_id]?.summary ? <button type="button" className="ui-link" style={{ marginLeft: 6 }} onClick={() => setOpenCall(e.detail.log_id)}>summary</button> : null}
+              {e.kind === "call" && e.detail?.log_id && callsById[e.detail.log_id]?.summary ? <button type="button" className="ui-link" title="Show what was said on the call" style={{ marginLeft: 6 }} onClick={() => setOpenCall(e.detail.log_id)}>summary</button> : null}
             </span>
           </div>
         ))}
