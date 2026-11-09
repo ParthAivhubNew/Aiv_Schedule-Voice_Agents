@@ -151,18 +151,91 @@ def _found(a: LeadAccount) -> Dict[str, Any]:
             "before_pct": pct(before), "after_pct": pct(after), "new_count": len(new) + sum(extra.values())}
 
 
-def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None) -> Dict[str, Any]:
+# Where a saved company's blank fields can be read from its linked register record, best first. Website, phone and email the
+# register holds are masked until this organisation opens them (see reveals), so a masked card gives "" for those; what a paid
+# lookup found (web_*) or the business confirmed is already shown to everyone and is used as it is.
+RECORD_FILL = {
+    "website": ("website", "confirmed_website", "web_website"),
+    "phone": ("phone", "confirmed_phone", "web_phone"),
+    "email": ("email", "web_email"),
+    "industry": ("industry",),
+    "region": ("region",),
+    "postcode": ("postcode",),
+    "address": ("address",),
+    "registration_number": ("registration_number",),
+}
+
+# What "how complete" means for a saved company: one place, used by the list and the company panel.
+COMPLETENESS_FIELDS = (("website", "Website"), ("phone", "Phone"), ("email", "Email"), ("address", "Address"),
+                       ("industry", "Industry"), ("people", "People"), ("size", "Size"))
+
+
+def held_values(card: Dict[str, Any]) -> Dict[str, str]:
+    """The values a (masked) register card offers for each RECORD_FILL field. Blank ones are left out."""
+    out: Dict[str, str] = {}
+    for field, keys in RECORD_FILL.items():
+        value = next((str(card.get(k) or "").strip() for k in keys if str(card.get(k) or "").strip()), "")
+        if value:
+            out[field] = value
+    return out
+
+
+def record_values(biz: Optional[BusinessRecord], seen: Optional[set] = None) -> Dict[str, str]:
+    """What the linked register record holds for a saved company, masked for this organisation. With `seen` unknown,
+    every register-held contact counts as not opened yet."""
+    if not biz:
+        return {}
+    from app.services import lead_filters
+
+    return held_values(RV.mask_card(lead_filters.card(biz), seen or set()))
+
+
+def fill_blanks(item: "AccountIn", held: Dict[str, str]) -> List[str]:
+    """Fills the blank fields of a company being saved from what its register record holds. What was sent always wins."""
+    filled = []
+    for field, value in held.items():
+        if value and not str(getattr(item, field, "") or "").strip():
+            setattr(item, field, value)
+            filled.append(field)
+    return filled
+
+
+def completeness(values: Dict[str, Any]) -> Dict[str, Any]:
+    """How complete a company's record is: the share of COMPLETENESS_FIELDS that hold something, and which are missing."""
+    present = {k: bool(values.get(k)) for k, _ in COMPLETENESS_FIELDS}
+    have = [label for k, label in COMPLETENESS_FIELDS if present[k]]
+    missing = [label for k, label in COMPLETENESS_FIELDS if not present[k]]
+    return {"pct": round(100 * len(have) / len(COMPLETENESS_FIELDS)), "have": have, "missing": missing}
+
+
+def _completeness_of(a: LeadAccount, shown: Dict[str, str], biz: Optional[BusinessRecord]) -> Dict[str, Any]:
+    r = a.research or {}
+    people = bool((a.contact_name or "").strip() or (biz is not None and biz.officers) or r.get("team") or r.get("people"))
+    size = bool(biz is not None and biz.size_band and biz.size_band != "unknown")
+    return completeness({**shown, "phone": shown.get("phone") or r.get("phones"), "email": shown.get("email") or r.get("emails"),
+                         "address": shown.get("address") or shown.get("postcode"), "people": people, "size": size})
+
+
+def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[set] = None) -> Dict[str, Any]:
+    """One saved company as the screens show it. Blank fields are read through the link to its register record (masked for
+    this organisation), so what we hold shows from the start and later finds on the record show too. `from_record` names them."""
     from app.api.connected import connection_fields
 
+    held = record_values(biz, seen)
+    own = {"website": a.website or "", "phone": _phone(a.phone), "email": a.email or "", "industry": a.industry or "",
+           "region": a.region or "", "postcode": a.postcode or "", "address": a.address or "", "registration_number": a.registration_number or ""}
+    from_record = [k for k, v in own.items() if not v and held.get(k)]
+    shown = {k: (v or (_phone(held[k]) if k == "phone" and held.get(k) else held.get(k, ""))) for k, v in own.items()}
     return {"found": _found(a), "connection": connection_fields(a),
-        "id": a.id, "name": a.name, "domain": a.domain or "", "website": a.website or "", "phone": _phone(a.phone),
-        "email": a.email or "", "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
-        "industry": a.industry or "", "region": a.region or "", "notes": a.notes or "", "source": a.source or "manual",
+        "from_record": from_record, "completeness": _completeness_of(a, shown, biz),
+        "id": a.id, "name": a.name, "domain": a.domain or _domain(shown["website"]), "website": shown["website"], "phone": shown["phone"],
+        "email": shown["email"], "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
+        "industry": shown["industry"], "region": shown["region"], "notes": a.notes or "", "source": a.source or "manual",
         "source_url": a.source_url or "", "business_record_id": a.business_record_id or "", "research": a.research or None,
         "researched_at": a.researched_at.isoformat() + "Z" if a.researched_at else None,
         "research_history": a.research_history or [],
         "verification": a.verification or None, "custom": a.custom or {},
-        "registration_number": a.registration_number or "", "postcode": a.postcode or "", "address": a.address or "",
+        "registration_number": shown["registration_number"], "postcode": shown["postcode"], "address": shown["address"],
         "country": a.country or "", "linkedin_url": a.linkedin_url or "", "import_flags": a.import_flags or [],
         "consent_basis": a.consent_basis or "",
         "send_block": (lambda e: {"code": e["code"], "reason": e["reason"]} if not e["ok"] else None)(send_readiness.eligibility(a)),
@@ -349,6 +422,78 @@ async def search_summary(body: SearchIn, db: AsyncSession = Depends(get_db)):
         if "statement timeout" in str(err).lower():
             return {"total": None, "total_capped": False, "tiers": None, "saved_total": None, "total_all": None}  # unknown, not zero
         raise
+
+
+SELECT_ALL_CAP = MAX_PER_REQUEST  # "Select all" takes at most this many, so the bulk save that follows fits one request
+_SELECT_STEP = 250  # the most one search page reads (see business_records.search_filtered)
+_SLIM_FIELDS = ("id", "name", "website", "phone", "email", "industry", "region", "postcode", "address", "registration_number",
+                "status", "sic_text", "web_website", "web_phone", "web_email", "confirmed_phone", "confirmed_website")
+
+
+def select_all_limit(asked: Any) -> int:
+    """How many rows one "Select all" may resolve: what was asked, never more than the cap, never less than one."""
+    try:
+        n = int(asked)
+    except (TypeError, ValueError):
+        n = SELECT_ALL_CAP
+    return max(1, min(n, SELECT_ALL_CAP))
+
+
+def slim_card(card: Dict[str, Any]) -> Dict[str, Any]:
+    """The part of a (masked) company card a bulk action needs: who it is and the contacts this organisation may see."""
+    return {k: card.get(k, "") or "" for k in _SLIM_FIELDS}
+
+
+class SelectAllIn(SearchIn):
+    limit: int = SELECT_ALL_CAP
+
+
+@router.post("/search/ids")
+async def search_select_all(body: SelectAllIn, db: AsyncSession = Depends(get_db)):
+    """Every company the current search matches, in the order the pages show them, up to SELECT_ALL_CAP: what "Select all" ticks.
+    Free: it runs the same search as the pages (same default list, same reading of the words) and calls no paid service.
+    Contacts come back masked exactly as on the pages, so a contact not yet opened stays hidden."""
+    from app.services import lead_filters, search_resolve
+
+    if body.area:
+        raise HTTPException(status_code=422, detail="A drawn area selects the companies already on screen.")
+    _refuse_bad_filters(body.filters)
+    if not body.exclude_ids:
+        body.filters, _ = business_records.with_default_browse(body.filters)
+    want = select_all_limit(body.limit)
+    sort = body.sort if body.sort in business_records.SORTS else "best"
+    rows: List[Any] = []
+    seen: set = set()
+    total, capped = 0, False
+    offset = 0
+    try:
+        while len(rows) < want:
+            step = min(_SELECT_STEP, want - len(rows))
+
+            def run(f, _offset=offset, _step=step):
+                opening = bool(f.get("complete_first"))
+                return (business_records.opening_page if opening else business_records.search_filtered)(
+                    db, f, limit=_step, offset=_offset, exclude_ids=body.exclude_ids, sort=sort, **({} if opening else {"stats": False}))
+
+            out, _, _ = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
+            if not offset:
+                total, capped = int(out.get("total") or 0), bool(out.get("total_capped"))
+            got = out.get("rows") or []
+            for r in got:
+                if r.id not in seen:
+                    seen.add(r.id)
+                    rows.append(r)
+            offset += len(got)
+            if len(got) < step:
+                break
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        if "statement timeout" in str(err).lower():
+            raise HTTPException(status_code=504, detail="That search is too broad to select in one go. Add a town or a narrower sector and try again.")
+        raise
+    shown = await RV.mask(db, [lead_filters.card(r) for r in rows[:want]])
+    return {"companies": [slim_card(c) for c in shown], "total": max(total, len(shown)), "total_capped": capped, "limit": SELECT_ALL_CAP}
 
 
 _UK_PC = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$")
@@ -1212,7 +1357,16 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
     if biz_ids:
         biz_rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(biz_ids)))).scalars().all()
         registry_by_id = {b.id: b for b in biz_rows}
-    return {"accounts": [_out(a, registry_by_id.get(a.business_record_id)) for a in rows]}
+    seen = await RV.opened(db, registry_by_id.keys())
+    return {"accounts": [_out(a, registry_by_id.get(a.business_record_id), seen) for a in rows]}
+
+
+async def _outs(db: AsyncSession, rows: List[LeadAccount]) -> List[Dict[str, Any]]:
+    """Several saved companies as the screens show them, each read through its register record."""
+    ids = {r.business_record_id for r in rows if r.business_record_id}
+    biz = {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(ids)))).scalars().all()} if ids else {}
+    seen = await RV.opened(db, biz.keys())
+    return [_out(r, biz.get(r.business_record_id), seen) for r in rows]
 
 
 @router.get("/accounts/{account_id}/registry")
@@ -1333,13 +1487,21 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     dups: List[tuple] = []  # (the row that was not added, the saved company it matched, why): shown to the person afterwards
     fresh: set = set()
     claimed = {i.business_record_id for i in body.accounts if i.business_record_id}
-    known_biz = set((await db.execute(select(BusinessRecord.id).where(BusinessRecord.id.in_(claimed)))).scalars().all()) if claimed else set()
+    claimed_rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(claimed)))).scalars().all() if claimed else []
+    known_biz = {b.id for b in claimed_rows}
+    # A company taken from the register starts with what the record holds (contacts masked as on the search pages), not a blank form.
+    claimed_seen = await RV.opened(db, known_biz)
+    held_by_biz = {b.id: record_values(b, claimed_seen) for b in claimed_rows}
     quarantined: List[Dict[str, Any]] = []  # imported rows that failed a hard check: not saved, listed with the reason
     warned = 0
     # Company numbers already in use, so a second company with the same number is flagged, not silently saved.
     seen_regno: Dict[str, str] = {
         r[0]: r[1] for r in (await db.execute(select(LeadAccount.registration_number, LeadAccount.name).where(LeadAccount.registration_number != ""))).all() if r[0]}
     for item in body.accounts:
+        if item.business_record_id in held_by_biz:
+            fill_blanks(item, held_by_biz[item.business_record_id])
+            if not _clean(item.name):
+                item.name = next((b.name for b in claimed_rows if b.id == item.business_record_id), "") or ""
         website = _clean(item.website)
         domain = _domain(website)
         name = _clean(item.name) or domain
@@ -1460,8 +1622,8 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
 
     for a in added[:200]:  # workflows hear about each company saved (the first 200 of a big import)
         _C.emit(current_org(), "lead.created", {"id": a.id, "lead_id": a.id}, a.id)
-    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "quarantined": quarantined, "warned": warned, "accounts": [_out(a) for a in added],
-                           "updated": [_out(a) for a in updated], "duplicates": _duplicate_pairs(dups, added), "duplicates_total": len(dups)}
+    out: Dict[str, Any] = {"added": len(added), "skipped": skipped, "matched": len(matched), "unnamed": unnamed, "repeats": repeats, "quarantined": quarantined, "warned": warned, "accounts": await _outs(db, added),
+                           "updated": await _outs(db, updated), "duplicates": _duplicate_pairs(dups, added), "duplicates_total": len(dups)}
     # The saved company each duplicate matched, so both are shown side by side.
     want = {d["original_id"] for d in out["duplicates"]}
     if want:
@@ -1501,8 +1663,7 @@ async def update_account(account_id: str, body: AccountPatch, db: AsyncSession =
         row.domain = _domain(row.website)
     row.updated_at = datetime.utcnow()
     await db.commit()
-    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return _out(row, biz)
+    return (await _outs(db, [row]))[0]
 
 
 @router.delete("/accounts/{account_id}")

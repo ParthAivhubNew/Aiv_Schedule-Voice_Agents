@@ -1193,6 +1193,8 @@ class ProfileBody(BaseModel):
     sender_name: str = ""
     sender_title: str = ""
     proof: List[str] = []
+    legal_name: Optional[str] = None  # None: the form did not send it, so what is saved stays
+    postal_address: Optional[str] = None
 
 
 def _profile_key(ctx: Dict[str, Any]) -> str:
@@ -1267,7 +1269,8 @@ async def get_writing_profile(request: Request, db: AsyncSession = Depends(get_d
     edit = {"company": _filled("name", getattr(cp, "name", "")), "website": _filled("website", getattr(cp, "website", "")),
             "sells": _filled("pitch", getattr(cp, "pitch", "")), "tone": getattr(cp, "tone", "") or "",
             "audience": extra.get("audience", ""), "offer": extra.get("offer", ""), "sender_name": extra.get("sender_name") or ctx.get("name") or "",
-            "sender_title": extra.get("sender_title", ""), "proof": extra.get("proof") or []}
+            "sender_title": extra.get("sender_title", ""), "proof": extra.get("proof") or [],
+            "legal_name": getattr(cp, "legal_name", "") or "", "postal_address": getattr(cp, "postal_address", "") or ""}
     return {"profile": p, "edit": edit, "missing": W.profile_missing(p), "services": n, "can_edit": _can_edit_company(ctx)}
 
 
@@ -1292,6 +1295,10 @@ async def save_writing_profile(body: ProfileBody, request: Request, db: AsyncSes
     cp.tone = p["tone"] or cp.tone
     if p["sells"]:
         cp.pitch = p["sells"]
+    if body.legal_name is not None:  # printed in every marketing email: UK rules need who is sending and where to write to them
+        cp.legal_name = " ".join(body.legal_name.split())[:160]
+    if body.postal_address is not None:
+        cp.postal_address = body.postal_address.strip()[:400]
     await credit._put_doc(db, _profile_key(ctx), {k: p[k] for k in ("audience", "offer", "sender_name", "sender_title", "proof")})
     await db.commit()
     return await get_writing_profile(request, db)

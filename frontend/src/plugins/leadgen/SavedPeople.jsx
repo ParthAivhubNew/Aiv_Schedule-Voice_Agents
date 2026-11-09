@@ -51,7 +51,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <input className="ui-input" value={filter} onChange={(e) => { setFilter(e.target.value); setShown(PAGE); }} placeholder="Search people by name, title, company or email" aria-label="Search people" style={{ width: "100%", maxWidth: 360 }} />
-        <span style={muted}>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} · at {companies.toLocaleString()} {companies === 1 ? "company" : "companies"}</span>
+        <span style={muted} role="status">{q ? `${rows.length.toLocaleString()} of ` : ""}{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"}{q ? " match" : ""} · at {companies.toLocaleString()} {companies === 1 ? "company" : "companies"}</span>
       </div>
       <div className="ui-card" style={{ overflow: "hidden" }}>
         <GridTools id="saved-people" />

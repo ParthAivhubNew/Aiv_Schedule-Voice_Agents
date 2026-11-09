@@ -23,7 +23,7 @@ export function Balances({ canEdit }) {
     return (
       <>
         <PageTitle title="Platform Balances" />
-        err ? <Note error>{err}</Note> : <Loader label="Loading platform balances" />
+        {err ? <Note error>{err}</Note> : <Loader label="Loading platform balances" />}
       </>
     );
   }
@@ -50,9 +50,11 @@ export function Balances({ canEdit }) {
     setSaving(true);
     setSaveSuccess(false);
     try {
-      await run(() => adminApi.saveBalanceChecklist(checklist));
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      const ok = await run(async () => { await adminApi.saveBalanceChecklist(checklist); return true; });
+      if (ok) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
     } catch (_) {
       // error handled by useAction
     } finally {

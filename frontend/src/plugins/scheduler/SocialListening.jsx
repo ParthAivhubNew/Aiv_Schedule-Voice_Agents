@@ -88,6 +88,7 @@ function TopicForm({ initial, available, onSaved, onCancel, showToast }) {
 export function ListeningPage({ showToast }) {
   const [over, setOver] = useState(null);
   const [mentions, setMentions] = useState([]);
+  const [total, setTotal] = useState(0);
   const [state, setState] = useState("loading");
   const [topic, setTopic] = useState("");
   const [status, setStatus] = useState("new");
@@ -97,19 +98,36 @@ export function ListeningPage({ showToast }) {
   const loadTopics = useCallback(() => api.getListening().then(setOver).catch(() => setState("error")), []);
   const loadMentions = useCallback(() => {
     api.getMentions({ topic, status: status === "all" ? "" : status })
-      .then((d) => { setMentions(d.mentions); setState("ok"); })
+      .then((d) => { setMentions(d.mentions); setTotal(d.total != null ? d.total : d.mentions.length); setState("ok"); })
       .catch(() => setState("error"));
   }, [topic, status]);
   useEffect(() => { loadTopics(); }, [loadTopics]);
   useEffect(() => { loadMentions(); }, [loadMentions]);
 
+  const DONE = { seen: "Marked as seen.", ignored: "Ignored.", new: "Restored." };
   const mark = async (ids, s) => {
     try {
       await api.markMentions(ids, s);
       setMentions((ms) => (status === "all" ? ms.map((m) => (ids.includes(m.id) ? { ...m, status: s } : m)) : ms.filter((m) => !ids.includes(m.id))));
+      if (status !== "all") setTotal((t) => Math.max(0, t - ids.length));
       loadTopics();
+      showToast(DONE[s]);
     } catch (e) {
       showToast(e.message || "Could not update.");
+    }
+  };
+  // Every new mention the filter matches, including the ones past the first page.
+  const markAllSeen = async () => {
+    setBusy("all");
+    try {
+      const res = await api.markAllMentions({ topic, fromStatus: "new" }, "seen");
+      showToast(`${(res.updated || 0).toLocaleString()} marked as seen.`);
+      loadTopics();
+      loadMentions();
+    } catch (e) {
+      showToast(e.message || "Could not update.");
+    } finally {
+      setBusy("");
     }
   };
   const toLeads = async (m) => {
@@ -139,7 +157,13 @@ export function ListeningPage({ showToast }) {
   };
   const remove = async (t) => {
     if (!window.confirm(`Stop listening for “${t.name}” and delete what it found?`)) return;
-    await api.deleteListenTopic(t.id).catch(() => {});
+    try {
+      await api.deleteListenTopic(t.id);
+      showToast("Topic deleted.");
+    } catch (e) {
+      showToast(e.message || "Could not delete the topic.");
+      return;
+    }
     if (topic === t.id) setTopic("");
     loadTopics();
     loadMentions();
@@ -152,7 +176,7 @@ export function ListeningPage({ showToast }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {editing ? (
             <TopicForm initial={editing} available={over && over.sources} showToast={showToast} onCancel={() => setEditing(null)}
-              onSaved={(res) => { setEditing(null); loadTopics(); loadMentions(); if (res.found != null) showToast(res.found ? `Found ${res.found} mention${res.found === 1 ? "" : "s"}.` : "Saved. Nothing found yet; it keeps looking."); }} />
+              onSaved={(res) => { setEditing(null); loadTopics(); loadMentions(); showToast(res.found == null ? "Topic saved." : res.found ? `Found ${res.found} mention${res.found === 1 ? "" : "s"}.` : "Saved. Nothing found yet; it keeps looking."); }} />
           ) : (
             <button type="button" style={{ ...primary, justifyContent: "center", height: 36 }} disabled={topics.length >= ((over && over.maxTopics) || 20)} onClick={() => setEditing({})}>
               <Plus size={14} /> Listen for something
@@ -196,8 +220,11 @@ export function ListeningPage({ showToast }) {
                 style={{ ...btn, background: status === id ? C.ink : "#fff", color: status === id ? "#fff" : C.ink, borderColor: status === id ? C.ink : C.border }}>{name}</button>
             ))}
             <div style={{ flex: 1 }} />
+            {total > mentions.length ? <span style={{ ...muted, fontSize: 12 }}>Showing the latest {mentions.length.toLocaleString()} of {total.toLocaleString()}</span> : null}
             {status === "new" && mentions.length ? (
-              <button type="button" style={btn} onClick={() => mark(mentions.map((m) => m.id), "seen")}><Check size={13} /> Mark all as seen</button>
+              <button type="button" style={btn} disabled={busy === "all"} onClick={() => (total > mentions.length ? markAllSeen() : mark(mentions.map((m) => m.id), "seen"))}>
+                <Check size={13} /> {busy === "all" ? "Marking…" : `Mark all ${Math.max(total, mentions.length).toLocaleString()} as seen`}
+              </button>
             ) : null}
           </div>
           {state === "loading" ? <Loader compact label="Loading" /> : state === "error" ? (

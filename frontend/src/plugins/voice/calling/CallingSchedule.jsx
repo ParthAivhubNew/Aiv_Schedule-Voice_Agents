@@ -636,6 +636,7 @@ export function CallingSchedule({
       });
       onNote(`Scheduled ${kindMeta(plan.kind, kinds).label.toLowerCase()} with ${plan.prospect} · ${plan.day} ${plan.time}`, "success");
       if (res && res.linkNote) onToast(`Saved, but no meeting link was created. ${res.linkNote}`);
+      else onToast(`Scheduled with ${plan.prospect.trim()}.`);
       if (plan.notifyWhatsapp && res && res.whatsapp && !res.whatsapp.sent && res.whatsapp.waMeUrl) {
         window.open(res.whatsapp.waMeUrl, "_blank", "noopener");
         onToast("WhatsApp draft opened — tap send.");

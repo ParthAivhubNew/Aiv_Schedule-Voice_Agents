@@ -372,6 +372,7 @@ export const api = {
   deleteLeadAccounts: (ids, doNotContact = false) => apiRequest('/leads/accounts/bulk-delete', { method: 'POST', body: { ids, do_not_contact: doNotContact } }),
   deleteLeadAccount: (id) => apiRequest(`/leads/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
+  searchSelectAll: (body) => apiRequest('/leads/search/ids', { method: 'POST', body, timeoutMs: 90000 }),
   findCompanyWebsite: (id, kind = 'website', hint = '') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: { kind, hint }, timeoutMs: 60000 }),
   revealContact: (id, kind) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: { kind } }),
   chooseContact: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/choose`, { method: 'POST', body }),
@@ -617,6 +618,7 @@ export const api = {
   checkListenTopic: (id) => apiRequest(`/scheduler/listening/topics/${encodeURIComponent(id)}/check`, { method: 'POST', timeoutMs: 90000 }),
   getMentions: ({ topic = '', source = '', status = '' } = {}) => apiRequest(`/scheduler/listening/mentions?topic=${encodeURIComponent(topic)}&source=${source}&status=${status}`),
   markMentions: (ids, status) => apiRequest('/scheduler/listening/mentions/status', { method: 'POST', body: { ids, status } }),
+  markAllMentions: ({ topic = '', source = '', fromStatus = '' } = {}, status) => apiRequest('/scheduler/listening/mentions/status', { method: 'POST', body: { all: true, topic, source, from_status: fromStatus, status } }),
   mentionsToLeads: (ids) => apiRequest('/scheduler/listening/mentions/leads', { method: 'POST', body: { ids } }),
   // Tracked links, test mode, learned style
   getSocialExtras: () => apiRequest('/scheduler/settings/extras'),
@@ -762,18 +764,20 @@ export const api = {
   emailSentOne: (id) => apiRequest(`/email/messages/${encodeURIComponent(id)}`),
   mailMailboxes: () => apiRequest('/email/mail/mailboxes'),
   mailCounts: (mailboxId = '') => apiRequest(`/email/mail/counts${mailboxId ? `?mailbox_id=${encodeURIComponent(mailboxId)}` : ''}`),
-  mailMessages: ({ folder = 'inbox', mailbox_id = '', q = '', unread = false, starred = false, attachments = false } = {}) => {
+  mailMessages: ({ folder = 'inbox', mailbox_id = '', q = '', unread = false, starred = false, attachments = false, offset = 0 } = {}) => {
     const p = new URLSearchParams({ folder });
     if (mailbox_id) p.set('mailbox_id', mailbox_id);
     if (q) p.set('q', q);
     if (unread) p.set('unread', 'true');
     if (starred) p.set('starred', 'true');
     if (attachments) p.set('attachments', 'true');
+    if (offset) p.set('offset', String(offset));
     return apiRequest(`/email/mail/messages?${p}`);
   },
+  mailSelectAll: (body) => apiRequest('/email/mail/messages/ids', { method: 'POST', body }),
   mailMessage: (id) => apiRequest(`/email/mail/messages/${encodeURIComponent(id)}`),
   mailThread: (key, folder = '') => apiRequest(`/email/mail/threads/${encodeURIComponent(key)}${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`),
-  mailActions: (ids, action) => apiRequest('/email/mail/actions', { method: 'POST', body: { ids, action } }),
+  mailActions: (ids, action, opts = {}) => apiRequest('/email/mail/actions', { method: 'POST', body: { ids, action, ...opts } }),
   mailSync: (mailbox_id = '', force = false) => apiRequest('/email/mail/sync', { method: 'POST', body: { mailbox_id, force }, timeoutMs: 120000 }),
   mailSaveDraft: (data) => apiRequest('/email/mail/drafts', { method: 'POST', body: data }),
   mailSend: (data, files = []) => {

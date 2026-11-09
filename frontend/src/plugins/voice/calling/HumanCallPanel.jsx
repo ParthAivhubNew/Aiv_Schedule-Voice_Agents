@@ -47,6 +47,7 @@ function startRecording(call, ref) {
 function Transcript({ callRef, onBack }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(""); // what the copy button says for a moment after a press
   const load = useCallback(() => api.humanCallTranscript(callRef).then((r) => { setData(r); setError(""); }).catch((e) => setError(e.message || "Couldn't load this call.")), [callRef]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -56,7 +57,12 @@ function Transcript({ callRef, onBack }) {
   }, [data, load]);
   if (error) return <div role="alert" style={{ ...muted, color: C.red }}>{error}</div>;
   if (!data) return <div style={muted}>Loading…</div>;
-  const copy = () => navigator.clipboard?.writeText((data.lines || []).map((l) => `${speakerWord(l.who)}: ${l.text}`).join("\n")).catch(() => {});
+  const copy = () => {
+    const said = (ok) => { setCopied(ok ? "Copied" : "Couldn't copy"); setTimeout(() => setCopied(""), 1600); };
+    const text = (data.lines || []).map((l) => `${speakerWord(l.who)}: ${l.text}`).join("\n");
+    if (!navigator.clipboard) { said(false); return; }
+    navigator.clipboard.writeText(text).then(() => said(true), () => said(false));
+  };
   return (
     <div style={{ display: "grid", gap: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -77,7 +83,7 @@ function Transcript({ callRef, onBack }) {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ ...muted, flex: 1, minWidth: 180 }}>Automatic transcript, so it may contain mistakes. Audio is kept for a limited time.</span>
         {data.transcript === "failed" ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => api.retryHumanCallTranscript(callRef).then(load).catch((e) => setError(e.message))}><RotateCcw size={13} /> Try again</button> : null}
-        {(data.lines || []).length ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={copy}><Copy size={13} /> Copy text</button> : null}
+        {(data.lines || []).length ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={copy}><Copy size={13} /> <span aria-live="polite">{copied || "Copy text"}</span></button> : null}
         {onBack ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onBack}>Back</button> : null}
       </div>
     </div>

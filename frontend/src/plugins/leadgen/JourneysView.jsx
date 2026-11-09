@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { notice } from "../../utils/notice";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { Loader, Spinner } from "../../app/Loader";
@@ -362,7 +363,10 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
   const shown = showAll ? people : people.slice(0, 5);
   const mailList = parseLeads(paste);
   const preview = async (lid) => { setListId(lid); setCount(null); if (lid) { try { setCount(await api.journeyPeople(j.id, { list_id: lid, how_many: 200, dry_run: true })); } catch (e) { setCount({ error: e.message }); } } };
-  const task = async (fn) => { setBusy(true); try { await fn(); await load(true); onChanged?.(); } finally { setBusy(false); } };
+  const task = async (fn, ok) => {
+    setBusy(true);
+    try { await fn(); notice(ok); await load(true); onChanged?.(); } catch (e) { notice(e.message || "That didn't work. Try again."); } finally { setBusy(false); }
+  };
 
   return (
     <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
@@ -370,7 +374,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         <div style={{ ...row, justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ minWidth: 0 }}>
             <div style={row}>
-              <button type="button" title="Rename" onClick={async () => { const n = await askText({ title: "Rename this journey", initial: j.name, confirm: "Save" }); if (n && n.trim()) run(() => api.journeySettings(j.id, { name: n.trim() })); }}
+              <button type="button" title="Rename" onClick={async () => { const n = await askText({ title: "Rename this journey", initial: j.name, confirm: "Save" }); if (n && n.trim()) run(() => api.journeySettings(j.id, { name: n.trim() }), "Renamed."); }}
                 style={{ all: "unset", cursor: "pointer", fontSize: 18, fontWeight: 700, overflowWrap: "anywhere" }}>{j.name}</button>
               <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
             </div>
@@ -391,9 +395,9 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
                     <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); run(async () => { const r = await api.journeyClone(j.id); onChanged?.(r.journey.id); }, "Copied as a draft."); }}>Make a copy</button>
                     <button type="button" role="menuitem" className="ui-menu-item" onClick={async () => { setMenu(false); setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }}>Results and advice</button>
                     {j.status !== "completed" && j.status !== "draft" ? (
-                      <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped")); }}>Stop it</button>
+                      <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped"), "Stopped. Nobody else gets a step from it."); }}>Stop it</button>
                     ) : null}
-                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "This removes the journey, its tasks and everyone's place in it. Your saved companies and contacts are not deleted.", confirm: "Delete", danger: true })) { await api.journeyDelete(j.id); onGone?.(); } }}><Trash2 size={14} /> Delete</button>
+                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "This removes the journey, its tasks and everyone's place in it. Your saved companies and contacts are not deleted.", confirm: "Delete", danger: true })) { try { await api.journeyDelete(j.id); notice(`Deleted ${j.name}.`); onGone?.(); } catch (e) { notice(e.message || "Couldn't delete it. Try again."); } } }}><Trash2 size={14} /> Delete</button>
                   </div>
                 </>
               ) : null}
@@ -415,14 +419,14 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
       ) : (j.results.waiting_on_a_task ? <div style={small}>{j.results.waiting_on_a_task} waiting on a task.</div> : null)}
 
       <NeedsYou tasks={j.tasks} replied={j.results.by_status.replied} busy={busy} onMail={() => onGo("mail")}
-        onDone={(tid, outcome) => task(() => api.journeyTaskDone(tid, outcome))} onSkip={(tid) => task(() => api.journeyTaskSkip(tid))} />
+        onDone={(tid, outcome) => task(() => api.journeyTaskDone(tid, outcome), "Task done.")} onSkip={(tid) => task(() => api.journeyTaskSkip(tid), "Task skipped.")} />
 
       <div style={{ ...card, display: "grid", gap: 10, padding: 12 }}>
         <div style={{ ...row, justifyContent: "space-between" }}>
           <strong style={{ fontSize: 14 }}>Steps</strong>
           {dirty ? (
             <div style={row}>
-              <button type="button" style={btn(false)} onClick={() => { setSteps(j.steps); setDirty(false); }}>Undo</button>
+              <button type="button" style={btn(false)} onClick={() => { setSteps(j.steps); setDirty(false); notice("Changes undone."); }}>Undo</button>
               <button type="button" style={btn(true)} onClick={() => run(async () => { await api.journeySteps(j.id, stepsForSave(steps)); setDirty(false); }, live ? "Saved. People part-way through keep their place." : "Saved.")}>Save changes</button>
             </div>
           ) : null}
@@ -487,7 +491,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               <div style={small}>{[p.company, p.email].filter(Boolean).join(" · ")}</div>
               <div style={small}>{p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && j.status !== "running" && j.status !== "paused" ? " · starts when you press Start" : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
-            <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id))}><X size={14} /></button>
+            <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
           </div>
         ))}
         {people.length > 5 ? <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={() => setShowAll((s) => !s)}>{showAll ? "Show fewer" : `Show all ${people.length}`}</button> : null}
@@ -548,7 +552,11 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
   useEffect(() => { api.journeyTemplates().then((r) => setTemplates(r.templates || [])).catch(() => {}); }, []);
 
   const finish = async (made) => {
-    if (listId) { try { await api.journeyPeople(made.id, { list_id: listId, how_many: 200 }); } catch (e) { /* the journey is made; adding people can be done on its page */ } }
+    let note = "Journey made as a draft. Nothing is sent until you start it.";
+    if (listId) {
+      try { await api.journeyPeople(made.id, { list_id: listId, how_many: 200 }); } catch (e) { note = `Journey made, but the people weren't added: ${e.message || "try Add people on its page."}`; }
+    }
+    notice(note);
     onCreated(made.id);
   };
   const go = (name, fn) => async () => {

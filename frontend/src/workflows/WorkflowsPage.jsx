@@ -5,6 +5,8 @@ import { Loader } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
 import { PLUGIN_NAME, STATUS_LABEL, blankWorkflow, chipText, conditionText, when } from "./workflowModel";
 import { setWorkflowsOpen } from "./openWorkflows";
+import { useFlash } from "../components/useFlash";
+import { failText } from "../components/flash";
 import { Select, WorkflowEditor, editorCss } from "./WorkflowEditor";
 
 // Workflows: "when this happens, do that", for the whole company. Opened from the hub or from a plugin's sidebar; it is one page, so a workflow can
@@ -62,14 +64,14 @@ function FlowChips({ w, meta }) {
 }
 
 // ── Activity ────────────────────────────────────────────────────────────────
-function Activity({ meta, workflowId, setWorkflowId, canEdit }) {
+function Activity({ meta, workflowId, setWorkflowId, canEdit, flash }) {
   const [runs, setRuns] = useState(null);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState("");
   const [error, setError] = useState("");
   const load = useCallback(() => api.workflowRuns(workflowId, status).then((r) => { setRuns(r.runs); setError(""); }).catch((e) => setError(e.message || "Could not load the activity.")), [workflowId, status]);
   useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
-  const act = async (fn) => { try { await fn(); await load(); } catch (e) { setError(e.message || "That did not work."); } };
+  const act = async (fn, done) => { try { await fn(); await load(); flash(done); } catch (e) { flash(failText(e, "That did not work."), true); } };
   const tone = { done: C.green, failed: C.red, waiting: C.amber, stopped: C.slate, skipped: C.slate, running: C.cobalt };
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -89,8 +91,8 @@ function Activity({ meta, workflowId, setWorkflowId, canEdit }) {
               <div style={muted}>{meta.events[r.event] || r.event} · {when(r.created_at)}{r.status === "waiting" && r.resume_at ? ` · carries on ${new Date(r.resume_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>
             </div>
             <span style={{ ...muted, fontWeight: 700, color: tone[r.status] }}>{STATUS_LABEL[r.status] || r.status}</span>
-            {canEdit && r.status === "failed" ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => act(() => api.retryWorkflowRun(r.id))}><RotateCcw size={13} /> Try again</button> : null}
-            {canEdit && (r.status === "waiting" || r.status === "failed") ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => act(() => api.cancelWorkflowRun(r.id))}><Square size={12} /> Stop</button> : null}
+            {canEdit && r.status === "failed" ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => act(() => api.retryWorkflowRun(r.id), "Trying it again.")}><RotateCcw size={13} /> Try again</button> : null}
+            {canEdit && (r.status === "waiting" || r.status === "failed") ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => act(() => api.cancelWorkflowRun(r.id), "Stopped.")}><Square size={12} /> Stop</button> : null}
           </div>
           {open === r.id ? (
             <ol style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
@@ -146,6 +148,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   const [editing, setEditing] = useState(null);
   const [runsFor, setRunsFor] = useState("");
   const [error, setError] = useState("");
+  const [toast, flash] = useFlash();
   const heading = useRef(null);
   const mainRef = useRef(null);
   const focusTop = () => (heading.current || mainRef.current)?.focus();
@@ -195,9 +198,9 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   };
   const [busyId, setBusyId] = useState("");
   const [askDelete, setAskDelete] = useState("");
-  const act = async (id, change) => {
+  const act = async (id, change, done) => {
     setBusyId(id); setError("");
-    try { await persist(change); } catch (e) { setError(e.message || "That did not save."); }
+    try { await persist(change); flash(done); } catch (e) { flash(failText(e, "That did not save."), true); }
     setBusyId(""); setAskDelete("");
   };
   const shown = useMemo(() => (meta ? meta.workflows.filter((w) => !plugin || meta.event_info[w.event]?.plugin === plugin) : []), [meta, plugin]);
@@ -230,7 +233,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
           <Start meta={meta} first={context?.from} canEdit={canEdit} onPick={(event) => editNew(blankWorkflow(event))} onTemplate={(t) => editNew(fromTemplate(t))} />
         ) : mode === "edit" ? (
           <WorkflowEditor meta={meta} initial={editing.workflow} canEdit={canEdit} onCancel={back}
-            onSave={async (w) => { await persist((list) => (editing.id ? list.map((x) => (x.id === editing.id ? w : x)) : [...list, w])); back(); setTab("workflows"); }} />
+            onSave={async (w) => { await persist((list) => (editing.id ? list.map((x) => (x.id === editing.id ? w : x)) : [...list, w])); back(); setTab("workflows"); flash(`${w.name || "Workflow"} saved.`); }} />
         ) : (
           <>
             <div className="wf-row" style={{ justifyContent: "space-between" }}>
@@ -248,7 +251,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
             {tab === "workflows" ? (
               shown.length ? shown.map((w) => {
                 const st = w.stats || {};
-                const flip = (patch) => act(w.id, (list) => list.map((x) => (x.id === w.id ? { ...x, ...patch } : x)));
+                const flip = (patch) => act(w.id, (list) => list.map((x) => (x.id === w.id ? { ...x, ...patch } : x)), `${w.name} is ${patch.enabled ? "on" : "off"}.`);
                 return (
                   <div key={w.id} className="wf-card wf-row" style={{ alignItems: "flex-start" }}>
                     <input type="checkbox" role="switch" className="wf-switch" checked={w.enabled} disabled={!canEdit || busyId === w.id} aria-label={`Turn ${w.name} ${w.enabled ? "off" : "on"}`} onChange={(e) => flip({ enabled: e.target.checked })} />
@@ -266,7 +269,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
                     {canEdit && askDelete === w.id ? (
                       <span className="wf-row" role="group" aria-label={`Delete ${w.name}?`}>
                         <span style={muted}>Delete{st.waiting ? ` and stop ${st.waiting} waiting` : ""}?</span>
-                        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busyId === w.id} onClick={() => act(w.id, (list) => list.filter((x) => x.id !== w.id))}>Delete</button>
+                        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busyId === w.id} onClick={() => act(w.id, (list) => list.filter((x) => x.id !== w.id), `${w.name} deleted.`)}>Delete</button>
                         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAskDelete("")}>Keep</button>
                       </span>
                     ) : null}
@@ -279,10 +282,11 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
                   {canEdit ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => setMode("start")}><Plus size={14} /> Create a workflow</button> : <div style={muted}>Only people who can edit company settings can create one.</div>}
                 </div>
               )
-            ) : <Activity meta={meta} workflowId={runsFor} setWorkflowId={setRunsFor} canEdit={canEdit} />}
+            ) : <Activity meta={meta} workflowId={runsFor} setWorkflowId={setRunsFor} canEdit={canEdit} flash={flash} />}
           </>
         )}
       </div>
+      {toast}
     </div>
   );
 }

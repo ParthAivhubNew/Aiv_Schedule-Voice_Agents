@@ -169,6 +169,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
     try {
       const me = await api.uploadMyAvatar(file);
       setOperator((prev) => ({ ...prev, avatar_url: me.avatar_url }));
+      setStatus({ kind: "ok", text: "Photo updated" });
     } catch (err) {
       setStatus({ kind: "error", text: err.message || "Could not upload the photo." });
     } finally {
@@ -178,9 +179,11 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
 
   const removePhoto = async () => {
     setPhotoBusy(true);
+    setStatus({ kind: "", text: "" });
     try {
       await api.deleteMyAvatar();
       setOperator((prev) => ({ ...prev, avatar_url: null }));
+      setStatus({ kind: "ok", text: "Photo removed" });
     } catch (err) {
       setStatus({ kind: "error", text: err.message || "Could not remove the photo." });
     } finally {
@@ -213,10 +216,22 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   };
 
   const endSession = async (id) => {
-    try { await api.endMySession(id); setSessions((s) => s.filter((x) => x.id !== id)); } catch (_) {}
+    try {
+      await api.endMySession(id);
+      setSessions((s) => s.filter((x) => x.id !== id));
+      setStatus({ kind: "ok", text: "Signed out on that device" });
+    } catch (err) {
+      setStatus({ kind: "error", text: err.message || "Could not sign that device out." });
+    }
   };
   const endOthers = async () => {
-    try { await api.signOutOtherSessions(); setSessions((s) => s.filter((x) => x.current)); } catch (_) {}
+    try {
+      await api.signOutOtherSessions();
+      setSessions((s) => s.filter((x) => x.current));
+      setStatus({ kind: "ok", text: "Signed out everywhere else" });
+    } catch (err) {
+      setStatus({ kind: "error", text: err.message || "Could not sign the other devices out." });
+    }
   };
 
   const toggle = (key) => setNotif((n) => ({ ...n, events: n.events.map((e) => (e.key === key ? { ...e, on: !e.on } : e)) }));

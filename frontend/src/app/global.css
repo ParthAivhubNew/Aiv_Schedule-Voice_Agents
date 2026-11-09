@@ -1236,10 +1236,11 @@ button, input, select, textarea {
   .fl-fit .fl-card > .fl-table { flex: 1 1 auto; flex-shrink: 1; min-height: 0; max-height: none; }
 }
 
-/* My Lists: the tick box and the company name stay put while the other columns scroll sideways */
+/* My Lists: the tick box stays put while the other columns scroll sideways. The company name is pinned by GridTools
+   (pinned by default, and the person can unpin it), so it is not made sticky here. */
 .acc-stick th:nth-child(1), .acc-stick td:nth-child(1) { position: sticky; left: 0; z-index: 2; background: inherit; }
-.acc-stick th:nth-child(2), .acc-stick td:nth-child(2) { position: sticky; left: 38px; z-index: 2; background: inherit; box-shadow: 1px 0 0 var(--ui-line); min-width: 190px; }
-.acc-stick thead th:nth-child(-n+2) { z-index: 3; background: var(--ui-sunken); }
+.acc-stick th:nth-child(2), .acc-stick td:nth-child(2) { min-width: 190px; }
+.acc-stick thead th:nth-child(1) { z-index: 3; background: var(--ui-sunken); }
 
 /* GridTools (components/GridTools.jsx): pin, hide and resize a table's columns, and copy a cut-off cell. */
 .gt-bar { display: flex; justify-content: flex-end; align-items: center; padding: 6px 10px; flex-shrink: 0; }

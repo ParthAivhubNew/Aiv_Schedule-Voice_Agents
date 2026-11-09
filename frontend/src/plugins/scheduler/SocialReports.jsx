@@ -150,7 +150,7 @@ export function ReportsPage({ showToast, embedded = false }) {
   });
   const remove = (r) => {
     if (!window.confirm(`Delete the report “${r.name}”? Its link stops working.`)) return;
-    act(r.id, "delete", async () => { await api.deleteReport(r.id); load(); });
+    act(r.id, "delete", async () => { await api.deleteReport(r.id); showToast("Report deleted."); load(); });
   };
   const mailOff = data && !data.emailReady;
   const stamp = (iso, opts) => new Date(iso).toLocaleString("en-GB", opts);

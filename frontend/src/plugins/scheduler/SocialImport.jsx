@@ -55,6 +55,7 @@ export function ImportPage({ showToast, onOpenApprovals, onOpenCalendar }) {
       a.download = t.filename;
       a.click();
       URL.revokeObjectURL(url);
+      showToast("Template downloaded.");
     } catch (e) {
       showToast(e.message || "Could not download the template.");
     }
@@ -77,6 +78,8 @@ export function ImportPage({ showToast, onOpenApprovals, onOpenCalendar }) {
 
   const commit = async () => {
     const ready = checked.rows.filter((r) => !r.issues.length);
+    const n = checked.summary.posts;
+    if (approve && !window.confirm(`Import and approve ${n} post${n === 1 ? "" : "s"}? Posts with text go out at their set time without another check. Posts the AI writes still wait for approval.`)) return;
     setBusy("import");
     try {
       const res = await api.commitImport(ready, approve);

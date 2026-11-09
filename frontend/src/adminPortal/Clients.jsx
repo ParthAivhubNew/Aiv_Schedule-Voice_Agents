@@ -45,12 +45,13 @@ export function Clients({ canEdit, openId, open }) {
   const loadClients = useCallback(() => adminApi.clients(includeAivhub, includeArchived), [includeAivhub, includeArchived]);
   const [list, err, reload] = useLoad(loadClients, [loadClients]);
   const [find, setFind] = useState("");
+  const [gone, setGone] = useState("");
   const shown = useMemo(() => {
     const t = find.trim().toLowerCase();
     return (list || []).filter((o) => !t || `${o.name} ${o.id}`.toLowerCase().includes(t));
   }, [list, find]);
 
-  if (openId) return <ClientDetail id={openId} canEdit={canEdit} back={() => { open(""); reload(); }} />;
+  if (openId) return <ClientDetail id={openId} canEdit={canEdit} back={() => { setGone(""); open(""); reload(); }} onDeleted={(name) => { open(""); reload(); setGone(`${name} deleted.`); }} />;
   return (
     <>
       <PageTitle
@@ -71,6 +72,7 @@ export function Clients({ canEdit, openId, open }) {
         }
       />
       <Note error>{err}</Note>
+      <Note>{gone}</Note>
       <Table head={["Organisation", "Partner", "Status", "Users", "Numbers", ...WALLETS, "Stop at zero", "Verification", "Subscription", "Joined"]} minWidth={1100}>
         {shown.map((o) => (
           <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
@@ -125,7 +127,7 @@ function PlanHistory({ id }) {
   );
 }
 
-function ClientDetail({ id, canEdit, back }) {
+function ClientDetail({ id, canEdit, back, onDeleted }) {
   const load = useCallback(() => adminApi.client(id), [id]);
   const [c, err, reload] = useLoad(load, [load]);
   const [msg, run] = useAction(reload);
@@ -167,7 +169,7 @@ function ClientDetail({ id, canEdit, back }) {
     try {
       await adminApi.deleteClient(c.id, deleteConfirm.trim());
       setDeleteModal(false);
-      back();
+      onDeleted(c.name);
     } catch (err) {
       setDeleteErr(err.message || "Failed to delete client organisation.");
     } finally {

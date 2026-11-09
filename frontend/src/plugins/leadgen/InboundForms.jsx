@@ -32,7 +32,7 @@ export function InboundFormsView({ toast, onOpenLead }) {
   const create = async () => {
     const name = await askText({ title: "Name your form", label: "For example Contact us", confirm: "Create form", maxLength: 80 });
     if (!name) return;
-    try { setOpenId((await api.createInboundForm(name.trim())).id); } catch (e) { toast?.(e.message || "Couldn't create the form."); }
+    try { setOpenId((await api.createInboundForm(name.trim())).id); toast?.("Form created. Add fields, then publish it."); } catch (e) { toast?.(e.message || "Couldn't create the form."); }
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -111,7 +111,7 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
         <input aria-label="Form name" value={draft.name} maxLength={80} onChange={(e) => set({ name: e.target.value })} className="ui-input ifm-auto" style={{ ...text, fontSize: 16, fontWeight: 600, minWidth: 200, flex: "1 1 200px", maxWidth: 360 }} />
         <span style={muted}>{form.status === "published" ? (form.dirty || changed ? "Published · edits not live yet" : "Published") : "Draft"}</span>
         <span style={{ flex: 1 }} />
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} onClick={async () => { if (await askConfirm({ title: `Delete ${form.name}?`, body: "Its link stops working and its answers are deleted. Leads already saved stay in your lists.", confirm: "Delete form", danger: true })) { await run(() => api.deleteInboundForm(id).then(() => null)); onBack(); } }}><Trash2 size={14} /> Delete</button>
+        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} onClick={async () => { if (await askConfirm({ title: `Delete ${form.name}?`, body: "Its link stops working and its answers are deleted. Leads already saved stay in your lists.", confirm: "Delete form", danger: true })) { if (await run(() => api.deleteInboundForm(id).then(() => null), `Deleted ${form.name}.`)) onBack(); } }}><Trash2 size={14} /> Delete</button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy || !changed} onClick={save}>Save</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy || (form.status === "published" && !changed && !form.dirty)} onClick={publish}>{form.status === "published" ? "Publish changes" : "Publish"}</button>
         {form.status === "published" ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Take the link offline. You can publish again later." onClick={() => run(() => api.unpublishInboundForm(id), "Unpublished.")}>Unpublish</button> : null}

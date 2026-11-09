@@ -12,7 +12,7 @@ const btn = (primary) => ({
 
 // The organisation's phone numbers and who may call from each.
 // A number with nobody assigned is shared by everyone who can make calls.
-export function NumbersTab() {
+export function NumbersTab({ flash = () => {} }) {
   const [numbers, setNumbers] = useState([]);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState("");
@@ -30,18 +30,21 @@ export function NumbersTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const act = async (fn) => {
+  const act = async (fn, done) => {
     setError("");
     try {
       setNumbers(await fn());
+      if (done) flash(done);
     } catch (err) {
       setError(err.message || "Something went wrong.");
     }
   };
 
   const toggleUser = (n, userId) => {
-    const next = n.assignedTo.includes(userId) ? n.assignedTo.filter((x) => x !== userId) : [...n.assignedTo, userId];
-    act(() => api.assignNumber(n.id, next));
+    const had = n.assignedTo.includes(userId);
+    const next = had ? n.assignedTo.filter((x) => x !== userId) : [...n.assignedTo, userId];
+    const who = users.find((u) => u.id === userId)?.name || "That person";
+    act(() => api.assignNumber(n.id, next), had ? `${who} taken off ${n.e164}.` : `${n.e164} reserved for ${who}.`);
   };
 
   return (
@@ -61,19 +64,19 @@ export function NumbersTab() {
               <input
                 defaultValue={n.label}
                 placeholder="Label, e.g. Sales line"
-                onBlur={(e) => e.target.value !== n.label && act(() => api.updateNumber(n.id, { label: e.target.value }))}
+                onBlur={(e) => e.target.value !== n.label && act(() => api.updateNumber(n.id, { label: e.target.value }), "Label saved.")}
                 style={{ ...input, width: 180 }}
               />
               {n.isDefault ? (
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: C.cobaltDeep, background: C.cobaltSoft, padding: "3px 8px", borderRadius: 6 }}>Default</span>
               ) : (
-                <button type="button" style={btn(false)} onClick={() => act(() => api.updateNumber(n.id, { is_default: true }))}>
+                <button type="button" style={btn(false)} onClick={() => act(() => api.updateNumber(n.id, { is_default: true }), `${n.e164} is now the default.`)}>
                   <Star size={13} /> Make default
                 </button>
               )}
               <span style={{ fontSize: 12, color: n.shared ? C.teal : C.slate }}>{n.shared ? "Shared with everyone" : `Reserved for ${n.assignedTo.length}`}</span>
               <div style={{ flex: 1 }} />
-              <button type="button" title="Remove number" style={btn(false)} onClick={() => act(() => api.deleteNumber(n.id))}>
+              <button type="button" title="Remove number" style={btn(false)} onClick={() => window.confirm(`Remove ${n.e164}?`) && act(() => api.deleteNumber(n.id), `${n.e164} removed.`)}>
                 <Trash2 size={13} />
               </button>
             </div>
@@ -82,7 +85,7 @@ export function NumbersTab() {
               <input
                 defaultValue={n.assistantId}
                 placeholder="Optional: assistant for this line"
-                onBlur={(e) => e.target.value !== n.assistantId && act(() => api.updateNumber(n.id, { assistant_id: e.target.value }))}
+                onBlur={(e) => e.target.value !== n.assistantId && act(() => api.updateNumber(n.id, { assistant_id: e.target.value }), "Assistant saved.")}
                 style={{ ...input, flex: 1, minWidth: 220, fontFamily: FONT_MONO, fontSize: 12 }}
               />
             </div>
@@ -109,7 +112,7 @@ export function NumbersTab() {
               setForm({ e164: "", label: "", assistant_id: "" });
               setAdding(false);
               return out;
-            });
+            }, "Number saved.");
           }}
           style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginTop: 12, display: "grid", gap: 10, background: C.paper }}
         >

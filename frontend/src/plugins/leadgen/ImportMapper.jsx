@@ -32,6 +32,8 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
   const own = headers.filter((h) => isCustom(mapping[h]));
   const left = headers.filter((h) => !mapping[h] || mapping[h] === SKIP);
   const shown = hideMatched ? headers.filter((h) => !standard.includes(h)) : headers;
+  const mapped = new Set(Object.values(mapping));
+  const canMatch = mapped.has("registration_number") || mapped.has("postcode");
 
   const confirm = () => {
     if (remember) rememberMapping(headers, mapping);
@@ -113,6 +115,11 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
         </div>
 
         <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 22px 16px" }}>
+          <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 6, lineHeight: 1.5 }}>
+            {canMatch
+              ? "Rows we find on the company register, by company number or by exact name and postcode, show what the register holds wherever your file is blank. Your file always wins."
+              : "Match a Company number or Postcode column and rows we find on the company register show what it holds wherever your file is blank."}
+          </div>
           {warnings.map((w) => (
             <div key={w} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#B45309", marginBottom: 4 }}>
               <AlertTriangle size={13} /> {w}

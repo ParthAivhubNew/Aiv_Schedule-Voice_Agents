@@ -17,6 +17,12 @@ import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CompanyAvatar, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
+import { useBulkSelect } from "../../components/bulkSelect";
+import { SelectAllNotice } from "../../components/SelectAllNotice";
+import { notice } from "../../utils/notice";
+
+// The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
+export const SELECT_ALL_LIMIT = 2000;
 
 const FAVOURITES = "Favourites";
 const CHECK_TIPS = {
@@ -115,7 +121,8 @@ function TierBadge({ tier }) {
 
 export function asAccount(c) {
   const notes = [c.registration_number && `Reg no. ${c.registration_number}`, c.status, c.sic_text, c.postcode].filter(Boolean).join(" · ");
-  return { name: c.name, website: c.website || "", phone: c.phone || "", email: c.email || "", industry: c.industry || "", region: c.region || "", notes, source: "scout", business_record_id: c.id };
+  return { name: c.name, website: c.website || "", phone: c.phone || "", email: c.email || "", industry: c.industry || "", region: c.region || "", notes, source: "scout", business_record_id: c.id,
+    registration_number: c.registration_number || "", postcode: c.postcode || "", address: c.address || "" };
 }
 
 // One company's contacts on demand. Registry officers are verified and free; the web lookup is a
@@ -337,7 +344,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
   const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
   const [savedTotal, setSavedTotal] = useState(0);
-  const [picked, setPicked] = useState(() => new Set());
+  const [selKey, setSelKey] = useState(""); // the search the ticks belong to: a new search (not a new page) clears them
+  const sel = useBulkSelect(selKey);
+  const cardsById = useRef(new Map()); // every company card seen in this search, so ticks on other pages still have their row
+  const lastQuery = useRef(null); // the request behind the results on screen, for "Select all"
+  const [selecting, setSelecting] = useState(false);
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
@@ -487,8 +498,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     // The last results stay (dimmed) while the next page loads, so the screen never goes empty; if the search fails, only the
     // error shows, not results that belong to something else.
     let r;
+    const query = { filters: formToFilters(f), exclude_ids: excluded, drop_terms: drop, sort: sortOverride || sort };
     try {
-      r = await api.searchCompanies({ filters: formToFilters(f), limit: pageRef.current, offset, exclude_ids: excluded, drop_terms: drop, sort: sortOverride || sort });
+      r = await api.searchCompanies({ ...query, limit: pageRef.current, offset });
     } catch (err) {
       if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setCompanies([]); setTotal(0); setTiers(null); setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
       return;
@@ -500,7 +512,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies(r.companies);
       setPage(Math.floor(offset / pageRef.current) + 1);
-      setPicked(new Set());
+      lastQuery.current = query;
+      setSelKey(JSON.stringify([query.filters, query.sort, query.drop_terms]));
       setTiers(r.tiers || null);
       setRanked(r.ranked !== false);
       setSavedTotal(r.saved_total || 0);
@@ -555,7 +568,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     setFillIds([]);
     setTiers(null);
     setSavedTotal(0);
-    setPicked(new Set());
+    sel.clear();
+    lastQuery.current = null;
+    setSelKey("");
     setPage(1);
     setForm(EMPTY_FORM);
     setExcluded([]);
@@ -672,6 +687,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const countArea = async (shape, f = form, drop = dropTerms) => {
     stopArea.current = true;
     setError("");
+    setSelKey(JSON.stringify(["area", shape, formToFilters(f), drop]));
     setAreaStep({ phase: "counting" });
     const myRun = ++runId.current;
     countHold.clear();
@@ -791,7 +807,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     const key = `${c.id}:${kind}`;
     if (lookups[key] === "busy") return;
     setLookups((m) => ({ ...m, [key]: "busy" }));
-    try { const r = await api.revealContact(c.id, kind); applyCompany(c.id, r.company); } catch (err) { store.toast(err.message || "Couldn't open that."); }
+    try { const r = await api.revealContact(c.id, kind); applyCompany(c.id, r.company); store.toast(`${kind[0].toUpperCase()}${kind.slice(1)} opened for ${c.name}.`); } catch (err) { store.toast(err.message || "Couldn't open that."); }
     setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
   };
   const findSite = async (c, kind = "website") => {
@@ -833,12 +849,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const callAll = async (list) => {
     const withPhone = list.filter((c) => c.phone);
     if (!withPhone.length) { store.toast("None of these companies has a phone number yet."); return; }
-    const rows = [];
-    for (const c of withPhone) {
-      const row = await savedCopy(c);
-      if (row) rows.push(row);
+    // The ones not saved yet are saved in one go; the call box then shows how many will be called and what it costs.
+    const savedOf = (c, pool) => pool.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
+    const missing = withPhone.filter((c) => !savedOf(c, store.accounts));
+    let fresh = [];
+    if (missing.length) {
+      const r = await store.save(missing.map(asAccount), "Unsorted", { quiet: true });
+      if (!r) return;
+      fresh = r.accounts || [];
     }
-    if (rows.length) call.open({ kind: "selected", ids: rows.map((r) => r.id), name: `${rows.length} companies from your search` });
+    const pool = [...fresh, ...store.accounts];
+    const rows = withPhone.map((c) => savedOf(c, pool)).filter(Boolean);
+    if (rows.length) call.open({ kind: "selected", ids: [...new Set(rows.map((r) => r.id))], name: `${rows.length.toLocaleString()} ${rows.length === 1 ? "company" : "companies"} from your search` });
+    else store.toast("Couldn't save these companies for calling. Try again.");
   };
   // Favourites are an ordinary list called Favourites, so they can be enriched and emailed like any other.
   const favKeys = useMemo(() => {
@@ -855,7 +878,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     onSave: saveOne,
     onFavourite: (c) => store.save([asAccount(c)], FAVOURITES),
     onAddToList: async (c) => { const name = await askText({ title: `Add ${c.name} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) store.save([asAccount(c)], name); },
-    onRemove: removeCompany,
+    onRemove: (c) => { removeCompany(c); sel.drop([c.id]); store.toast(`Hid ${c.name} from this search.`); },
     onCall: (c) => (canCall ? callOne(c) : call.open({ kind: "one", id: "", name: c.name }, true)),
     callLocked: !canCall,
     // A note goes on the saved company (it is saved to Unsorted first if it isn't yet).
@@ -874,7 +897,30 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
-  const pickedRows = companies.filter((c) => picked.has(c.id));
+  companies.forEach((c) => cardsById.current.set(c.id, c));
+  const pickedRows = [...sel.ids].map((id) => cardsById.current.get(id)).filter(Boolean);
+  // A drawn area holds every company it found on screen; a normal search is resolved on the server, up to the limit.
+  const selectReach = inArea ? companies.length : Math.min(total, SELECT_ALL_LIMIT);
+  const selectAllMatching = async () => {
+    if (inArea || !lastQuery.current) { sel.selectAll(companies.map((c) => c.id)); return; }
+    setSelecting(true);
+    try {
+      const r = await api.searchSelectAll({ ...lastQuery.current, limit: SELECT_ALL_LIMIT });
+      (r.companies || []).forEach((c) => cardsById.current.set(c.id, { ...(cardsById.current.get(c.id) || {}), ...c }));
+      sel.selectAll((r.companies || []).map((c) => c.id));
+    } catch (err) {
+      notice(err.message || "Couldn't select them all. Try again.");
+    } finally {
+      setSelecting(false);
+    }
+  };
+  const selectedWord = sel.everything ? `All ${sel.count.toLocaleString()} selected` : `${sel.count.toLocaleString()} selected`;
+  const bulkSave = async (listName) => {
+    const rows = pickedRows;
+    if (!rows.length) return;
+    const r = await store.save(rows.map(asAccount), listName);
+    if (r) sel.clear();
+  };
   const field = { display: "flex", flexDirection: "column", gap: 4, flex: "1 1 0", minWidth: 0 };
   const label = { ...text, fontSize: 12, fontWeight: 600, color: C.slate };
   const check = (k, t) => (
@@ -1064,7 +1110,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 {draft.asked && draft.asked < total ? `The ${draft.asked.toLocaleString()} you asked for, best matches first. ${total.toLocaleString()}${capped ? "+" : ""} match in all.` : `${total.toLocaleString()}${capped ? "+" : ""} match.`}
               </span>
               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!companies.length || busy} onClick={() => setPicked(new Set(companies.map((c) => c.id)))}>Select all {companies.length.toLocaleString()}</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!companies.length || busy} onClick={() => sel.selectAll(companies.map((c) => c.id))}>Select all {companies.length.toLocaleString()}</button>
                 {draft.asked && draft.asked < total ? (
                   <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => { pageRef.current = pageSize; setDraft({ asked: 0 }); search(null, form, 0, null, undefined, undefined, true); }}>Show all matches</button>
                 ) : null}
@@ -1214,17 +1260,18 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             </>
           ) : (
             <>
-              <SelectionBar count={picked.size} onClear={() => setPicked(new Set())}>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => { store.save(pickedRows.map(asAccount)); setPicked(new Set()); }}><Plus size={14} /> Save</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askText({ title: `Add ${pickedRows.length} companies to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) { store.save(pickedRows.map(asAccount), name); setPicked(new Set()); } }}><List size={14} /> Add to list</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => { store.save(pickedRows.map(asAccount), FAVOURITES); setPicked(new Set()); }}><Star size={14} /> Favourite</button>
+              <SelectionBar count={sel.count} label={selectedWord} onClear={sel.clear}>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => bulkSave("Unsorted")}><Plus size={14} /> Save {sel.count.toLocaleString()}</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askText({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => bulkSave(FAVOURITES)}><Star size={14} /> Favourite</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
-                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { pickedRows.forEach(removeCompany); setPicked(new Set()); }}><X size={14} /> Remove</button>
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
               </SelectionBar>
+              <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
               {companies.length ? (
-                <CompaniesTable busy={busy} rows={companies} picked={picked} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
-                  onPick={(id) => setPicked((s0) => { const n = new Set(s0); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
-                  onPickAll={(on) => setPicked(on ? new Set(companies.map((c) => c.id)) : new Set())}
+                <CompaniesTable busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
+                  onPick={sel.toggle}
+                  onPickAll={() => sel.togglePage(companies.map((c) => c.id))}
                   onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} lookups={lookups} />
               ) : searched && !inArea && !busy ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>

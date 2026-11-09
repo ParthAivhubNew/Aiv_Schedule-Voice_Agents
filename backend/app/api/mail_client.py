@@ -145,16 +145,35 @@ async def sync_now(body: SyncBody, request: Request, db: AsyncSession = Depends(
 
 
 # ── Lists and conversations ─────────────────────────────────────────────────
-@router.get("/messages")
-async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str = "", q: str = "", unread: bool = False,
-                        starred: bool = False, attachments: bool = False, limit: int = 40, offset: int = 0,
-                        db: AsyncSession = Depends(get_db)):
-    ctx = current(request)
-    if folder not in S.FOLDERS:
-        raise HTTPException(status_code=400, detail="Unknown folder.")
-    boxes = {m.id: m for m in await _boxes(db, ctx, mailbox_id)}
-    if not boxes:
-        return {"threads": [], "total": 0}
+SCAN_CAP = 1500  # the newest messages one list reads; past this the total is shown as "1,234+"
+SELECT_ALL_CAP = 500  # "Select all" ticks at most this many conversations, the most one bulk action takes
+THREAD_MESSAGES_CAP = 5000  # a bulk action on whole conversations moves at most this many messages
+
+
+def thread_heads(rows: List[Any]) -> List[Any]:
+    """The newest message of each conversation, which stands for it in the list. Rows come newest first."""
+    seen, heads = set(), []
+    for m in rows:
+        key = m.thread_key or m.id
+        if key not in seen:
+            seen.add(key)
+            heads.append(m)
+    return heads
+
+
+def same_folder_thread(picked: List[Any], candidates: List[Any]) -> List[Any]:
+    """The picked messages plus every other message of their conversations in the same mailbox and folder,
+    so a bulk action on a conversation in the list moves all of it, not only its newest message."""
+    keys = {(m.mailbox_id, m.folder, m.thread_key) for m in picked if m.thread_key}
+    out = {m.id: m for m in picked}
+    for m in candidates:
+        if m.thread_key and (m.mailbox_id, m.folder, m.thread_key) in keys:
+            out.setdefault(m.id, m)
+    return list(out.values())
+
+
+async def _matching_heads(db: AsyncSession, boxes: Dict[str, EmailMailbox], folder: str, q: str, unread: bool, starred: bool,
+                          attachments: bool) -> tuple:
     cond = [MailMessage.mailbox_id.in_(list(boxes)), MailMessage.folder == folder]
     if unread:
         cond.append(MailMessage.is_read.is_(False))
@@ -167,13 +186,21 @@ async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str
         like = f"%{term.replace('%', '').replace('_', ' ')}%"
         cond.append(or_(MailMessage.subject.ilike(like), MailMessage.from_email.ilike(like), MailMessage.from_name.ilike(like),
                         MailMessage.body_text.ilike(like), func.cast(MailMessage.to_list, Text).ilike(like)))
-    rows = (await db.execute(select(MailMessage).where(*cond).order_by(MailMessage.sent_at.desc()).limit(1500))).scalars().all()
-    seen, heads = set(), []
-    for m in rows:  # the newest message of each conversation stands for it
-        key = m.thread_key or m.id
-        if key not in seen:
-            seen.add(key)
-            heads.append(m)
+    rows = (await db.execute(select(MailMessage).where(*cond).order_by(MailMessage.sent_at.desc()).limit(SCAN_CAP))).scalars().all()
+    return thread_heads(rows), len(rows) >= SCAN_CAP
+
+
+@router.get("/messages")
+async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str = "", q: str = "", unread: bool = False,
+                        starred: bool = False, attachments: bool = False, limit: int = 40, offset: int = 0,
+                        db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    if folder not in S.FOLDERS:
+        raise HTTPException(status_code=400, detail="Unknown folder.")
+    boxes = {m.id: m for m in await _boxes(db, ctx, mailbox_id)}
+    if not boxes:
+        return {"threads": [], "total": 0, "total_capped": False}
+    heads, capped = await _matching_heads(db, boxes, folder, q, unread, starred, attachments)
     total = len(heads)
     page = heads[max(offset, 0): max(offset, 0) + max(1, min(limit, 100))]
     keys = [m.thread_key for m in page if m.thread_key]
@@ -189,7 +216,30 @@ async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str
         n, unread_n = stats.get(m.thread_key, (1, 0 if m.is_read else 1))
         row["count"], row["unread_count"] = max(n, 1), unread_n
         out.append(row)
-    return {"threads": out, "total": total}
+    return {"threads": out, "total": total, "total_capped": capped}
+
+
+class SelectAllBody(BaseModel):
+    folder: str = "inbox"
+    mailbox_id: str = ""
+    q: str = ""
+    unread: bool = False
+    starred: bool = False
+    attachments: bool = False
+
+
+@router.post("/messages/ids")
+async def select_all(body: SelectAllBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """Every conversation the open folder, filters and search match, newest first, up to SELECT_ALL_CAP: what "Select all" ticks.
+    Each id is the conversation's newest message, the same id the list shows; send them back with threads=true."""
+    ctx = current(request)
+    if body.folder not in S.FOLDERS:
+        raise HTTPException(status_code=400, detail="Unknown folder.")
+    boxes = {m.id: m for m in await _boxes(db, ctx, body.mailbox_id)}
+    if not boxes:
+        return {"ids": [], "total": 0, "total_capped": False, "limit": SELECT_ALL_CAP}
+    heads, capped = await _matching_heads(db, boxes, body.folder, body.q, body.unread, body.starred, body.attachments)
+    return {"ids": [m.id for m in heads[:SELECT_ALL_CAP]], "total": len(heads), "total_capped": capped, "limit": SELECT_ALL_CAP}
 
 
 @router.get("/messages/{message_id}")
@@ -219,6 +269,7 @@ async def open_thread(thread_key: str, request: Request, folder: str = "", db: A
 class ActionBody(BaseModel):
     ids: List[str]
     action: str
+    threads: bool = False  # the ids stand for conversations in the list: act on each one's messages in that folder too
 
 
 @router.post("/actions")
@@ -226,12 +277,21 @@ async def act(body: ActionBody, request: Request, db: AsyncSession = Depends(get
     ctx = current(request)
     if body.action not in ACTIONS:
         raise HTTPException(status_code=400, detail="Unknown action.")
-    if not body.ids or len(body.ids) > 500:
-        raise HTTPException(status_code=400, detail="Pick between 1 and 500 messages.")
+    if not body.ids or len(body.ids) > SELECT_ALL_CAP:
+        raise HTTPException(status_code=400, detail=f"Pick between 1 and {SELECT_ALL_CAP} messages.")
     boxes = {m.id: m for m in await _boxes(db, ctx)}
     rows = (await db.execute(select(MailMessage).where(MailMessage.id.in_(body.ids), MailMessage.mailbox_id.in_(list(boxes) or [""])))).scalars().all()
     if not rows:
         raise HTTPException(status_code=404, detail="Those messages are not available to you.")
+    if body.threads:
+        keys = list({m.thread_key for m in rows if m.thread_key})
+        if keys:
+            near = (await db.execute(select(MailMessage).where(
+                MailMessage.mailbox_id.in_(list({m.mailbox_id for m in rows})), MailMessage.thread_key.in_(keys),
+                MailMessage.folder.in_(list({m.folder for m in rows}))).limit(THREAD_MESSAGES_CAP + 1))).scalars().all()
+            if len(near) > THREAD_MESSAGES_CAP:
+                raise HTTPException(status_code=400, detail="Those conversations hold too many emails for one go. Pick fewer.")
+            rows = same_folder_thread(rows, near)
     if body.action == "delete_forever" and any(m.folder not in ("trash", "drafts") for m in rows):
         raise HTTPException(status_code=400, detail="Move it to Trash first, then delete it for good.")
     ops: Dict[str, List[Dict[str, Any]]] = {}

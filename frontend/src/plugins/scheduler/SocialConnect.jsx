@@ -5,6 +5,7 @@ import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
 import { missingNames, openPlans, useConnection } from "../../hooks/useConnections";
 import { CallDialog } from "../leadgen/CallFlow";
+import { pagePicked, togglePage } from "../../components/bulkSelect";
 
 // Social working with Leads and Voice: who engaged with a post (and turning them into leads), a booking link that credits
 // meetings to a post, sharing a post with a list, and post ideas from your leads and your calls.
@@ -13,6 +14,7 @@ import { CallDialog } from "../leadgen/CallFlow";
 const TEAL = "#0C8C7D";
 const TEAL_SOFT = "#E4F5F2";
 const TEAL_INK = "#065F54";
+const ENGAGER_CAP = 500; // the most the server lists per post, and the most one "add to leads" takes
 const NETWORKS = {
   linkedin: ["LinkedIn", "#0A66C2", "#E8F1FA"], x: ["X", "#111827", "#EFEFEF"], facebook: ["Facebook", "#1877F2", "#E7F0FE"],
   instagram: ["Instagram", "#C13584", "#FDECF5"], threads: ["Threads", "#000000", "#F4F4F5"], reddit: ["Reddit", "#D93A00", "#FFF0E8"],
@@ -90,7 +92,8 @@ function PostRow({ post, toast, lists, meetings }) {
     await load();
   });
   const addHand = () => run("hand", async () => {
-    await api.addPostEngagers(post.id, [{ name: manual.name, company: manual.company, text: manual.text, network: "manual" }]);
+    const r = await api.addPostEngagers(post.id, [{ name: manual.name, company: manual.company, text: manual.text, network: "manual" }]);
+    toast(r && r.added === 0 ? `${manual.name.trim()} is already listed.` : `${manual.name.trim()} added.`);
     setManual({ name: "", company: "", text: "" });
     await load();
   });
@@ -115,6 +118,7 @@ function PostRow({ post, toast, lists, meetings }) {
   const live = (post.publishResults || []).filter((r) => r.ok);
   const channels = post.channels || [];
   const people = data ? data.engagers.length : null;
+  const addable = data ? data.engagers.filter((e) => !e.lead_id).map((e) => e.id) : [];
   return (
     <article style={{ ...card, borderColor: open ? TEAL : C.border, overflow: "hidden" }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 14px" }}>
@@ -204,7 +208,17 @@ function PostRow({ post, toast, lists, meetings }) {
             </div>
           ) : (
             <>
-              <div style={{ ...muted, fontSize: 12, fontWeight: 600 }}>{people} {people === 1 ? "person" : "people"}</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {addable.length && data.can_add_to_leads ? (
+                  <label style={{ ...muted, fontSize: 12, fontWeight: 600, color: C.ink, display: "inline-flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+                    <input type="checkbox" style={{ accentColor: TEAL }} checked={pagePicked(picked, addable)} onChange={() => setPicked((p) => togglePage(p, addable))} />
+                    {pagePicked(picked, addable) ? `All ${addable.length} ticked` : `Tick all ${addable.length} not yet leads`}
+                  </label>
+                ) : null}
+                <span style={{ ...muted, fontSize: 12, fontWeight: 600 }}>
+                  {people} {people === 1 ? "person" : "people"}{people >= ENGAGER_CAP ? ` (the latest ${ENGAGER_CAP})` : ""}
+                </span>
+              </div>
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                 {data.engagers.map((e) => (
                   <li key={e.id}>

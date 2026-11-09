@@ -5,7 +5,11 @@ import {
   RefreshCw, Reply, ReplyAll, Search, Send, ShieldAlert, Star, Trash2, Underline, X,
 } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { useBulkSelect } from "../../components/bulkSelect";
+import { SelectAllNotice } from "../../components/SelectAllNotice";
+import { notice } from "../../utils/notice";
 import { DoNotEmailView, RepliesList, SentList } from "./OutreachViews";
+import { bulkDoneText, conversations, MAIL_SELECT_CAP } from "./mailBulk";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 
 const FOLDERS = [
@@ -135,7 +139,8 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
   };
   const discard = async () => {
     if (form.draft_id) { try { await api.mailActions([form.draft_id], "delete_forever"); } catch (_) { /* nothing to remove */ } }
-    onClose(Boolean(form.draft_id));
+    notice(form.draft_id ? "Draft discarded." : "Discarded.");
+    onClose(false);
   };
   const cmd = (name, arg) => { editor.current?.focus(); document.execCommand(name, false, arg); dirty.current = true; setSaved(""); };
   const link = () => { const u = window.prompt("Link address (https://…)"); if (u && /^https?:\/\//i.test(u)) cmd("createLink", u); };
@@ -219,22 +224,23 @@ export function MailView({ operator, outreach, start }) {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState({ unread: false, starred: false, attachments: false });
-  const [data, setData] = useState({ threads: [], total: 0 });
+  const [data, setData] = useState({ threads: [], total: 0, total_capped: false });
   const [loading, setLoading] = useState(true);
-  const [picked, setPicked] = useState(() => new Set());
+  const [more, setMore] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const sel = useBulkSelect(`${folder}|${boxId}|${query}|${filter.unread}|${filter.starred}|${filter.attachments}`);
   const [open, setOpen] = useState("");
   const [thread, setThread] = useState(null);
   const [images, setImages] = useState(false);
   const [compose, setCompose] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [note, setNote] = useState("");
   const [pane, setPane] = useState("list");
   const alive = useRef(true);
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const t = setTimeout(() => setQuery(q.trim()), 300); return () => clearTimeout(t); }, [q]);
 
-  const flash = (text) => { setNote(text); setTimeout(() => alive.current && setNote(""), 3500); };
+  const flash = notice;
   const loadCounts = useCallback(() => api.mailCounts(boxId).then((r) => alive.current && setCounts(r.folders)).catch(() => {}), [boxId]);
   const loadList = useCallback(() => {
     if (folder.startsWith("c_")) { setLoading(false); return Promise.resolve(); }
@@ -242,6 +248,26 @@ export function MailView({ operator, outreach, start }) {
       .then((r) => { if (alive.current) { setData(r); setLoading(false); } })
       .catch(() => alive.current && setLoading(false));
   }, [folder, boxId, query, filter]);
+  const loadMore = async () => {
+    setMore(true);
+    try {
+      const r = await api.mailMessages({ folder, mailbox_id: boxId, q: query, ...filter, offset: data.threads.length });
+      if (!alive.current) return;
+      setData((d) => {
+        const have = new Set(d.threads.map((t) => t.id));
+        return { ...r, threads: [...d.threads, ...(r.threads || []).filter((t) => !have.has(t.id))] };
+      });
+    } catch (e) { notice(e.message || "Couldn't load more. Try again."); } finally { alive.current && setMore(false); }
+  };
+  const selectAll = async () => {
+    const shown = data.threads.map((t) => t.id);
+    if (data.total <= shown.length && !data.total_capped) { sel.selectAll(shown); return; }
+    setSelecting(true);
+    try {
+      const r = await api.mailSelectAll({ folder, mailbox_id: boxId, q: query, ...filter });
+      if (alive.current) sel.selectAll(r.ids || []);
+    } catch (e) { notice(e.message || "Couldn't select them all. Try again."); } finally { alive.current && setSelecting(false); }
+  };
   const loadBoxes = useCallback(() => api.mailMailboxes().then((r) => alive.current && setBoxes(r.mailboxes)).catch(() => alive.current && setBoxes([])), []);
 
   const sync = useCallback(async (force) => {
@@ -255,7 +281,7 @@ export function MailView({ operator, outreach, start }) {
   }, [boxId, loadList, loadCounts, loadBoxes]);
 
   useEffect(() => { loadBoxes(); }, [loadBoxes]);
-  useEffect(() => { setLoading(true); loadList(); loadCounts(); setPicked(new Set()); }, [loadList, loadCounts]);
+  useEffect(() => { setLoading(true); loadList(); loadCounts(); }, [loadList, loadCounts]);
   useEffect(() => {
     sync(false);
     const t = setInterval(() => sync(false), 60000);
@@ -279,14 +305,16 @@ export function MailView({ operator, outreach, start }) {
     } catch (e) { flash(e.message || "Could not open it."); setThread([]); }
   };
 
-  const act = async (ids, action, done) => {
+  // bulk: the ids are conversations ticked in the list, so the whole of each one in this folder is acted on.
+  const act = async (ids, action, done, bulk = false) => {
     if (!ids.length) return;
     try {
-      await api.mailActions(ids, action);
-      setPicked(new Set());
-      if (done) flash(done);
-      if (["archive", "trash", "spam", "inbox", "delete_forever"].includes(action) && thread?.some((m) => ids.includes(m.id))) { setOpen(""); setThread(null); setPane("list"); }
-      else if (thread && thread.some((m) => ids.includes(m.id))) openThread({ thread_key: open });
+      await api.mailActions(ids, action, bulk ? { threads: true } : {});
+      if (bulk) sel.clear(); else sel.drop(ids);
+      flash(done || bulkDoneText(action, bulk ? ids.length : 0));
+      const touched = thread && (thread.some((m) => ids.includes(m.id)) || (bulk && data.threads.some((t) => t.thread_key === open && ids.includes(t.id))));
+      if (["archive", "trash", "spam", "inbox", "delete_forever"].includes(action) && touched) { setOpen(""); setThread(null); setPane("list"); }
+      else if (touched) openThread({ thread_key: open });
       await Promise.all([loadList(), loadCounts()]);
     } catch (e) { flash(e.message || "That did not work."); }
   };
@@ -307,9 +335,10 @@ export function MailView({ operator, outreach, start }) {
   };
   const editDraft = (m) => setCompose({ mailbox_id: m.mailbox_id, to: m.to.map((p) => p.email).join(", "), cc: (m.cc || []).map((p) => p.email).join(", "), subject: m.subject, html: m.body_html || esc(m.body_text).replace(/\n/g, "<br>"), draft_id: m.id, in_reply_to_id: "" });
 
-  const togglePick = (id) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const allPicked = data.threads.length > 0 && data.threads.every((t) => picked.has(t.id));
-  const chosen = useMemo(() => Array.from(picked), [picked]);
+  const pageIds = useMemo(() => data.threads.map((t) => t.id), [data.threads]);
+  const allPicked = pageIds.length > 0 && pageIds.every((id) => sel.has(id));
+  const chosen = useMemo(() => Array.from(sel.ids), [sel.ids]);
+  const chosenWord = conversations(chosen.length);
   const inTrash = folder === "trash";
   const wide = folder.startsWith("c_");
   const current = boxes?.find((b) => b.id === boxId);
@@ -378,38 +407,38 @@ export function MailView({ operator, outreach, start }) {
                 <button key={k} type="button" className={`ml-chip${filter[k] ? " on" : ""}`} aria-pressed={filter[k]} onClick={() => setFilter((f) => ({ ...f, [k]: !f[k] }))}>{label}</button>
               ))}
             </div>
+            <label style={{ ...small, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+              <input type="checkbox" checked={allPicked} disabled={!pageIds.length} onChange={() => sel.togglePage(pageIds)} /> Select shown
+              <span style={{ marginLeft: "auto" }}>{conversations(data.total)}{data.total_capped ? "+" : ""}</span>
+            </label>
             {chosen.length ? (
-              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ ...small, marginRight: 4 }}>{chosen.length} selected</span>
+              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }} aria-label={`Actions for ${chosenWord}`}>
                 {inTrash ? (
                   <>
-                    <button type="button" className="ml-ibtn" onClick={() => act(chosen, "inbox", "Moved to Inbox")}><Inbox size={15} /> Restore</button>
-                    <button type="button" className="ml-ibtn" style={{ color: C.red }} onClick={() => { if (window.confirm(`Delete ${chosen.length} for good? This cannot be undone.`)) act(chosen, "delete_forever", "Deleted for good"); }}><Trash2 size={15} /> Delete forever</button>
+                    <button type="button" className="ml-ibtn" title={`Move ${chosenWord} back to Inbox`} onClick={() => act(chosen, "inbox", "", true)}><Inbox size={15} /> Restore</button>
+                    <button type="button" className="ml-ibtn" style={{ color: C.red }} onClick={() => { if (window.confirm(`Delete ${chosenWord} for good? This cannot be undone.`)) act(chosen, "delete_forever", "", true); }}><Trash2 size={15} /> Delete forever</button>
                   </>
                 ) : (
                   <>
-                    <button type="button" className="ml-ibtn" onClick={() => act(chosen, "archive", "Archived")}><Archive size={15} /> Archive</button>
-                    <button type="button" className="ml-ibtn" onClick={() => act(chosen, "trash", "Moved to Trash")}><Trash2 size={15} /> Delete</button>
-                    <button type="button" className="ml-ibtn" onClick={() => act(chosen, "read")}><MailOpen size={15} /> Read</button>
-                    <button type="button" className="ml-ibtn" onClick={() => act(chosen, "unread")}><Mail size={15} /> Unread</button>
-                    {folder !== "spam" ? <button type="button" className="ml-ibtn" onClick={() => act(chosen, "spam", "Moved to Spam")}><ShieldAlert size={15} /> Spam</button> : null}
+                    <button type="button" className="ml-ibtn" title={`Archive ${chosenWord}`} onClick={() => act(chosen, "archive", "", true)}><Archive size={15} /> Archive</button>
+                    <button type="button" className="ml-ibtn" title={`Move ${chosenWord} to Trash`} onClick={() => act(chosen, "trash", "", true)}><Trash2 size={15} /> Delete</button>
+                    <button type="button" className="ml-ibtn" title={`Mark ${chosenWord} as read`} onClick={() => act(chosen, "read", "", true)}><MailOpen size={15} /> Read</button>
+                    <button type="button" className="ml-ibtn" title={`Mark ${chosenWord} as unread`} onClick={() => act(chosen, "unread", "", true)}><Mail size={15} /> Unread</button>
+                    {folder !== "spam" ? <button type="button" className="ml-ibtn" title={`Move ${chosenWord} to Spam`} onClick={() => act(chosen, "spam", "", true)}><ShieldAlert size={15} /> Spam</button> : null}
                   </>
                 )}
               </div>
-            ) : (
-              <label style={{ ...small, display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(data.threads.map((t) => t.id)))} /> Select all
-                <span style={{ marginLeft: "auto" }}>{data.total} conversation{data.total === 1 ? "" : "s"}</span>
-              </label>
-            )}
+            ) : null}
           </div>
+          <SelectAllNotice sel={sel} pageIds={pageIds} total={data.total} capped={data.total_capped} reach={Math.min(data.total, MAIL_SELECT_CAP)}
+            unit={["conversation", "conversations"]} busy={selecting} onSelectAll={selectAll} />
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
             {loading || !boxes ? <Loader compact label="Loading" /> : !data.threads.length ? (
               <div style={{ ...small, padding: 20, fontSize: 13.5 }}>{query || filter.unread || filter.starred || filter.attachments ? "Nothing matches." : inTrash ? "Trash is empty." : folder === "inbox" ? "Your inbox is empty." : "Nothing here yet."}</div>
             ) : data.threads.map((t) => (
               <div key={t.id} style={{ display: "flex", alignItems: "stretch" }}>
-                <input type="checkbox" aria-label={`Select ${t.subject || "email"}`} checked={picked.has(t.id)} onChange={() => togglePick(t.id)} style={{ margin: "14px 0 0 10px" }} />
-                <button type="button" className={`ml-row${open === t.thread_key ? " on" : ""}`} onClick={() => (folder === "drafts" ? api.mailMessage(t.id).then((r) => editDraft(r.message)).catch(() => {}) : openThread(t))}>
+                <input type="checkbox" aria-label={`Select ${t.subject || "email"}`} checked={sel.has(t.id)} onChange={() => sel.toggle(t.id)} style={{ margin: "14px 0 0 10px" }} />
+                <button type="button" className={`ml-row${open === t.thread_key ? " on" : ""}`} onClick={() => (folder === "drafts" ? api.mailMessage(t.id).then((r) => editDraft(r.message)).catch((e) => notice(e.message || "Couldn't open that draft.")) : openThread(t))}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
                       <span style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: t.unread_count ? 700 : 500, color: C.ink, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -428,6 +457,11 @@ export function MailView({ operator, outreach, start }) {
                 </button>
               </div>
             ))}
+            {!loading && data.threads.length && data.threads.length < data.total ? (
+              <div style={{ padding: 10, textAlign: "center" }}>
+                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={more} onClick={loadMore}>{more ? "Loading…" : `Show more (${data.threads.length.toLocaleString()} of ${data.total.toLocaleString()}${data.total_capped ? "+" : ""})`}</button>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -473,10 +507,9 @@ export function MailView({ operator, outreach, start }) {
         </section>
         </>)}
       </div>
-      {note ? <div role="status" className="app-toast" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "9px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, zIndex: 140 }}>{note}</div> : null}
       {compose ? (
         <Compose boxes={boxes || []} start={compose}
-          onClose={() => { setCompose(null); loadList(); loadCounts(); }}
+          onClose={(drafted) => { setCompose(null); if (drafted) flash("Kept in Drafts."); loadList(); loadCounts(); }}
           onDraftSaved={() => { loadCounts(); if (folder === "drafts") loadList(); }}
           onSent={() => { setCompose(null); flash("Sent"); loadList(); loadCounts(); if (open) openThread({ thread_key: open }); }} />
       ) : null}
@@ -489,7 +522,7 @@ function Message({ m, images, startOpen }) {
   const [busy, setBusy] = useState("");
   const download = async (a) => {
     setBusy(a.name);
-    try { save(await api.mailAttachment(m.id, a.index), a.name); } catch (_) { /* the file may have been too large to keep */ } finally { setBusy(""); }
+    try { save(await api.mailAttachment(m.id, a.index), a.name); } catch (e) { notice(e.message || "Couldn't download that file."); } finally { setBusy(""); }
   };
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>

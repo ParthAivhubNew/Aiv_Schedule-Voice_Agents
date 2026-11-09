@@ -1,5 +1,8 @@
 import React, { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridTools } from "../../../components/GridTools";
+import { SelectAllNotice } from "../../../components/SelectAllNotice";
+import { pagePicked, togglePage as tickPage } from "../../../components/bulkSelect";
+import { NOTICE_EVENT } from "../../../utils/notice";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import {
@@ -63,8 +66,8 @@ import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
-import { BulkActions, CallListSummary, ContactPanel } from "./CallListTools";
-import { filterCalls, rowAsAccount } from "./callListLogic";
+import { BulkActions, CallListSummary, ContactPanel, DetailsBar } from "./CallListTools";
+import { bulkCallPrompt, filterCalls, rowAsAccount, rowDetails } from "./callListLogic";
 import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
 import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen } from "../../../workflows/openWorkflows";
@@ -1167,7 +1170,7 @@ export function CallingWorkspace({
   const rowLastPage = Math.max(0, Math.ceil(shownRows.length / rowPageSize) - 1);
   const rowPage = Math.min(rowPageNo, rowLastPage);
   const pagedRows = useMemo(() => shownRows.slice(rowPage * rowPageSize, (rowPage + 1) * rowPageSize), [shownRows, rowPage, rowPageSize]);
-  useEffect(() => { setRowPageNo(0); }, [checkFilter, fileName, statusFilter, search]);
+  useEffect(() => { setRowPageNo(0); setSelectedIds(new Set()); }, [checkFilter, fileName, statusFilter, search]);
   useEffect(() => { setStatusFilter("all"); setSearch(""); setPanelRowId(""); }, [fileName]);
   // Phones show each contact as a card; this one has its fields open for editing.
   const [editRowId, setEditRowId] = useState("");
@@ -1453,10 +1456,17 @@ export function CallingWorkspace({
     }).catch(() => {});
   }, []);
 
-  const showToast = (t) => {
+  const toastTimer = useRef(0);
+  const showToast = useCallback((t) => {
+    window.clearTimeout(toastTimer.current);
     setToast(t);
-    window.setTimeout(() => setToast(""), 2800);
-  };
+    toastTimer.current = window.setTimeout(() => setToast(""), 2800);
+  }, []);
+  useEffect(() => {
+    const onNotice = (e) => showToast(e.detail);
+    window.addEventListener(NOTICE_EVENT, onNotice);
+    return () => { window.removeEventListener(NOTICE_EVENT, onNotice); window.clearTimeout(toastTimer.current); };
+  }, [showToast]);
 
   const showChatHint = (t) => {
     setChatHint(t);
@@ -1875,6 +1885,7 @@ export function CallingWorkspace({
       n.delete(id);
       return n;
     });
+    showToast("Removed from this list.");
   };
 
   const patchRowField = (id, field, raw) => {
@@ -1962,6 +1973,7 @@ export function CallingWorkspace({
 
   const removeSavedContact = (id) => {
     setSavedContacts((prev) => (prev || []).filter((c) => c.id !== id));
+    showToast("Removed from saved numbers.");
   };
 
   const loadSavedContact = (c) => {
@@ -1989,6 +2001,9 @@ export function CallingWorkspace({
   const selectAllDialable = () => {
     setSelectedIds(new Set(shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).map((r) => r.id)));
   };
+  // The header box ticks the contacts with a phone on this page; "Select all N" above the table ticks them on every page.
+  const pageDialIds = pagedRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).map((r) => r.id);
+  const togglePageDialable = () => setSelectedIds((prev) => tickPage(prev, pageDialIds));
 
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -2166,6 +2181,7 @@ export function CallingWorkspace({
       const res = await api.updateCallList(l.id, { name: String(typed).trim() });
       if (fileName === l.name) setFileName(res.list.name);
       await refreshLists();
+      showToast(`Renamed to “${res.list.name}”.`);
     } catch (e) {
       showToast(e.message || "Could not rename the list.");
     }
@@ -2553,6 +2569,11 @@ export function CallingWorkspace({
     }
     // 2+ selected → up to 2 at once. Whole list (or 0–1 selected) → 1 at a time.
     const cap = useSelected ? MAX_CONCURRENT : 1;
+    if (prospects.length > 1) {
+      const wallet = await api.getWalletGlance("voice").catch(() => null);
+      const perMinute = wallet ? Number((wallet.rates && wallet.rates.voice_minute && wallet.rates.voice_minute.credits) || 0) : null;
+      if (!window.confirm(bulkCallPrompt({ count: prospects.length, cap, perMinute, balance: wallet ? wallet.balance : null }))) return;
+    }
     if (callVia === "assistant") {
       const queue = prospects.map((p) => ({ phone: p.phone, name: p.name, contact: p.contact, leadId: p.lead_id }));
       queue.cap = cap;
@@ -2776,6 +2797,7 @@ export function CallingWorkspace({
   const shownDialable = shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).length; // what "Call" starts when nothing is ticked: the contacts the filter shows
   const selectedDialable = rows.filter((r) => selectedIds.has(r.id) && digitsInPhone(rowPhone(r)).length >= 7).length;
   const allDialableSelected = shownDialable > 0 && shownRows.filter((r) => digitsInPhone(rowPhone(r)).length >= 7).every((r) => selectedIds.has(r.id));
+  const pageDialableSelected = pagePicked(selectedIds, pageDialIds);
   const filteredLogs = useMemo(() => {
     const q = logQuery.trim().toLowerCase();
     return (logs || []).filter((l) => {
@@ -2936,7 +2958,7 @@ export function CallingWorkspace({
         </div>
 
         {toast ? (
-          <div style={{
+          <div role="status" aria-live="polite" style={{
             position: "absolute",
             top: 18,
             right: 84,
@@ -3534,6 +3556,13 @@ export function CallingWorkspace({
                     onFindWithAi={() => { if (chatInputRef.current) chatInputRef.current.focus(); }}
                   />
                 ) : (<>
+                  <SelectAllNotice
+                    sel={{ ids: selectedIds, count: selectedDialable, everything: allDialableSelected, clear: clearSelection }}
+                    pageIds={pageDialIds}
+                    total={shownDialable}
+                    unit={["contact with a phone", "contacts with a phone"]}
+                    onSelectAll={selectAllDialable}
+                  />
                   <div className="contact-cards">
                     {pagedRows.map((r) => {
                       const phone = rowPhone(r);
@@ -3599,11 +3628,11 @@ export function CallingWorkspace({
                           <th style={{ width: 44, paddingRight: 0 }}>
                             <input
                               type="checkbox"
-                              checked={allDialableSelected}
-                              disabled={!dialable}
-                              onChange={() => (allDialableSelected ? clearSelection() : selectAllDialable())}
-                              title={allDialableSelected ? "Clear selection" : "Select all with phones"}
-                              aria-label="Select all with phones"
+                              checked={pageDialableSelected}
+                              disabled={!pageDialIds.length}
+                              onChange={togglePageDialable}
+                              title={pageDialableSelected ? "Untick this page" : "Tick everyone with a phone on this page"}
+                              aria-label="Select everyone with a phone on this page"
                             />
                           </th>
                           {headers.map((h) => (
@@ -3622,6 +3651,7 @@ export function CallingWorkspace({
                               <th>Country</th>
                             </>
                           ) : null}
+                          <th title="How many of phone, contact name, company, email and website this contact has">Details</th>
                           <th style={{ textAlign: "right" }}>Calls</th>
                           <th>Last result</th>
                           <th style={{ width: 1 }} aria-label="Actions" />
@@ -3691,6 +3721,7 @@ export function CallingWorkspace({
                                   <td style={{ color: C.slate }}>{(r.check && r.check.country) || ""}</td>
                                 </>
                               ) : null}
+                              <td><DetailsBar d={rowDetails(r, phone)} /></td>
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.callTimes || 0}</td>
                               <td style={{ color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "Not called"}</td>
                               <td style={{ textAlign: "right", paddingRight: 8 }}>

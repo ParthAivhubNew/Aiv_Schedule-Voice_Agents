@@ -60,6 +60,7 @@ export function PictureSettings({ showToast }) {
     try {
       const r = await api.uploadBrandLogo(file);
       setS((o) => ({ ...o, logoUrl: r.logoUrl }));
+      showToast("Logo uploaded. Save the picture settings to use it.");
     } catch (err) {
       showToast(err.message || "Could not upload the logo.");
     }

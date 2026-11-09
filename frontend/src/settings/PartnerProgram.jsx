@@ -5,6 +5,8 @@ import { C, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { EmbedSnippets, SecretKeyBox, ThemeBox } from "./PartnerEmbed";
 import { PeopleUsage } from "../team/PeopleUsage";
+import { useFlash } from "../components/useFlash";
+import { failText } from "../components/flash";
 
 const field = { width: "100%", padding: "8px 11px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, boxSizing: "border-box", background: "#fff" };
 const label = { display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, margin: "12px 0 4px" };
@@ -42,11 +44,14 @@ function CopyText({ text, onCopy }) {
       if (onCopy) onCopy();
       setDone(true);
       setTimeout(() => setDone(false), 1500);
-    } catch (_) {}
+    } catch (_) {
+      setDone("failed");
+      setTimeout(() => setDone(false), 2500);
+    }
   };
   return (
     <button type="button" onClick={copy} aria-label="Copy" style={{ ...button(false), padding: "6px 10px", display: "inline-flex", alignItems: "center", gap: 5 }}>
-      {done ? <Check size={13} /> : <Copy size={13} />} {done ? "Copied" : "Copy snippet"}
+      {done === true ? <Check size={13} /> : <Copy size={13} />} {done === "failed" ? "Could not copy" : done ? "Copied" : "Copy snippet"}
     </button>
   );
 }
@@ -177,6 +182,7 @@ export function PartnerProgram() {
   const [links, setLinks] = useState([]);
   const [msg, setMsg] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
+  const [toast, flash] = useFlash();
   const [settings, setSettings] = useState(null);
   const [showSecret, setShowSecret] = useState(false);
   const [tab, setTab] = useState("setup");
@@ -215,10 +221,10 @@ export function PartnerProgram() {
     setMsg({ text: "", error: false });
     try {
       await fn();
-      setMsg({ text: ok || "", error: false });
+      flash(ok);
       await load();
     } catch (err) {
-      setMsg({ text: err.message, error: true });
+      flash(failText(err), true);
     }
     setBusy(false);
   };
@@ -254,8 +260,9 @@ export function PartnerProgram() {
       URL.revokeObjectURL(url);
       setKitDone(true);
       try { localStorage.setItem("aivhub_partner_kit", "1"); } catch {}
+      flash("Download started.");
     } catch (err) {
-      setMsg({ text: err.message, error: true });
+      flash(failText(err, "Could not download the kit."), true);
     }
     setBusy(false);
   };
@@ -571,6 +578,7 @@ curl -X POST ${window.location.origin}/api/v1/run \\
           ))}
         </div>
       )}
+      {toast}
     </div>
   );
 }

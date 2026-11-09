@@ -140,6 +140,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
     setSaveMessage(msg);
     setTimeout(() => setSaveMessage(""), 6000);
   };
+  const showDone = (msg) => {
+    setSaveMessage(msg);
+    setTimeout(() => setSaveMessage(""), 3500);
+  };
   const [calApiKey, setCalApiKey] = useState("");
   const [calBaseUrl, setCalBaseUrl] = useState("");
   const [showDeveloperOptions, setShowDeveloperOptions] = useState(false);
@@ -250,9 +254,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
   };
 
   const handleCopy = (text, id) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2500);
+    Promise.resolve(navigator.clipboard?.writeText(text)).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2500);
+    }, () => showProblem("Could not copy. Select the text and copy it."));
   };
 
   const handleSaveSettings = async (customPayload) => {
@@ -283,7 +288,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       setTimeout(() => setSaveMessage(""), 6000);
       await loadData();
     } catch (err) {
-      setSaveMessage("Error saving settings.");
+      showProblem(err?.message ? `Could not save: ${err.message}` : "Could not save the settings.");
     } finally {
       setLoading(false);
     }
@@ -348,6 +353,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         rescheduleReason || "Rescheduled by host via Admin Center"
       );
       setReschedulingBooking(null);
+      showDone("Meeting moved.");
       await loadData();
     } catch (err) {
       showProblem(err.message || "Failed to reschedule meeting.");
@@ -362,6 +368,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       await api.cancelCalcomBooking(cancellingBooking.id, cancelReason || "Cancelled by host");
       setCancellingBooking(null);
       setCancelReason("");
+      showDone("Booking cancelled.");
       await loadData();
     } catch (err) {
       showProblem(err.message || "Failed to cancel booking.");
@@ -386,6 +393,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         locationType: "google_meet",
         color: "#10B981"
       });
+      showDone(`${eventForm.title.trim()} saved.`);
       await loadData();
     } catch (err) {
       showProblem(err.message || "Failed to create event type.");
@@ -396,9 +404,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
     if (!confirm("Are you sure you want to delete this event type?")) return;
     try {
       await api.deleteCalcomEventType(id);
+      showDone("Meeting type deleted.");
       await loadData();
     } catch (err) {
-      showProblem("Failed to delete event type.");
+      showProblem(err?.message || "Failed to delete event type.");
     }
   };
 
@@ -464,9 +473,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         }
       });
       if (acc.config?.email) setHostEmail(acc.config.email);
+      showDone(`${acc.config?.email || acc.name} is now the main account.`);
       await loadData();
     } catch (err) {
-      showProblem("Failed to set primary account.");
+      showProblem(err?.message || "Failed to set primary account.");
     }
   };
 
@@ -546,9 +556,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         }
       });
       setShowAccountModal(false);
+      showDone("Account saved.");
       await loadData();
     } catch (err) {
-      setAccountTestResult({ success: false, message: "Failed to save communication account." });
+      setAccountTestResult({ success: false, message: err?.message || "Failed to save communication account." });
     }
   };
 
@@ -1910,12 +1921,6 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 Working days and hours. Call rules live under Calling → Company → Call Script & Rules.
               </div>
 
-              {saveMessage && (
-                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: 13, marginBottom: 16 }}>
-                  {saveMessage}
-                </div>
-              )}
-
               <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 12, marginTop: 8 }}>
                 Working days & hours
               </div>
@@ -2588,11 +2593,6 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   {loading ? "Saving..." : "Save Host Configuration"}
                 </button>
 
-                {saveMessage && (
-                  <span style={{ fontSize: 13, fontWeight: 600, color: saveMessage.includes("Error") ? "#EF4444" : "#10B981" }}>
-                    {saveMessage}
-                  </span>
-                )}
               </div>
             </div>
             </div>

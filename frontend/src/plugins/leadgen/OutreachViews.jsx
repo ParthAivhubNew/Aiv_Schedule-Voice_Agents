@@ -5,6 +5,7 @@ import { api } from "../../api/apiClient";
 import { Note, Pill, btn as baseBtn, card, cell, input, th, useAction, useLoad, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
 import { useConnection } from "../../hooks/useConnections";
+import { notice } from "../../utils/notice";
 import { ArrowLeft, ChevronRight, Mail, MoreHorizontal, Phone, Plus, Trash2 } from "lucide-react";
 
 // "Reply with times": the free times in their own time zone and a booking link, as the body of a reply.
@@ -346,6 +347,7 @@ function CampaignEditor({ initial, mailboxes, onSaved, onCancel }) {
   const save = () => run(async () => {
     const body = { ...c, min_delay_seconds: Number(c.min_delay_seconds) || 120, steps: c.steps.map((s) => ({ ...s, delay_days: Number(s.delay_days) || 0 })) };
     const out = c.id ? await api.emailUpdateCampaign(c.id, body) : await api.emailCreateCampaign(body);
+    notice(c.id ? "Campaign saved." : "Campaign made.");
     onSaved(out.campaign);
   });
   return (
@@ -451,7 +453,7 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
                 <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
                 <div className="ui-menu" role="menu" style={{ zIndex: 80 }}>
                   <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }}
-                    onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${c.name}?`, body: "Its leads and emails are deleted with it.", confirm: "Delete campaign", danger: true })) run(() => api.emailDeleteCampaign(c.id).then(onBack)); }}>
+                    onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${c.name}?`, body: "Its leads and emails are deleted with it.", confirm: "Delete campaign", danger: true })) run(async () => { await api.emailDeleteCampaign(c.id); notice(`Deleted ${c.name}.`); onBack(); }); }}>
                     <Trash2 size={15} /> Delete campaign
                   </button>
                 </div>
@@ -514,7 +516,7 @@ function CampaignDetail({ id, mailboxes, outreach, onBack }) {
                 {LEAD_TEXT[l.status] || l.status}{l.status === "active" ? ` · step ${l.step} of ${c.steps.length}` : ""}{l.next_at ? ` · due ${when(l.next_at)}` : ""}
               </div>
             </div>
-            <button title="Take this person out of the campaign" aria-label={`Remove ${l.email}`} type="button" onClick={() => run(() => api.emailRemoveLead(c.id, l.id))}
+            <button title="Take this person out of the campaign" aria-label={`Remove ${l.email}`} type="button" onClick={() => run(() => api.emailRemoveLead(c.id, l.id), `Removed ${l.email} from this campaign.`)}
               style={{ ...btn(false), minWidth: 40, minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}><Trash2 size={15} /></button>
           </div>
         ))}
@@ -824,7 +826,7 @@ export function RepliesList() {
           <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{r.text}</div>
           <div style={row}>
             <Pill tone={(CATEGORY[r.category] || [])[1]}>{(CATEGORY[r.category] || [r.category])[0]}</Pill>
-            <select title="Label this reply so you can find it later" style={{ ...input, padding: "4px 8px" }} value={r.category} onChange={(e) => run(() => api.emailReplyCategory(r.id, e.target.value))}>
+            <select title="Label this reply so you can find it later" style={{ ...input, padding: "4px 8px" }} value={r.category} onChange={(e) => run(() => api.emailReplyCategory(r.id, e.target.value), "Label saved.")}>
               {Object.entries(CATEGORY).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
             </select>
             <a href={`mailto:${r.email}?subject=${encodeURIComponent(r.subject.startsWith("Re:") ? r.subject : `Re: ${r.subject}`)}`} style={{ ...btn(false), textDecoration: "none" }}>Reply</a>

@@ -29,7 +29,7 @@ export function unknownFields(...parts) {
   return [...bad];
 }
 
-const BLANK = { company: "", website: "", sells: "", audience: "", offer: "", tone: "", sender_name: "", sender_title: "", proof: [] };
+const BLANK = { company: "", website: "", sells: "", audience: "", offer: "", tone: "", sender_name: "", sender_title: "", proof: [], legal_name: "", postal_address: "" };
 
 // "About your business": the only things the AI may say about the sender.
 export function ProfileBox({ onReady, onManage, page = false, compact = false }) {
@@ -120,6 +120,10 @@ export function ProfileBox({ onReady, onManage, page = false, compact = false })
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "end" }}>
             <label style={label} title="What you offer the reader as the next step">What to offer them<input className="ui-input" value={form.offer} onChange={set("offer")} maxLength={300} placeholder="For example a free 15-minute review of their books" /></label>
             <label style={label} title="For example friendly, formal, direct">Tone<input className="ui-input" value={form.tone} onChange={set("tone")} maxLength={60} placeholder="Friendly and direct" /></label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "start" }}>
+            <label style={label} title="The registered name of the company sending. Printed at the bottom of every marketing email">Registered company name (printed in every email)<input className="ui-input" value={form.legal_name} onChange={set("legal_name")} maxLength={160} placeholder="Legal entity name" /></label>
+            <label style={label} title="Where a person can write to you. Printed at the bottom of every marketing email, as UK law requires">Postal address (printed in every email)<textarea className="ui-input" rows={2} value={form.postal_address} onChange={set("postal_address")} maxLength={400} style={{ height: "auto", padding: "8px 10px" }} placeholder="Street, town, postcode" /></label>
           </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
           {locked ? null : (

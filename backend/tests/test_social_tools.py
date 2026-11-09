@@ -2,13 +2,14 @@
 on a real database."""
 import io
 import time
+import uuid
 from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.future import select
 
 from app.api import scheduler as S
-from app.models.models import SocialLink, SocialLinkClick, SocialMention, SocialPost, SocialPostVersion
+from app.models.models import SocialLink, SocialLinkClick, SocialListenTopic, SocialMention, SocialPost, SocialPostVersion
 
 pytestmark = pytest.mark.db
 
@@ -190,6 +191,20 @@ async def test_listening_saves_mentions_and_makes_leads(client, db, monkeypatch)
     assert m.lead_id and m.status == "seen"
     over = (await client.get("/api/scheduler/listening")).json()
     assert over["topics"][0]["newCount"] == 0 and over["sources"]["x"] is False
+
+
+async def test_listening_mark_all_takes_every_match_not_one_page(client, db):
+    topic = SocialListenTopic(id=str(uuid.uuid4()), name="Acme", keywords=["acme"], sources=["reddit"])
+    db.add(topic)
+    for i in range(5):
+        db.add(SocialMention(id=str(uuid.uuid4()), topic_id=topic.id, source="reddit", remote_id=f"t3_{i}", title=f"Post {i}", status="new"))
+    await db.commit()
+    page = (await client.get("/api/scheduler/listening/mentions?status=new&limit=2")).json()
+    assert len(page["mentions"]) == 2 and page["total"] == 5
+    res = await client.post("/api/scheduler/listening/mentions/status", json={"all": True, "topic": topic.id, "from_status": "new", "status": "seen"})
+    assert res.json()["updated"] == 5
+    left = (await client.get("/api/scheduler/listening/mentions?status=new")).json()
+    assert left["mentions"] == [] and left["total"] == 0
 
 
 async def test_learned_style_from_edits(client, db, monkeypatch):

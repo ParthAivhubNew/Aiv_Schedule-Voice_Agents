@@ -54,6 +54,7 @@ export function DataSourceFiles({ source, canEdit, onChanged }) {
     try {
       await adminApi.deleteDataSourceFile(source.id, name);
       setPreview(null);
+      setMsg({ text: `${name} deleted.`, error: false });
       await load();
     } catch (e) {
       setMsg({ text: e.message, error: true });

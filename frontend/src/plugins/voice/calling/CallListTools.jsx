@@ -5,7 +5,7 @@ import { Loader } from "../../../app/Loader";
 import { C, FONT_BODY } from "../../../tokens";
 import { navigateHash } from "../../../utils/route";
 import { OUTCOME_WORD, STAGES, StageBadge } from "../../leadgen/LeadActivity";
-import { CHIPS, countCalls, readViews, rowAsAccount, withView, writeViews } from "./callListLogic";
+import { CHIPS, countCalls, detailsTip, listDetails, readViews, rowAsAccount, withView, writeViews } from "./callListLogic";
 
 // The extra tools on the Voice call list, the same kind the Leads list has: cards and chips for where each contact stands, a search box with
 // saved views, bulk actions on the ticked rows, and a side panel with one contact's calls, stage and notes.
@@ -66,8 +66,24 @@ function ViewsMenu({ status, q, onApply, onToast }) {
   );
 }
 
+// How complete one contact is, drawn the way Leads draws a company's record: a short bar and the share, with what is missing on hover.
+const barColor = (p) => (p >= 75 ? "#16A34A" : p >= 50 ? "#D97706" : "#DC2626");
+export function DetailsBar({ d }) {
+  if (!d) return null;
+  const tip = detailsTip(d);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title={tip} aria-label={tip}>
+      <span style={{ width: 48, height: 6, borderRadius: 3, background: C.border, overflow: "hidden", display: "inline-block" }}>
+        <span style={{ display: "block", height: "100%", width: `${d.pct}%`, background: barColor(d.pct) }} />
+      </span>
+      <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{d.pct}%</span>
+    </span>
+  );
+}
+
 export function CallListSummary({ rows, phoneOf, status, setStatus, q, setQ, onToast }) {
   const n = countCalls(rows, phoneOf);
+  const held = listDetails(rows, phoneOf);
   const card = (label, value) => (
     <div className="ui-card" style={{ padding: "12px 16px" }}>
       <div style={muted}>{label}</div>
@@ -78,6 +94,11 @@ export function CallListSummary({ rows, phoneOf, status, setStatus, q, setQ, onT
     <div style={{ display: "grid", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
         {card("Contacts", n.contacts)}{card("Ready to call", n.ready)}{card("Called", n.called)}{card("Interested", n.interested)}
+      </div>
+      <div style={{ ...muted, display: "flex", gap: 12, flexWrap: "wrap" }} title="Phone, contact name, company, email and website, counted from what is on the list">
+        <span>Details filled: <strong style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{held.pct}%</strong></span>
+        <span>{held.phones.toLocaleString()} with a working phone</span>
+        <span>{held.full.toLocaleString()} with all five details</span>
       </div>
       <div className="ui-scroll" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }} role="group" aria-label="Show contacts by how their last call went">
         {CHIPS.filter(([k]) => k === "all" || n.chips[k] > 0 || status === k).map(([k, label]) => (

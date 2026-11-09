@@ -37,6 +37,7 @@ import {
 import { Field, SectionIntro, TopBar } from "../../app/ui";
 import { KnowledgeChat } from "./KnowledgeChat";
 import { announceOrgUpdated } from "../../org/orgSettings";
+import { notice } from "../../utils/notice";
 
 const FAQ_PAGE_SIZE = 4;
 
@@ -146,13 +147,11 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         setNotifications((ns) => [{ id: "n_" + Date.now(), text: "✓ Company profile, call rules & compliance saved", time: "just now", unread: true, type: "success" }, ...(ns || [])]);
       }
     } catch (err) {
-      console.warn("Backend updateProfile warning:", err);
+      // Not saved on the server: say so, and keep the changes marked unsaved so the next press tries again.
       setSaving(false);
-      setSaved(true);
-      setSaveStatus("saved_local");
-      if (showToast && typeof setNotifications === "function") {
-        setNotifications((ns) => [{ id: "n_" + Date.now(), text: "Company profile changes saved locally", time: "just now", unread: true, type: "info" }, ...(ns || [])]);
-      }
+      setDirty(true);
+      setSaveStatus("failed");
+      if (showToast) notice(err.message || "Couldn't save. Your changes are still here; try again.");
     }
     setTimeout(() => {
       setSaved(false);
@@ -221,6 +220,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         }, 3500);
       } catch (err) {
         setUploadError(err.message);
+        notice(err.message || "Couldn't add that file.");
       }
       setUploading(false);
       return;
@@ -246,7 +246,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         } catch (_) {}
       }, 3500);
     } catch (err) {
-      console.warn("Backend addSource error:", err);
+      notice(err.message || `Couldn't add ${item.name}. Try again.`);
+      setSources((s) => s.filter((x) => x.id !== tempId));
     }
   };
 
@@ -264,8 +265,9 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         setResyncingId(null);
       }, 4000);
     } catch (err) {
-      console.warn("Resync error:", err);
+      notice(err.message || "Couldn't refresh that source.");
       setResyncingId(null);
+      api.getSources().then((fresh) => { if (Array.isArray(fresh)) setSources(fresh); }).catch(() => {});
     }
   };
 
@@ -288,7 +290,11 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
     });
     try {
       await api.deleteSource(id);
-    } catch (_) {}
+      notice("Source removed.");
+    } catch (err) {
+      notice(err.message || "Couldn't remove that source.");
+      api.getSources().then((fresh) => { if (Array.isArray(fresh)) setSources(fresh); }).catch(() => {});
+    }
   };
 
 

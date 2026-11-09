@@ -441,20 +441,28 @@ async def listening_check(topic_id: str, db: AsyncSession = Depends(get_db)) -> 
     return {"found": res["new"], "errors": res["errors"], "topic": LS.topic_view(row)}
 
 
-@router.get("/listening/mentions")
-async def listening_mentions(topic: str = "", source: str = "", status: str = "", limit: int = 100,
-                             db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    q = select(SocialMention).order_by(SocialMention.posted_at.desc().nullslast(), SocialMention.found_at.desc())
+MARK_ALL_CAP = 5000
+
+
+def _mention_filter(q, topic: str = "", source: str = "", status: str = ""):
+    """The mentions a list shows: the same filter for the list, its count and "mark all"."""
     if topic:
         q = q.where(SocialMention.topic_id == topic)
     if source:
         q = q.where(SocialMention.source == source)
     if status in ("new", "seen", "ignored"):
-        q = q.where(SocialMention.status == status)
-    else:
-        q = q.where(SocialMention.status != "ignored")
+        return q.where(SocialMention.status == status)
+    return q.where(SocialMention.status != "ignored")
+
+
+@router.get("/listening/mentions")
+async def listening_mentions(topic: str = "", source: str = "", status: str = "", limit: int = 100,
+                             db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    q = _mention_filter(select(SocialMention), topic, source, status)
+    q = q.order_by(SocialMention.posted_at.desc().nullslast(), SocialMention.found_at.desc())
     rows = (await db.execute(q.limit(max(1, min(limit, 300))))).scalars().all()
-    return {"mentions": [LS.view(m) for m in rows]}
+    total = (await db.execute(_mention_filter(select(func.count(SocialMention.id)), topic, source, status))).scalar() or 0
+    return {"mentions": [LS.view(m) for m in rows], "total": int(total)}
 
 
 @router.post("/listening/mentions/status")
@@ -462,6 +470,15 @@ async def listening_mark(payload: Dict[str, Any], db: AsyncSession = Depends(get
     status = str(payload.get("status") or "")
     if status not in ("new", "seen", "ignored"):
         raise HTTPException(status_code=400, detail="status must be new, seen or ignored.")
+    if payload.get("all"):
+        # Every mention the list's filter matches, not just the page on screen. Capped so one click stays quick.
+        q = _mention_filter(select(SocialMention), str(payload.get("topic") or ""), str(payload.get("source") or ""),
+                            str(payload.get("from_status") or ""))
+        rows = (await db.execute(q.limit(MARK_ALL_CAP))).scalars().all()
+        for m in rows:
+            m.status = status
+        await db.commit()
+        return {"updated": len(rows)}
     ids = [str(i) for i in payload.get("ids") or []][:300]
     rows = (await db.execute(select(SocialMention).where(SocialMention.id.in_(ids)))).scalars().all() if ids else []
     for m in rows:

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, Columns3, Copy, RotateCcw, Undo2, X } from "lucide-react";
+import { notice } from "../utils/notice";
 
 // Column tools for any table: sort, filter, rename, pin, hide and resize each column, a Default / My layout switch, Undo,
 // and, on a cut-off cell, its full text as a hover tooltip plus a small copy button. A click on the cell still reaches the row.
@@ -9,16 +10,32 @@ import { Check, Columns3, Copy, RotateCcw, Undo2, X } from "lucide-react";
 // a filter marks rows with an attribute, so all of it survives the table re-rendering. Sort and filter work on the rows the
 // table is showing (one page), and sorting happens inside each group when the table has full-width group rows.
 const STORE = "aivhub_grid_v1:";
-const EMPTY = { hidden: [], pinned: [], widths: {}, names: {}, mode: "mine" };
+// `unpinned`: columns the table pins by default that the person unpinned. Kept apart from `pinned` so their choice wins over the default.
+const EMPTY = { hidden: [], pinned: [], unpinned: [], widths: {}, names: {}, mode: "mine" };
 const MIN_WIDTH = 60;
 let rowSeq = 0;
 
 const load = (id) => {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE + id) || "null");
-    return saved ? { ...EMPTY, ...saved } : EMPTY;
+    return saved ? { ...EMPTY, ...saved, unpinned: Array.isArray(saved.unpinned) ? saved.unpinned : [] } : EMPTY;
   } catch { return EMPTY; }
 };
+
+// The columns that are pinned: the table's defaults the person has not unpinned, then the ones they pinned themselves.
+export function pinnedOf(layout, defaults = []) {
+  if (layout.mode === "default") return [...defaults];
+  const own = layout.pinned.filter((l) => !defaults.includes(l));
+  return [...defaults.filter((l) => !(layout.unpinned || []).includes(l)), ...own];
+}
+
+export function togglePin(layout, label, defaults = []) {
+  const on = pinnedOf({ ...layout, mode: "mine" }, defaults).includes(label);
+  const unpinned = (layout.unpinned || []).filter((l) => l !== label);
+  const pinned = layout.pinned.filter((l) => l !== label);
+  if (on) return { ...layout, pinned, unpinned: defaults.includes(label) ? [...unpinned, label] : unpinned };
+  return { ...layout, pinned: defaults.includes(label) ? pinned : [...pinned, label], unpinned };
+}
 const save = (id, layout) => {
   try { localStorage.setItem(STORE + id, JSON.stringify(layout)); } catch { /* the layout just isn't remembered */ }
 };
@@ -108,7 +125,10 @@ function applyView(table, labels, sort, filters, force = true) {
   return { shown, total };
 }
 
-export function GridTools({ id, className = "" }) {
+const NO_PINS = [];
+
+// `pinned`: header names this table pins until the person unpins them (their unpin is remembered).
+export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS }) {
   const bar = useRef(null);
   const btn = useRef(null);
   const [table, setTable] = useState(null);
@@ -151,10 +171,27 @@ export function GridTools({ id, className = "" }) {
   const undo = () => {
     const prev = history.current.pop();
     setHistLen(history.current.length);
-    if (prev) { layoutRef.current = prev; setLayout(prev); }
+    if (prev) { layoutRef.current = prev; setLayout(prev); notice("Undone."); }
   };
-  const toggle = (key, label) => change((l) => ({ ...l, [key]: l[key].includes(label) ? l[key].filter((x) => x !== label) : [...l[key], label] }));
-  const eff = useMemo(() => (layout.mode === "default" ? EMPTY : layout), [layout]);
+  const defaultsRef = useRef(defaultPins);
+  defaultsRef.current = defaultPins;
+  const shown = (label) => (layoutRef.current.names[label] || label);
+  const toggle = (key, label) => {
+    if (key === "pinned") {
+      const was = pinnedOf(layoutRef.current, defaultsRef.current).includes(label);
+      change((l) => togglePin(l, label, defaultsRef.current));
+      notice(was ? `${shown(label)} column unpinned.` : `${shown(label)} column pinned.`);
+      return;
+    }
+    const was = layoutRef.current[key].includes(label);
+    change((l) => ({ ...l, [key]: l[key].includes(label) ? l[key].filter((x) => x !== label) : [...l[key], label] }));
+    notice(was ? `${shown(label)} column shown.` : `${shown(label)} column hidden.`);
+  };
+  const defaultsKey = defaultPins.join("\u0001");
+  const eff = useMemo(() => {
+    const base = layout.mode === "default" ? EMPTY : layout;
+    return { ...base, pinned: pinnedOf(layout, defaultPins) };
+  }, [layout, defaultsKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownName = (label) => eff.names[label] || label;
 
   // Find the table that follows this bar, and look again whenever the page around it changes.
@@ -375,7 +412,7 @@ export function GridTools({ id, className = "" }) {
   const named = labels.map((label, i) => ({ label, i })).filter((c) => c.label);
   const hiddenCount = named.filter((c) => eff.hidden.includes(c.label)).length;
   const filterCount = Object.values(filters).filter(Boolean).length;
-  const customised = layout.hidden.length > 0 || layout.pinned.length > 0 || Object.keys(layout.widths).length > 0 || Object.keys(layout.names).length > 0;
+  const customised = layout.hidden.length > 0 || layout.pinned.length > 0 || (layout.unpinned || []).length > 0 || Object.keys(layout.widths).length > 0 || Object.keys(layout.names).length > 0;
   const ready = Boolean(table) && named.length > 0;
   const openMenu = () => {
     if (menu) { setMenu(null); return; }
@@ -386,18 +423,21 @@ export function GridTools({ id, className = "" }) {
   const copy = (e) => {
     e.stopPropagation();
     if (!peek || !navigator.clipboard) return;
-    navigator.clipboard.writeText(peek.text).then(() => setCopied(true), () => {});
+    navigator.clipboard.writeText(peek.text).then(() => { setCopied(true); notice("Copied."); }, () => notice("Couldn't copy. Select the text and copy it instead."));
   };
   const submitPop = (e) => {
     e.preventDefault();
     const value = pop.value.trim();
     if (pop.kind === "filter") setFilters((f) => ({ ...f, [pop.label]: value }));
-    else change((l) => { const names = { ...l.names }; if (value && value !== pop.label) names[pop.label] = value; else delete names[pop.label]; return { ...l, names }; });
+    else {
+      change((l) => { const names = { ...l.names }; if (value && value !== pop.label) names[pop.label] = value; else delete names[pop.label]; return { ...l, names }; });
+      notice(value && value !== pop.label ? "Column renamed." : "Column name reset.");
+    }
     setPop(null);
   };
   const clearPop = () => {
     if (pop.kind === "filter") setFilters((f) => ({ ...f, [pop.label]: "" }));
-    else change((l) => { const names = { ...l.names }; delete names[pop.label]; return { ...l, names }; });
+    else { change((l) => { const names = { ...l.names }; delete names[pop.label]; return { ...l, names }; }); notice("Column name reset."); }
     setPop(null);
   };
 
@@ -432,8 +472,8 @@ export function GridTools({ id, className = "" }) {
             ))}
           </ul>
           <div className="gt-menu-foot">
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!hiddenCount} onClick={() => change((l) => ({ ...l, hidden: [] }))}>Show all</button>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!customised} onClick={() => change(() => EMPTY)}><RotateCcw size={13} /> Reset layout</button>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!hiddenCount} onClick={() => { change((l) => ({ ...l, hidden: [] })); notice("All columns shown."); }}>Show all</button>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!customised} onClick={() => { change(() => EMPTY); notice("Column layout reset."); }}><RotateCcw size={13} /> Reset layout</button>
           </div>
         </div>
       ) : null}

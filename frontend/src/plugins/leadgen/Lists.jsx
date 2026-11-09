@@ -200,6 +200,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
             const r = await api.createLeadList(name.trim(), []);
             await reload();
             setOpenId(r.list.id);
+            store.toast(`Created the list ${name.trim()}.`);
           } catch (e) {
             store.toast(e.message || "Couldn't create the list.");
           }

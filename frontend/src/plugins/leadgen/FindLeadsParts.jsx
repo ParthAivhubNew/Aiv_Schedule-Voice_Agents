@@ -130,6 +130,9 @@ export function FilterGroup({ title, active = 0, onClear, open, onToggle, childr
 const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", padding: "9px 12px", background: "#FAFBFC", borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 3, whiteSpace: "nowrap" };
 const td = { ...text, fontSize: 13, color: C.textInk, padding: "9px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
 const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: "#fff" });
+// Pinned by default through GridTools, so the person can unpin them and the unpin is remembered.
+const COMPANY_PIN = ["Company"];
+const NAME_PIN = ["Name"];
 
 function Cell({ children, style, title }) {
   return <td style={{ ...td, ...style }} title={title || undefined}>{children}</td>;
@@ -245,13 +248,13 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   let last = null; // a divider is drawn whenever the group changes, so no row ever sits under the wrong heading
   return (
     <>
-    <GridTools id="find-companies" />
+    <GridTools id="find-companies" pinned={COMPANY_PIN} />
     <div className="ui-scroll fl-table" aria-busy={busy || undefined} style={{ opacity: busy ? 0.55 : 1, transition: "opacity .15s" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
         <thead>
           <tr>
             <th style={{ ...th, ...pinned(0, 4), width: 36, background: "#FAFBFC" }}><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></th>
-            <th style={{ ...th, ...pinned(36, 4), background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
+            <th style={{ ...th, background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
             <th style={th}>Industry</th>
             <th style={th}>Location</th>
             <th style={th}>Website</th>
@@ -277,7 +280,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                 {head ? <Divider profile={head} count={tier} cols={cols} /> : null}
                 <tr onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
                   <Cell style={{ ...pinned(0), width: 36, background: bg }}><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onClick={(e) => e.stopPropagation()} onChange={() => onPick(c.id)} /></Cell>
-                  <Cell style={{ ...pinned(36), background: bg, minWidth: 260, maxWidth: 320 }} title={c.name}>
+                  <Cell style={{ background: bg, minWidth: 260, maxWidth: 320 }} title={c.name}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <CompanyAvatar c={c} />
                       <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -312,12 +315,12 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
 export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
   return (
     <>
-    <GridTools id="find-people" />
+    <GridTools id="find-people" pinned={NAME_PIN} />
     <div className="ui-scroll fl-table">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 960 }}>
         <thead>
           <tr>
-            <th style={{ ...th, ...pinned(0, 4), background: "#FAFBFC", minWidth: 230 }}>Name</th>
+            <th style={{ ...th, background: "#FAFBFC", minWidth: 230 }}>Name</th>
             <th style={th}>Role</th>
             <th style={th}>Company</th>
             <th style={th}>Location</th>
@@ -333,7 +336,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
             const name = p.first_name || p.last_name ? `${p.first_name} ${p.last_name}`.trim() : p.name;
             return (
               <tr key={p.id} onClick={() => onOpen(c)} style={{ cursor: "pointer" }} data-person-row={p.id}>
-                <Cell style={{ ...pinned(0), minWidth: 230 }}>
+                <Cell style={{ minWidth: 230 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar name={name} />
                     <div style={{ fontWeight: 600, color: C.ink }}>{name}</div>
@@ -375,11 +378,11 @@ export function Pager({ page, size, total, capped, shown, onPage, busy, unit }) 
 }
 
 // What shows when rows are ticked: one bar with the things to do with them.
-export function SelectionBar({ count, onClear, children }) {
+export function SelectionBar({ count, label, onClear, children }) {
   if (!count) return null;
   return (
     <div role="toolbar" aria-label="Selected companies" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "8px 14px", background: C.cobaltSoft, borderBottom: `1px solid ${C.border}` }}>
-      <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.cobaltDeep }}>{count} selected</span>
+      <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.cobaltDeep }}>{label || `${count.toLocaleString()} selected`}</span>
       {children}
       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={onClear}>Clear</button>
     </div>

@@ -51,8 +51,13 @@ function useUploader({ onAdded, showToast }) {
     setBusy(true);
     try {
       const res = await api.uploadMedia(list);
-      (res.errors || []).forEach((e) => showToast && showToast(`${e.name}: ${e.error}`));
-      if (res.items && res.items.length) onAdded(res.items);
+      const kept = (res.items || []).length;
+      const errors = res.errors || [];
+      if (showToast) {
+        if (errors.length) showToast((kept ? `${kept} added. ` : "") + errors.map((e) => `${e.name}: ${e.error}`).join(" · "));
+        else if (kept) showToast(`${kept} added to the library.`);
+      }
+      if (kept) onAdded(res.items);
     } catch (e) {
       showToast && showToast(e.message || "Upload failed.");
     } finally {
@@ -105,6 +110,7 @@ function Toolbar({ lib, kind, setKind, uploader, onImported, showToast, compact 
       const res = await api.importMediaUrl(link.trim());
       setLink("");
       onImported([res.item]);
+      showToast && showToast("Added to the library.");
     } catch (e) {
       showToast && showToast(e.message || "Could not add that link.");
     } finally {
@@ -184,6 +190,7 @@ function Details({ item, onSaved, onDeleted, onClose, showToast }) {
     try {
       await api.deleteMedia(item.id, !!item.usedBy);
       onDeleted(item.id);
+      showToast && showToast("Deleted from the library.");
     } catch (e) {
       showToast && showToast(e.message || "Could not delete.");
     } finally {

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Loader, Spinner } from "../../../app/Loader";
-import { AlertTriangle, Check, Copy } from "lucide-react";
+import { AlertTriangle, Copy } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { api } from "../../../api/apiClient";
+import { notice } from "../../../utils/notice";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const time = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" };
@@ -82,7 +83,6 @@ export function WorkingHoursTab({ operator }) {
   const [meet, setMeet] = useState(null);
   const [meetLunch, setMeetLunch] = useState({ on: true, start: "12:00", end: "13:00" });
   const [saving, setSaving] = useState("");
-  const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -101,19 +101,13 @@ export function WorkingHoursTab({ operator }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const flash = (t) => {
-    setMsg(t);
-    setTimeout(() => setMsg(""), 2500);
-  };
-
   const saveCalls = async () => {
     setSaving("calls");
-    setError("");
     try {
       setRules(await api.saveCompliance({ mode: rules.mode, policy: rules.policy, schedule: rules.schedule }));
-      flash("Calling hours saved");
+      notice("Calling hours saved.");
     } catch (err) {
-      setError(err.message);
+      notice(err.message || "Couldn't save the calling hours.");
     } finally {
       setSaving("");
     }
@@ -121,7 +115,6 @@ export function WorkingHoursTab({ operator }) {
 
   const saveMeetings = async () => {
     setSaving("meet");
-    setError("");
     try {
       const open = DAYS.filter((d) => meet[d].open);
       const byDay = Object.fromEntries(DAYS.map((d) => [d, { start: meet[d].start, end: meet[d].end }]));
@@ -131,9 +124,9 @@ export function WorkingHoursTab({ operator }) {
         lunch_start: meetLunch.on ? meetLunch.start : "12:00",
         lunch_end: meetLunch.on ? meetLunch.end : "12:00",
       });
-      flash("Meeting hours saved");
+      notice("Meeting hours saved.");
     } catch (err) {
-      setError(err.message);
+      notice(err.message || "Couldn't save the meeting hours.");
     } finally {
       setSaving("");
     }
@@ -150,7 +143,6 @@ export function WorkingHoursTab({ operator }) {
     <div style={{ fontFamily: FONT_BODY, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
       {!canEdit && <div style={{ fontSize: 12.5, color: C.slate }}>You can view these hours. Only admins or people with Company profile: Full access can change them.</div>}
       {error && <div style={{ color: C.red, background: C.redSoft, padding: "8px 12px", borderRadius: 8, fontSize: 13 }}>{error}</div>}
-      {msg && <div style={{ color: C.green, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}><Check size={14} /> {msg}</div>}
 
       <div style={card}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>Calling hours</div>
@@ -202,7 +194,7 @@ export function WorkingHoursTab({ operator }) {
             <button
               type="button"
               style={{ ...pill(false), display: "inline-flex", alignItems: "center", gap: 6 }}
-              onClick={() => { setMeet(JSON.parse(JSON.stringify(rules.schedule.days))); setMeetLunch({ ...rules.schedule.lunch }); }}
+              onClick={() => { setMeet(JSON.parse(JSON.stringify(rules.schedule.days))); setMeetLunch({ ...rules.schedule.lunch }); notice("Copied the calling hours. Save to keep them."); }}
             >
               <Copy size={13} /> Same as calling hours
             </button>

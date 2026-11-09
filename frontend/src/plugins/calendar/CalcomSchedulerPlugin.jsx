@@ -33,9 +33,11 @@ import {
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO, HUB_PAPER, initialsFromName, meetingTimeLabel } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { MeetingInvitePreview } from "../../components/MeetingInvitePreview";
+import { useFlash } from "../../components/useFlash";
 
 export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLogout, profile, commonAi, onOpenCommonAi }) {
   const [activeTab, setActiveTab] = useState("comms"); // email preview only — schedule lives in Calling
+  const [toast, flash] = useFlash();
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -134,9 +136,10 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
   }, [selectedDate, selectedEventType]);
 
   const handleCopy = (text, id) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    Promise.resolve(navigator.clipboard?.writeText(text)).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }, () => flash("Could not copy. Select the text and copy it.", true));
   };
 
   const handleCreateOrUpdateEventType = async (e) => {
@@ -150,8 +153,9 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       setEditingEvent(null);
       setEventForm({ title: "", slug: "", length: 15, description: "", locationType: "google_meet", color: "#10B981" });
       loadData();
+      flash(`${eventForm.title || "Meeting type"} saved.`);
     } catch (err) {
-      alert(`Failed to save event type: ${err.message}`);
+      flash(`Could not save the meeting type: ${err.message}`, true);
     }
   };
 
@@ -160,19 +164,20 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
     try {
       await api.deleteCalcomEventType(id);
       loadData();
+      flash("Meeting type deleted.");
     } catch (err) {
-      alert(`Failed to delete event type: ${err.message}`);
+      flash(`Could not delete the meeting type: ${err.message}`, true);
     }
   };
 
   const handleDirectBook = async (e) => {
     e.preventDefault();
     if (!selectedSlot) {
-      alert("Please select a time slot first.");
+      flash("Pick a time first.", true);
       return;
     }
     if (!prospectName.trim() || !attendeeEmail.trim()) {
-      alert("Please enter Attendee Name and Attendee Email.");
+      flash("Enter the attendee's name and email.", true);
       return;
     }
 
@@ -197,7 +202,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       setSelectedSlot(null);
       loadData();
     } catch (err) {
-      alert(`Booking failed: ${err.message}`);
+      flash(`Could not book: ${err.message}`, true);
     } finally {
       setBookingInProgress(false);
     }
@@ -210,8 +215,9 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       setCancellingBooking(null);
       setCancelReason("");
       loadData();
+      flash("Booking cancelled.");
     } catch (err) {
-      alert(`Cancellation failed: ${err.message}`);
+      flash(`Could not cancel: ${err.message}`, true);
     }
   };
 
@@ -1398,6 +1404,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
           </form>
         </div>
       )}
+      {toast}
     </div>
   );
 }

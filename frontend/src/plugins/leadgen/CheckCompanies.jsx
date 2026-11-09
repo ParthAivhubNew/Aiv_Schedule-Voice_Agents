@@ -276,15 +276,20 @@ export function useCompanyCheck({ onToast, reload }) {
     },
     cancel: async () => {
       if (!jobId) return;
-      try { const c = (await api.cancelCompanyCheck(jobId)).job; setJob(c); if (c.status !== "running") setLocked([]); } catch (e) { latest.current.onToast(e.message || "Couldn't cancel."); }
+      try {
+        const c = (await api.cancelCompanyCheck(jobId)).job;
+        setJob(c);
+        if (c.status !== "running") { setLocked([]); latest.current.onToast("Check cancelled. Finished companies keep their results."); latest.current.reload?.(); announceCreditsChanged(); }
+        else latest.current.onToast("Cancelling. Companies already checked keep their results.");
+      } catch (e) { latest.current.onToast(e.message || "Couldn't cancel."); }
     },
     pause: async () => {
       if (!jobId) return;
-      try { setJob((await api.pauseCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't pause."); }
+      try { setJob((await api.pauseCompanyCheck(jobId)).job); latest.current.onToast("Paused. Nothing more is spent until you resume."); } catch (e) { latest.current.onToast(e.message || "Couldn't pause."); }
     },
     resume: async () => {
       if (!jobId) return;
-      try { setJob((await api.resumeCompanyCheck(jobId)).job); } catch (e) { latest.current.onToast(e.message || "Couldn't resume."); }
+      try { setJob((await api.resumeCompanyCheck(jobId)).job); latest.current.onToast("Resumed."); } catch (e) { latest.current.onToast(e.message || "Couldn't resume."); }
     },
     dismiss: () => setJob(null),
   };

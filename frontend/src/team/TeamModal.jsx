@@ -6,6 +6,7 @@ import { PeopleUsage } from "./PeopleUsage";
 import { Avatar } from "../hub/Avatar";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
+import { useFlash } from "../components/useFlash";
 
 export const LEVEL_LABELS = { none: "No access", view: "View only", full: "Full access" };
 const LEVELS = ["none", "view", "full"];
@@ -46,7 +47,7 @@ const btn = (primary) => ({
 });
 const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", width: "100%", boxSizing: "border-box" };
 
-function TempPassword({ value, who, emailed, onClose }) {
+function TempPassword({ value, who, emailed, onClose, flash }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ border: `1px solid ${C.amber}`, background: C.amberSoft, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -56,7 +57,9 @@ function TempPassword({ value, who, emailed, onClose }) {
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <code style={{ fontFamily: FONT_MONO, fontSize: 14, background: "#fff", padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.border}` }}>{value}</code>
-        <button type="button" style={btn(false)} onClick={() => { navigator.clipboard?.writeText(value); setCopied(true); }}>
+        <button type="button" style={btn(false)} onClick={() => {
+          Promise.resolve(navigator.clipboard?.writeText(value)).then(() => setCopied(true), () => flash("Could not copy. Select the password and copy it.", true));
+        }}>
           {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy"}
         </button>
         <button type="button" style={{ ...btn(false), marginLeft: "auto" }} onClick={onClose}>Done</button>
@@ -65,7 +68,7 @@ function TempPassword({ value, who, emailed, onClose }) {
   );
 }
 
-function UsersTab({ me, roles, sections }) {
+function UsersTab({ me, roles, sections, flash }) {
   const [users, setUsers] = useState([]);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
@@ -82,11 +85,12 @@ function UsersTab({ me, roles, sections }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const act = async (fn) => {
+  const act = async (fn, done) => {
     setError("");
     try {
       await fn();
       await load();
+      if (done) flash(done);
     } catch (err) {
       setError(err.message || "Something went wrong.");
     }
@@ -102,14 +106,14 @@ function UsersTab({ me, roles, sections }) {
       setTemp({ value: res.temporary_password, who: res.name, emailed: res.emailed });
       setForm({ name: "", username: "", email: "", role_ids: [] });
       setAdding(false);
-    });
+    }, `${form.name.trim() || "User"} added.`);
   };
 
   const toggleRole = (list, id) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   return (
     <div>
-      {temp && <TempPassword value={temp.value} who={temp.who} emailed={temp.emailed} onClose={() => setTemp(null)} />}
+      {temp && <TempPassword value={temp.value} who={temp.who} emailed={temp.emailed} onClose={() => setTemp(null)} flash={flash} />}
       {error && <div style={{ color: C.red, background: C.redSoft, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
         {users.map((u, i) => {
@@ -150,7 +154,8 @@ function UsersTab({ me, roles, sections }) {
                               checked={on}
                               onChange={() => {
                                 const next = toggleRole(u.roles.map((x) => x.id), r.id);
-                                if (next.length) act(() => api.updateUser(u.id, { role_ids: next }));
+                                if (next.length) act(() => api.updateUser(u.id, { role_ids: next }), `${u.name}: ${on ? `${r.name} removed` : `${r.name} added`}.`);
+                                else flash("Everyone needs at least one role.", true);
                               }}
                             />
                             {r.name}
@@ -168,7 +173,7 @@ function UsersTab({ me, roles, sections }) {
                             <div style={{ width: 170, fontSize: 12.5, color: C.textInk }}>{s.label}</div>
                             <LevelPicker
                               value={u.grants[s.key] || "none"}
-                              onChange={(lv) => act(() => api.updateUser(u.id, { grants: { ...u.grants, [s.key]: lv } }))}
+                              onChange={(lv) => act(() => api.updateUser(u.id, { grants: { ...u.grants, [s.key]: lv } }), `${u.name}: ${s.label} set to ${LEVEL_LABELS[lv].toLowerCase()}.`)}
                             />
                             <span style={{ fontSize: 11.5, color: C.slateLight }}>Now: {LEVEL_LABELS[u.permissions[s.key]]}</span>
                           </div>
@@ -180,11 +185,11 @@ function UsersTab({ me, roles, sections }) {
                     <button type="button" style={btn(false)} onClick={() => act(async () => {
                       const r = await api.resetUserPassword(u.id);
                       setTemp({ value: r.temporary_password, who: u.name, emailed: r.emailed });
-                    })}>
+                    }, `Password reset for ${u.name}.`)}>
                       <KeyRound size={14} /> Reset password
                     </button>
                     {!isMe && (
-                      <button type="button" style={btn(false)} onClick={() => act(() => api.updateUser(u.id, { is_active: !u.is_active }))}>
+                      <button type="button" style={btn(false)} onClick={() => act(() => api.updateUser(u.id, { is_active: !u.is_active }), `${u.name} ${u.is_active ? "disabled" : "enabled"}.`)}>
                         {u.is_active ? <><UserX size={14} /> Disable</> : <><UserCheck size={14} /> Enable</>}
                       </button>
                     )}
@@ -226,7 +231,7 @@ function UsersTab({ me, roles, sections }) {
   );
 }
 
-function RolesTab({ roles, sections, reload, isAdmin }) {
+function RolesTab({ roles, sections, reload, isAdmin, flash }) {
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState("");
 
@@ -240,6 +245,7 @@ function RolesTab({ roles, sections, reload, isAdmin }) {
       else await api.createRole(body);
       setEditing(null);
       await reload();
+      flash(body.name.trim() ? `Role ${body.name.trim()} saved.` : "Role saved.");
     } catch (err) {
       setError(err.message);
     }
@@ -250,6 +256,7 @@ function RolesTab({ roles, sections, reload, isAdmin }) {
     try {
       await api.deleteRole(r.id);
       await reload();
+      flash(`Role ${r.name} deleted.`);
     } catch (err) {
       setError(err.message);
     }
@@ -314,7 +321,7 @@ function RolesTab({ roles, sections, reload, isAdmin }) {
             </div>
             <span style={{ fontSize: 12, color: C.slate }}>{r.users} user{r.users === 1 ? "" : "s"}</span>
             <button type="button" style={btn(false)} onClick={() => setEditing({ ...r })} disabled={r.is_admin && !isAdmin}>Edit</button>
-            {!r.is_system && <button type="button" style={btn(false)} onClick={() => remove(r)} title="Delete role"><Trash2 size={14} /></button>}
+            {!r.is_system && <button type="button" style={btn(false)} onClick={() => { if (window.confirm(`Delete the role ${r.name}?${r.users ? ` ${r.users} user${r.users === 1 ? "" : "s"} lose${r.users === 1 ? "s" : ""} it.` : ""}`)) remove(r); }} title="Delete role"><Trash2 size={14} /></button>}
           </div>
         ))}
       </div>
@@ -332,6 +339,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
   const [roles, setRoles] = useState([]);
   const [sections, setSections] = useState([]);
   const [error, setError] = useState("");
+  const [toast, flash] = useFlash();
 
   const reload = useCallback(async () => {
     try {
@@ -386,13 +394,14 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
         </div>
         <div style={{ padding: 20, overflowY: "auto" }}>
           {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
-          {tab === "users" && <UsersTab me={currentUser} roles={roles} sections={sections} />}
-          {tab === "roles" && <RolesTab roles={roles} sections={sections} reload={reload} isAdmin={Boolean(currentUser?.is_admin)} />}
-          {tab === "numbers" && <NumbersTab />}
+          {tab === "users" && <UsersTab me={currentUser} roles={roles} sections={sections} flash={flash} />}
+          {tab === "roles" && <RolesTab roles={roles} sections={sections} reload={reload} isAdmin={Boolean(currentUser?.is_admin)} flash={flash} />}
+          {tab === "numbers" && <NumbersTab flash={flash} />}
           {tab === "credits" && <CreditsTab />}
           {tab === "myusage" && <PeopleUsage load={loadPeople} title="Your credit use" />}
         </div>
       </div>
+      {toast}
     </div>
   );
 }

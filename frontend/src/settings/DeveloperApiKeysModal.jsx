@@ -43,6 +43,7 @@ import BuildAndTestRequest from "./BuildAndTestRequest";
 import { PartnerProgram } from "./PartnerProgram";
 import { GROUPS, ENDPOINTS, defaultData, endpointKey, pluginAction, runRequest } from "./developerCatalog";
 import { buildSnippet } from "./developerSnippets";
+import { useFlash } from "../components/useFlash";
 
 const PLAYGROUND_CATEGORIES = [
   { id: "all", label: "All Services", icon: Layers },
@@ -156,6 +157,7 @@ const formatScopePills = (scopes = []) => {
 
 // inline: drawn in the page instead of over it (the embedded Account screen); only the Keys and Webhooks tabs show there.
 export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
+  const [toast, flash] = useFlash();
   const [activeTab, setActiveTab] = useState("keys"); // "keys" | "webhooks" | "playground" | "docs" | "partner"
   const [keys, setKeys] = useState([]);
   const [availableScopes, setAvailableScopes] = useState([]);
@@ -278,7 +280,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
       setSelectedScopes(unlocked.length > 0 ? unlocked : (availableScopes[0] ? [availableScopes[0].id] : []));
       await loadKeys();
     } catch (err) {
-      setError(err.message || "Failed to create API key.");
+      flash(err.message || "Could not create the key.", true);
     } finally {
       setCreating(false);
     }
@@ -288,8 +290,9 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
     try {
       await api.updateDeveloperKey(key.id, { is_active: !key.is_active });
       await loadKeys();
+      flash(`${key.name} ${key.is_active ? "paused" : "turned on"}.`);
     } catch (err) {
-      setError(err.message || "Failed to update key.");
+      flash(err.message || "Could not update the key.", true);
     }
   };
 
@@ -303,8 +306,9 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         try {
           await api.revokeDeveloperKey(keyId);
           await loadKeys();
+          flash(`${name} revoked.`);
         } catch (err) {
-          setError(err.message || "Failed to revoke key.");
+          flash(err.message || "Could not revoke the key.", true);
         }
       },
     });
@@ -329,7 +333,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
       setWebhookEvents(["call.completed", "call.failed"]);
       await loadWebhooks();
     } catch (err) {
-      setError(err.message || "Failed to register webhook endpoint.");
+      flash(err.message || "Could not add the webhook.", true);
     } finally {
       setCreatingWebhook(false);
     }
@@ -360,8 +364,9 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
     try {
       await api.updateDeveloperWebhook(ep.id, { is_active: !ep.is_active });
       await loadWebhooks();
+      flash(ep.is_active ? "Webhook paused." : "Webhook turned on.");
     } catch (err) {
-      setError(err.message || "Failed to update webhook.");
+      flash(err.message || "Could not update the webhook.", true);
     }
   };
 
@@ -375,8 +380,9 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         try {
           await api.deleteDeveloperWebhook(ep.id);
           await loadWebhooks();
+          flash("Webhook deleted.");
         } catch (err) {
-          setError(err.message || "Failed to delete webhook.");
+          flash(err.message || "Could not delete the webhook.", true);
         }
       },
     });
@@ -396,7 +402,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
   };
 
   const copyToClipboard = (text, type = "secret", id = "") => {
-    navigator.clipboard.writeText(text);
+    Promise.resolve(navigator.clipboard?.writeText(text)).catch(() => flash("Could not copy. Select the text and copy it.", true));
     if (type === "secret") {
       setCopiedSecret(true);
       setTimeout(() => setCopiedSecret(false), 2000);
@@ -2603,6 +2609,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
           </div>
         </div>
       )}
+      {toast}
     </div>
   );
 }

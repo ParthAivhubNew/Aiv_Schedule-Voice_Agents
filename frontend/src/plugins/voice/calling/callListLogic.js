@@ -70,6 +70,55 @@ export function withView(views, view) {
   return [{ name, status: view.status || "all", q: view.q || "" }, ...views.filter((v) => v.name.toLowerCase() !== name.toLowerCase())].slice(0, 20);
 }
 
+// What we hold for one contact, as Leads shows it for a company: which of the five details are filled and the share filled.
+// A phone counts only when it has enough digits and a number check has not found it dead, made up or malformed.
+// Only what is on the row is read; nothing is guessed.
+export const DETAILS = [["phone", "phone"], ["contact", "contact name"], ["company", "company"], ["email", "email"], ["website", "website"]];
+const DEAD_NUMBER = new Set(["not_working", "fictional", "bad_format"]);
+const filled = (v) => String(v || "").trim() !== "";
+
+export function rowDetails(row, phone) {
+  const r = row || {};
+  const has = {
+    phone: String(phone || "").replace(/\D/g, "").length >= 7 && !DEAD_NUMBER.has(r.check && r.check.status),
+    contact: filled(r.contact),
+    company: filled(r.company),
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(r.email || "").trim()),
+    website: filled(r.website),
+  };
+  const missing = DETAILS.filter(([k]) => !has[k]).map(([, label]) => label);
+  return { pct: Math.round(((DETAILS.length - missing.length) / DETAILS.length) * 100), missing, has };
+}
+
+// The whole list: the average share filled, how many have a working phone, and how many have all five.
+export function listDetails(rows, phoneOf = (r) => r.phone) {
+  if (!rows.length) return { pct: 0, phones: 0, full: 0 };
+  let sum = 0;
+  let phones = 0;
+  let full = 0;
+  rows.forEach((r) => {
+    const d = rowDetails(r, phoneOf(r));
+    sum += d.pct;
+    if (d.has.phone) phones += 1;
+    if (!d.missing.length) full += 1;
+  });
+  return { pct: Math.round(sum / rows.length), phones, full };
+}
+
+export const detailsTip = (d) => `${d.pct}% of the details filled in: phone, contact name, company, email and website.${d.missing.length ? ` Missing: ${d.missing.join(", ")}.` : " Nothing is missing."}`;
+
+// The question asked before calls start for several contacts at once: how many, how many at a time, and the price.
+// perMinute and balance come from the Voice wallet; when they could not be read the price is described without a number.
+export function bulkCallPrompt({ count, cap = 1, perMinute = null, balance = null }) {
+  const n = Number(count) || 0;
+  const lines = [`Call ${n.toLocaleString()} contact${n === 1 ? "" : "s"}, ${cap} at a time?`];
+  const rate = Number(perMinute);
+  if (rate > 0) lines.push(`Calls cost ${rate.toLocaleString()} credit${rate === 1 ? "" : "s"} a minute.`);
+  else if (perMinute == null) lines.push("Calls are paid by the minute from your Voice credits.");
+  if (balance != null && Number.isFinite(Number(balance))) lines.push(`You have ${Number(balance).toLocaleString()} Voice credit${Number(balance) === 1 ? "" : "s"}.`);
+  return lines.join("\n");
+}
+
 // A call-list row as a Leads company, for saving it there.
 export function rowAsAccount(r, phone) {
   return {

@@ -20,12 +20,13 @@ import { TelephonyDocsView } from "../plugins/voice/TelephonyDocsView";
 import { announceVoiceChanged } from "../plugins/voice/VoicePicker";
 import { TelnyxAssistantSettingsCard, VoiceTrunkingHubTab } from "../plugins/voice/VoiceTrunkingHubTab";
 import { AddIntegrationModal } from "./AddIntegrationModal";
+import { useFlash } from "../components/useFlash";
 
 export function ProviderConfigView({ notifications, setNotifications, commonAi, setCommonAi, profile, setProfile, onNavigateView, embedded = false }) {
   const [activeTab, setActiveTab] = useState("telephony-hub");
   const [showAdd, setShowAdd] = useState(false);
   const [addModalCategory, setAddModalCategory] = useState("LLM");
-  const [dirty, setDirty] = useState(false);
+  const [toast, flash] = useFlash();
 
   // ── Credentials: loaded live from backend with template fallback ──
   const [credsState, setCredsState] = useState(CONNECTIONS);
@@ -137,11 +138,6 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
     }
     loadConns();
   }, []);
-
-  const flash = () => {
-    setDirty(true);
-    setTimeout(() => setDirty(false), 1400);
-  };
 
   // ── Credentials inline test→save helpers ──
   const setRow = (rowKey, patch) =>
@@ -275,7 +271,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
           { id: "n_" + Date.now(), text: `✓ Updated configuration for ${itemName}`, time: "just now", unread: true, type: "success" },
           ...ns,
         ]);
-        flash();
+        flash(`${itemName} settings saved.`);
         refreshLiveHub();
         return;
       } catch (err) {
@@ -346,7 +342,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
         { id: "n_" + Date.now(), text: `✓ ${itemName} key verified and saved!${row.phoneValue ? ` (Caller ID: ${row.phoneValue})` : ""}`, time: "just now", unread: true, type: "success" },
         ...ns,
       ]);
-      flash();
+      flash(`${itemName} key checked and saved.`);
       refreshLiveHub();
     } catch (err) {
       setRow(rowKey, { phase: "tested_fail", errorMsg: err.message || "Save failed." });
@@ -392,7 +388,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
         { id: "n_" + Date.now(), text: `Deleted ${item.name} API key.`, time: "just now", unread: true, type: "success" },
         ...ns,
       ]);
-      flash();
+      flash(`${item.name} key deleted.`);
     } catch (err) {
       setRow(rowKey, { phase: "idle", errorMsg: "" });
       handleCancel(rowKey);
@@ -401,6 +397,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
         { id: "n_" + Date.now(), text: err.message || `Failed to delete ${item.name} key.`, time: "just now", unread: true, type: "error" },
         ...ns,
       ]);
+      flash(err.message || `Could not delete the ${item.name} key.`, true);
     }
   };
 
@@ -430,7 +427,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
       { id: "n_" + Date.now(), text: `✓ Verified and activated ${newIntegration.name}`, time: "just now", unread: true, type: "success" },
       ...ns,
     ]);
-    flash();
+    flash(`${newIntegration.name} connected.`);
   };
 
   return (
@@ -893,12 +890,6 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
         )}
       </div>
 
-      {dirty && (
-        <div style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10, zIndex: 100 }}>
-          <CheckCircle2 size={15} color={C.teal} /> Changes applied successfully
-        </div>
-      )}
-
       {showAdd && <AddIntegrationModal initialCategory={addModalCategory} onClose={() => setShowAdd(false)} onAddSuccess={handleAddSuccess} />}
 
       {deleteKeyConfirm && (
@@ -1023,6 +1014,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
           </div>
         </div>
       )}
+      {toast}
     </>
   );
 }

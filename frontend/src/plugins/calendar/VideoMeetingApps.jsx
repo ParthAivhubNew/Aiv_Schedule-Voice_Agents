@@ -35,7 +35,7 @@ export function VideoMeetingApps() {
   const disconnect = async (provider) => {
     try {
       await api.disconnectMeetingLink(provider);
-      setMsg("");
+      setMsg("Disconnected.");
       await load();
     } catch (e) {
       setMsg(e.message || "Could not disconnect.");

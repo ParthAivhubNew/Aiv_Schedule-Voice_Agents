@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Loader } from "../../app/Loader";
 import { AlertTriangle, CheckCircle2, Search, Trash2 } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { notice } from "../../utils/notice";
 import { C, FONT_BODY, FONT_MONO } from "../../tokens";
 
 // One voice library for the whole app. Every screen that shows or changes the call voice uses
@@ -166,7 +167,7 @@ export function VoicePicker({ variant = "full" }) {
             disabled={!!busy}
             onChange={(e) => {
               const [kind, ...rest] = e.target.value.split(":");
-              if (kind) run("pick", () => setActive(kind, rest.join(":")), "");
+              if (kind) run("pick", () => setActive(kind, rest.join(":")), "").then((ok) => { if (ok) notice("Call voice changed."); });
             }}
             style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", color: C.ink }}
           >

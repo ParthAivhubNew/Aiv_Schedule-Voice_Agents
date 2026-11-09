@@ -1,4 +1,5 @@
-import { cloneElement, useState, useEffect, useRef, useMemo } from "react";
+import { cloneElement, useCallback, useState, useEffect, useRef, useMemo } from "react";
+import { NOTICE_EVENT } from "../../utils/notice";
 import { api } from "../../api/apiClient";
 import { takePendingDraft } from "../../utils/draftHandoff";
 import {
@@ -184,10 +185,17 @@ export default function LeadGenerationPlugin({
     if (d) { setIncoming({ id: Date.now(), filters: d.filters || {}, meta: d.meta }); setFindOpened(true); setView("find_leads"); }
   }, []);
 
-  const showToast = (msg) => {
+  const toastTimer = useRef(0);
+  const showToast = useCallback((msg) => {
+    clearTimeout(toastTimer.current);
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
+    toastTimer.current = setTimeout(() => setToastMessage(null), 3500);
+  }, []);
+  useEffect(() => {
+    const onNotice = (e) => showToast(e.detail);
+    window.addEventListener(NOTICE_EVENT, onNotice);
+    return () => { window.removeEventListener(NOTICE_EVENT, onNotice); clearTimeout(toastTimer.current); };
+  }, [showToast]);
   const listsStore = useLeadLists(showToast);
   const store = useLeadAccounts(showToast, listsStore.reload);
   const savedPeopleCount = useMemo(() => peopleOf(store.accounts).length, [store.accounts]);
@@ -402,7 +410,7 @@ export default function LeadGenerationPlugin({
       {/* Toast */}
       <DialogHost />
       {toastMessage && (
-        <div className="app-toast" style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
+        <div role="status" aria-live="polite" className="app-toast" style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
           {toastMessage}
         </div>
       )}

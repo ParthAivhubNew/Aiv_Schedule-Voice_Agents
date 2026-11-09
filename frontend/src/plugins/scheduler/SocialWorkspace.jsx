@@ -71,6 +71,8 @@ import { PictureSettings } from "./SocialPictures";
 import { VideoPanel } from "./SocialVideoPanel";
 import { ReportsPage } from "./SocialReports";
 import { ListeningPage } from "./SocialListening";
+import { approvalBatch, approvalQuestion } from "./approveAll";
+import { NOTICE_EVENT, notice } from "../../utils/notice";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -305,6 +307,7 @@ function LearnedStyle({ learned, onChange }) {
     setErr("");
     try {
       onChange((await api.learnBrandStyle()).learned);
+      notice("Style rules updated.");
     } catch (e) {
       setErr(e.message || "Could not learn right now. Try again later.");
     } finally {
@@ -315,6 +318,7 @@ function LearnedStyle({ learned, onChange }) {
     setErr("");
     try {
       onChange((await api.saveLearnedStyle(body)).learned);
+      notice("Saved.");
     } catch (e) {
       setErr(e.message || "Could not save.");
     }
@@ -639,6 +643,7 @@ function ApprovalMailLine() {
     try {
       await api.saveOrgSettings({ approverEmails: list });
       announceOrgUpdated();
+      notice(list.length ? "Approvers saved." : "Approvers removed. Approval emails are off.");
       setEditing(false);
       load();
     } catch (e) {
@@ -683,8 +688,9 @@ function ApprovalMailLine() {
     setBusy(true);
     try {
       await api.resendApprovalEmails();
-    } catch (_) {
-      // The status line below shows the outcome.
+      notice("Approval emails sent again.");
+    } catch (e) {
+      notice(e.message || "The approval emails were not sent.");
     }
     setBusy(false);
     load();
@@ -2591,7 +2597,12 @@ function SimpleCompanyKnowledge({ profile, setProfile, knowledgeSources, setKnow
         return next;
       });
     }
-    try { await api.deleteSource(id); } catch (_) {}
+    try {
+      await api.deleteSource(id);
+      showToast("Source removed.");
+    } catch (_) {
+      showToast("Removed here, but the server copy could not be deleted.");
+    }
   };
 
   const field = (label, key, extra) => (
@@ -2691,6 +2702,9 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
     setBusy(true);
     try {
       onChange(await api.saveSocialExtras(body));
+      if (body.testMode && "on" in body.testMode) showToast(body.testMode.on ? "Test mode on. Nothing is sent to any network." : "Test mode off. Approved posts go live.");
+      else if ("trackLinks" in body) showToast(body.trackLinks ? "Links in new posts are tracked." : "Links in new posts are not tracked.");
+      else showToast("Saved.");
     } catch (e) {
       showToast(e.message || "Could not save.");
     } finally {
@@ -3085,6 +3099,12 @@ export function SocialWorkspace({
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), Math.min(8000, 3200 + String(msg || "").length * 25));
   };
+  // Shared parts (column tools, copy buttons) report through notice(); show those here too.
+  useEffect(() => {
+    const onNotice = (e) => showToast(e.detail);
+    window.addEventListener(NOTICE_EVENT, onNotice);
+    return () => { window.removeEventListener(NOTICE_EVENT, onNotice); window.clearTimeout(toastTimer.current); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startChatResize = (e) => {
     if (e.button != null && e.button !== 0) return;
@@ -3154,9 +3174,18 @@ export function SocialWorkspace({
     const onMsg = (e) => {
       const d = e && e.data;
       if (!d || d.type !== "aivhub-social-oauth") return;
+      const name = d.platform ? channelTitle(d.platform) : "The account";
+      showToast(d.ok ? `${name} connected${d.handle ? " as @" + String(d.handle).replace(/^@/, "") : ""}.` : `${name} did not connect${d.error ? ": " + d.error : "."}`);
       refreshAccounts(true);
     };
     window.addEventListener("message", onMsg);
+    // With pop-ups blocked the sign-in comes back as a whole page: #/scheduler/channels?oauth=ok&platform=...
+    const hash = window.location.hash || "";
+    const back = hash.includes("?") ? new URLSearchParams(hash.slice(hash.indexOf("?") + 1)) : null;
+    if (back && back.get("oauth")) {
+      onMsg({ data: { type: "aivhub-social-oauth", ok: back.get("oauth") === "ok", platform: back.get("platform") || "", handle: back.get("handle") || "", error: back.get("error") || "" } });
+      try { window.history.replaceState(null, "", window.location.pathname + window.location.search + hash.slice(0, hash.indexOf("?"))); } catch (_) { /* the toast just shows again on reload */ }
+    }
     return () => window.removeEventListener("message", onMsg);
   }, [refreshAccounts]);
 
@@ -3612,6 +3641,7 @@ export function SocialWorkspace({
         }));
         persistPost(next, "ai");
         finishGenProgress([p.id]);
+        if (!res.warning) showToast("New picture ready.");
         if (p.batchId && !p.uniqueForChannel && !wantsPerChannelDiff(change)) {
           syncBatchImage(p.batchId, next.imageUrl, next.imagePrompt, p.id);
         }
@@ -3696,6 +3726,8 @@ export function SocialWorkspace({
       const res = await api.editPost(id, body);
       if (res && res.post && (row.status === "scheduled" || row.status === "approved") && res.post.status === "awaiting_approval") {
         showToast("Changed after approval, so it needs approving again.");
+      } else {
+        showToast("Saved.");
       }
       if (res && res.post) {
         setPosts((ps) => ps.map((p) => (p.id === id
@@ -3719,6 +3751,7 @@ export function SocialWorkspace({
     try {
       const res = await api.restorePostVersion(id, versionId);
       if (res && res.post) setPosts((ps) => ps.map((p) => (p.id === id ? { ...fromServerPost(res.post, p), uniqueForChannel: true } : p)));
+      showToast("Earlier version restored.");
       return true;
     } catch (e) {
       showToast(e.message || "Could not restore that version.");
@@ -3878,8 +3911,13 @@ export function SocialWorkspace({
   }, [refreshPosts]);
 
   const approveAllDrafts = async () => {
-    const list = posts.filter((p) => p.status === "draft" || !p.status);
-    if (!list.length) return;
+    const batch = approvalBatch(posts, { isBlocked: blocked, dueMs: postDueMs });
+    const list = batch.ready;
+    if (!list.length) {
+      showToast(batch.skipped ? "No draft can be approved yet. Fix the text on each one first." : "No drafts to approve.");
+      return;
+    }
+    if (!window.confirm(approvalQuestion(batch, Boolean(extras && extras.testMode && extras.testMode.on)))) return;
     setPublishing("all");
     const missing = [];
     let okCount = 0;
@@ -3898,9 +3936,10 @@ export function SocialWorkspace({
     } else if (failCount) {
       showToast("Approved " + okCount + ". " + failCount + " failed — check Accounts or try again.");
     } else {
-      showToast(okCount + " draft" + (okCount === 1 ? "" : "s") + " approved.");
+      showToast(okCount + " draft" + (okCount === 1 ? "" : "s") + " approved." + (batch.skipped ? " " + batch.skipped + " left out: fix the text first." : ""));
     }
   };
+  const bulkReady = approvalBatch(posts, { isBlocked: blocked }).ready.length;
 
   const activeChannels = () => (channelDrafts.length ? channelDrafts.slice() : ["linkedin"]);
 
@@ -4240,7 +4279,7 @@ export function SocialWorkspace({
 
   const deleteThread = (id) => {
     setThreads((ts) => ts.filter((t) => t.id !== id));
-    api.deleteChatThread(id).catch(() => {});
+    api.deleteChatThread(id).then(() => showToast("Chat deleted."), () => showToast("Removed here, but the server copy could not be deleted."));
   };
 
   const closeApprovals = () => {
@@ -4355,6 +4394,7 @@ export function SocialWorkspace({
   const disconnectAccount = async (id) => {
     try {
       await api.deleteSocialAccount(id);
+      showToast("Account disconnected.");
       refreshAccounts();
     } catch (e) {
       showToast(e.message || "Remove failed");
@@ -4476,9 +4516,9 @@ export function SocialWorkspace({
                 </div>
                 <ApprovalMailLine />
               </div>
-              {drafts.length > 1 ? (
-                <button type="button" onClick={approveAllDrafts} disabled={!!publishing} style={priBtn} title="Approve every draft that is waiting">
-                  <Check size={14} /> Approve all drafts
+              {bulkReady > 1 ? (
+                <button type="button" onClick={approveAllDrafts} disabled={!!publishing} style={priBtn} title="Approve every draft that is waiting and ready">
+                  <Check size={14} /> {publishing === "all" ? "Approving…" : `Approve all ${bulkReady} drafts`}
                 </button>
               ) : null}
             </div>

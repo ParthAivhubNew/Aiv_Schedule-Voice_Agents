@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
+import { pagePicked, useBulkSelect } from "../../components/bulkSelect";
+import { SelectAllNotice } from "../../components/SelectAllNotice";
+import { notice } from "../../utils/notice";
 import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -425,6 +428,25 @@ export function QualityBar({ found, wide = false }) {
   );
 }
 
+// How complete the company's record is, from the server's count over website, phone, email, address, industry, people and size.
+// The tooltip names what is missing, so a low number says what to look for.
+export function completenessTip(c) {
+  if (!c) return "";
+  const missing = c.missing || [];
+  return `${c.pct}% of the key details are filled in: website, phone, email, address, industry, people and size.${missing.length ? ` Missing: ${missing.join(", ")}.` : " Nothing is missing."}`;
+}
+export function Completeness({ c, wide = false }) {
+  if (!c) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }} title={completenessTip(c)} aria-label={completenessTip(c)}>
+      <span style={{ width: wide ? 120 : 48, height: 6, borderRadius: 3, background: C.border, overflow: "hidden", display: "inline-block" }}>
+        <span style={{ display: "block", height: "100%", width: `${c.pct}%`, background: barColor(c.pct) }} />
+      </span>
+      <span style={{ ...text, fontSize: 12, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{c.pct}%</span>
+    </span>
+  );
+}
+
 // A name from the user's own file columns (e.g. "Contact forename" + "Contact surname"), when it was not saved as the contact.
 function fileContact(a) {
   const c = a.custom || {};
@@ -443,6 +465,7 @@ function FoundSummary({ account, store }) {
     const made = (f.filled || []).find((x) => x.field === k);
     const value = (account[k] || "").trim();
     if (made && value) return { k, label, value, tone: "new", badge: `Found by us · ${HOW_WORD[made.how] || made.how}` };
+    if (value && (account.from_record || []).includes(k)) return { k, label, value, tone: "yours", badge: "From our records" };
     if (value) return { k, label, value, tone: "yours", badge: account.source === "import" ? "From your file" : account.source === "manual" ? "You added" : "From the search" };
     const researched = k === "email" ? emailFor(account) : k === "phone" ? phoneFor(account) : null;
     if (researched?.fromResearch) return { k, label, value: researched.text, tone: "research", badge: "Found by research · not saved yet", use: true };
@@ -567,7 +590,7 @@ function ViewsMenu({ current, onApply, onToast }) {
               <button type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: 1, justifyContent: "flex-start", fontWeight: (active || "Default view") === v.name ? 700 : 400 }}
                 onClick={() => { onApply(v); setActive(v.name === "Default view" ? "" : v.name); setOpen(false); }}>{v.name}</button>
               {v.name !== "Default view" ? (
-                <button type="button" className="ui-icon-btn" aria-label={`Delete the view ${v.name}`} title="Delete this view" onClick={() => { keep(views.filter((x) => x.name !== v.name)); if (active === v.name) setActive(""); }}><X size={13} /></button>
+                <button type="button" className="ui-icon-btn" aria-label={`Delete the view ${v.name}`} title="Delete this view" onClick={() => { keep(views.filter((x) => x.name !== v.name)); if (active === v.name) setActive(""); onToast(`Deleted the view ${v.name}.`); }}><X size={13} /></button>
               ) : null}
             </div>
           ))}
@@ -654,6 +677,7 @@ const VERDICT_TIPS = {
 };
 
 const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
+const COMPANY_PIN = ["Company"];
 
 export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "" }) {
   const [filter, setFilter] = useState("");
@@ -663,7 +687,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   });
   const [pageNo, setPageNo] = useState(0);
   useEffect(() => { setPageNo(0); }, [filter, scope, listId]);
-  const [picked, setPicked] = useState(() => new Set()); // ids ticked for "Check companies"
+  const sel = useBulkSelect(`${filter}|${scope}|${listId}`); // ids ticked for the bulk actions; a new filter or list clears them
   const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
   const [listing, setListing] = useState(false); // the Add to list box is open
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
@@ -692,7 +716,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     setHidden(next);
     try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* the choice just isn't remembered */ }
   };
-  const toggleColumn = (id) => saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
+  const toggleColumn = (id) => {
+    const name = (allColumns.find(([k]) => k === id) || [id, id])[1];
+    saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
+    notice(hidden.includes(id) ? `${name} column shown.` : `${name} column hidden.`);
+  };
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
   const columnCount = 2 + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
@@ -727,7 +755,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     const never = await askConfirm({ title: "Also stop anyone contacting them?", body: "Add their emails and phone numbers to your do-not-contact list, for an erasure request. Press Cancel to delete without blocking them.", confirm: "Yes, block them" });
     try {
       const out = await api.deleteLeadAccounts(pickedIds, Boolean(never));
-      setPicked(new Set());
+      sel.clear();
       await store.reload();
       await listsStore?.reload?.();
       store.toast?.(`Deleted ${out.deleted.toLocaleString()}.${out.locked?.length ? ` ${out.locked.length} are being checked right now and were kept.` : ""}`);
@@ -735,10 +763,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       store.toast?.(e.message || "Couldn't delete them");
     }
   };
-  const allShownPicked = pageIds.length > 0 && pageIds.every((id) => picked.has(id));
-  const allMatchingPicked = shownIds.every((id) => picked.has(id));
-  const pickedIds = base.filter((a) => picked.has(a.id)).map((a) => a.id); // companies removed since are dropped
-  const toggle = (id) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const allShownPicked = pagePicked(sel.ids, pageIds);
+  const pickedIds = base.filter((a) => sel.has(a.id)).map((a) => a.id); // companies removed since are dropped
+  const pickedWord = sel.everything && pickedIds.length === shownIds.length ? `All ${pickedIds.length.toLocaleString()} selected` : `${pickedIds.length.toLocaleString()} selected`;
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
   const stats = [
@@ -753,7 +780,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     try {
       await api.updateLeadList(listId, { remove: ids });
       await listsStore.reload();
-      setPicked((prev) => { const next = new Set(prev); ids.forEach((i) => next.delete(i)); return next; });
+      sel.drop(ids);
       store.toast(`Removed ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from the list.`);
     } catch (e) {
       store.toast(e.message || "Couldn't remove them.");
@@ -806,7 +833,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
           <span style={{ flex: 1 }} />
-          <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? `${pickedIds.length.toLocaleString()} selected` : "Tick companies to enrich or list them"}</span>
+          <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? pickedWord : "Tick companies to enrich or list them"}</span>
           {fixIds.length ? (
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Apply every suggested fix in this list. The value you had is kept in the company's check details"
               onClick={async () => { if (await askConfirm({ title: `Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes?`, body: "The values you had stay noted in each company's check details.", confirm: "Apply fixes" })) acceptFixes(fixIds); }}>
@@ -814,7 +841,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             </button>
           ) : null}
           <ViewsMenu current={{ hidden, scope }} onToast={store.toast} onApply={(v) => { saveHidden(v.hidden || []); setScope(chips.some(([id]) => id === v.scope) ? v.scope : "all"); }} />
-          <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => saveHidden([])} />
+          <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => { saveHidden([]); notice("All columns shown."); }} />
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} disabled={!pickedIds.length} onClick={deleteTicked}
             title="Delete the ticked companies for good. They leave every list and journey.">
             Delete {pickedIds.length || ""}
@@ -843,28 +870,21 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <ShieldCheck size={14} /> Check & improve
           </button>
         </div>
-        {allShownPicked && !(allMatchingPicked && shownIds.length === base.length) && shownIds.length > pageIds.length ? (
-          <div style={{ ...muted, padding: "6px 12px", background: C.paperSoft, borderBottom: `1px solid ${C.border}` }}>
-            {pageIds.length.toLocaleString()} on this page are selected.{" "}
-            <button title="Tick every company in this list" type="button" onClick={() => setPicked(new Set(shown.map((a) => a.id)))} style={{ ...text, background: "none", border: "none", padding: 0, color: "var(--ui-accent)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}>
-              Select all {shownIds.length.toLocaleString()} companies
-            </button>
-          </div>
-        ) : null}
-        <GridTools id="my-list" />
+        <SelectAllNotice sel={sel} pageIds={pageIds} total={shownIds.length} onSelectAll={() => sel.selectAll(shownIds)} />
+        <GridTools id="my-list" pinned={COMPANY_PIN} />
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
           <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
               <tr>
                 <th style={{ width: 1 }}>
-                  <input type="checkbox" checked={allShownPicked} onChange={() => setPicked(allShownPicked ? new Set() : new Set(pageIds))} aria-label="Select all companies on this page" />
+                  <input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" />
                 </th>
                 <th>Company</th>
                 {showing("phone") ? <th title="The number you saved, or one research found. A tick means the phone network confirmed it">Phone</th> : null}
                 {showing("email") ? <th title="The email you saved, or one research found">Email</th> : null}
                 {showing("contact") ? <th title="The person to write to">Contact</th> : null}
                 {showing("stage") ? <th title="Where this company is in your journey with them, and how likely it is to answer">Stage</th> : null}
-                {showing("quality") ? <th title="How much of the website, phone, email and contact is filled in">Complete</th> : null}
+                {showing("quality") ? <th title="How much of the website, phone, email, address, industry, people and size we hold. Hover a row to see what is missing">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
                 {showing("website") ? <th title="The company's own website">Website</th> : null}
                 {showing("source") ? <th title="Where this company came from">Found by</th> : null}
@@ -875,7 +895,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <tbody>
               {paged.map((a) => (
                 <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : "#fff" }}>
-                  <td><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
+                  <td><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
                     <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
@@ -918,7 +938,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       {a.connection?.last_call_outcome ? <div style={{ ...muted, fontSize: 11.5 }}>Last call: {String(a.connection.last_call_outcome).replace(/_/g, " ")}</div> : null}
                     </td>
                   ) : null}
-                  {showing("quality") ? <td>{wasLookedUp(a) ? <QualityBar found={a.found} /> : <span style={{ color: C.slateLight }}>—</span>}</td> : null}
+                  {showing("quality") ? <td>{a.completeness ? <Completeness c={a.completeness} /> : wasLookedUp(a) ? <QualityBar found={a.found} /> : <span style={{ color: C.slateLight }}>—</span>}</td> : null}
                   {showing("check") ? (
                     <td>
                       <VerdictBadge verification={a.verification} withWhy />
@@ -1228,6 +1248,12 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
             <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <SiteLink account={live} /><span title="How this company got into your account">{sourceWords(live.source)}</span>
             </div>
+            {live.completeness ? (
+              <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                <span>Record</span><Completeness c={live.completeness} wide />
+                {live.completeness.missing?.length ? <span>Missing: {live.completeness.missing.join(", ")}</span> : null}
+              </div>
+            ) : null}
           </div>
           {!page && onOpenPage ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Everything about this company on one page: what you gave us, what we found, checks, research, journeys and activity" onClick={() => onOpenPage(live.id)}>Open full profile</button> : null}
           {page && live.business_record_id && onOpenRegister ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="The register page for this company" onClick={() => onOpenRegister(live.business_record_id)}>Register page</button> : null}
