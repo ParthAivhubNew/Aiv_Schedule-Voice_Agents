@@ -4,7 +4,7 @@ import { api } from "../../api/apiClient";
 import { notice } from "../../utils/notice";
 import { C, FONT_BODY } from "../../tokens";
 import { Spinner } from "../../app/Loader";
-import { nextTabIndex, readOpen, readTab, writeOpen, writeTab } from "./profileLayout";
+import { nextTabIndex, readOpen, readTab, writeOpen, writeTab } from "./profileState";
 import { LatestNote } from "./Notes";
 
 // The parts the three company profiles share: tabs instead of one long scroll, sections that fold, and a bar pinned
@@ -86,7 +86,7 @@ export function journeyWords(j) {
   return `${j.name} · ${state}`;
 }
 
-export function JourneyControl({ companyId = "", accountId = "", onNewJourney, onOpenJourney }) {
+export function JourneyControl({ companyId = "", accountId = "", onNewJourney, onOpenJourney, onAdded }) {
   const [state, setState] = useState(null);
   const [menu, setMenu] = useState(false);
   const [journeys, setJourneys] = useState(null);
@@ -108,6 +108,7 @@ export function JourneyControl({ companyId = "", accountId = "", onNewJourney, o
       const r = await api.journeyAdd({ companyId, accountId, journeyId: j.id });
       notice(`Added to ${r.journey}. Nothing is sent until the journey is running.`);
       await load();
+      onAdded?.();
     } catch (e) {
       notice(e.message || "It couldn't be added.");
     }

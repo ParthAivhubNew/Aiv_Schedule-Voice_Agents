@@ -15,7 +15,7 @@ export function noteProblem(text) {
 
 // Ctrl+Enter (Cmd+Enter on a Mac) adds the note.
 export function isAddShortcut(e) {
-  return e.key === "Enter" && (e.ctrlKey || e.metaKey);
+  return e.key === "Enter" && Boolean(e.ctrlKey || e.metaKey);
 }
 
 // The register name as the server keys it: lower case, single spaces.

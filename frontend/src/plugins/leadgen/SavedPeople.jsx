@@ -5,6 +5,7 @@ import { GridTools } from "../../components/GridTools";
 import { C, FONT_BODY } from "../../tokens";
 import { phoneFor } from "./AccountsViews";
 import { StageBadge } from "./LeadActivity";
+import { NotesButton } from "./Notes";
 
 // Saved records > People: every named person across the companies you saved, in one table. A person is the contact you saved or
 // imported on a company, plus the team members a research run found there. Nothing is invented: a person with no email shows a dash.
@@ -40,7 +41,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
         <Users size={28} color="#8B5CF6" aria-hidden="true" />
         <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No people yet</div>
         <div style={{ ...muted, maxWidth: 440 }}>A person appears here when a saved company has a contact name, from your import or from a company check that found the team. Open Companies to check and improve them.</div>
-        <button type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("saved_companies")}>Go to Companies</button>
+        <button type="button" className="ui-btn ui-btn--primary" title="Open your saved companies" onClick={() => onGo("saved_companies")}>Go to Companies</button>
       </div>
     );
   }
@@ -63,7 +64,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
             <tbody>
               {rows.slice(0, shown).map((p) => (
                 <tr key={p.id} style={{ cursor: "pointer" }} title={`Open ${p.account.name}`} onClick={() => onOpen(p.account)}>
-                  <td style={{ fontWeight: 600, color: C.ink }}>{p.name}</td>
+                  <td style={{ fontWeight: 600, color: C.ink }}>{p.name} <NotesButton companyId={p.account.id} person={p.name} name={p.name} /></td>
                   <td style={{ color: C.slate }}>{p.title || "-"}</td>
                   <td>{p.account.name}</td>
                   <td style={{ color: p.email ? C.ink : C.slate }}>{p.email || "-"}</td>

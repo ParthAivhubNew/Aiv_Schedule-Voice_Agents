@@ -22,9 +22,9 @@ import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { LeadActivity, StageBadge } from "./LeadActivity";
 import { FilterCards, buildFilterCards } from "./FilterCards";
-import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout.jsx";
+import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
-import { filledSummary } from "./profileLayout";
+import { filledSummary } from "./profileState";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the

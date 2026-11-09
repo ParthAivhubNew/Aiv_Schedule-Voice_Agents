@@ -12,6 +12,12 @@ import { PickOptions, SOCIAL } from "./PickOptions";
 import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Route, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personEmail, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
+import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
+import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
+
+// The register-led tabs, plus the team's notes. Research and editable details live on the saved company's panel, not here.
+const PAGE_TABS = [...TABS.filter(([k]) => k !== "activity"), ["notes", "Notes"], ...TABS.filter(([k]) => k === "activity")];
+const TAB_TIPS = { overview: "Why now, in plain words, and who to speak to", people: "Directors, officers and owners on the register", filings: "Filing dates and previous names", notes: "Notes your team wrote on this company", activity: "Emails, calls and tasks with this company" };
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
@@ -57,7 +63,6 @@ function FromYou({ mine }) {
       <Fact label="Phone">{mine.phone}</Fact>
       <Fact label="Email">{mine.email}</Fact>
       <Fact label="Your number">{mine.registration_number}</Fact>
-      <Fact label="Notes">{mine.notes}</Fact>
       {custom.map(([k, v]) => <Fact key={k} label={k}>{v}</Fact>)}
       {mine.check?.verdict ? <Fact label="Check">{mine.check.verdict.replace(/_/g, " ")}{mine.check.reasons?.[0] ? ` · ${mine.check.reasons[0]}` : ""}</Fact> : null}
       {flags.map((f) => <Fact key={f.code} label="Warning" warn>{f.text}</Fact>)}
@@ -127,11 +132,10 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
 export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, backLabel = "Back to results" }) {
   const [c, setC] = useState(null);
   const [err, setErr] = useState("");
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useProfileTab("company", PAGE_TABS.map(([k]) => k), "overview");
+  const notesApi = useNotes({ companyId: id });
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState({ text: "", error: false });
-  const [menu, setMenu] = useState(false);
-  const [journeys, setJourneys] = useState(null);
   const [found, setFound] = useState({});
   const [pick, setPick] = useState(null); // {kind, person, options}: a lookup that was not sure, waiting for the person to choose
   const [waiting, setWaiting] = useState({}); // kind -> the matches the person has not chosen from yet
@@ -141,12 +145,12 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const load = useCallback(async () => {
     try { const r = await api.companyProfile(id); setC(r.company); setErr(""); } catch (e) { setErr(e.message || "Couldn't open this company."); }
   }, [id]);
-  useEffect(() => { setC(null); setTab("overview"); setFound({}); setMsg({ text: "", error: false }); load(); }, [id, load]);
+  useEffect(() => { setC(null); setFound({}); setMsg({ text: "", error: false }); load(); }, [id, load]);
 
   if (!c) {
     return (
       <div style={{ display: "grid", gap: 12 }}>
-        <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
+        <button type="button" title={backLabel} style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
         {err ? <Note error>{err}</Note> : <div role="status" style={{ ...card, display: "flex", gap: 10, alignItems: "center" }}><Spinner size={16} /> Reading what we hold, and the register's people. This takes a few seconds the first time.</div>}
       </div>
     );
@@ -205,16 +209,6 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     } catch (e) { say(e.message || "Couldn't save it.", true); }
     setBusy("");
   };
-  const openMenu = async () => {
-    setMenu((m) => !m);
-    if (!journeys) { try { setJourneys((await api.journeys()).journeys || []); } catch (e) { setJourneys([]); } }
-  };
-  const addTo = async (j) => {
-    setMenu(false);
-    setBusy("journey");
-    try { const r = await api.companyAddToJourney(c.id, j.id); say(`Added to ${r.journey}. Nothing is sent until the journey is running.`); await load(); } catch (e) { say(e.message || "It couldn't be added.", true); }
-    setBusy("");
-  };
   const findEmail = async (o) => {
     setFound((m) => ({ ...m, [o.name]: { busy: true } }));
     try {
@@ -259,9 +253,9 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   return (
     <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
       {pickEl}
-      <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
+      <button type="button" title={backLabel} style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
 
-      <header style={{ ...card, display: "grid", gap: 12, padding: 16 }}>
+      <header style={{ ...card, display: "grid", gap: 12, padding: 16, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
           <CompanyAvatar c={{ id: c.id, name: c.name, website: c.contact.website.value }} size={52} />
           <div style={{ minWidth: 0, flex: "1 1 260px", display: "grid", gap: 4 }}>
@@ -272,25 +266,11 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             </div>
             <div style={small}>{subLine(c)}</div>
             {first ? <div style={small}>{first.text}</div> : null}
+            <LatestNote note={notesApi.notes[0]} onOpen={() => setTab("notes")} style={{ maxWidth: "100%" }} />
           </div>
-          <div style={{ ...row, justifyContent: "flex-end", flex: "1 1 260px" }}>
-            <div style={{ position: "relative" }}>
-              <button type="button" aria-expanded={menu} style={btn(true, busy === "journey")} disabled={busy === "journey"} onClick={openMenu}><Route size={14} /> Add to journey</button>
-              {menu ? (
-                <>
-                  <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 79 }} />
-                  <div className="ui-menu" role="menu" style={{ zIndex: 80, minWidth: 240, right: 0 }}>
-                    {journeys === null ? <div style={{ padding: 10 }}><Spinner size={14} /></div> : journeys.some((j) => j.status !== "completed") ? journeys.filter((j) => j.status !== "completed").map((j) => (
-                      <button key={j.id} type="button" role="menuitem" className="ui-menu-item" onClick={() => addTo(j)}>{j.name} <span style={small}>· {j.status}</span></button>
-                    )) : <div style={{ ...small, padding: 10 }}>{journeys.length ? "Every journey has finished." : "No journeys yet."} Make one on the Journeys page.</div>}
-                    <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); onGo("outreach"); }}><Plus size={14} /> New journey</button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-            {c.saved ? <span style={{ ...small, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} /> Saved{c.stage && c.stage !== "new" ? ` · ${c.stage.replace(/_/g, " ")}` : ""}</span>
-              : <button type="button" style={btn(false, busy === "save")} disabled={busy === "save"} onClick={save}><Plus size={14} /> Save</button>}
-            <button type="button" style={btn(false)} onClick={() => onAskAi?.(`Tell me about ${name}: why contact them now, and who to speak to.`)}><Bot size={14} /> Ask AI</button>
+          <div style={{ ...row, justifyContent: "flex-end", flex: "1 1 200px" }}>
+            {c.saved ? <span style={{ ...small, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} /> Saved{c.stage && c.stage !== "new" ? ` · ${c.stage.replace(/_/g, " ")}` : ""}</span> : null}
+            <button type="button" title="Ask the assistant why to contact this company now, and who to speak to" style={btn(false)} onClick={() => onAskAi?.(`Tell me about ${name}: why contact them now, and who to speak to.`)}><Bot size={14} /> Ask AI</button>
           </div>
         </div>
         <div style={{ ...row, gap: 10 }}>
@@ -310,7 +290,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                 {k.closed ? <button type="button" style={{ ...btn(true, busy === `open:${k.kind}`), padding: "3px 9px", minHeight: 28 }} disabled={busy === `open:${k.kind}`} title="We hold this. Open it once and it stays visible. Free." onClick={() => open(k.kind)}>
                   {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
                 {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
-                {k.canFind ? <button type="button" style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
+                {k.canFind ? <button type="button" title={waiting[k.kind] ? "Check the closest matches and choose the right one" : `Look for this company's ${k.kind}. Charged only if one is found`} style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
                   {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Nothing confirmed · search again" : <>Find · <LookupCost /></>}</button> : null}
               </div>
             );
@@ -321,7 +301,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             <div key={network} data-reach={network} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff" }}>
               <Link2 size={14} color={C.slate} aria-hidden="true" />
               {(c.links || {})[network] ? <a href={c.links[network]} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontSize: 13 }}>{label}</a>
-                : <button type="button" style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>
+                : <button type="button" title={waiting[network] ? "Check the closest matches and choose the right one" : `Look for this company's ${label}`} style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>
                   {li === network ? <Spinner size={12} /> : <Search size={12} />} {waiting[network] ? "Check matches" : `Find ${label}`}</button>}
             </div>
           ))}
@@ -339,7 +319,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             <Fact label="Size">{c.size}</Fact>
             <Fact label="Industry">{c.sic.length ? c.sic.map((s) => `${s.text} (${s.code})`).join("; ") : ""}</Fact>
             <Fact label="Address">{c.address ? (
-              <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
+              <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" title="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
           </Facts>
           {c.mine ? <FromYou mine={c.mine} /> : null}
           <ContactPoints id={c.id} stamp={`${c.phone || ""}|${c.email || ""}|${c.website || ""}|${JSON.stringify(c.links || {})}`} />
@@ -351,66 +331,79 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
               </>
             ) : <div style={small}>Not saved yet. Save it to keep notes, lists and a history.</div>}
             {c.journeys.length ? c.journeys.map((j) => (
-              <button key={j.id} type="button" style={{ all: "unset", cursor: "pointer", fontSize: 13, color: C.cobalt }} onClick={() => onOpenJourney?.(j.id)}>{j.name} <span style={small}>· {j.person_status === "active" ? `step ${j.step}` : j.person_status}</span></button>
+              <button key={j.id} type="button" title={`Open the journey ${j.name}`} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: C.cobalt }} onClick={() => onOpenJourney?.(j.id)}>{j.name} <span style={small}>· {j.person_status === "active" ? `step ${j.step}` : j.person_status}</span></button>
             )) : c.saved ? <div style={small}>Not in any journey.</div> : null}
           </Facts>
         </aside>
 
         <main style={{ flex: "3 1 440px", minWidth: 0, display: "grid", gap: 12 }}>
-          <div role="tablist" aria-label="Company sections" style={{ ...row, gap: 6 }}>
-            {TABS.map(([k, w]) => (
-              <button key={k} type="button" role="tab" aria-selected={tab === k} style={btn(tab === k)} onClick={() => setTab(k)}>{w}{k === "people" && peopleCount(c.people) ? <span style={{ opacity: 0.75 }}> {peopleCount(c.people)}</span> : null}</button>
-            ))}
-          </div>
+          <ProfileTabs idBase={`company-${c.id}`} label="Company sections" value={tab} onChange={setTab}
+            tabs={PAGE_TABS.map(([k, w]) => ({ id: k, label: w, tip: TAB_TIPS[k], count: k === "people" ? peopleCount(c.people) : k === "notes" ? notesApi.notes.length : 0 }))} />
 
-          {tab === "overview" ? (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ ...card, display: "grid", gap: 8, padding: 14 }}>
-                <strong style={{ fontSize: 14 }}>Why now</strong>
+          <TabPanel idBase={`company-${c.id}`} id="overview" value={tab} style={{ ...card, padding: "0 14px" }}>
+            <Collapsible id="company:whynow" defaultOpen title="Why now" summary={signals.length ? `${signals.length} ${signals.length === 1 ? "sign" : "signs"}` : "Nothing stands out"}>
+              <div style={{ display: "grid", gap: 8 }}>
                 {signals.length ? signals.map((s) => {
                   const t = TONE[SIGNAL_TONES[s.tone]] || TONE.blue;
                   return <div key={s.key} style={{ background: t.bg, color: t.ink, borderRadius: 8, padding: "8px 11px", fontSize: 13, lineHeight: 1.45 }}><strong>{s.label}.</strong> {s.detail}</div>;
                 }) : <div style={small}>Nothing stands out on the register right now.</div>}
               </div>
-              <div style={{ ...card, display: "grid", gap: 6, padding: 14 }}>
-                <strong style={{ fontSize: 14 }}>In plain words</strong>
+            </Collapsible>
+            <Collapsible id="company:plain" title="In plain words" summary={c.summary ? c.summary.slice(0, 80) : ""}>
+              <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{c.summary}</div>
                 {c.description ? <div style={{ fontSize: 13, lineHeight: 1.5, color: C.slate }}>{c.description}</div> : null}
                 <div style={small}>Written from what we hold. Nothing here is guessed.</div>
               </div>
-              {c.people.officers.length ? (
-                <div style={{ ...card, display: "grid", gap: 6, padding: 14 }}>
-                  <div style={{ ...row, justifyContent: "space-between" }}><strong style={{ fontSize: 14 }}>Who to speak to</strong><button type="button" style={btn(false)} onClick={() => setTab("people")}>See all</button></div>
-                  {c.people.officers.slice(0, 3).map((o) => <div key={o.name} style={{ fontSize: 13.5 }}>{o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role}{o.reason ? ` · ${o.reason}` : ""}</span></div>)}
+            </Collapsible>
+            {c.people.officers.length ? (
+              <Collapsible id="company:speak" title="Who to speak to" summary={`${c.people.officers.length} ${c.people.officers.length === 1 ? "person" : "people"} on the register`}
+                right={<button type="button" title="Show everyone on the register" style={btn(false)} onClick={() => setTab("people")}>See all</button>}>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {c.people.officers.slice(0, 3).map((o) => <div key={o.name} style={{ fontSize: 13.5 }}>{o.first_name} {o.last_name} <NotesButton companyId={c.id} person={o.name} name={`${o.first_name} ${o.last_name}`.trim()} /> <span style={{ color: C.slate }}>· {o.role}{o.reason ? ` · ${o.reason}` : ""}</span></div>)}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
+              </Collapsible>
+            ) : null}
+          </TabPanel>
 
-          {tab === "people" ? <People c={c} onFindEmail={findEmail} onOpenPerson={setPerson} found={found} onOverview={() => setTab("overview")} /> : null}
+          <TabPanel idBase={`company-${c.id}`} id="people" value={tab}>
+            <People c={c} onFindEmail={findEmail} onOpenPerson={setPerson} found={found} onOverview={() => setTab("overview")} />
+          </TabPanel>
 
-          {tab === "filings" ? (
-            <div style={{ display: "grid", gap: 12 }}>
-              <Facts title="From the register">
+          <TabPanel idBase={`company-${c.id}`} id="filings" value={tab} style={{ ...card, padding: "0 14px" }}>
+            <Collapsible id="company:register" defaultOpen title="From the register" summary={filingRows(c).length ? `${filingRows(c).length} dates` : "No filing dates"}>
+              <div style={{ display: "grid", gap: 8 }}>
                 {filingRows(c).length ? filingRows(c).map((r) => <Fact key={r.label} label={r.label} warn={r.warn}>{r.value}{r.note ? ` (${r.note})` : ""}</Fact>) : <div style={small}>No filing dates are stored for this company.</div>}
-              </Facts>
-              {c.previous_names.length ? <Facts title="Previous names">{c.previous_names.map((p) => <div key={p.name} style={{ fontSize: 13 }}>{niceName(p.name)}{p.until ? <span style={small}> · until {p.until}</span> : null}</div>)}</Facts> : null}
-              <div style={small}>Company figures such as turnover and profit are not shown yet.</div>
-            </div>
-          ) : null}
+              </div>
+            </Collapsible>
+            {c.previous_names.length ? (
+              <Collapsible id="company:names" title="Previous names" summary={`${c.previous_names.length}`}>
+                {c.previous_names.map((p) => <div key={p.name} style={{ fontSize: 13 }}>{niceName(p.name)}{p.until ? <span style={small}> · until {p.until}</span> : null}</div>)}
+              </Collapsible>
+            ) : null}
+            <div style={{ ...small, padding: "10px 0" }}>Company figures such as turnover and profit are not shown yet.</div>
+          </TabPanel>
 
-          {tab === "activity" ? (
-            <div style={{ ...card, padding: 0 }}>
+          <TabPanel idBase={`company-${c.id}`} id="notes" value={tab} style={{ ...card, padding: 14 }}>
+            <NotesTab notesApi={notesApi} />
+          </TabPanel>
+
+          <TabPanel idBase={`company-${c.id}`} id="activity" value={tab} style={{ ...card, padding: "0 14px" }}>
+            <Collapsible id="company:activity" defaultOpen title="Activity" summary={activityRows(c.activity).length ? `${activityRows(c.activity).length} events` : "Nothing yet"}>
               {activityRows(c.activity).length ? activityRows(c.activity).map((a, i) => (
-                <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 14px", borderTop: i ? `1px solid ${C.borderLight}` : "none" }}>
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 0", borderTop: i ? `1px solid ${C.borderLight}` : "none" }}>
                   <span style={{ ...small, width: 56, flexShrink: 0 }}>{a.when}</span>
                   <span style={{ fontSize: 13.5, minWidth: 0, overflowWrap: "anywhere" }}><strong>{KIND_WORDS[a.kind] || a.kind}</strong> · {a.summary}</span>
                 </div>
-              )) : <div style={{ ...small, padding: 14 }}>{c.saved ? "Nothing has happened yet. Add it to a journey to start." : "Save it, then every email, call and task shows here."}</div>}
-            </div>
-          ) : null}
+              )) : <div style={small}>{c.saved ? "Nothing has happened yet. Add it to a journey to start." : "Save it, then every email, call and task shows here."}</div>}
+            </Collapsible>
+          </TabPanel>
         </main>
       </div>
+      <BottomBar note={notesApi.notes[0]} onOpenNotes={() => setTab("notes")}
+        journey={<JourneyControl companyId={c.id} accountId={c.lead_id || ""} onOpenJourney={onOpenJourney} onNewJourney={onGo ? () => onGo("outreach") : undefined} onAdded={load} />}
+        actions={c.saved ? <span style={{ ...small, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} /> Saved</span>
+          : <button type="button" title="Save this company to your Unsorted list" style={btn(true, busy === "save")} disabled={busy === "save"} onClick={save}><Plus size={14} /> Save</button>} />
     </div>
   );
 }

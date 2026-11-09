@@ -15,7 +15,9 @@ import { askConfirm, askList, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
-import { CompaniesTable, CompanyAvatar, CountTiles, Drawer, Fact, FilterGroup, Pager, PeopleTable, ProfileBadge, SIZE_LABEL, SelectionBar, plainSector } from "./FindLeadsParts";
+import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar } from "./FindLeadsParts";
+import { CompanyDrawer } from "./CompanyDrawer";
+import { NotesButton, notesChanged } from "./Notes";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
@@ -202,7 +204,7 @@ function ContactsPanel({ company }) {
               return (
                 <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${C.borderLight}` }}>
                   <span style={{ ...text, fontSize: 13, flex: "1 1 200px", minWidth: 0 }}>
-                    {o.first_name} {o.last_name} <span style={{ color: C.slate }}>· {o.role || "Officer"}</span>
+                    {o.first_name} {o.last_name} <NotesButton companyId={company.id} person={o.name} name={`${o.first_name} ${o.last_name}`.trim() || o.name} /> <span style={{ color: C.slate }}>· {o.role || "Officer"}</span>
                     {personLine(o) ? <span style={{ ...muted, fontSize: 12, display: "block", marginTop: 1 }}>{personLine(o)}</span> : null}
                   </span>
                   {e.email ? <span style={{ ...text, fontSize: 12.5, color: C.green }}>{e.email} ({e.status})</span>
@@ -881,13 +883,17 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     onRemove: (c) => { removeCompany(c); sel.drop([c.id]); store.toast(`Hid ${c.name} from this search.`); },
     onCall: (c) => (canCall ? callOne(c) : call.open({ kind: "one", id: "", name: c.name }, true)),
     callLocked: !canCall,
-    // A note goes on the saved company (it is saved to Unsorted first if it isn't yet).
+    // A note goes in the company's shared notes list, with your name and the time. The company doesn't need saving first.
     onNote: async (c) => {
-      const note = await askText({ title: `Note on ${c.name}`, label: "Your note", multiline: true, confirm: "Save note", maxLength: 1000 });
-      if (!note) return;
-      const have = store.accounts.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
-      if (have) await store.update(have.id, { notes: [have.notes, note.trim()].filter(Boolean).join("\n") });
-      else await store.save([{ ...asAccount(c), notes: [asAccount(c).notes, note.trim()].filter(Boolean).join("\n") }]);
+      const note = await askText({ title: `Note on ${c.name}`, label: "Your note", multiline: true, confirm: "Add note", maxLength: 2000 });
+      if (!note || !note.trim()) return;
+      try {
+        await api.addLeadNoteEntry({ companyId: c.id, text: note.trim() });
+        notice("Note added.");
+        notesChanged();
+      } catch (e) {
+        notice(e.message || "The note wasn't added. Try again.");
+      }
     },
   };
 
@@ -1283,29 +1289,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       ) : null}
       </div>
       </div>
-      <Drawer open={Boolean(openCo)} onClose={() => setOpenCo(null)} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={openCo?.name || ""} sub={openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : ""}
+      <CompanyDrawer openCo={openCo} store={store} onClose={() => setOpenCo(null)}
+        saved={openCo ? store.accounts.find((a) => a.business_record_id && a.business_record_id === openCo.id) || null : null}
+        onOpenPage={openCo && onOpenCompany ? () => { const id = openCo.id; setOpenCo(null); onOpenCompany(id); } : null}
+        contacts={openCo ? <ContactsPanel key={openCo.id} company={openCo} /> : null}
+        saveAction={openCo ? (isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>
+          : <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Save this company to your Unsorted list" onClick={() => saveOne(openCo)}><Plus size={14} /> Save</button>) : null}
         actions={openCo ? (
           <>
             {onOpenCompany ? <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="The full page: why now, people and contact details" onClick={() => { const id = openCo.id; setOpenCo(null); onOpenCompany(id); }}>Open page</button> : null}
-            {isSaved(openCo) || openCo.saved ? <span style={{ ...text, fontSize: 13, color: C.green, display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14} /> Saved</span>
-              : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => saveOne(openCo)}><Plus size={14} /> Save</button>}
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => store.save([asAccount(openCo)], FAVOURITES)}><Star size={14} /> Favourite</button>
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Save this company to your Favourites list" onClick={() => store.save([asAccount(openCo)], FAVOURITES)}><Star size={14} /> Favourite</button>
             {openCo.phone ? <CallButton label="Save & call" lockedLabel="Call · add Voice" variant="ghost" title="Save it to your Unsorted list and have your AI caller phone them" onClick={() => (canCall ? callOne(openCo) : call.open({ kind: "one", id: "", name: openCo.name }, true))} onLocked={() => call.open({ kind: "one", id: "", name: openCo.name }, true)} /> : null}
           </>
-        ) : null}>
-        {openCo ? (
-          <>
-            <div style={{ padding: "10px 0" }}><ProfileBadge profile={openCo.profile} /></div>
-            <Fact label="Registered no.">{openCo.registration_number}</Fact>
-            <Fact label="Status">{openCo.status}</Fact>
-            <Fact label="Type">{openCo.company_category}</Fact>
-            <Fact label="Incorporated">{openCo.incorporation_date}</Fact>
-            <Fact label="Size (accounts)">{openCo.size_band && openCo.size_band !== "unknown" ? SIZE_LABEL[openCo.size_band] || openCo.size_band : ""}</Fact>
-            <Fact label="Address">{openCo.address}</Fact>
-            <ContactsPanel key={openCo.id} company={openCo} />
-          </>
-        ) : null}
-      </Drawer>
+        ) : null} />
 
 
       </>
