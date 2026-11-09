@@ -408,6 +408,12 @@ export function phoneFor(a) {
   const found = (r.phones || [])[0] || (r.team || []).map((t) => t.phone).find(Boolean) || (r.other_offices || []).map((o) => o.phone).find(Boolean);
   return found ? { text: found, fromResearch: true } : null;
 }
+// The companies with the most details filled in (from the file, from research and from our register) come first, so the ones worth working are on top.
+// A company with an email or a phone beats one without at the same level, and the rest keep their order.
+export function completeFirst(rows) {
+  const score = (a) => (a.completeness?.pct || 0) * 10 + (emailFor(a)?.text ? 2 : 0) + (phoneFor(a)?.text ? 1 : 0);
+  return rows.map((a, i) => [a, i]).sort((x, y) => score(y[0]) - score(x[0]) || x[1] - y[1]).map(([a]) => a);
+}
 // Was this field empty before we looked, and filled in by us?
 export const isNew = (a, field) => Boolean(a.found?.filled?.some((f) => f.field === field));
 export const foundCount = (a) => a.found?.new_count || 0;
@@ -744,9 +750,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     .map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]);
   const chips = [...ACCOUNT_CHIPS.map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]), ...historyChips, ...verdictChips];
   const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
-  const shown = base
+  const shown = completeFirst(base
     .filter(scopePred)
-    .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
+    .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q))));
   const shownIds = shown.map((a) => a.id);
   const lastPage = Math.max(0, Math.ceil(shown.length / pageSize) - 1);
   const page = Math.min(pageNo, lastPage);
@@ -772,6 +778,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const pickedWord = sel.everything && pickedIds.length === shownIds.length ? `All ${pickedIds.length.toLocaleString()} selected` : `${pickedIds.length.toLocaleString()} selected`;
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
+  const fullCount = base.filter((a) => (a.completeness?.pct || 0) >= 71).length; // 5 of 7 key details
   const stats = [
     ["Companies", base.length, "How many companies are in this list"],
     ["Ready to email", base.filter((a) => readiness(a) === "ready").length, "Companies with an email that passed the checks"],
@@ -815,6 +822,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ ...muted, fontSize: 12.5 }} title="Each company is scored on website, phone, email, address, industry, people and size. What our register holds counts.">
+        Most complete companies first. {fullCount.toLocaleString()} of {base.length.toLocaleString()} have at least 5 of the 7 key details; {base.filter((a) => (a.completeness?.pct || 0) === 100).length.toLocaleString()} have all 7.
+      </div>
       <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
         {stats.map(([label, n, tip]) => (
           <div key={label} className="ui-card" title={tip} style={{ padding: "12px 16px" }}>
