@@ -6,6 +6,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
 import { useLookupPrice } from "./CreditsChip";
+import { NotesButton } from "./Notes";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -286,6 +287,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           {c.name}
+                          <NotesButton companyId={c.id} name={c.name} />
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
@@ -340,6 +342,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar name={name} />
                     <div style={{ fontWeight: 600, color: C.ink }}>{name}</div>
+                    <NotesButton companyId={c.id} person={p.name || name} name={name} />
                   </div>
                 </Cell>
                 <Cell style={{ whiteSpace: "nowrap" }}>{p.role || "Officer"}</Cell>
@@ -369,9 +372,9 @@ export function Pager({ page, size, total, capped, shown, onPage, busy, unit }) 
   const to = (page - 1) * size + shown;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: `1px solid ${C.border}`, flexWrap: "wrap" }}>
-      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Previous page" disabled={busy || page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Previous page" title="Previous page" disabled={busy || page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>
       <span style={{ ...text, fontSize: 13, color: C.textInk }}>{page} of {pages.toLocaleString()}</span>
-      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Next page" disabled={busy || page >= pages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Next page" title="Next page" disabled={busy || page >= pages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button>
       <span style={{ ...muted, fontSize: 12.5, marginLeft: "auto" }}>{total > PAGEABLE ? "First 10,000 can be paged. Add filters to narrow. " : ""}{unit ? `${unit} ` : ""}{from.toLocaleString()} to {to.toLocaleString()} of {total.toLocaleString()}{capped ? "+" : ""}</span>
     </div>
   );
@@ -390,7 +393,7 @@ export function SelectionBar({ count, label, onClear, children }) {
 }
 
 // The profile of one company, sliding in from the right.
-export function Drawer({ open, title, sub, onClose, actions, avatar, children }) {
+export function Drawer({ open, title, sub, onClose, actions, avatar, children, footer }) {
   const ref = useRef(null);
   // The parent passes a new onClose on every render, and it re-renders on a timer. Depending on it here re-ran this effect and
   // pulled focus back to the drawer in the middle of typing, so the text box stopped taking input. Read it through a ref instead.
@@ -413,12 +416,13 @@ export function Drawer({ open, title, sub, onClose, actions, avatar, children })
           {avatar || <Avatar name={title} size={40} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...text, fontSize: 16, fontWeight: 700, color: C.ink, overflowWrap: "anywhere" }}>{title}</div>
-            {sub ? <div style={{ ...muted, fontSize: 12.5 }}>{sub}</div> : null}
+            {sub ? <div style={{ ...muted, fontSize: 12.5, minWidth: 0 }}>{sub}</div> : null}
           </div>
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close profile" onClick={onClose}><X size={16} /></button>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close profile" title="Close the profile" onClick={onClose}><X size={16} /></button>
         </div>
         {actions ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "10px 16px", borderBottom: `1px solid ${C.borderLight}` }}>{actions}</div> : null}
-        <div className="ui-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 16px 20px" }}>{children}</div>
+        <div className="ui-scroll" style={{ flex: 1, overflowY: "auto", padding: footer ? "0 16px 20px" : "4px 16px 20px" }}>{children}</div>
+        {footer}
       </aside>
     </>
   );
