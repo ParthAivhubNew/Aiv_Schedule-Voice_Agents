@@ -1384,6 +1384,7 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
         biz_rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(biz_ids)))).scalars().all()
         registry_by_id = {b.id: b for b in biz_rows}
     seen = await RV.opened(db, registry_by_id.keys())
+    seen = await RV.open_for_saved(db, registry_by_id.values(), seen)  # saved to a list: what the register holds is shown, not hidden
     return {"accounts": [_out(a, registry_by_id.get(a.business_record_id), seen) for a in rows]}
 
 
@@ -1392,6 +1393,7 @@ async def _outs(db: AsyncSession, rows: List[LeadAccount]) -> List[Dict[str, Any
     ids = {r.business_record_id for r in rows if r.business_record_id}
     biz = {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(ids)))).scalars().all()} if ids else {}
     seen = await RV.opened(db, biz.keys())
+    seen = await RV.open_for_saved(db, biz.values(), seen)
     return [_out(r, biz.get(r.business_record_id), seen) for r in rows]
 
 
@@ -1516,7 +1518,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     claimed_rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(claimed)))).scalars().all() if claimed else []
     known_biz = {b.id for b in claimed_rows}
     # A company taken from the register starts with what the record holds (contacts masked as on the search pages), not a blank form.
-    claimed_seen = await RV.opened(db, known_biz)
+    claimed_seen = await RV.open_for_saved(db, claimed_rows, await RV.opened(db, known_biz))  # saving it opens what the register holds, free
     held_by_biz = {b.id: record_values(b, claimed_seen) for b in claimed_rows}
     quarantined: List[Dict[str, Any]] = []  # imported rows that failed a hard check: not saved, listed with the reason
     warned = 0

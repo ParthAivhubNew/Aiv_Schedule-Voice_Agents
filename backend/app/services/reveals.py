@@ -57,3 +57,22 @@ async def open_one(db: AsyncSession, business_id: str, kind: str) -> None:
     if not have:
         db.add(ContactReveal(business_id=business_id, kind=kind))
         await db.commit()
+
+
+async def open_for_saved(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
+    """A company this organisation has saved to a list shows what the register holds for it: its website, phone and email are opened
+    (free, once, as a click would). Returns the opened set including these."""
+    from app.services import lead_filters
+
+    fresh = []
+    for biz in businesses:
+        card = lead_filters.card(biz)
+        for kind in KINDS:
+            if card.get(kind) and (biz.id, kind) not in seen:
+                fresh.append((biz.id, kind))
+    if not fresh:
+        return seen
+    for business_id, kind in fresh:
+        db.add(ContactReveal(business_id=business_id, kind=kind))
+    await db.commit()
+    return seen | set(fresh)

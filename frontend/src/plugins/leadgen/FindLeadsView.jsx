@@ -11,7 +11,7 @@ import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
 import { TableSkeleton, TopBar } from "../../app/Loader";
-import { askConfirm, askText } from "./Dialogs";
+import { askConfirm, askList, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
@@ -877,7 +877,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const mapActions = {
     onSave: saveOne,
     onFavourite: (c) => store.save([asAccount(c)], FAVOURITES),
-    onAddToList: async (c) => { const name = await askText({ title: `Add ${c.name} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) store.save([asAccount(c)], name); },
+    onAddToList: async (c) => { const name = await askList({ title: `Add ${c.name} to a list`, confirm: "Add" }); if (name) store.save([asAccount(c)], name); },
     onRemove: (c) => { removeCompany(c); sel.drop([c.id]); store.toast(`Hid ${c.name} from this search.`); },
     onCall: (c) => (canCall ? callOne(c) : call.open({ kind: "one", id: "", name: c.name }, true)),
     callLocked: !canCall,
@@ -1262,7 +1262,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             <>
               <SelectionBar count={sel.count} label={selectedWord} onClear={sel.clear}>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => bulkSave("Unsorted")}><Plus size={14} /> Save {sel.count.toLocaleString()}</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askText({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, label: "List name. Type a new name to start a new list.", initial: "Unsorted", confirm: "Add", maxLength: 80 }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askList({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, confirm: "Add" }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => bulkSave(FAVOURITES)}><Star size={14} /> Favourite</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
