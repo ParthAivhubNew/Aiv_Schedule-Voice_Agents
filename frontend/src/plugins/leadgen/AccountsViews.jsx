@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
+import { writeEmail } from "../../utils/writeEmail";
 import { pagePicked, useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
@@ -7,7 +8,7 @@ import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { openPhone } from "../../utils/humanCall";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, Mail, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -933,6 +934,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     {emailFor(a) ? (
                       <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{emailFor(a).text}</span>
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: "none" }} title="Write an email to this address" aria-label={`Write an email to ${a.name}`}
+                          onClick={(e) => { e.stopPropagation(); writeEmail(emailFor(a).text); }}><Mail size={13} /></button>
                         {emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5, flex: "none" }}>&nbsp;· from research</span> : null}
                         {isNew(a, "email") ? <span style={{ flex: "none" }}><NewTag /></span> : null}
                       </div>
@@ -974,9 +977,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
-                      <CallButton label="Call" lockedLabel="Call" variant="ghost" disabled={!a.connection?.can_call}
-                        title={a.connection?.can_call ? "Have your AI caller phone them" : ({ no_phone: "No phone number yet", failed_check: "The number failed the check", do_not_contact: "On your do-not-contact list" }[a.connection?.blocked_reason] || "Can't be called")}
-                        onClick={() => call.open({ kind: "one", id: a.id, name: a.name })} onLocked={() => call.open({ kind: "one", id: a.id, name: a.name }, true)} />
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>
                         {store.researching[a.id] ? <><Spinner size={13} /> Working…</> : "Open"}
                       </button>

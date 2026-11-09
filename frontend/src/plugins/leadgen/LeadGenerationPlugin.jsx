@@ -1,5 +1,6 @@
 import { cloneElement, useCallback, useState, useEffect, useRef, useMemo } from "react";
 import { NOTICE_EVENT } from "../../utils/notice";
+import { WRITE_EMAIL_EVENT } from "../../utils/writeEmail";
 import { api } from "../../api/apiClient";
 import { takePendingDraft } from "../../utils/draftHandoff";
 import {
@@ -225,6 +226,21 @@ export default function LeadGenerationPlugin({
     }
   });
 
+  // A new message to one address, asked for from anywhere (the email shortcut on a list row): Mail opens with it filled in.
+  const [mailTo, setMailTo] = useState("");
+  useEffect(() => {
+    const onWrite = (e) => {
+      const to = String(e.detail || "");
+      if (!to) return;
+      if (embedViews && !embedViews.includes("mail")) { window.location.href = `mailto:${to}`; return; }
+      setInboxStart(null);
+      setMailTo(to);
+      setView("mail");
+    };
+    window.addEventListener(WRITE_EMAIL_EVENT, onWrite);
+    return () => window.removeEventListener(WRITE_EMAIL_EVENT, onWrite);
+  }, [embedViews]);
+
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = onlyEmbedViews([
     { id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, group: "Outreach", embedIds: ["assistant"] },
@@ -383,7 +399,7 @@ export default function LeadGenerationPlugin({
             : <JourneysView outreach={outreach} listsStore={listsStore} onGo={goTo} onAskAssistant={() => setAssistantOpen(true)} onGuided={() => setWizard({ listId: "" })}
                 initialId={journeyId} initialListId={journeyList} onConsumed={() => setJourneyList("")} />)}
 
-          {view === "mail" && <MailView operator={operator} outreach={outreach} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
+          {view === "mail" && <MailView operator={operator} outreach={outreach} composeTo={mailTo} onComposeUsed={() => setMailTo("")} start={inboxStart} key={inboxStart ? `${inboxStart.sub}${inboxStart.mailboxId || ""}` : "mail"} />}
 
           {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("mail"); }} />}
           {view === "inbound_forms" && <InboundFormsView toast={showToast} onOpenLead={async (id) => { await Promise.all([store.reload(), listsStore.reload()]); setWantedLead(id); setView("saved_companies"); }} />}

@@ -216,7 +216,7 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
 }
 
 // ── The screen ──────────────────────────────────────────────────────────────
-export function MailView({ operator, outreach, start }) {
+export function MailView({ operator, outreach, start, composeTo = "", onComposeUsed }) {
   const [boxes, setBoxes] = useState(null);
   const [counts, setCounts] = useState({});
   const [folder, setFolder] = useState(start?.sub === "sent" ? "c_sent" : start?.sub === "suppression" ? "c_dnc" : start?.sub === "replies" ? "c_replies" : "inbox");
@@ -236,6 +236,14 @@ export function MailView({ operator, outreach, start }) {
   const [syncing, setSyncing] = useState(false);
   const [pane, setPane] = useState("list");
   const alive = useRef(true);
+  // A new message asked for from another screen: opened once the mailboxes are known, with the address filled in.
+  useEffect(() => {
+    if (!composeTo || boxes === null) return;
+    onComposeUsed?.();
+    if (!boxes.length) { window.location.href = `mailto:${composeTo}`; return; }
+    setCompose({ mailbox_id: boxId || boxes[0].id, to: composeTo });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeTo, boxes]);
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const t = setTimeout(() => setQuery(q.trim()), 300); return () => clearTimeout(t); }, [q]);
