@@ -387,6 +387,13 @@ export const api = {
   geocodeCompanies: (ids) => apiRequest('/leads/geocode', { method: 'POST', body: { ids }, timeoutMs: 40000 }),
   companyProfile: (id) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/profile`, { timeoutMs: 120000 }),
   companyAddToJourney: (id, journeyId) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/add-to-journey`, { method: 'POST', body: { journey_id: journeyId } }),
+  // Notes on a company or a person at it. companyId is a company store id, accountId a saved company's id; either or both.
+  leadNotes: ({ companyId = '', accountId = '' }) => apiRequest(`/leads/notes?company_id=${encodeURIComponent(companyId)}&account_id=${encodeURIComponent(accountId)}`),
+  addLeadNoteEntry: ({ companyId = '', accountId = '', person = '', text }) => apiRequest('/leads/notes', { method: 'POST', body: { company_id: companyId, account_id: accountId, person, text } }),
+  deleteLeadNote: (id) => apiRequest(`/leads/notes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  leadNoteCounts: (companyIds, personKeys) => apiRequest('/leads/notes/counts', { method: 'POST', body: { company_ids: companyIds, person_keys: personKeys } }),
+  companyJourneys: ({ companyId = '', accountId = '' }) => apiRequest(`/leads/company-journeys?company_id=${encodeURIComponent(companyId)}&account_id=${encodeURIComponent(accountId)}`),
+  journeyAdd: ({ companyId = '', accountId = '', journeyId }) => apiRequest('/leads/journey-add', { method: 'POST', body: { company_id: companyId, account_id: accountId, journey_id: journeyId } }),
   companyContacts: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/contacts`, { method: 'POST', body, timeoutMs: 120000 }),
   // body: { name (as the register gives it), first_name, last_name }. Kept for the organisation; a repeat for the same person is free.
   findPersonEmail: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/person-email`, { method: 'POST', body, timeoutMs: 90000 }),

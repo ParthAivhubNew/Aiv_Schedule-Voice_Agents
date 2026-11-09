@@ -164,7 +164,10 @@ def summary(notes: List[Dict[str, Any]]) -> Dict[str, Any]:
     """What a table needs for one row: how many notes and the newest one."""
     ordered = newest_first(notes)
     top = ordered[0] if ordered else None
-    return {"count": len(ordered), "latest": {"text": top["text"][:200], "author_name": top["author_name"], "created_at": top["created_at"], "earlier": top["earlier"]} if top else None}
+    if not top:
+        return {"count": 0, "latest": None}
+    return {"count": len(ordered), "latest": {"text": str(top.get("text") or "")[:200], "author_name": top.get("author_name") or "",
+                                              "created_at": top.get("created_at"), "earlier": bool(top.get("earlier"))}}
 
 
 async def counts(db: AsyncSession, company_ids: List[str], person_refs: List[str]) -> Dict[str, Any]:
