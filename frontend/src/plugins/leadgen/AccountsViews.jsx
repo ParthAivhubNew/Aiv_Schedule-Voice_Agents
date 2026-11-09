@@ -393,8 +393,12 @@ function NewTag() {
   return <span title="We found this: it was empty before" style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "#15803D", background: "#DCFCE7", borderRadius: 4, padding: "1px 5px" }}>NEW</span>;
 }
 
-function Empty({ a }) {
-  return <span style={{ color: C.slateLight }}>{wasLookedUp(a) ? "Not found" : "Not checked yet"}</span>;
+// A cell with nothing to show leaves the value empty: whether we have looked is told by a hover note and the Check column, never in place of the data.
+function Empty({ a, field }) {
+  if (field && (a.on_file || []).includes(field)) {
+    return <span title="Our records hold this. Open the company to see it." style={{ ...text, fontSize: 11.5, fontWeight: 600, color: "#1D4ED8", background: "#DBEAFE", borderRadius: 4, padding: "1px 6px" }}>On file</span>;
+  }
+  return <span title={wasLookedUp(a) ? "We looked and found nothing." : "Nothing here yet. Use Check & improve to look for it."} style={{ color: C.slateLight }}>—</span>;
 }
 
 // A number saved on the company first, then what research found, so a researched company never looks empty.
@@ -912,7 +916,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                           {phoneFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}
                           {isNew(a, "phone") ? <NewTag /> : null}
                         </>
-                      ) : <Empty a={a} />}
+                      ) : <Empty a={a} field="phone" />}
                     </td>
                   ) : null}
                   {showing("email") ? <td style={{ maxWidth: 240, whiteSpace: "nowrap" }} title={emailFor(a)?.text || ""}>
@@ -922,12 +926,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                         {emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5, flex: "none" }}>&nbsp;· from research</span> : null}
                         {isNew(a, "email") ? <span style={{ flex: "none" }}><NewTag /></span> : null}
                       </div>
-                    ) : <Empty a={a} />}</td> : null}
+                    ) : <Empty a={a} field="email" />}</td> : null}
                   {showing("contact") ? (
                     <td>
                       {contactFor(a)
                         ? <>{contactFor(a).text}{contactFor(a).title ? <span style={{ color: C.slate }}> · {contactFor(a).title}</span> : null}
                           {contactFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}</>
+                        : a.registry_contact ? <>{a.registry_contact.name}{a.registry_contact.role ? <span style={{ color: C.slate }}> · {a.registry_contact.role}</span> : null}<span style={{ color: C.slateLight, fontSize: 11.5 }}> · from the register</span></>
                         : <Empty a={a} />}
                     </td>
                   ) : null}

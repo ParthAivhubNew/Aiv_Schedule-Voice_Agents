@@ -216,6 +216,31 @@ def _completeness_of(a: LeadAccount, shown: Dict[str, str], biz: Optional[Busine
                          "address": shown.get("address") or shown.get("postcode"), "people": people, "size": size})
 
 
+def _on_file(biz: Optional[BusinessRecord], held: Dict[str, str], own: Dict[str, str]) -> List[str]:
+    """Website, phone or email the register holds for this company that is not shown yet because this organisation has not opened it.
+    The list says "On file" for these instead of looking empty; opening the company shows the value."""
+    if not biz:
+        return []
+    from app.services import lead_filters
+
+    full = held_values(lead_filters.card(biz))
+    return [k for k in ("website", "phone", "email") if full.get(k) and not own.get(k) and not held.get(k)]
+
+
+def _registry_contact(biz: Optional[BusinessRecord]) -> Optional[Dict[str, str]]:
+    """The first current director or officer the register lists: public register facts, shown as the contact until someone is saved."""
+    if not biz or not biz.officers:
+        return None
+    from app.services import company_contacts as CC
+
+    first = next(iter(CC.active_officers(biz.officers)), None)
+    if not first:
+        return None
+    joined = " ".join(x for x in (first.get("first_name"), first.get("last_name")) if x)
+    name = normalise.person_name(joined or first.get("name") or "")
+    return {"name": name, "role": str(first.get("role") or "")} if name else None
+
+
 def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[set] = None) -> Dict[str, Any]:
     """One saved company as the screens show it. Blank fields are read through the link to its register record (masked for
     this organisation), so what we hold shows from the start and later finds on the record show too. `from_record` names them."""
@@ -225,9 +250,10 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
     own = {"website": a.website or "", "phone": _phone(a.phone), "email": a.email or "", "industry": a.industry or "",
            "region": a.region or "", "postcode": a.postcode or "", "address": a.address or "", "registration_number": a.registration_number or ""}
     from_record = [k for k, v in own.items() if not v and held.get(k)]
+    on_file = _on_file(biz, held, own)
     shown = {k: (v or (_phone(held[k]) if k == "phone" and held.get(k) else held.get(k, ""))) for k, v in own.items()}
     return {"found": _found(a), "connection": connection_fields(a),
-        "from_record": from_record, "completeness": _completeness_of(a, shown, biz),
+        "from_record": from_record, "on_file": on_file, "registry_contact": _registry_contact(biz), "completeness": _completeness_of(a, shown, biz),
         "id": a.id, "name": a.name, "domain": a.domain or _domain(shown["website"]), "website": shown["website"], "phone": shown["phone"],
         "email": shown["email"], "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": shown["industry"], "region": shown["region"], "notes": a.notes or "", "source": a.source or "manual",
