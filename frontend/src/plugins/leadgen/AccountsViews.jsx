@@ -21,6 +21,7 @@ import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LO
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { LeadActivity, StageBadge } from "./LeadActivity";
+import { FilterCards, buildFilterCards } from "./FilterCards";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -740,16 +741,16 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const verdictChips = VERDICT_ORDER
     .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
     .filter(([, , pred]) => base.some(pred))
-    .map(([id, label, pred]) => [id, `${label} ${base.filter(pred).length}`, pred, VERDICT_TIPS[id.slice(2)]]);
+    .map(([id, label, pred]) => [id, label, pred, VERDICT_TIPS[id.slice(2)]]);
   const historyChips = [
     ["h_never", "Never called", (a) => extra[a.id]?.history === "never", "No call has been made to this company"],
     ["h_no_answer", "Called, no answer", (a) => extra[a.id]?.history === "no_answer", "Called, but nobody picked up or it went to voicemail"],
     ["h_interested", "Interested", (a) => extra[a.id]?.history === "interested", "Spoke with them and they showed interest"],
     ["h_recent", "Contacted recently", (a) => extra[a.id]?.history === "recent", "Called within your re-contact gap"],
     ["h_warm", "Warm", (a) => Boolean(extra[a.id]?.warm), "Opened your emails or engaged with your posts"],
-  ].filter(([id, , pred]) => id === "h_never" || base.some(pred))
-    .map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]);
-  const chips = [...ACCOUNT_CHIPS.map(([id, label, pred, tip]) => [id, `${label} ${base.filter(pred).length}`, pred, tip]), ...historyChips, ...verdictChips];
+  ].filter(([id, , pred]) => id === "h_never" || base.some(pred));
+  const chips = [...ACCOUNT_CHIPS, ...historyChips, ...verdictChips];
+  const filterCards = buildFilterCards(base, chips);
   const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
   const shown = completeFirst(base
     .filter(scopePred)
@@ -780,12 +781,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
   const fullCount = base.filter((a) => (a.completeness?.pct || 0) >= 71).length; // 5 of 7 key details
-  const stats = [
-    ["Companies", base.length, "How many companies are in this list"],
-    ["Ready to email", base.filter((a) => readiness(a) === "ready").length, "Companies with an email that passed the checks"],
-    ["Fixes to review", fixIds.length, "Companies where we found a better value than the one you had"],
-    ["Needs attention", base.filter((a) => readiness(a) === "attention").length, "Closed companies, or emails that can't receive mail"],
-  ];
   // Takes companies out of the list being looked at (one or many). They stay in your account and in any other list.
   const removeFromList = async (ids) => {
     if (!(await askConfirm({ title: `Remove ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from this list?`, body: `${ids.length === 1 ? "It stays" : "They stay"} in your account and in your other lists.`, confirm: "Remove", danger: true }))) return;
@@ -826,24 +821,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       <div style={{ ...muted, fontSize: 12.5 }} title="Each company is scored on website, phone, email, address, industry, people and size. What our register holds counts.">
         Most complete companies first. {fullCount.toLocaleString()} of {base.length.toLocaleString()} have at least 5 of the 7 key details; {base.filter((a) => (a.completeness?.pct || 0) === 100).length.toLocaleString()} have all 7.
       </div>
-      <div className="grid-2-narrow" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
-        {stats.map(([label, n, tip]) => (
-          <div key={label} className="ui-card" title={tip} style={{ padding: "12px 16px" }}>
-            <div style={{ ...muted, fontSize: 12.5 }}>{label}</div>
-            <div style={{ ...text, fontSize: 22, fontWeight: 600, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{n}</div>
-          </div>
-        ))}
-      </div>
+      <FilterCards cards={filterCards} active={scope} onPick={setScope} />
       <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => setScope(`v_${k}`)}
         onRecheck={() => setChecking({ ids: base.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {chips.map(([id, label, , tip]) => (
-          <button key={id} type="button" onClick={() => setScope(id)} title={tip}
-            className={`ui-btn ui-btn--sm ${scope === id ? "ui-btn--primary" : "ui-btn--ghost"}`}>
-            {label}
-          </button>
-        ))}
-      </div>
+
       <div className="ui-card" style={{ overflow: "hidden" }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />

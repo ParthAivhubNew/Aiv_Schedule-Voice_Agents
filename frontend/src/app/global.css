@@ -1267,9 +1267,9 @@ button, input, select, textarea {
 .gt-pin:hover { background: var(--ui-line); color: var(--ui-ink); }
 .gt-pin[aria-pressed="true"] { color: var(--ui-accent); font-weight: 600; }
 .gt-menu-foot { display: flex; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--ui-line); }
-/* The copy button on a cut-off cell: it sits over the cell's right edge while the pointer is on the cell. */
+/* The copy button on a cut-off cell: it sits on the row's top line at the cell's right edge, in the row padding, so it covers no text or button. */
 .gt-copy {
-  position: fixed; z-index: 1200; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;
+  position: fixed; z-index: 1200; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 18px; padding: 0;
   border: 1px solid var(--ui-line); border-radius: 6px; background: var(--ui-surface, #fff); color: var(--ui-ink-2); cursor: pointer;
   box-shadow: 0 2px 6px rgba(16, 24, 40, 0.12);
 }

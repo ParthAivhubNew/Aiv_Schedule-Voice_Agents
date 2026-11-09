@@ -2350,6 +2350,24 @@ class PersonEmail(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LeadNote(Base):
+    """One note on a company or on a person at a company, shared with everyone in the organisation, with who wrote it and when.
+    A company's notes are kept against its company store record when the saved company is linked to one, else against the saved
+    company itself; both are read, so a note added on a search result and on the saved company land in the same list."""
+    __tablename__ = "lead_notes"
+
+    id = Column(String, primary_key=True, default=lambda: f"ln_{uuid.uuid4().hex[:14]}")
+    org_id = Column(String, index=True, server_default=FetchedValue())
+    target_kind = Column(String, nullable=False, default="company")  # company | person
+    business_record_id = Column(String, index=True, nullable=True)
+    lead_account_id = Column(String, index=True, nullable=True)
+    person_key = Column(String, default="")  # the register name, lower-cased with single spaces; blank for a company note
+    text = Column(Text, nullable=False)
+    author_user_id = Column(String, default="")
+    author_name = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ContactChoice(Base):
     """What users picked as the right answer when a lookup was not sure. Public facts about a company, so it is shared across organisations
     (like the company store): a value that enough different organisations picked is trusted for the next person. Holds only organisation ids."""

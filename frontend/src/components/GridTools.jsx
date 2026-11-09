@@ -318,10 +318,8 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS })
       keepPeek();
       peekCell.current = td;
       const r = td.getBoundingClientRect();
-      const control = [...td.querySelectorAll("button, a")].map((n) => n.getBoundingClientRect()).filter((b) => b.width && b.left > r.left).sort((a, b) => a.left - b.left)[0];
-      const edge = control ? Math.min(r.right, control.left) : r.right; // never over a button or link the cell already has (the call or write-email shortcut)
       setCopied(false);
-      setPeek({ x: Math.max(4, edge - 30), y: r.top + r.height / 2 - 12, label: labelsRef.current[indexOf(td)] || "", text });
+      setPeek({ x: Math.max(4, r.right - 30), y: r.top - 9, label: labelsRef.current[indexOf(td)] || "", text });
     };
     const onOut = (e) => {
       const to = e.relatedTarget;
@@ -492,7 +490,7 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS })
       {peek ? (
         <button type="button" className="gt-copy" style={{ left: peek.x, top: peek.y }} onMouseEnter={keepPeek} onMouseLeave={dropPeek} onClick={copy}
           title={copied ? "Copied" : `Copy: ${peek.text}`} aria-label={copied ? "Copied" : `Copy the full ${peek.label || "cell"} text`}>
-          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>
       ) : null}
     </div>
