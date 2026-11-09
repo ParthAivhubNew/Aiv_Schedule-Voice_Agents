@@ -26,7 +26,7 @@ from app.services import contact_points as CP
 from app.services import reveals as RV
 from app.services import social_lookup as SL
 from app.services.person_record import is_person_account, is_role_inbox
-from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, search_deeper, search_google_places
+from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, looks_like_person_name, search_deeper, search_google_places
 
 logger = logging.getLogger("lead_accounts")
 
@@ -308,6 +308,9 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     relaxed_note = lead_filters.closest_note(relaxed) if relaxed else ""
     if relaxed_note:
         chips.append(relaxed_note)
+    few_sites = lead_filters.website_note(out["filters"], int(out.get("total") or 0))
+    if few_sites:
+        chips.append(few_sites)
     if body.area:
         await db.commit()  # keeps the postcode points just looked up, so the next search is instant
         chips.append("Inside the area drawn on the map")
@@ -1590,7 +1593,7 @@ async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[B
         if shared.shared_research and not row.research:
             row.research = shared.shared_research
             row.researched_at = row.updated_at = shared.updated_at or datetime.utcnow()
-            team = shared.shared_research.get("team") or []
+            team = [t for t in shared.shared_research.get("team") or [] if isinstance(t, dict) and looks_like_person_name(t.get("name"))]
             if team and not row.contact_name:
                 row.contact_name = team[0].get("name") or row.contact_name
                 row.contact_title = row.contact_title or team[0].get("title") or ""
@@ -1720,7 +1723,7 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     # link between them, which is what made the old phones/emails lists unusable for "whose is whose."
     team = [{"name": _clean(t.get("name"), 120), "title": _clean(t.get("title"), 120),
              "phone": _clean(t.get("phone"), 60), "email": _clean(t.get("email"), 200).lower()}
-            for t in (data.get("team") or []) if t.get("name")][:10]
+            for t in (data.get("team") or []) if looks_like_person_name(t.get("name"))][:10]
     found = bool(data.get("phones") or data.get("emails") or data.get("otherOffices") or people or team or data.get("socials")
                  or (data.get("overview") and data.get("overview") != "No detailed summary found."))
     overview = data.get("overview") or ""

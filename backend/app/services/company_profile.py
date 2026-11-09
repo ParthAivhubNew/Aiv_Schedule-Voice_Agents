@@ -11,7 +11,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -269,10 +269,29 @@ async def find(db: AsyncSession, query: str) -> Optional[BusinessRecord]:
     if hit:
         return hit
     esc = re.sub(r"([\\%_])", r"\\\1", q)
+    starts = case((BusinessRecord.name.ilike(f"{esc}%", escape="\\"), 0), else_=1)
+    trading = case((func.lower(BusinessRecord.status) == "active", 0), else_=1)
     rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.name.ilike(f"%{esc}%", escape="\\")).order_by(
-        BusinessRecord.rank_score.desc().nullslast()).limit(3))).scalars().all()
-    exact = [r for r in rows if r.name.lower() == q.lower()]
-    return (exact or rows or [None])[0]
+        starts, trading, BusinessRecord.rank_score.desc().nullslast()).limit(10))).scalars().all()
+    return best_named(rows, q)
+
+
+def best_named(rows: List[Any], typed: str) -> Optional[Any]:
+    """The company a typed name means. A trading company whose name is the typed name, or starts with it, wins over a
+    dissolved one with the same name ("Screwfix" is Screwfix Direct Limited, not an older dissolved Screwfix Limited);
+    otherwise the closest name. A dissolved company is still found when it is the only match."""
+    from app.services.company_check import name_key, status_class
+
+    want = name_key(typed)
+
+    def rank(r: Any) -> tuple:
+        key = name_key(r.name)
+        exact = key == want
+        starts = bool(want) and (exact or key.startswith(want + " "))
+        active = status_class(r.status or "") == "active"
+        return (not (active and starts), not exact, not starts, not active)
+
+    return min(rows, key=rank) if rows else None
 
 
 def brief_text(p: Dict[str, Any]) -> str:

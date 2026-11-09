@@ -498,6 +498,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
       next = [...asked, { id: `a${Date.now()}`, role: "assistant", error: true, retry: text, text: failure.message || "I couldn't reach the AI. Try again in a moment." }];
     } else {
       if (res.found?.filters) filters.current = res.found.filters;
+      else if (res.filters && Object.keys(res.filters).length) filters.current = res.filters;
       if (res.found) listed.current = { total: res.found.total, capped: res.found.capped, asked: res.found.asked, filters: res.found.filters, top: (res.found.top || []).slice(0, 50) };
       if (res.state) turn.current = res.state;
       setSuggest(res.suggestions || []);
@@ -520,14 +521,14 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   };
   const showMemory = () => say([memory.length ? "Here is what I remember. Use the Earlier chats clock, then Remembered, to remove any." : "I haven't been asked to remember anything yet. Use /remember followed by what to remember."]);
   const stop = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setLive({ status: "", steps: [] }); };
-  const fresh = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
+  const fresh = () => { run.current += 1; sh.aborter?.abort(); setBusy(false); setSuggest([]); setMessages([]); setInput(""); setActs({}); filters.current = {}; turn.current = {}; listed.current = null; chatId.current = `a_${Date.now()}`; setPreset(""); setView("chat"); };
   const showHistory = () => {
     setView("history");
     api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => setHistory([]));
   };
   const openChat = (h) => {
     run.current += 1; setBusy(false); setActs({});
-    chatId.current = h.id; filters.current = h.filters || {}; turn.current = {};
+    chatId.current = h.id; filters.current = h.filters || {}; turn.current = {}; listed.current = null;
     setMessages((h.chat || []).map((m) => ({ id: m.id, role: m.role === "user" ? "user" : "assistant", text: m.text })));
     setView("chat");
   };

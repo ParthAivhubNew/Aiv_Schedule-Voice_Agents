@@ -190,6 +190,17 @@ def closest_note(dropped: List[str]) -> str:
     return "No company matched every filter, so these are the closest: the search no longer requires " + ", ".join(dropped)
 
 
+FEW_WEBSITES = 100
+
+
+def website_note(filters: Dict[str, Any], total: int) -> str:
+    """Why "Has website" leaves so few: the register holds no websites, only companies already looked up have one."""
+    if not (filters or {}).get("has_website") or total >= FEW_WEBSITES:
+        return ""
+    have = "No company in this list has" if not total else f"Only {total:,} {'company' if total == 1 else 'companies'} in this list {'has' if total == 1 else 'have'}"
+    return f"{have} a website on file. The register itself does not hold websites; use Find website on a company to look one up."
+
+
 def broadened_note(filters: Dict[str, Any]) -> str:
     """What to tell the person when a trade search took in side activities (see business_records.matching)."""
     trade = ", ".join(list(filters.get("keyword") or []) + list(filters.get("sector") or []) + list(filters.get("sic_codes") or [])) or "this trade"

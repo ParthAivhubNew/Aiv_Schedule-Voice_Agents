@@ -347,6 +347,7 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
     count_only = bool(args.pop("count_only", False))
     if count_only:
         m = await _market(db, args)
+        t.filters = m["filters"]  # "save the top 10" after "how many plumbers in Manchester" means Manchester plumbers
         words = " · ".join(lead_filters.describe(m["filters"])) or "all companies"
         plus = "+" if m["capped"] else ""
         tiers = m["tiers"] or {}
@@ -377,10 +378,23 @@ async def _tool_search(db: AsyncSession, t: _Turn, args: Dict[str, Any]) -> None
                    + ("; ".join(f"{c['name']} ({c['region'] or 'no town'}, {c['industry'] or 'no industry'})" for c in res["top"][:NAMES_IN_PROMPT]) or "none")
                    + (f"; and {len(res['top']) - NAMES_IN_PROMPT} more" if len(res["top"]) > NAMES_IN_PROMPT else "")
                    + (". That is very few: the web search can look beyond the register." if res["total"] <= THIN and t.body.web_search else "")
-                   + (f". {_BROADENED_TELL.format(note=lead_filters.broadened_note(res['filters']))}" if res.get("broadened") else ""))
+                   + (f". {_BROADENED_TELL.format(note=lead_filters.broadened_note(res['filters']))}" if res.get("broadened") else "")
+                   + (f". Tell the person: {few}" if (few := lead_filters.website_note(res["filters"], int(res["total"] or 0))) else ""))
 
 
 _SAVE_FIELDS = ("id", "name", "website", "phone", "email", "industry", "region", "registration_number", "status", "sic_text", "postcode")
+
+
+def last_shown(filters: Dict[str, Any], found: Optional[Dict[str, Any]], listed: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The search whose companies "save these" or "the top N" means: this turn's search, else the list the screen sent back,
+    but only when it is the same search as the filters in use. A list left from an earlier search (an earlier chat reopened,
+    or a search that changed the filters without listing) is never saved under the newer search; the newer search is re-run."""
+    if found:
+        return found
+    if not listed:
+        return None
+    norm = business_records.normalize_filters
+    return listed if norm(listed.get("filters") or {}) == norm(filters or {}) else None
 
 
 def save_proposal(pid: str, list_name: str, filters: Dict[str, Any], found: Optional[Dict[str, Any]], asked_for: Any = None) -> Dict[str, Any]:
@@ -522,7 +536,7 @@ async def _run_tool(db: AsyncSession, t: _Turn, name: str, args: Dict[str, Any])
             return
         list_name = str(args.get("list_name") or "Assistant list").strip()[:80] or "Assistant list"
         had = [i for i, x in enumerate(t.proposals) if x.get("kind") == "add_to_list"]
-        proposal = save_proposal(f"p{had[0] if had else len(t.proposals)}", list_name, t.filters, t.found or t.listed, args.get("how_many"))
+        proposal = save_proposal(f"p{had[0] if had else len(t.proposals)}", list_name, t.filters, last_shown(t.filters, t.found, t.listed), args.get("how_many"))
         if had:
             t.proposals[had[0]] = proposal  # one offer to save per message, the last one the model made
         else:
@@ -670,7 +684,7 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
                                    asked=body.message, thin=thin, web=body.web_search),
         "found": ({"total": found["total"], "capped": found.get("capped", False), "filters": found["filters"], "top": found["top"], "asked": found.get("asked", 0),
                    "broadened": bool(found.get("broadened"))} if found else None),
-        "view": found_view(found), "choices": found_choices(found, thin=thin, web=body.web_search),
+        "view": found_view(found), "choices": found_choices(found, thin=thin, web=body.web_search), "filters": turn.filters or {},
         "state": {"last_total": found["total"] if found else last.get("last_total"),
                   "last_names": [c["name"] for c in found["top"]] if found else last.get("last_names", [])}}}
 

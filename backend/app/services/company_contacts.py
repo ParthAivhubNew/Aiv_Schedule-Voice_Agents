@@ -203,7 +203,9 @@ def is_uk_phone(p: str) -> bool:
         national = digits[1:]
     else:
         return False
-    return national.isdigit() and len(national) in (9, 10) and national[0] in "123578" and len(set(national)) > 2
+    # 9 digits after the 0 only for some 01 areas and 0800 (02, 03, 05 and 07 numbers are always 10)
+    size_ok = len(national) == 10 or (len(national) == 9 and national[0] in "18")
+    return national.isdigit() and size_ok and national[0] in "123578" and len(set(national)) > 2
 
 
 CACHE_DAYS = 90        # a lookup is reused for this long; after that the next ask searches again

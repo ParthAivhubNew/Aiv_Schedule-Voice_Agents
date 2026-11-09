@@ -471,6 +471,8 @@ async def store_check(db, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             select(BusinessRecord).where(BusinessRecord.name.op("%")(wanted))
             .order_by(func.similarity(BusinessRecord.name, wanted).desc()).limit(10))).scalars().all()
         cands = [c for c in cands if name_score(row["name"], c.name) >= LINK_MATCH_MIN]
+        # equally close names: the trading company before a dissolved one (sorted() keeps the similarity order otherwise)
+        cands = sorted(cands, key=lambda c: (-round(name_score(row["name"], c.name), 3), status_class(c.status or "") != "active"))
         if cands:
             registry = [c for c in cands if c.confidence_tier == "verified_registry"]
             rec = (registry or cands)[0]

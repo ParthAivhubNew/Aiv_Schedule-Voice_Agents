@@ -696,7 +696,7 @@ def _harvest_contacts_from_text(blob: str) -> Tuple[List[str], List[str]]:
         if _is_public_email(clean_em) and clean_em not in emails:
             emails.append(clean_em)
     for pm in re.findall(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}", text):
-        clean_pm = pm.strip(".,;:\"'()<>")
+        clean_pm = pm.strip(".,;:\"'<>")
         if _is_real_phone(clean_pm) and clean_pm not in phones:
             phones.append(clean_pm)
     return emails, phones
@@ -844,7 +844,47 @@ def _is_real_phone(raw: str) -> bool:
         return False
     if digits in {"1234567890", "0123456789", "9876543210"}:
         return False
-    return True
+    return _dialable(raw, digits)
+
+
+def _nanp(ten: str) -> bool:
+    """A US/Canada number: area code and exchange both start 2 to 9."""
+    return len(ten) == 10 and ten[0] in "23456789" and ten[3] in "23456789"
+
+
+def _dialable(raw: str, digits: str) -> bool:
+    """Whether a phone-shaped string is a number someone can dial. UK first: 0 or +44 numbers must have a real UK
+    length and range; +1 must be a real US/Canada number; another +country code keeps 8 to 15 digits. With no prefix,
+    10 digits are a US/Canada number or a UK number missing its 0, and 9 digits only a UK number missing its 0.
+    Unbalanced brackets ("844) 744-3512") mean the number was cut from the text and is not kept."""
+    from app.services.company_contacts import is_uk_phone
+
+    s = raw.strip()
+    depth = 0
+    for ch in s:
+        depth += 1 if ch == "(" else -1 if ch == ")" else 0
+        if depth < 0 or depth > 1:
+            return False
+    if depth:
+        return False
+    if s.startswith("+") or digits.startswith("00"):
+        d = digits[2:] if digits.startswith("00") else digits
+        if d.startswith("44"):
+            return is_uk_phone("+" + d)
+        if d.startswith("1"):
+            return _nanp(d[1:])
+        return 8 <= len(d) <= 15
+    if digits.startswith("0"):
+        return is_uk_phone(digits)
+    if digits.startswith("44") and len(digits) in (12, 13):
+        return is_uk_phone("+" + digits)
+    if digits.startswith("1") and len(digits) == 11:
+        return _nanp(digits[1:])
+    if len(digits) == 10:
+        return _nanp(digits) or is_uk_phone("0" + digits)
+    if len(digits) == 9:
+        return is_uk_phone("0" + digits)
+    return False
 
 
 def _normalized_phone_digits(raw: str) -> str:
@@ -917,6 +957,8 @@ def _is_person_name(raw: str) -> bool:
         return False
     if any(p.lower().rstrip(".") in _NON_NAME_WORDS for p in parts):
         return False
+    if _junk_name(name):
+        return False
     particles = {"de", "da", "van", "von", "der", "la", "le", "di", "du"}
     for p in parts:
         if p.lower() in particles:
@@ -924,6 +966,57 @@ def _is_person_name(raw: str) -> bool:
         if not re.match(r"^[A-Z][a-zA-Z'-]+$", p):
             return False
     return True
+
+
+# Template text and page labels a page-reading model has returned as people ("First Last", "Ie Support", "Speaking Invitations").
+_PLACEHOLDER_NAMES = {
+    "first last", "firstname lastname", "first name last name", "first name", "last name", "full name", "your name",
+    "name surname", "first surname", "john doe", "jane doe", "joe bloggs", "jane bloggs", "test user", "lorem ipsum",
+    "team member", "staff member", "contact name", "person name",
+}
+_LABEL_WORDS = {
+    "support", "team", "teams", "invitation", "invitations", "speaking", "speaker", "speakers", "contact", "contacts", "careers",
+    "career", "jobs", "sales", "info", "information", "admin", "administrator", "enquiries", "enquiry", "help", "helpdesk", "service",
+    "services", "customer", "customers", "office", "reception", "accounts", "marketing", "media", "press", "news", "blog", "events",
+    "privacy", "policy", "cookies", "terms", "login", "logout", "subscribe", "newsletter", "menu", "about", "faq", "faqs", "legal",
+    "department", "general", "booking", "bookings", "request", "quote", "opportunities", "partnerships", "testimonials", "reviews",
+    "staff", "people", "board", "directors", "management", "leadership", "our", "your", "us", "the", "and", "of", "for", "with",
+    "name", "surname", "firstname", "lastname", "email", "phone", "telephone", "tel", "mobile", "address", "website", "click", "here",
+    "ceo", "cfo", "coo", "cto", "cmo", "cio", "founder", "co-founder", "cofounder", "director", "manager", "president", "officer",
+    "executive", "chairman", "chief", "vp", "ltd", "limited", "plc", "llp", "llc", "inc", "group", "company", "holdings",
+}
+_NAME_PARTICLES = {"de", "da", "del", "della", "van", "von", "der", "den", "la", "le", "di", "du", "bin", "al", "el", "ter", "ten", "dos"}
+_NAME_WORD = re.compile(r"^[^\W\d_]+(?:['’\-][^\W\d_]+)*\.?$")
+_INITIALS = re.compile(r"^(?:[^\W\d_]\.)+$|^[^\W\d_]$")
+
+
+def _junk_name(raw: str) -> bool:
+    """A placeholder, or text with a page-label or job word in it."""
+    words = re.sub(r"\s+", " ", (raw or "").strip()).lower()
+    if words in _PLACEHOLDER_NAMES:
+        return True
+    return any(w.strip(".,") in _LABEL_WORDS for w in words.split(" "))
+
+
+def looks_like_person_name(raw: str) -> bool:
+    """A real person's name as a page prints it: 2 to 4 words of letters (accents, hyphens, apostrophes and initials kept),
+    each capitalised, not all capitals, with no digits or other punctuation and no page-label or job words."""
+    name = re.sub(r"\s+", " ", str(raw or "").strip())
+    if not name or len(name) > 60 or _junk_name(name):
+        return False
+    parts = name.split(" ")
+    if not 2 <= len(parts) <= 4:
+        return False
+    letters = re.sub(r"[^\w]|\d|_", "", name)
+    if len(letters) > 3 and letters.isupper():
+        return False
+    for p in parts:
+        if p.lower() in _NAME_PARTICLES:
+            continue
+        if not (_NAME_WORD.match(p) or _INITIALS.match(p)) or not p[0].isupper():
+            return False
+    last = parts[-1]
+    return not _INITIALS.match(last) and len(last.rstrip(".")) >= 2
 
 
 
@@ -1270,7 +1363,9 @@ _TEAM_SYSTEM = (
     "clearly theirs specifically (beside their name/title in the same block); never pair up a phone "
     "or email found elsewhere on the page just because a name also appears somewhere on it, and never "
     "use a shared company inbox (info@, sales@, enquiries@) or a general switchboard number as a "
-    "person's own. If nothing is genuinely tied to a specific named person, return an empty list."
+    "person's own. A name is a real person's first and last name as printed on the page: never template text "
+    "(\"First Last\", \"Your Name\"), a heading, a button or a department (\"Support\", \"Speaking Invitations\"), and never "
+    "make one up. If nothing is genuinely tied to a specific named person, return an empty list."
 )
 
 
@@ -1293,9 +1388,12 @@ async def _extract_team(page_text: str, *, db=None, scope: str = "leadgen") -> L
         return []
     out: List[Dict[str, str]] = []
     for t in (result or {}).get("team") or []:
-        if isinstance(t, dict) and t.get("name"):
-            out.append({"name": str(t["name"])[:120], "title": str(t.get("title") or "")[:120],
-                        "phone": str(t.get("phone") or "")[:60], "email": str(t.get("email") or "")[:200].lower()})
+        name = re.sub(r"\s+", " ", str(t.get("name") or "")).strip() if isinstance(t, dict) else ""
+        if not looks_like_person_name(name):
+            continue
+        phone = str(t.get("phone") or "").strip()
+        out.append({"name": name[:120], "title": str(t.get("title") or "")[:120],
+                    "phone": phone[:60] if _is_real_phone(phone) else "", "email": str(t.get("email") or "")[:200].lower()})
     return out[:10]
 
 
