@@ -705,6 +705,7 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
            "created_at": camp.created_at.isoformat() + "Z" if camp.created_at else None}
     out["results"] = await results(db, camp)
     out["tasks_open"] = (await db.execute(select(func.count(JourneyTask.id)).where(JourneyTask.campaign_id == camp.id, JourneyTask.status == "open"))).scalar() or 0
+    out["step_count"] = (await db.execute(select(func.count(EmailSequenceStep.id)).where(EmailSequenceStep.campaign_id == camp.id))).scalar() or 0
     if not full:
         return out
     out["steps"] = [step_out(s) for s in await steps_of(db, camp.id)]

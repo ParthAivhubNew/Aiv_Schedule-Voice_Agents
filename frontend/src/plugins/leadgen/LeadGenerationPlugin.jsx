@@ -1,6 +1,7 @@
 import { cloneElement, useCallback, useState, useEffect, useRef, useMemo } from "react";
 import { NOTICE_EVENT } from "../../utils/notice";
 import { WRITE_EMAIL_EVENT } from "../../utils/writeEmail";
+import { OPEN_JOURNEY_EVENT } from "../../utils/openJourney";
 import { api } from "../../api/apiClient";
 import { takePendingDraft } from "../../utils/draftHandoff";
 import {
@@ -240,6 +241,17 @@ export default function LeadGenerationPlugin({
     window.addEventListener(WRITE_EMAIL_EVENT, onWrite);
     return () => window.removeEventListener(WRITE_EMAIL_EVENT, onWrite);
   }, [embedViews]);
+
+  // "Open this journey" from a company's bottom bar, in the side panel or the Find Leads drawer: close the panel and show it on Journeys.
+  useEffect(() => {
+    const onOpen = (e) => {
+      const id = String(e.detail || "");
+      setOpenAccount(null);
+      if (id) openJourney(id); else startJourney();
+    };
+    window.addEventListener(OPEN_JOURNEY_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_JOURNEY_EVENT, onOpen);
+  });
 
   // Pages of the app, in the same two groups as Voice's: the work, then the setup.
   const navItems = onlyEmbedViews([

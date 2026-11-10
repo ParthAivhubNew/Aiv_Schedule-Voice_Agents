@@ -11,11 +11,11 @@ import { filledSummary } from "./profileState";
 const muted = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 
 const TABS = [
-  { id: "overview", label: "Overview", tip: "Contact details and the people on the register" },
-  { id: "research", label: "Research", tip: "Research on this company" },
-  { id: "details", label: "Details", tip: "The register's facts about this company" },
-  { id: "notes", label: "Notes", tip: "Notes your team wrote on this company" },
-  { id: "activity", label: "Activity", tip: "Stage, calls, meetings, emails and the timeline" },
+  { id: "overview", label: "Overview", tip: "Contact details, with buttons to find a missing phone, email or website" },
+  { id: "research", label: "Research", tip: "Where to research this company and keep what is found" },
+  { id: "details", label: "Details", tip: "The register's facts: number, status, type, size and address" },
+  { id: "notes", label: "Notes", tip: "Notes your team wrote on this company. Everyone in your organisation sees them" },
+  { id: "activity", label: "Activity", tip: "Call, email or book a meeting, set the stage, and see everything that has happened" },
 ];
 
 // openCo: the result row. saved: the saved company linked to it, if any. contacts: the contact details panel for it.
@@ -30,7 +30,7 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
     <Drawer open={Boolean(openCo)} onClose={onClose} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={openCo?.name || ""}
       sub={openCo ? <>{sub ? <div>{sub}</div> : null}<LatestNote note={notesApi.notes[0]} onOpen={() => setTab("notes")} style={{ marginTop: 3, maxWidth: "100%" }} /></> : ""}
       actions={actions}
-      footer={openCo ? <BottomBar note={notesApi.notes[0]} onOpenNotes={() => setTab("notes")} journey={<JourneyControl companyId={openCo.id} accountId={saved?.id || ""} />} actions={saveAction} /> : null}>
+      footer={openCo ? <BottomBar note={notesApi.notes[0]} onOpenNotes={() => setTab("notes")} journey={<JourneyControl companyId={openCo.id} accountId={saved?.id || ""} companyName={openCo.name} />} actions={saveAction} /> : null}>
       {openCo ? (
         <>
           <ProfileTabs idBase={base} label={`${openCo.name} sections`} value={tab} onChange={setTab} style={{ margin: "0 -16px", padding: "0 8px" }}
@@ -66,7 +66,8 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
           </TabPanel>
           <TabPanel idBase={base} id="activity" value={tab}>
             <Collapsible id="drawer:activity" defaultOpen title="Activity" summary={saved ? "" : "Not saved yet"}>
-              {saved ? <LeadActivity account={saved} store={store} /> : <div style={muted}>Save it, then every email, call and task shows here.</div>}
+              {saved ? <LeadActivity account={saved} store={store} onGoTab={setTab} find={{ text: "Find one on the Overview tab.", tab: "overview" }} />
+                : <div style={muted}>Save this company first. Then you can call, email and book meetings from here, and everything that happens shows on its timeline.</div>}
             </Collapsible>
           </TabPanel>
         </>

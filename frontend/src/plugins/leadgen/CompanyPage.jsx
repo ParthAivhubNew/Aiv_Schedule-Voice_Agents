@@ -14,10 +14,11 @@ import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows,
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
+import { LeadActivity } from "./LeadActivity";
 
 // The register-led tabs, plus the team's notes. Research and editable details live on the saved company's panel, not here.
 const PAGE_TABS = [...TABS.filter(([k]) => k !== "activity"), ["notes", "Notes"], ...TABS.filter(([k]) => k === "activity")];
-const TAB_TIPS = { overview: "Why now, in plain words, and who to speak to", people: "Directors, officers and owners on the register", filings: "Filing dates and previous names", notes: "Notes your team wrote on this company", activity: "Emails, calls and tasks with this company" };
+const TAB_TIPS = { overview: "Why now, in plain words, and who to speak to", people: "Directors, officers and owners on the register", filings: "Filing dates and previous names", notes: "Notes your team wrote on this company. Everyone in your organisation sees them", activity: "Call, email or book a meeting, set the stage, and see everything that has happened" };
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
@@ -391,18 +392,21 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
 
           <TabPanel idBase={`company-${c.id}`} id="activity" value={tab} style={{ ...card, padding: "0 14px" }}>
             <Collapsible id="company:activity" defaultOpen title="Activity" summary={activityRows(c.activity).length ? `${activityRows(c.activity).length} events` : "Nothing yet"}>
-              {activityRows(c.activity).length ? activityRows(c.activity).map((a, i) => (
+              {c.saved && c.lead_id ? (
+                <LeadActivity store={store} onGoTab={setTab} find={{ text: "Use Find next to it at the top of this page.", tab: "" }}
+                  account={{ id: c.lead_id, name, business_record_id: c.id, email: c.contact.email.value || "", phone: c.contact.phone.value || "", connection: { stage: c.stage || "new" } }} />
+              ) : activityRows(c.activity).length ? activityRows(c.activity).map((a, i) => (
                 <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "10px 0", borderTop: i ? `1px solid ${C.borderLight}` : "none" }}>
                   <span style={{ ...small, width: 56, flexShrink: 0 }}>{a.when}</span>
                   <span style={{ fontSize: 13.5, minWidth: 0, overflowWrap: "anywhere" }}><strong>{KIND_WORDS[a.kind] || a.kind}</strong> · {a.summary}</span>
                 </div>
-              )) : <div style={small}>{c.saved ? "Nothing has happened yet. Add it to a journey to start." : "Save it, then every email, call and task shows here."}</div>}
+              )) : <div style={small}>{c.saved ? "Nothing has happened yet. Add it to an email journey with the button at the bottom." : "Save this company first with Save at the bottom. Then you can call, email and book meetings from here, and everything that happens shows on its timeline."}</div>}
             </Collapsible>
           </TabPanel>
         </main>
       </div>
       <BottomBar note={notesApi.notes[0]} onOpenNotes={() => setTab("notes")}
-        journey={<JourneyControl companyId={c.id} accountId={c.lead_id || ""} onOpenJourney={onOpenJourney} onNewJourney={onGo ? () => onGo("outreach") : undefined} onAdded={load} />}
+        journey={<JourneyControl companyId={c.id} accountId={c.lead_id || ""} companyName={name} onOpenJourney={onOpenJourney} onNewJourney={onGo ? () => onGo("outreach") : undefined} onAdded={load} />}
         actions={c.saved ? <span style={{ ...small, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} /> Saved</span>
           : <button type="button" title="Save this company to your Unsorted list" style={btn(true, busy === "save")} disabled={busy === "save"} onClick={save}><Plus size={14} /> Save</button>} />
     </div>

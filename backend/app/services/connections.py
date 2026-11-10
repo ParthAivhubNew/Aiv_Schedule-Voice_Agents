@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -334,6 +334,19 @@ async def timeline(db: AsyncSession, *, lead_id: str = "", registry_id: str = ""
         q = q.where(ContactEvent.kind.in_(kinds))
     rows = (await db.execute(q.order_by(ContactEvent.at.desc()).limit(max(1, min(limit, 500))))).scalars().all()
     return [event_view(r) for r in rows]
+
+
+async def timeline_counts(db: AsyncSession, *, lead_id: str = "", registry_id: str = "") -> Dict[str, int]:
+    """How many events of each kind the contact has, for the counts on the timeline's filter buttons."""
+    conds = []
+    if lead_id:
+        conds.append(ContactEvent.lead_id == lead_id)
+    if registry_id:
+        conds.append(ContactEvent.registry_id == registry_id)
+    if not conds:
+        return {}
+    rows = (await db.execute(select(ContactEvent.kind, func.count(ContactEvent.id)).where(or_(*conds)).group_by(ContactEvent.kind))).all()
+    return {kind: int(n) for kind, n in rows}
 
 
 # ── Event bus ───────────────────────────────────────────────────────────────

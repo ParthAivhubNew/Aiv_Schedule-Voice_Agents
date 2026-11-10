@@ -919,7 +919,7 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
         words = {"invalid": "It has no email address yet, so an email journey can't write to it. Find one first.", "duplicate": "It is already in that journey.",
                  "do_not_email": "It is on your do-not-email list.", "in_another_journey": "It is already in another running journey.", "no_contact": "It has no contact details."}
         raise HTTPException(status_code=400, detail=words.get(why, "It couldn't be added."))
-    return {"added": out["added"], "journey": camp.name}
+    return {"added": out["added"], "journey": camp.name, "status": camp.status}
 
 
 async def _email_through_google(db: AsyncSession, biz: BusinessRecord, hint: str) -> bool:

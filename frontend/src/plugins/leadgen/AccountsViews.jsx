@@ -1217,11 +1217,11 @@ function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirs
 }
 
 const PANEL_TABS = [
-  { id: "overview", label: "Overview", tip: "Contact details, checks and what came from your file" },
-  { id: "research", label: "Research", tip: "Improve this company and read the research" },
-  { id: "details", label: "Details", tip: "Edit the saved details" },
-  { id: "notes", label: "Notes", tip: "Notes your team wrote on this company" },
-  { id: "activity", label: "Activity", tip: "Stage, calls, meetings, emails and the timeline" },
+  { id: "overview", label: "Overview", tip: "Contact details, whether they passed our checks, and the columns from your file" },
+  { id: "research", label: "Research", tip: "Find a missing phone, email or contact, and read what we found about the company" },
+  { id: "details", label: "Details", tip: "Change the saved name, phone, email and contact, or remove the company" },
+  { id: "notes", label: "Notes", tip: "Notes your team wrote on this company. Everyone in your organisation sees them" },
+  { id: "activity", label: "Activity", tip: "Call, email or book a meeting, set the stage, and see everything that has happened" },
 ];
 
 export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegister, page = false }) {
@@ -1348,12 +1348,12 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
           </TabPanel>
           <TabPanel idBase={tabBase} id="activity" value={tab}>
             <Collapsible id="account:activity" defaultOpen title="Activity" summary={live.connection?.stage ? `Stage: ${String(live.connection.stage).replace(/_/g, " ")}` : ""}>
-              <LeadActivity account={live} store={store} />
+              <LeadActivity account={live} store={store} onGoTab={setTab} find={{ text: "Use Improve this company on the Research tab.", tab: "research" }} />
             </Collapsible>
           </TabPanel>
         </div>
         <BottomBar note={notesApi.notes[0]} onOpenNotes={openNotes}
-          journey={<JourneyControl companyId={live.business_record_id || ""} accountId={live.id} />}
+          journey={<JourneyControl companyId={live.business_record_id || ""} accountId={live.id} companyName={live.name} />}
           actions={(
             <button title={changed ? "Save the changes to this company" : "Nothing to save. Change a field on the Details tab first"} type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!changed || !form.name.trim()}
               onClick={async () => { if (await store.update(live.id, form)) onClose(); }}>Save changes</button>

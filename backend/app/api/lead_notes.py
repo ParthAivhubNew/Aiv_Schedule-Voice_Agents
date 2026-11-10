@@ -34,6 +34,18 @@ class CountsIn(BaseModel):
     person_keys: List[str] = []  # each "<company id>|<person name>"
 
 
+TIMELINE_REF = "leadnote:"  # a team note's line on the company's timeline, so deleting the note removes the line too
+
+
+async def _on_timeline(db: AsyncSession, company: "N.Company", row: LeadNote, person: str) -> None:
+    """A team note also shows on the timeline of each saved record of the company, under Notes."""
+    from app.services import connections as C
+
+    summary = f"On {person}: {row.text}" if person else row.text
+    for lead in company.leads:
+        await C.record_event(db, "note", lead_id=lead.id, registry_id=lead.registry_id or "", ref_id=TIMELINE_REF + row.id, summary=summary[:500])
+
+
 @router.get("/notes")
 async def list_notes(request: Request, company_id: str = "", account_id: str = "", db: AsyncSession = Depends(get_db)):
     ctx = _who(request)
@@ -62,6 +74,8 @@ async def add_note(body: NoteIn, request: Request, db: AsyncSession = Depends(ge
     row = LeadNote(org_id=current_org(), target_kind="person" if who else "company", person_key=who, text=text,
                    author_user_id=ctx.get("operator_id", ""), author_name=(ctx.get("name") or ctx.get("username") or "")[:120], **key)
     db.add(row)
+    await db.flush()
+    await _on_timeline(db, company, row, body.person.strip() if who else "")
     await db.commit()
     return {"note": N.view(row, ctx.get("operator_id", ""), bool(ctx.get("is_admin")))}
 
@@ -81,6 +95,11 @@ async def delete_note(note_id: str, request: Request, db: AsyncSession = Depends
         raise HTTPException(status_code=404, detail="That note isn't there any more.")
     if not (ctx.get("is_admin") or (row.author_user_id and row.author_user_id == ctx.get("operator_id"))):
         raise HTTPException(status_code=403, detail="Only the person who wrote a note, or an admin, can delete it.")
+    from sqlalchemy import delete
+
+    from app.models.models import ContactEvent
+
+    await db.execute(delete(ContactEvent).where(ContactEvent.ref_id == TIMELINE_REF + row.id))
     await db.delete(row)
     await db.commit()
     return {"ok": True}
@@ -115,12 +134,17 @@ async def company_journeys(request: Request, company_id: str = "", account_id: s
     if emails:
         cond.append(func.lower(EmailEnrollment.email).in_(emails))
     rows = (await db.execute(select(EmailEnrollment, EmailCampaign).join(EmailCampaign, EmailCampaign.id == EmailEnrollment.campaign_id).where(or_(*cond)))).all()
+    from app.models.models import EmailSequenceStep
+
+    totals = dict((await db.execute(select(EmailSequenceStep.campaign_id, func.count(EmailSequenceStep.id))
+                                    .where(EmailSequenceStep.campaign_id.in_({c.id for _, c in rows})).group_by(EmailSequenceStep.campaign_id))).all()) if rows else {}
     seen, out = set(), []
     for e, c in rows:
         if c.id in seen:
             continue
         seen.add(c.id)
-        out.append({"id": c.id, "name": c.name, "status": c.status, "person_status": e.status, "step": e.current_step})
+        out.append({"id": c.id, "name": c.name, "status": c.status, "person_status": e.status, "step": e.current_step, "steps_total": totals.get(c.id, 0),
+                    "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None})
     out.sort(key=lambda j: (j["person_status"] != "active", j["status"] != "running"))
     return {"journeys": out, "saved": True}
 
@@ -153,4 +177,4 @@ async def journey_add(body: JourneyAddIn, request: Request, db: AsyncSession = D
         words = {"invalid": "It has no email address yet, so an email journey can't write to it. Find one first.", "duplicate": "It is already in that journey.",
                  "do_not_email": "It is on your do-not-email list.", "in_another_journey": "It is already in another running journey.", "no_contact": "It has no contact details."}
         raise HTTPException(status_code=400, detail=words.get(why, "It couldn't be added."))
-    return {"added": out["added"], "journey": camp.name}
+    return {"added": out["added"], "journey": camp.name, "status": camp.status}

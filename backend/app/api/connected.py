@@ -229,8 +229,9 @@ async def contact_timeline(contact_id: str, kinds: str = "", db: AsyncSession = 
     """Everything that happened with one contact. The id is a Lead Gen company id or a contact-record id."""
     wanted = [k for k in kinds.split(",") if k] or None
     lead = await db.get(LeadAccount, contact_id)
-    events = await C.timeline(db, lead_id=contact_id, registry_id=(lead.registry_id if lead and lead.registry_id else contact_id), kinds=wanted)
-    out: Dict[str, Any] = {"events": events}
+    registry_id = lead.registry_id if lead and lead.registry_id else contact_id
+    events = await C.timeline(db, lead_id=contact_id, registry_id=registry_id, kinds=wanted)
+    out: Dict[str, Any] = {"events": events, "counts": await C.timeline_counts(db, lead_id=contact_id, registry_id=registry_id)}
     if lead:
         out["lead"] = {"id": lead.id, "name": lead.name, **connection_fields(lead)}
         meetings = (await db.execute(select(Meeting).where(Meeting.lead_id == lead.id).order_by(Meeting.created_at.desc()))).scalars().all()
