@@ -3,12 +3,11 @@ import { GridTools } from "../../components/GridTools";
 import { writeEmail } from "../../utils/writeEmail";
 import { pagePicked, useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
-import { notice } from "../../utils/notice";
 import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { openPhone } from "../../utils/humanCall";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, Columns3, ExternalLink, FileSpreadsheet, Mail, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -384,7 +383,6 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const BUILT_IN_COLUMNS = [["phone", "Phone"], ["email", "Email"], ["contact", "Contact"], ["stage", "Stage"], ["quality", "Complete"], ["check", "Check"], ["website", "Website"], ["source", "Found by"]];
 const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
 
 // What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
@@ -541,8 +539,10 @@ export function emailFor(a) {
   return found ? { text: found, fromResearch: true } : null;
 }
 const HIDDEN_KEY = "aivhub_accounts_hidden_columns";
+// Column hiding now lives only in the grid's "Columns" menu. Drop what the old top-row button saved so nothing stays hidden with no way back.
 const readHidden = () => {
-  try { const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; }
+  try { localStorage.removeItem(HIDDEN_KEY); } catch { /* nothing to clear */ }
+  return [];
 };
 // The user's own columns from imported files, in the order they first appear.
 export function customColumns(accounts) {
@@ -556,14 +556,6 @@ function menuSpot(box, side) {
   const r = box.current ? box.current.getBoundingClientRect() : { bottom: 0, left: 0, right: 0 };
   return side === "right" ? { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) } : { top: r.bottom + 4, left: Math.max(8, r.left) };
 }
-
-// The picker's headings, in the order a person thinks about a company: how to reach it, where it stands, what it is, then their own.
-const COLUMN_GROUPS = [
-  ["Reach them", (id) => ["phone", "email", "contact"].includes(id)],
-  ["Where it stands", (id) => ["stage", "quality", "check"].includes(id)],
-  ["The company", (id) => ["website", "source"].includes(id)],
-  ["Your own columns", (id) => id.startsWith("c:")],
-];
 
 // Saved views: a name for a set of columns and a filter, kept in this browser. "Default view" is always there.
 const VIEWS_KEY = "aivhub_accounts_views";
@@ -612,48 +604,6 @@ function ViewsMenu({ current, onApply, onToast }) {
           <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4, paddingTop: 4 }}>
             <button type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ width: "100%", justifyContent: "flex-start" }} onClick={saveCurrent}><Plus size={13} /> Save as new view</button>
           </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ColumnsMenu({ columns, hidden, onToggle, onShowAll }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", away);
-    window.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
-  }, [open]);
-  return (
-    <div ref={box} style={{ position: "relative" }}>
-      <button type="button" title="Choose which columns to show" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Columns3 size={14} /> Add or hide columns{hidden.length ? ` (${hidden.length} hidden)` : ""}
-      </button>
-      {open ? (
-        <div role="menu" className="ui-card" style={{ position: "fixed", ...menuSpot(box, "right"), zIndex: 60, minWidth: 220, maxHeight: "min(420px, 60vh)", overflowY: "auto", padding: 8, boxShadow: "0 8px 24px rgba(0,0,0,.14)" }}>
-          <div style={{ ...muted, fontSize: 12, padding: "2px 6px 6px" }}>Tick the columns you want to see. This only changes your view.</div>
-          {COLUMN_GROUPS.map(([heading, test]) => {
-            const items = columns.filter(([id]) => test(id));
-            if (!items.length) return null;
-            return (
-              <div key={heading}>
-                <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", padding: "8px 6px 2px" }}>{heading}</div>
-                {items.map(([id, label]) => (
-                  <label key={id} style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!hidden.includes(id)} onChange={() => onToggle(id)} /> {label}
-                  </label>
-                ))}
-              </div>
-            );
-          })}
-          {hidden.length ? (
-            <button title="Bring back every hidden column" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginTop: 4 }} onClick={onShowAll}>Show all</button>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -726,15 +676,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   }
   const base = scopeIds ? store.accounts.filter((a) => scopeIds.has(a.id)) : store.accounts; // the list being looked at, or every company
   const own = customColumns(base);
-  const allColumns = [...BUILT_IN_COLUMNS, ...own.map((n) => [`c:${n}`, n])];
   const saveHidden = (next) => {
     setHidden(next);
     try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* the choice just isn't remembered */ }
-  };
-  const toggleColumn = (id) => {
-    const name = (allColumns.find(([k]) => k === id) || [id, id])[1];
-    saveHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
-    notice(hidden.includes(id) ? `${name} column shown.` : `${name} column hidden.`);
   };
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
@@ -840,7 +784,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             </button>
           ) : null}
           <ViewsMenu current={{ hidden, scope }} onToast={store.toast} onApply={(v) => { saveHidden(v.hidden || []); setScope(chips.some(([id]) => id === v.scope) ? v.scope : "all"); }} />
-          <ColumnsMenu columns={allColumns} hidden={hidden} onToggle={toggleColumn} onShowAll={() => { saveHidden([]); notice("All columns shown."); }} />
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} disabled={!pickedIds.length} onClick={deleteTicked}
             title="Delete the ticked companies for good. They leave every list and journey.">
             Delete {pickedIds.length || ""}
