@@ -101,10 +101,12 @@ export function addedText(out) {
   const why = [[s.duplicate, "already in"], [s.do_not_email, "on the do-not-email list"], [s.invalid, "without a valid email"], [s.in_another_journey, "already in another journey"], [s.no_contact, "with no contact details"]]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const kept = out.excluded_total || 0;
-  const safety = kept ? ` ${kept} left out for safety: ${[[s.problem, "closed or wrong company number"], [s.unchecked, "not checked yet"], [s.individual, "individuals without consent"], [s.email_bad, "emails that can't receive mail"]]
+  const safety = kept ? ` ${kept} left out: ${[[s.problem, "closed or wrong company number"], [s.email_bad, "emails that can't receive mail"]]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(", ")}.` : "";
+  const w = out.warned_counts || {};
+  const risk = out.warned_total ? ` Heads up: ${[[w.unchecked, "not checked by us"], [w.individual, "individuals with no consent recorded"]].filter(([n]) => n).map(([n, t]) => `${n} ${t}`).join(", ")}. They will be emailed at your own risk: unchecked addresses can bounce and hurt your sender reputation, and emailing an individual without consent can breach UK marketing-email rules.` : "";
   const queued = out.queued && !out.dry_run && out.added ? " They start when you press Start." : "";
-  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}${safety}${queued}`;
+  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}${safety}${risk}${queued}`;
 }
 
 // Tasks overdue or due today come first.

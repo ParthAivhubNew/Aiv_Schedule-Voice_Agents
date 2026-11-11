@@ -265,6 +265,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
         "country": a.country or "", "linkedin_url": a.linkedin_url or "", "import_flags": a.import_flags or [],
         "consent_basis": a.consent_basis or "",
         "send_block": (lambda e: {"code": e["code"], "reason": e["reason"]} if not e["ok"] else None)(send_readiness.eligibility(a)),
+        "send_warning": (lambda e: {"code": e["code"], "reason": e["reason"]} if e["ok"] and e["code"] else None)(send_readiness.eligibility(a)),
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
         "kind": "person" if is_person_account(a) else "company",

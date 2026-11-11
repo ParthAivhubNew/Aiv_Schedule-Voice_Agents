@@ -125,7 +125,7 @@ async def admin_token(db):
 
 
 @pytest.fixture
-async def client(db, admin_token):
+async def client(db, admin_token, funded_house_org):
     """API client signed in as an admin."""
     import httpx
 

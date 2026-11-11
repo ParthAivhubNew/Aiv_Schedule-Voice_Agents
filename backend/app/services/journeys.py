@@ -546,7 +546,8 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
     added, now = 0, datetime.utcnow()
     skipped = {"invalid": 0, "duplicate": 0, "do_not_email": 0, "in_another_journey": 0, "no_contact": 0, "problem": 0, "unchecked": 0, "individual": 0,
                "email_bad": 0}
-    excluded: List[Dict[str, Any]] = []  # who was kept out for a safety reason, and why
+    excluded: List[Dict[str, Any]] = []  # who was kept out (closed company, address that cannot receive mail), and why
+    warned: List[Dict[str, Any]] = []  # who was added although unchecked or an individual without consent: sent at the owner's risk
     accounts, records = await _eligibility_inputs(db, people)
     running = camp.status == "running"
     for p in people:
@@ -573,6 +574,8 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
             skipped[verdict["code"]] += 1
             excluded.append({"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]})
             continue
+        if verdict["code"]:
+            warned.append({"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]})
         if addr:
             have_email.add(addr)
         if lead_id:
@@ -587,7 +590,9 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
                                status="active", next_action_at=now if running else None, variant=variant_for(eid) if varied else "a", vars=p.get("vars") or None))
     if not dry_run:
         await db.flush()
-    return {"added": added, "skipped": skipped, "excluded": excluded[:200], "excluded_total": len(excluded), "queued": not running}
+    return {"added": added, "skipped": skipped, "excluded": excluded[:200], "excluded_total": len(excluded),
+            "warned": warned[:200], "warned_total": len(warned), "warned_counts": {c: sum(1 for w in warned if w["code"] == c) for c in ("unchecked", "individual")},
+            "queued": not running}
 
 
 async def _eligibility_inputs(db: AsyncSession, people: List[Dict[str, Any]]):

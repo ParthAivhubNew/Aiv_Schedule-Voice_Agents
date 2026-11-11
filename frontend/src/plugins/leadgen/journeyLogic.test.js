@@ -65,8 +65,10 @@ describe("before starting", () => {
 
 describe("people kept out and queued", () => {
   it("says who was left out and that a draft waits for Start", () => {
-    const text = addedText({ added: 2, queued: true, excluded_total: 3, skipped: { problem: 1, unchecked: 1, individual: 1 } });
-    expect(text).toContain("3 left out for safety: 1 closed or wrong company number, 1 not checked yet, 1 individuals without consent.");
+    const text = addedText({ added: 4, queued: true, excluded_total: 1, skipped: { problem: 1 }, warned_total: 2, warned_counts: { unchecked: 1, individual: 1 } });
+    expect(text).toContain("1 left out: 1 closed or wrong company number.");
+    expect(text).toContain("Heads up: 1 not checked by us, 1 individuals with no consent recorded.");
+    expect(text).toContain("at your own risk");
     expect(text).toContain("They start when you press Start.");
   });
   it("counts a draft's people as queued and uses the singular", () => {

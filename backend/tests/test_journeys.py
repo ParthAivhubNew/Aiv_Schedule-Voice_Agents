@@ -11,7 +11,6 @@ from app.services import mail_transport as T
 from tests.test_email_outreach import MONDAY_10, _mailbox, _run, mail  # noqa: F401  (the fake mail server and helpers)
 
 EMAIL = {"channel": "email", "subject": "Hello {{company}}", "body": "Hi {{first_name}}, one question."}
-pytestmark = pytest.mark.usefixtures("funded_house_org")
 
 
 @pytest.fixture(autouse=True)
@@ -523,7 +522,7 @@ async def test_open_tasks_show_on_the_days_agenda_and_overdue_ones_on_today(clie
 
 
 @pytest.mark.db
-async def test_unchecked_closed_and_individual_people_are_kept_out_with_the_reason(client, db, mail):
+async def test_closed_people_are_kept_out_and_unchecked_or_individual_ones_are_added_with_a_warning(client, db, mail):
     mb = await _ready(client, db)
     j = await _journey(client, mb, [EMAIL])
     await _lead(db, id="g_ok", name="Good Ltd", email="ok@good.com")
@@ -536,11 +535,12 @@ async def test_unchecked_closed_and_individual_people_are_kept_out_with_the_reas
         ("g_ok", "Good Ltd", "ok@good.com"), ("g_dead", "Dead Ltd", "x@dead.com"), ("g_wrong", "Wrong Ltd", "x@wrong.com"),
         ("g_new", "Unchecked Ltd", "x@new.com"), ("g_cafe", "Harbour Cafe", "info@harbour.com"), ("g_cafe_ok", "Harbour Bistro", "info@bistro.com")]]
     out = (await client.post(f"/api/journeys/{j['id']}/people", json={"people": people})).json()
-    assert out["added"] == 2  # the verified company and the individual who gave consent
-    assert out["skipped"]["problem"] == 2 and out["skipped"]["unchecked"] == 1 and out["skipped"]["individual"] == 1
+    assert out["added"] == 4  # verified, individual with consent, and the two sent at the owner's risk
+    assert out["skipped"]["problem"] == 2 and out["skipped"]["unchecked"] == 0 and out["skipped"]["individual"] == 0
     why = {e["lead_id"]: e["code"] for e in out["excluded"]}
-    assert why == {"g_dead": "problem", "g_wrong": "problem", "g_new": "unchecked", "g_cafe": "individual"}
-    assert all(e["reason"] for e in out["excluded"])
+    assert why == {"g_dead": "problem", "g_wrong": "problem"}
+    assert {w["lead_id"]: w["code"] for w in out["warned"]} == {"g_new": "unchecked", "g_cafe": "individual"}
+    assert all(w["reason"] for w in out["warned"]) and out["warned_total"] == 2
 
 
 @pytest.mark.db
