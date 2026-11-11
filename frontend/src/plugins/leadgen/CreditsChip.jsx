@@ -120,7 +120,7 @@ export function CreditsChip({ onOpen, wallet = "leadgen", app = "Leads" }) {
   const tip = [
     `${c.balance.toLocaleString()} ${app} ${unit} left to spend.`,
     c.held ? `${c.held.toLocaleString()} more are held by a job that is running; whatever it doesn't use is given back.` : "",
-    `${c.used_30d.toLocaleString()} used in the last 30 days (${c.used_today.toLocaleString()} today).`,
+    `${c.used_30d.toLocaleString()} ${unit} used in the last 30 days (${c.used_today.toLocaleString()} today).`,
     c.empty ? `You are out of ${unit}. Top up to keep going.` : c.low ? "Running low." : "",
   ].filter(Boolean).join(" ");
   return (
@@ -130,7 +130,6 @@ export function CreditsChip({ onOpen, wallet = "leadgen", app = "Leads" }) {
       <strong style={{ fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
       <span className="hide-xs" style={{ color: C.slate }}>{unit}</span>
       {c.held ? <span style={{ color: C.slate, fontSize: 11.5 }}>· {c.held.toLocaleString()} on hold</span> : null}
-      <span className="hide-mobile" style={{ color: C.slate, fontSize: 11.5 }}>· {c.used_30d.toLocaleString()} used in the last 30 days</span>
     </button>
   );
 }
