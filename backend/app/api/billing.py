@@ -34,23 +34,20 @@ def _base() -> str:
 LIVE_SUB_STATUSES = ("active", "trialing", "past_due")
 
 
-def _is_aivhub_org(org_id: str) -> bool:
-    """Aivhub's own organisation, under whichever id it's known by. Same identifiers the
-    Telnyx/managed-assistant exclusion already uses (voice_assistants.enabled_for_org) —
-    Aivhub's house account is never a paying customer and must never be paywalled."""
+def _is_platform_org(org_id: str) -> bool:
+    """The OutReach platform record (it holds provider keys; nobody signs in to it). Aivhub itself is a
+    normal paying client, covered by its plans and credits exactly like every other company."""
     from app.core.auth_middleware import platform_org
-    from app.core.platform import AIVHUB_ORG
 
-    return org_id in (platform_org(), AIVHUB_ORG, "org_default", "org_outreach")
+    return org_id in (platform_org(), "org_outreach")
 
 
 async def _has_active_plan(db: AsyncSession, wallets_dict: List[Dict[str, Any]], org_id: str = "") -> Dict[str, bool]:
     """Per-wallet: may the org use this app: its subscription covers it with a live status, or
     the wallet has credits (one-off top-ups or staff grants: pay-as-you-go; credits held by a
     call in progress count, so the app never locks mid-call). Shared by /access (any operator)
-    and /overview (admin-only) so the rule lives in one place. Aivhub's own org always counts
-    as covered, on every wallet, regardless of whether a subscription row exists for it."""
-    if _is_aivhub_org(org_id):
+    and /overview (admin-only) so the rule lives in one place. Only the platform record is always covered."""
+    if _is_platform_org(org_id):
         return {w["key"]: True for w in wallets_dict}
     if not (await K.org_settings(db))["enforce"]:
         # Credit limits are switched off for this account (a partner's new accounts while the programme is free): every app is open,
@@ -130,7 +127,7 @@ async def checkout(body: CheckoutBody, request: Request, db: AsyncSession = Depe
 @router.get("/subscriptions")
 async def subscriptions(request: Request, db: AsyncSession = Depends(get_db)):
     """Each plugin's plan as Stripe has it now: which plan, when it renews, whether it is ending."""
-    _admin(request)
+    ctx = _admin(request)
     if not B.configured():
         return {}
     try:
@@ -145,10 +142,7 @@ async def subscriptions(request: Request, db: AsyncSession = Depends(get_db)):
         for item in fixed["ended"]:
             wallet, _, name = item.partition("|")
             await E.tell_ended(db, wallet, name or E.WALLET_NAME.get(wallet, wallet))
-        if fixed["repaired"] or fixed["ended"]:
-            from app.services.ai_errors import alert_staff
-
-            await alert_staff("BL-01", f"A plan was out of step with Stripe and was repaired: {', '.join(fixed['repaired'] + fixed['ended'])}.")
+        await B.alert_if_repeated(ctx.get("org_id", ""), fixed)
     except Exception as err:
         logger.warning(f"[billing] reconcile on page visit skipped: {err}")
     return {w: {k: v[k] for k in ("planId", "status", "periodEnd", "ending", "alone")} for w, v in live.items()}

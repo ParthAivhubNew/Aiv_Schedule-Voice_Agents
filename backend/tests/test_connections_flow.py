@@ -25,7 +25,7 @@ from app.services import connections as C
 from tests.conftest import make_user
 
 pytestmark = pytest.mark.db
-ORG = "org_default"  # the house organisation owns every plugin, so plans don't get in the way here
+ORG = "org_default"  # Aivhub's own company: a normal client, so a test needing the apps gives it credits
 
 
 def _client(token):
@@ -245,6 +245,12 @@ async def test_home_views_pipeline_actions_search_inbox_and_export(db):
     user, token = await make_user(db, "boss3", "Admin", org_id=ORG)
     user.email = "boss3@acme.test"
     await db.commit()
+    from app.services import credits as K
+
+    with org_scope(ORG):  # Aivhub is a normal client now: it has the apps it holds credits in, like anyone else
+        for wallet in ("voice", "leadgen", "scheduler"):
+            await K.add_credits(db, wallet, 100, source="grant", note="test")
+        await db.commit()
     async with _client(token) as c:
         accounts = (await c.post("/api/leads/accounts", json={"accounts": [
             {"name": "Kirkgate Dental", "phone": "01135500001", "email": "a@kirkgate.example"},

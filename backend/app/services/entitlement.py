@@ -49,12 +49,10 @@ LIVE_SUB_STATUSES = ("active", "trialing", "past_due")
 
 
 def is_platform_exempt(org_id: str) -> bool:
-    """Aivhub house accounts and platform staff orgs are exempt from paywalls."""
+    """Only the OutReach platform record is exempt from paywalls. Aivhub is a normal client like every other company."""
     from app.core.auth_middleware import platform_org
-    from app.core.platform import AIVHUB_ORG
 
-    exempt_ids = {platform_org(), AIVHUB_ORG, "org_default", "org_outreach"}
-    return org_id in exempt_ids
+    return org_id in {platform_org(), "org_outreach"}
 
 
 async def get_org_entitlements(db: AsyncSession, org_id: str) -> Dict[str, bool]:

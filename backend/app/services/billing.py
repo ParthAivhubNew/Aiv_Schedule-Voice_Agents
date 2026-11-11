@@ -35,6 +35,9 @@ STRIPE_API = "https://api.stripe.com/v1"
 TOLERANCE_S = 300
 MAX_TOPUP_QUANTITY = 99
 LIVE_SUB_STATUSES = ("active", "trialing", "past_due")  # a plan in one of these still works
+RENEWAL_GRACE = timedelta(hours=3)  # a period that began less than this ago is left to its webhook, not "repaired"
+REPEAT_REPAIRS = 3  # staff are emailed once a company has needed putting right on this many different days in 30
+SILENT_WEBHOOK = timedelta(days=3)
 
 
 def secret_key() -> str:
@@ -292,7 +295,9 @@ async def live_plans(db) -> Dict[str, Dict[str, Any]]:
             if not p:
                 continue
             end = _ts(it.get("current_period_end") or s.get("current_period_end"))
+            start = _ts(it.get("current_period_start") or s.get("current_period_start"))
             out[p.wallet] = {"planId": p.id, "status": s.get("status"), "periodEnd": end.isoformat() if end else None,
+                             "periodStart": start.isoformat() if start else None,
                              "ending": bool(s.get("cancel_at_period_end") or s.get("cancel_at")), "alone": len(items) == 1,
                              "subscription": s["id"], "item": it["id"]}
     return out
@@ -398,6 +403,9 @@ async def reconcile(db, live: Optional[Dict[str, Dict[str, Any]]] = None) -> Dic
         end = datetime.fromisoformat(info["periodEnd"]) if info.get("periodEnd") else None
         if end:
             periods.append(end)
+        start = datetime.fromisoformat(info["periodStart"]) if info.get("periodStart") else None
+        if start and now - start < RENEWAL_GRACE:
+            continue  # Stripe takes about an hour to charge a new period: its webhook is on the way, so leave this wallet to it
         if plans.get(wallet) != info["planId"]:
             plans[wallet] = info["planId"]
             sub.stripe_subscription_id = info.get("subscription") or sub.stripe_subscription_id
@@ -428,11 +436,35 @@ async def reconcile(db, live: Optional[Dict[str, Dict[str, Any]]] = None) -> Dic
     return {"repaired": repaired, "ended": ended}
 
 
+async def alert_if_repeated(org: str, out: Dict[str, List[str]]) -> None:
+    """A repair is already written to the company's billing history. Staff are emailed only when the same company has
+    needed one on REPEAT_REPAIRS different days in 30: a single late renewal is normal, a pattern means the webhook is failing."""
+    if not (out["repaired"] or out["ended"]):
+        return
+    from sqlalchemy import func, or_
+
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import BillingEvent
+    from app.services.ai_errors import alert_staff
+
+    since = datetime.utcnow() - timedelta(days=30)
+    with org_scope(org):
+        async with AsyncSessionLocal() as db:
+            days = (await db.execute(select(func.count(func.distinct(func.date(BillingEvent.at)))).where(
+                BillingEvent.org_id == org, BillingEvent.at > since,
+                or_(BillingEvent.kind == "repaired", BillingEvent.note.like("%daily check%"))))).scalar() or 0
+    if days >= REPEAT_REPAIRS:
+        await alert_staff("BL-01", f"This company's plan or credits were missing after a Stripe renewal on {days} different days in the last 30, and the daily check put them right each time. Stripe's messages for it are arriving late or not at all.", org_id=org)
+
+
 async def reconcile_all() -> Dict[str, int]:
-    """The daily pass: every company with a Stripe customer. A repair or a missed ending means a webhook was lost, so staff are warned."""
+    """The daily pass: every existing company with a Stripe customer. Repairs are logged in its billing history; staff are
+    emailed only for a repeating pattern (alert_if_repeated) or a silent webhook. A company that was deleted is skipped."""
+    from app.core.platform import PLATFORM_STATUS
     from app.core.tenancy import org_scope, system_scope
     from app.database import AsyncSessionLocal
-    from app.models.models import BillingSubscription
+    from app.models.models import BillingSubscription, Organization
     from app.services import billing_events as E
     from app.services.ai_errors import alert_staff
 
@@ -440,7 +472,12 @@ async def reconcile_all() -> Dict[str, int]:
         return {"companies": 0, "fixed": 0}
     with system_scope():
         async with AsyncSessionLocal() as db:
-            orgs = [r.id for r in (await db.execute(select(BillingSubscription).where(BillingSubscription.stripe_customer_id != ""))).scalars().all()]
+            subs = [r.id for r in (await db.execute(select(BillingSubscription).where(BillingSubscription.stripe_customer_id != ""))).scalars().all()]
+            status = {r[0]: r[1] for r in (await db.execute(select(Organization.id, Organization.status))).all()}
+    orgs = [s for s in subs if status.get(s) not in (None, PLATFORM_STATUS)]
+    gone = [s for s in subs if s not in status]
+    if gone:
+        logger.warning(f"[billing] {len(gone)} Stripe subscription(s) belong to deleted companies and were skipped: {', '.join(gone)}")
     fixed = 0
     for org in orgs:
         try:
@@ -453,7 +490,7 @@ async def reconcile_all() -> Dict[str, int]:
                         await E.tell_ended(db, wallet, name or E.WALLET_NAME.get(wallet, wallet))
             if out["repaired"] or out["ended"]:
                 fixed += 1
-                await alert_staff("BL-01", f"Put right {len(out['repaired'])} plan(s) and ended {len(out['ended'])} that were out of step with Stripe. Expected for plans bought before the webhook was connected.", org_id=org)
+                await alert_if_repeated(org, out)
         except Exception as err:
             logger.warning(f"[billing] daily check failed for {org}: {err}")
     if orgs:
@@ -465,6 +502,9 @@ async def reconcile_all() -> Dict[str, int]:
         # With the webhook set up, no message yet only means nothing has happened in Stripe since: that is not worth an alert.
         if not seen and not webhook_secret():
             await alert_staff("BL-01", "Companies have Stripe customers but STRIPE_WEBHOOK_SECRET is not set on the server, so Stripe's payment messages cannot be accepted.", org_id="platform")
+        # Silence alone is normal in a quiet week. Silence while the check had to fix companies is not.
+        if fixed and seen and datetime.fromisoformat(seen) < datetime.utcnow() - SILENT_WEBHOOK:
+            await alert_staff("BL-01", f"The daily check fixed {fixed} company(ies) and the last message from Stripe reached this server on {seen[:10]}. The webhook is probably not arriving.", org_id="platform")
     return {"companies": len(orgs), "fixed": fixed}
 
 

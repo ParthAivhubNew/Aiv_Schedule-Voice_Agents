@@ -35,7 +35,7 @@ CODES: Dict[str, str] = {
     # Staff only (never shown to customers).
     "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
     "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
-    "BL-01": "A plan was out of step with Stripe and the daily check put it right. Normal for plans bought before the webhook was connected; if it keeps happening, the webhook is not reaching the server.",
+    "BL-01": "Stripe's messages are arriving late or not at all: a company kept needing its plan or credits put right after renewals, or the webhook has gone quiet. The daily check already fixed what it found.",
 }
 STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert"}
 ALERTS_KEY = "staff_alerts"

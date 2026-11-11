@@ -165,11 +165,45 @@ async def test_the_daily_pass_repairs_every_company_and_warns_the_staff(client, 
         from app.services.ai_errors import alerts
 
         codes = [a["code"] for a in await alerts(db)]
-    assert "BL-01" in codes  # a repair means a webhook was lost, so the owner's portal says so
+    assert "BL-01" not in codes  # one repair is written to the billing history, not emailed to the owner
     assert (await B.reconcile_all())["fixed"] == 0  # nothing left to repair the second time
-    # the webhook secret is set, so "no message from Stripe yet" is not treated as a fault
-    assert [a for a in codes if a == "BL-01"] == ["BL-01"]
     _ = _get_doc
+
+
+async def test_a_company_needing_repairs_again_and_again_warns_the_staff(client, db, staff, stripe, mails, monkeypatch):
+    from app.core.tenancy import system_scope
+    from app.services import billing as B
+    from app.services.ai_errors import alerts
+
+    monkeypatch.setattr(B, "REPEAT_REPAIRS", 1)  # the real limit is 3 different days; one is enough to see the warning
+    await company_with_plan(db, staff, stripe, with_credits=False)
+    assert (await B.reconcile_all())["fixed"] == 1
+    with system_scope():
+        found = [a for a in await alerts(db) if a["code"] == "BL-01"]
+    assert len(found) == 1 and "different days" in found[0]["detail"]
+
+
+async def test_a_period_that_just_began_is_left_to_its_webhook(client, db, staff, stripe, mails):
+    """Stripe charges a renewal about an hour after the period starts: the check must not 'repair' in that gap."""
+    from app.services import billing as B
+
+    await company_with_plan(db, staff, stripe, with_credits=False)
+    stripe["subs"][0]["current_period_start"] = int(time.time()) - 30 * 60
+    assert (await B.reconcile_all())["fixed"] == 0
+    stripe["subs"][0]["current_period_start"] = int(time.time()) - 5 * 3600
+    assert (await B.reconcile_all())["fixed"] == 1  # still missing hours later: now it is a real miss
+
+
+async def test_a_deleted_company_is_not_checked(client, db, staff, stripe, mails):
+    from app.core.tenancy import org_scope
+    from app.models.models import BillingSubscription
+    from app.services import billing as B
+
+    await company_with_plan(db, staff, stripe, with_credits=False)
+    with org_scope("org_gone"):  # a subscription row left behind by a company that no longer exists
+        db.add(BillingSubscription(id="org_gone", stripe_customer_id="cus_gone", stripe_subscription_id="sub_gone", status="active", plans={}))
+        await db.commit()
+    assert (await B.reconcile_all())["companies"] == 1  # only the company that still exists
 
 
 async def test_a_plan_long_past_its_paid_period_stops_counting(db):

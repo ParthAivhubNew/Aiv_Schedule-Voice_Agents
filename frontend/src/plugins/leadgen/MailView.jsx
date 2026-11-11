@@ -88,7 +88,7 @@ async function save(blob, name) {
 }
 
 // ── Writing ─────────────────────────────────────────────────────────────────
-function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
+export function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
   const [form, setForm] = useState(() => ({
     mailbox_id: start.mailbox_id || boxes[0]?.id || "", from_address: "", to: start.to || "", cc: start.cc || "", bcc: "",
     subject: start.subject || "", in_reply_to_id: start.in_reply_to_id || "", draft_id: start.draft_id || "",
@@ -119,7 +119,8 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
       setForm((f) => ({ ...f, draft_id: r.message.id }));
       setSaved("Saved as draft");
       onDraftSaved && onDraftSaved();
-    } catch (_) { setSaved(""); }
+      return true;
+    } catch (_) { setSaved(""); return false; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
 
@@ -129,6 +130,11 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
     return () => clearTimeout(t);
   }, [form, saveDraft]);
 
+  // Closing keeps what was typed: anything changed since the last auto-save goes to Drafts first.
+  const closeKeep = async () => {
+    const kept = dirty.current ? await saveDraft() : Boolean(form.draft_id);
+    onClose(kept || Boolean(form.draft_id));
+  };
   const send = async () => {
     setBusy(true);
     setError("");
@@ -152,7 +158,7 @@ function Compose({ boxes, start, onClose, onSent, onDraftSaved }) {
       <div role="dialog" aria-label="Write an email" style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 720, maxHeight: "calc(100dvh - 24px)", display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,.25)" }}>
         <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, flex: 1, color: C.ink }}>{start.in_reply_to_id ? "Reply" : "New email"}</div>
-          <button type="button" className="ml-ibtn" aria-label="Close" onClick={() => onClose(Boolean(form.draft_id))}><X size={18} /></button>
+          <button type="button" className="ml-ibtn" aria-label="Close" onClick={closeKeep}><X size={18} /></button>
         </div>
         <div style={{ padding: "8px 16px", overflowY: "auto", flex: 1, minHeight: 0 }}>
           <div style={row}>
