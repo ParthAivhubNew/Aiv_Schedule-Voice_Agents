@@ -240,12 +240,12 @@ export function SubscriptionPage({ wallet, back }) {
                     {isMine ? (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 700, color: WALLET_COLOUR[wallet] }}><Check size={14} /> Your plan</span>
                     ) : current ? (
-                      <button type="button" style={btn(false, Boolean(busy))} disabled={Boolean(busy)} onClick={() => change(p)}>
-                        {p.priceUsdCents > current.priceUsdCents ? "Upgrade" : "Downgrade"}
+                      <button type="button" style={btn(false, busy === p.id)} disabled={Boolean(busy)} onClick={() => change(p)}>
+                        {busy === p.id ? "Working…" : p.priceUsdCents > current.priceUsdCents ? "Upgrade" : "Downgrade"}
                       </button>
                     ) : (
-                      <button type="button" style={btn(true, Boolean(busy))} disabled={Boolean(busy)} onClick={() => toStripe(p.id, () => api.startCheckout([p.id], [], back))}>
-                        <CreditCard size={13} /> Subscribe
+                      <button type="button" style={btn(true, busy === p.id)} disabled={Boolean(busy)} onClick={() => toStripe(p.id, () => api.startCheckout([p.id], [], back))}>
+                        <CreditCard size={13} /> {busy === p.id ? "Opening checkout…" : "Subscribe"}
                       </button>
                     )}
                   </div>
@@ -271,8 +271,8 @@ export function SubscriptionPage({ wallet, back }) {
                         style={{ width: 44, border: "none", textAlign: "center", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, padding: "7px 0", MozAppearance: "textfield" }} />
                       <button type="button" aria-label={`One more ${p.name}`} style={stepBtn} disabled={n >= MAX_QUANTITY} onClick={() => setN(n + 1)}>+</button>
                     </div>
-                    <button type="button" style={btn(true, Boolean(busy))} disabled={Boolean(busy)} onClick={() => toStripe(p.id, () => api.startCheckout([], [p.id], back, { [p.id]: n }))}>
-                      <CreditCard size={13} /> Buy {money(p.priceUsdCents * n, p.currency)}{vat}
+                    <button type="button" style={btn(true, busy === p.id)} disabled={Boolean(busy)} onClick={() => toStripe(p.id, () => api.startCheckout([], [p.id], back, { [p.id]: n }))}>
+                      <CreditCard size={13} /> {busy === p.id ? "Opening checkout…" : `Buy ${money(p.priceUsdCents * n, p.currency)}${vat}`}
                     </button>
                     {n > 1 && <span style={{ fontSize: 12, color: C.slate }}>{worth(p.credits * n)}</span>}
                   </div>
