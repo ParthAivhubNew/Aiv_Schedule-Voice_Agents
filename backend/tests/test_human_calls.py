@@ -108,7 +108,7 @@ async def test_refusals(db, phone, monkeypatch):
         assert (await begin(c, to="+33612345678")).status_code == 400  # country not switched on
         assert (await begin(c, record=True)).status_code == 400  # recording needs the confirmation
 
-        async def blocked(db_, to, now_utc=None):
+        async def blocked(db_, to, now_utc=None, kind="ai"):
             return compliance.CallGate(allowed=False, reasons=["This number opted out (do not call)."], warnings=[])
 
         monkeypatch.setattr(compliance, "check_call_allowed", blocked)

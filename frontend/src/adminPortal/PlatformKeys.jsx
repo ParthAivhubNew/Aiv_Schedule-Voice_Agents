@@ -6,6 +6,8 @@ import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useL
 import { PlatformAi } from "./PlatformAi";
 import { DataSourceFiles } from "./DataSourceFiles";
 import { DataCompliance } from "./DataCompliance";
+import { ConsentDeclarations } from "./ConsentDeclarations";
+import { FitWeights } from "./FitWeights";
 
 const NEEDS_PHONE = ["Telephony", "Messaging"];
 const blank = { key: "", model: "", baseUrl: "", phone: "" };
@@ -259,6 +261,12 @@ export function PlatformKeys({ canEdit }) {
           <div style={heading}>Email Finder & Discovery Keys</div>
           <WebSearchToggle canEdit={canEdit} />
           {renderGroupCards(LEADGEN_GROUPS)}
+
+          <div style={heading}>Fit score points</div>
+          <FitWeights canEdit={canEdit} />
+
+          <div style={heading}>Consent declarations</div>
+          <ConsentDeclarations canEdit={canEdit} />
         </div>
       )}
 

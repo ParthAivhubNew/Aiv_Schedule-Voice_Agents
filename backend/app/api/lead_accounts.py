@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
-from app.services import company_check, lead_cleaner, normalise, send_readiness
+from app.services import company_check, lead_cleaner, next_action, normalise, send_readiness
 from app.services import business_lookup, business_records, site_check
 from app.services import contact_points as CP
 from app.services import reveals as RV
@@ -252,8 +252,16 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
     from_record = [k for k, v in own.items() if not v and held.get(k)]
     on_file = _on_file(biz, held, own)
     shown = {k: (v or (_phone(held[k]) if k == "phone" and held.get(k) else held.get(k, ""))) for k, v in own.items()}
-    return {"found": _found(a), "connection": connection_fields(a),
-        "from_record": from_record, "on_file": on_file, "registry_contact": _registry_contact(biz), "completeness": _completeness_of(a, shown, biz),
+    elig = send_readiness.eligibility(a, biz)
+    conn = connection_fields(a)
+    reg = _registry_contact(biz)
+    step = next_action.decide({
+        "status": (biz.status if biz else "") or "", "verdict": (a.verification or {}).get("verdict", ""), "stage": conn["stage"],
+        "open_picks": sum(1 for fx in (a.verification or {}).get("fixes") or [] if fx.get("kind") == "pick" and not fx.get("applied")),
+        "last_contact_at": conn["last_contact_at"] or conn["last_called_at"], "email_ok": bool(elig["ok"] and elig["email"] and shown["email"]),
+        "has_email": bool(shown["email"]), "has_phone": bool(shown["phone"]), "director": (a.contact_name or (reg or {}).get("name") or "")})
+    return {"next_step": step, "found": _found(a), "connection": conn,
+        "from_record": from_record, "on_file": on_file, "registry_contact": reg, "completeness": _completeness_of(a, shown, biz),
         "id": a.id, "name": a.name, "domain": a.domain or _domain(shown["website"]), "website": shown["website"], "phone": shown["phone"],
         "email": shown["email"], "contact_name": a.contact_name or "", "contact_title": a.contact_title or "",
         "industry": shown["industry"], "region": shown["region"], "notes": a.notes or "", "source": a.source or "manual",
@@ -264,8 +272,10 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
         "registration_number": shown["registration_number"], "postcode": shown["postcode"], "address": shown["address"],
         "country": a.country or "", "linkedin_url": a.linkedin_url or "", "import_flags": a.import_flags or [],
         "consent_basis": a.consent_basis or "",
-        "send_block": (lambda e: {"code": e["code"], "reason": e["reason"]} if not e["ok"] else None)(send_readiness.eligibility(a)),
-        "send_warning": (lambda e: {"code": e["code"], "reason": e["reason"]} if e["ok"] and e["code"] else None)(send_readiness.eligibility(a)),
+        "send_block": {"code": elig["code"], "reason": elig["reason"]} if not elig["ok"] else None,
+        "send_warning": None,
+        "email_route": {"group": elig["group"], "email": elig["email"], "reason": elig["reason"]} if elig["ok"] else None,
+        "retention_flagged": bool(a.retention_flagged_at),
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
         "kind": "person" if is_person_account(a) else "company",
@@ -357,9 +367,13 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     """The Apollo-style filter search over the shared company store (the same one the chat runs).
     Free: it reads our own data and calls no paid service -- credits are only used when contacts
     are looked up. Every row is a stored record with its trust tier; nothing here is generated."""
+    from app.services import icp as ICP
     from app.services import lead_filters, phrase_understanding, search_resolve
 
     _refuse_bad_filters(body.filters)
+    fit_ctx = await ICP.context(db)  # this organisation's ICP and the weights, or None: no score is shown without one
+    if body.sort == "fit" and not fit_ctx:
+        body.sort = "best"
     default_on = False
     if not body.area and not body.exclude_ids:
         body.filters, default_on = business_records.with_default_browse(body.filters)  # nothing asked for: open on software companies
@@ -377,18 +391,22 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
             import time
 
             key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms, default_on)
-            shareable = not body.exclude_ids and not shown_filters.get("saved")  # a "my saved lists" page depends on the organisation: never shared
+            # A "my saved lists" page, or one in this organisation's fit order, depends on the organisation: never shared.
+            shareable = not body.exclude_ids and not shown_filters.get("saved") and body.sort != "fit"
             hit = _PAGE_CACHE.get(key) if shareable else None
             if hit and time.monotonic() - hit[0] < hit[2]:
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
-                shown = await RV.mask(db, cached["companies"])
-                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown]}
+                shown = await ICP.attach_to_cards(db, await RV.mask(db, cached["companies"]), fit_ctx)
+                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown], "icp_set": bool(fit_ctx)}
             def run(f):
                 opening = bool(f.get("complete_first"))
-                return (business_records.opening_page if opening else business_records.search_filtered)(
-                    db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
-                    sort=body.sort if body.sort in business_records.SORTS else "best", **({} if opening else {"stats": False}))
+                sort = body.sort if body.sort in business_records.SORTS else "best"
+                if opening:
+                    return business_records.opening_page(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                                                         sort="best" if sort == "fit" else sort)
+                return business_records.search_filtered(db, f, limit=body.limit, offset=body.offset, exclude_ids=body.exclude_ids,
+                                                        sort=sort, stats=False, fit=fit_ctx)
 
             out, understood, relaxed_by = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
             out = {**out, "relaxed": relaxed_by}
@@ -417,7 +435,9 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     cards = [lead_filters.card(r) for r in out["rows"]]
     mine = await business_records.saved_ids(db, [c["id"] for c in cards])
     shown = await RV.mask(db, cards)  # the page cache below keeps the unmasked cards: it is shared, each organisation is masked on the way out
-    answer = {"companies": [{**c, "saved": c["id"] in mine} for c in shown], "total": out["total"],
+    shown = await ICP.attach_to_cards(db, shown, fit_ctx)
+    answer = {"companies": [{**c, "saved": c["id"] in mine} for c in shown], "total": out["total"], "icp_set": bool(fit_ctx),
+              "sort_used": out.get("sort_used", body.sort),
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),
               "next_scan": out.get("next_scan"), "understood": understood,
               "tiers": out.get("tiers"), "saved_total": out.get("saved_total"), "total_all": out.get("total_all"), "ranked": out.get("ranked", True),
@@ -487,8 +507,11 @@ async def search_select_all(body: SelectAllIn, db: AsyncSession = Depends(get_db
     _refuse_bad_filters(body.filters)
     if not body.exclude_ids:
         body.filters, _ = business_records.with_default_browse(body.filters)
+    from app.services import icp as ICP
+
     want = select_all_limit(body.limit)
     sort = body.sort if body.sort in business_records.SORTS else "best"
+    fit_ctx = await ICP.context(db) if sort == "fit" else None  # the same order the pages showed
     rows: List[Any] = []
     seen: set = set()
     total, capped = 0, False
@@ -498,9 +521,11 @@ async def search_select_all(body: SelectAllIn, db: AsyncSession = Depends(get_db
             step = min(_SELECT_STEP, want - len(rows))
 
             def run(f, _offset=offset, _step=step):
-                opening = bool(f.get("complete_first"))
-                return (business_records.opening_page if opening else business_records.search_filtered)(
-                    db, f, limit=_step, offset=_offset, exclude_ids=body.exclude_ids, sort=sort, **({} if opening else {"stats": False}))
+                if f.get("complete_first"):
+                    return business_records.opening_page(db, f, limit=_step, offset=_offset, exclude_ids=body.exclude_ids,
+                                                         sort="best" if sort == "fit" else sort)
+                return business_records.search_filtered(db, f, limit=_step, offset=_offset, exclude_ids=body.exclude_ids, sort=sort,
+                                                        stats=False, fit=fit_ctx)
 
             out, _, _ = await search_resolve.resolve(db, body.filters, body.drop_terms, run, relax=not body.exclude_ids)
             if not offset:
@@ -849,6 +874,21 @@ async def company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
     return {"company": await CP.build(db, biz)}
 
 
+@router.get("/companies/{company_id}/news")
+async def company_news(company_id: str, db: AsyncSession = Depends(get_db)):
+    """Phase 7e: one recent news line, only for companies that fit well (see company_news)."""
+    from app.services import company_news as CN, company_profile as CP, fit_score as FS, icp as ICP
+
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if not biz:
+        raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+    ctx = await ICP.context(db)
+    fit = FS.fit(biz, ctx[0], FS.signals(biz), FS.contacts_of(biz), ctx[1]) if ctx else None
+    out = await CN.news_for(db, biz, (fit or {}).get("score"))
+    await db.commit()
+    return out
+
+
 class PersonEmailIn(BaseModel):
     name: str  # the officer's name as the register gives it: the key the found email is kept under
     first_name: str
@@ -903,8 +943,8 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
     lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
         card = lead_filters.card(biz)
-        await add_accounts(AccountsIn(accounts=[AccountIn(name=biz.name, website=card["website"] or card["web_website"], phone=card["phone"] or card["web_phone"], email=card["email"] or card["web_email"],
-                                                          industry=card["industry"], region=card["region"], source="scout", business_record_id=biz.id)], list_name="Unsorted"), db)
+        await save_accounts(db, AccountsIn(accounts=[AccountIn(name=biz.name, website=card["website"] or card["web_website"], phone=card["phone"] or card["web_phone"], email=card["email"] or card["web_email"],
+                                                          industry=card["industry"], region=card["region"], source="scout", business_record_id=biz.id)], list_name="Unsorted"), "")
         lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
         raise HTTPException(status_code=400, detail="This company couldn't be saved, so it can't be added.")
@@ -1192,6 +1232,25 @@ async def reveal_contact(company_id: str, body: RevealIn, db: AsyncSession = Dep
     return {"company": await RV.mask_one(db, card)}
 
 
+class RevealManyIn(BaseModel):
+    ids: List[str] = []
+
+
+MAX_REVEAL_MANY = 500
+
+
+@router.post("/companies/reveal-many")
+async def reveal_many(body: RevealManyIn, db: AsyncSession = Depends(get_db)):
+    """Open everything our registry holds for these companies, in one go. Free; it never charges credits."""
+    ids = list(dict.fromkeys(i for i in body.ids if i))
+    if len(ids) > MAX_REVEAL_MANY:
+        raise HTTPException(status_code=400, detail=f"Open up to {MAX_REVEAL_MANY} companies at a time.")
+    rows = (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(ids)))).scalars().all() if ids else []
+    before = await RV.opened(db, ids)
+    seen = await RV.open_many(db, rows, before)
+    return {"companies": await RV.mask(db, [lead_filters_card(b) for b in rows]), "opened": len(seen - before)}
+
+
 class ChooseIn(BaseModel):
     kind: str  # website | phone | email | linkedin
     value: str
@@ -1377,8 +1436,11 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
 
 
 @router.get("/accounts")
-async def list_accounts(db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(LeadAccount).order_by(LeadAccount.created_at.desc()))).scalars().all()
+async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_db)):
+    q = select(LeadAccount).order_by(LeadAccount.created_at.desc())
+    if retention:  # only the companies the 12-month retention sweep flagged
+        q = q.where(LeadAccount.retention_flagged_at.isnot(None))
+    rows = (await db.execute(q)).scalars().all()
     biz_ids = [r.business_record_id for r in rows if r.business_record_id]
     registry_by_id: Dict[str, BusinessRecord] = {}
     if biz_ids:
@@ -1386,7 +1448,11 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
         registry_by_id = {b.id: b for b in biz_rows}
     seen = await RV.opened(db, registry_by_id.keys())
     seen = await RV.open_for_saved(db, registry_by_id.values(), seen)  # saved to a list: what the register holds is shown, not hidden
-    return {"accounts": [_out(a, registry_by_id.get(a.business_record_id), seen) for a in rows]}
+    from app.services import icp as ICP
+
+    fit_ctx = await ICP.context(db)
+    scored = await ICP.score_accounts(db, rows, registry_by_id, fit_ctx)
+    return {"accounts": [{**_out(a, registry_by_id.get(a.business_record_id), seen), **scored[a.id]} for a in rows], "icp_set": bool(fit_ctx)}
 
 
 async def _outs(db: AsyncSession, rows: List[LeadAccount]) -> List[Dict[str, Any]]:
@@ -1466,7 +1532,14 @@ async def _register_match(db: AsyncSession, name: str, regno: str, postcode: str
 
 
 @router.post("/accounts")
-async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
+async def add_accounts_route(body: AccountsIn, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.core.auth_middleware import current
+
+    who = current(request)
+    return await save_accounts(db, body, who.get("name") or who.get("username") or "")
+
+
+async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[str, Any]:
     """Save one or many accounts. A company already saved (same website, or same name when there
     is no website) is skipped, so saving a search twice or re-importing a file adds no copies. When the
     match comes from an import, what the file holds fills the saved company's blanks and its file columns,
@@ -1645,6 +1718,9 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
             row.source = "import"
         row.updated_at = datetime.utcnow()
         updated.append(row)
+    from app.services import eligibility as _EL
+
+    await _EL.classify(db, added + updated)  # free: our own register copy only, so every saved company has its email group at once
     await db.commit()
     from app.core.tenancy import current_org
     from app.services import connections as _C
@@ -1664,7 +1740,7 @@ async def add_accounts(body: AccountsIn, db: AsyncSession = Depends(get_db)):
     if body.list_id or body.list_name.strip():
         from app.api.lead_lists import put_in_list
 
-        out["list"] = await put_in_list(db, body.list_id, body.list_name, [a.id for a in added] + matched)
+        out["list"] = await put_in_list(db, body.list_id, body.list_name, [a.id for a in added] + matched, owner=owner)
     return out
 
 

@@ -35,7 +35,14 @@ _FIELDS = ("name", "registration_number", "domain", "website", "phone", "email",
            "industry", "region", "employee_estimate", "description", "status", "company_category",
            "incorporation_date")
 _LIST_FIELDS = ("officers", "significant_control")  # JSON lists, fetched per-company only -- see fetch_profile
-_DERIVED = ("sic_text", "sic_codes", "postcode", "incorporated_on", "size_band")
+_DERIVED = ("sic_text", "sic_codes", "postcode", "incorporated_on", "size_band", "accounts_due_on", "last_accounts_on", "confstmt_due_on", "last_confstmt_on")
+# Column -> where the register publishes it: the bulk file's header, then the live API's nested path.
+REGISTER_DATES = {
+    "accounts_due_on": ("Accounts.NextDueDate", ("accounts", "next_due")),
+    "last_accounts_on": ("Accounts.LastMadeUpDate", ("accounts", "last_accounts", "made_up_to")),
+    "confstmt_due_on": ("ConfStmtNextDueDate", ("confirmation_statement", "next_due")),
+    "last_confstmt_on": ("ConfStmtLastMadeUpDate", ("confirmation_statement", "last_made_up_to")),
+}
 
 # What a company's filed-accounts category tells us about its size. This is the accounts regime it
 # files under, NOT headcount: "micro" means it meets the micro-entity thresholds (turnover under
@@ -134,6 +141,15 @@ def derive_search_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     band = SIZE_BANDS.get(str(data.get("accounts_category") or "").strip().upper())
     if band:
         out["size_band"] = band
+    raw = data.get("raw") if isinstance(data.get("raw"), dict) else data
+    flat = {str(k).strip(): v for k, v in raw.items()}  # some bulk-file headers carry a stray leading space
+    for col, (header, path) in REGISTER_DATES.items():
+        nested: Any = raw
+        for step in path:
+            nested = nested.get(step) if isinstance(nested, dict) else None
+        when = parse_date(flat.get(header) or (nested if isinstance(nested, str) else ""))
+        if when:
+            out[col] = when
     return out
 
 
@@ -341,6 +357,8 @@ async def bulk_upsert(db: AsyncSession, *, source_id: str, rows: List[Dict[str, 
                            else_=func.coalesce(func.nullif(table.c[f], ""), stmt.excluded[f])) for f in _FIELDS}
     update_cols.update({f: case((only_this_source, func.coalesce(stmt.excluded[f], table.c[f])),
                                 else_=func.coalesce(table.c[f], stmt.excluded[f])) for f in _DERIVED})
+    # Only the register publishes filing dates, and they move every year: its newest file always wins, even on a shared row.
+    update_cols.update({f: func.coalesce(stmt.excluded[f], table.c[f]) for f in REGISTER_DATES})
     update_cols.update({
         "rank_score": func.greatest(table.c.rank_score, stmt.excluded.rank_score),  # ignores NULL; never lowers what a lookup earned
         "confidence_tier": "verified_registry",
@@ -485,14 +503,21 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
-               "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity")
+               "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
+               "company_types", "exclude_charities",
+               # Phase 4: radius, register signals; Phase 7d: website signals
+               "near", "signals", "site")
 COUNT_CAP = 10_000
 # A trade search returns companies whose MAIN activity is the trade. When fewer than this many do, the search also takes
 # companies that list the trade only as a side activity (a later SIC code), and says so ("broadened").
 BROADEN_BELOW = 5
 DIRECTORY_SITES = ("food.gov.uk", "facebook.com", "yell.com", "tripadvisor.", "linkedin.com", "instagram.com", "twitter.com", "companieshouse.gov.uk",
                    "company-information.service.gov.uk", "google.com/maps", "192.com", "yelp.")
-_NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
+_NEEDS_ONE_OF = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals")
+SIGNAL_KEYS = ("new_director", "accounts_due", "filed_late", "new_company")
+SITE_KEYS = ("mtd", "hiring", "software")
+_DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
+MAX_DISTRICTS = 120
 
 
 def _like(term: str, *, prefix_only: bool = False, exact: bool = False) -> str:
@@ -546,12 +571,17 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     """Keeps only the filter keys we know, in a predictable shape, so a model-written filter dict
     can never inject anything else into the query."""
     out: Dict[str, Any] = {}
-    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands", "not_keyword", "not_towns", "not_company_category"):
+    from app.services.fit_score import COMPANY_TYPES
+
+    for key in ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "size_bands", "not_keyword", "not_towns", "not_company_category",
+                "company_types"):
         values = _as_list((filters or {}).get(key))
         if key == "sic_codes":
             values = [re.sub(r"\D", "", v) for v in values if re.sub(r"\D", "", v)]
         if key == "size_bands":
             values = [v for v in values if v in {"micro", "small", "medium_large", "dormant"}]
+        if key == "company_types":
+            values = [v for v in dict.fromkeys(values) if v in COMPANY_TYPES]
         if key in ("keyword", "sector", "not_keyword"):
             values = [v for v in values if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2]
         if values:
@@ -567,9 +597,24 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if value >= 0:
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first"):
+    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
+                "exclude_charities"):
         if (filters or {}).get(key):
             out[key] = True
+    # Phase 4: "within N miles of a postcode" arrives as the districts inside the radius (see icp._districts_within)
+    near = (filters or {}).get("near")
+    if isinstance(near, dict):
+        districts = list(dict.fromkeys(d for d in (str(x).strip().upper() for x in (near.get("districts") or [])) if _DISTRICT.fullmatch(d)))[:MAX_DISTRICTS]
+        try:
+            miles = min(50.0, max(0.5, float(near.get("miles"))))
+        except (TypeError, ValueError):
+            miles = 0.0
+        if districts and miles:
+            out["near"] = {"postcode": str(near.get("postcode") or "").strip().upper()[:10], "miles": miles, "districts": districts}
+    for key, allowed in (("signals", SIGNAL_KEYS), ("site", SITE_KEYS)):
+        picked = [v for v in dict.fromkeys(_as_list((filters or {}).get(key))) if v in allowed]
+        if picked:
+            out[key] = picked
     if str((filters or {}).get("saved") or "") in ("only", "exclude"):  # your own lists: only companies already in one, or none of them
         out["saved"] = str(filters["saved"])
     # Exactly "Active" unless the caller deliberately asks for something else or "any".
@@ -691,6 +736,10 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(B.company_category.ilike(_like(f["company_category"]), escape="\\"))
     if f.get("size_bands"):
         conds.append(B.size_band.in_(f["size_bands"]))
+    if f.get("company_types"):
+        conds.append(or_(*[_type_match(t) for t in f["company_types"]]))
+    if f.get("exclude_charities"):
+        conds.append(~_charity())
     today = datetime.utcnow().date()
 
     def years_ago(years: float):
@@ -728,6 +777,12 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
     if not _wants_non_business(f):  # a school, nursery, church or community place without a company number is not a business lead
         conds.append(~and_(func.coalesce(B.registration_number, "") == "",
                            or_(func.coalesce(B.industry, "").op("~*")(_NB_INDUSTRY), B.name.op("~*")(_NB_NAME))))
+    if f.get("near"):
+        conds.append(or_(*[_postcode_match(d) for d in f["near"]["districts"]]))
+    if f.get("signals"):
+        conds.append(or_(*[_signal_condition(k, today) for k in f["signals"]]))
+    if f.get("site"):  # reads a JSON field with no index: only sensible behind a narrowing filter
+        conds.append(or_(*[_site_condition(k) for k in f["site"]]))
     if f.get("saved"):
         from app.models.models import LeadAccount
 
@@ -736,7 +791,88 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
     return conds
 
 
-SORTS = ("best", "newest", "name")
+def _signal_condition(key: str, today: Any) -> Any:
+    """One "reason to get in touch now", on the same windows fit_score.signals uses. Closed companies never match."""
+    from app.services import fit_score as FS
+
+    B = BusinessRecord
+    if key == "accounts_due":
+        return B.accounts_due_on.between(today, today + timedelta(days=FS.DUE_SOON_DAYS))
+    if key == "filed_late":
+        return and_(func.lower(func.coalesce(B.status, "")) == "active", or_(B.accounts_due_on < today, B.confstmt_due_on < today))
+    if key == "new_company":
+        return B.incorporated_on > today - timedelta(days=FS.NEW_COMPANY_DAYS)
+    # new_director: officers is a JSON list filled per company, so only companies whose directors were already read can match.
+    # Dates are ISO strings, so a string comparison is exact and needs no cast.
+    since = (today - timedelta(days=FS.NEW_DIRECTOR_DAYS)).isoformat()
+    return text(
+        "EXISTS (SELECT 1 FROM json_array_elements(CASE WHEN json_typeof(business_records.officers) = 'array' "
+        "THEN business_records.officers ELSE '[]'::json END) o "
+        "WHERE o->>'resigned_on' IS NULL AND o->>'appointed_on' >= :nd_since)"
+    ).bindparams(nd_since=since)
+
+
+def _site_condition(key: str) -> Any:
+    """What the company's own website said when we last read it (see site_signals)."""
+    col = func.json_extract_path_text(BusinessRecord.raw_data, "site_signals", "software" if key == "software" else key)
+    if key == "software":
+        return and_(col.isnot(None), col != "[]", col != "")
+    return col == "true"
+
+
+def _type_match(key: str) -> Any:
+    """The same company-type rule as fit_score.type_of, on the category column."""
+    from app.services.fit_score import COMPANY_TYPES
+
+    _, want, never = COMPANY_TYPES[key]
+    cat = func.coalesce(BusinessRecord.company_category, "")
+    return and_(or_(*[cat.ilike(f"%{w}%") for w in want]), *[~cat.ilike(f"%{n}%") for n in never])
+
+
+def _charity() -> Any:
+    """The same rule as fit_score.is_charity: the register type says charity, a charity-register number, or the charity register is a source."""
+    B = BusinessRecord
+    return or_(func.coalesce(B.company_category, "").ilike("%charit%"), func.coalesce(B.registration_number, "").like("CC-%"),
+               cast(B.sources, String).like('%"ds_charity_commission"%'))
+
+
+SORTS = ("best", "newest", "name", "fit")
+
+
+def fit_order(icp: Dict[str, Any], weights: Dict[str, int], today=None) -> Any:
+    """The fit score as one SQL number, so "Best fit" can order a whole search before a page is read. It mirrors
+    fit_score.fit on the stored columns; the reasons and the exact score shown come from fit_score.fit on each row of the
+    page. Two parts only the full row can answer are counted from what the column holds: any director on file, and an
+    email a register itself published (the charity register) (an email checked for this organisation is in the shown score, not in the order)."""
+    from app.services import fit_score as FS
+
+    B = BusinessRecord
+    today = today or datetime.utcnow().date()
+    w = weights or FS.DEFAULT_WEIGHTS
+    pts: List[Any] = []
+    want_sic, want_types = icp.get("sic_codes") or [], icp.get("company_types") or []
+    if want_sic or want_types:
+        share = w["type_sic"] / (2 if want_sic and want_types else 1)
+        if want_sic:
+            pts.append(case((or_(*[B.sic_codes.like(f"%|{c}%") for c in want_sic]), share), else_=0))
+        if want_types:
+            pts.append(case((or_(*[_type_match(t) for t in want_types]), share), else_=0))
+    if icp.get("size_bands"):
+        pts.append(case((B.size_band.in_(icp["size_bands"]), w["size"]), else_=0))
+    prefixes = FS.area_prefixes(icp)
+    if prefixes:
+        pts.append(case((or_(*[_postcode_match(p) for p in prefixes]), w["area"]), else_=0))
+    has_director = and_(B.officers.isnot(None), cast(B.officers, String).ilike('%director%'))
+    pts.append(case((has_director, w["director"]), else_=0))
+    pts.append(case((and_(B.confidence_tier == "verified_registry", func.coalesce(B.email, "") != "", cast(B.sources, String).like('%"ds_charity_commission"%')), w["email"]), else_=0))
+    soon = today + timedelta(days=FS.DUE_SOON_DAYS)
+    n_signals = (case((B.accounts_due_on.between(today, soon), 1), else_=0) + case((B.confstmt_due_on.between(today, soon), 1), else_=0)
+                 + case((B.incorporated_on > today - timedelta(days=FS.NEW_COMPANY_DAYS), 1), else_=0))
+    pts.append(case((n_signals >= 2, w["signals"]), (n_signals == 1, w["signals"] * 0.7), else_=0))
+    total = pts[0]
+    for p in pts[1:]:
+        total = total + p
+    return total
 
 
 def _primary_trade_first(f: Dict[str, Any]) -> list:
@@ -752,10 +888,13 @@ def _primary_trade_first(f: Dict[str, Any]) -> list:
     return [case((or_(*[BusinessRecord.sic_codes.like(f"|{c}%") for c in codes]), 0), else_=1)]
 
 
-def _order(sort: str, f: Optional[Dict[str, Any]] = None, broadened: bool = False) -> list:
+def _order(sort: str, f: Optional[Dict[str, Any]] = None, broadened: bool = False, fit: Optional[Tuple[Dict[str, Any], Dict[str, int]]] = None) -> list:
     """Best match: filled-in, well-known companies first (see rank_score_of); the others re-order the same results.
-    A broadened search lists the companies whose main activity is the trade before the side-activity ones."""
+    A broadened search lists the companies whose main activity is the trade before the side-activity ones.
+    Best fit (needs the organisation's ICP in `fit`): highest fit first, the best match order breaking ties."""
     B = BusinessRecord
+    if sort == "fit" and fit:
+        return [fit_order(*fit).desc(), B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
     if sort == "name":
         return [func.lower(B.name), B.id]
     first = _primary_trade_first(f or {})
@@ -794,7 +933,7 @@ async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = 
     return (wide, m, True) if m > n else (strict, n, False)
 
 
-NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains")
+NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals")
 # Main SIC divisions that are not trading: education, health, social work, membership and religious bodies, public bodies, dormant and non-trading.
 NON_COMMERCIAL_SIC = r"^(84|85|86|87|88|91|94|97|98|99|74990)"
 NON_COMMERCIAL_CATEGORY = r"(charit|community interest|industrial|unincorporated|royal charter)"
@@ -1076,7 +1215,7 @@ async def saved_ids(db: AsyncSession, ids: List[str]) -> set:
 
 async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: int = 25, offset: int = 0,
                           exclude_ids: Optional[List[str]] = None, sort: str = "best", stats: bool = True,
-                          broaden: bool = True) -> Dict[str, Any]:
+                          broaden: bool = True, fit: Optional[Tuple[Dict[str, Any], Dict[str, int]]] = None) -> Dict[str, Any]:
     """The Apollo-style structured search over the shared store: every filter is an exact,
     explainable condition on a real column (nothing fuzzy or semantic), so the same filters always
     return the same companies and each result can be traced to the field that matched. Needs at
@@ -1094,14 +1233,17 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
 
     t0 = time.monotonic()
     ranked = await ranking_ready(db)
-    used = sort if ranked or sort != "best" else "newest"
+    asked = sort
+    if sort == "fit" and not (fit and has_narrowing(f)):
+        sort = "best"  # no ICP, or the whole register: scoring every company is not a search, so the best match order stands in
+    used = sort if ranked or sort != "best" else "newest"  # fit scores the narrowed set itself; it needs no rank index
     if used == "name" and not has_narrowing(f) and not await name_sort_ready(db):
         used = "newest"  # A to Z over the whole register needs its index: shown newest-first rather than timing out
     t1 = time.monotonic()
     where, total, broadened = await matching(db, f, extra, count=_capped_count, broaden=broaden)
     t2 = time.monotonic()
     rows = (await db.execute(
-        select(BusinessRecord).where(where).order_by(*_order(used, f, broadened))
+        select(BusinessRecord).where(where).order_by(*_order(used, f, broadened, fit))
         .limit(limit).offset(max(0, int(offset or 0)))
     )).scalars().all()
     t3 = time.monotonic()
@@ -1109,7 +1251,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     if t3 - t0 > 3:
         logger.warning(f"[business_records] slow search {timing} ranked={ranked} sort={sort} filters={f}")
     out = {"rows": list(rows), "total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "filters": f, "ranked": ranked,
-           "timing_ms": timing, "broadened": broadened, "sort_used": used, "sort_asked": sort}
+           "timing_ms": timing, "broadened": broadened, "sort_used": used, "sort_asked": asked}
     if stats and ranked:
         out.update(await result_stats(db, where, out["total"]))
     elif stats:

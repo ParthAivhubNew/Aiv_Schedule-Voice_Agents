@@ -99,6 +99,23 @@ export const adminApi = {
   disableWebhook: (id) => request(`/developer-access/webhooks/${q(id)}/disable`, { method: "POST" }),
   emailFinderReport: (days = 7) => request(`/email-finder-report?days=${q(days)}`),
   setEmailFinderOrder: (order) => request("/email-finder-order", { method: "PUT", body: { order } }),
+  fitWeights: () => request("/fit-weights"),
+  setFitWeights: (weights) => request("/fit-weights", { method: "PUT", body: { weights } }),
+  consentList: (orgId = "") => request(`/consent?org_id=${q(orgId)}`),
+  revokeConsent: (id, reason) => request(`/consent/${q(id)}/revoke`, { method: "POST", body: { reason } }),
+  // The proof is a private file, so it is fetched with the staff token and saved from memory (a plain link would carry no sign-in).
+  consentProof: async (id, fallbackName = "proof") => {
+    const token = read(TOKEN_KEY);
+    const res = await fetch(`/api/admin-api/consent/${q(id)}/proof`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))).detail) || `Request failed (${res.status})`);
+    const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get("content-disposition") || "")?.[1];
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name ? decodeURIComponent(name) : fallbackName;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   sessionPolicy: () => request("/session-policy"),
   setSessionPolicy: (idle_minutes, max_hours) => request("/session-policy", { method: "PUT", body: { idle_minutes, max_hours } }),
   webSearch: () => request("/web-search"),

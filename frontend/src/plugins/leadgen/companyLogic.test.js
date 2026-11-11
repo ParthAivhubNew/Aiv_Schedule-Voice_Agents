@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contactRows, filingRows, orgGroups, niceName, orderSignals, peopleCount, personEmail, personMeta, personName, shortDate, subLine } from "./companyLogic";
+import { contactRows, displayName, filingRows, legalTag, orgGroups, niceName, orderSignals, peopleCount, personEmail, personMeta, personName, shortDate, subLine } from "./companyLogic";
 
 describe("how a company is named and described", () => {
   it("makes an all-capitals register name readable and leaves mixed case alone", () => {
@@ -98,5 +98,43 @@ describe("a person's work email", () => {
   });
   it("is empty for a person nobody looked up", () => {
     expect(personEmail({}, { name: "LEE, Ann" })).toEqual({});
+  });
+});
+
+describe("legal tag and short name", () => {
+  const labels = ["Private Limited Company", "Public Limited Company", "Limited Liability Partnership", "Private Unlimited Company", "Private Limited Company limited by guarantee",
+    "Limited Partnership", "Scottish Partnership", "Industrial and Provident Society", "Registered Society", "Royal Charter Company", "Charitable Incorporated Organisation", "Overseas Company"];
+  const keys = ["ltd", "plc", "llp", "private-unlimited", "private-limited-guarant-nsc", "private-limited-guarant-nsc-limited-exemption", "limited-partnership", "scottish-partnership",
+    "industrial-and-provident-society", "registered-society-non-jurisdictional", "royal-charter", "charitable-incorporated-organisation", "oversea-company"];
+
+  it("maps each register type to one short tag", () => {
+    expect(legalTag("Private Limited Company")).toBe("Ltd");
+    expect(legalTag("Public Limited Company")).toBe("PLC");
+    expect(legalTag("Limited Liability Partnership")).toBe("LLP");
+    expect(legalTag("Private Unlimited Company")).toBe("Unlimited");
+    expect(legalTag("Limited Partnership")).toBe("LP");
+    expect(legalTag("Industrial and Provident Society")).toBe("Society");
+    expect(legalTag("Registered Society")).toBe("Society");
+    expect(legalTag("Charitable Incorporated Organisation")).toBe("Charity");
+    expect(legalTag("Overseas Company")).toBe("Overseas");
+    expect(legalTag("PRI/LBG/NSC (Private, Limited by guarantee, no share capital)")).toBe("Ltd");
+    expect(legalTag("Community Interest Company")).toBe("CIC");
+    expect(legalTag("Anything", "CC-123456")).toBe("Charity");
+    expect(legalTag("")).toBe("");
+  });
+
+  it("never returns a raw code for any type the register uses", () => {
+    [...keys, ...labels].forEach((c) => expect(legalTag(c)).toMatch(/^(Ltd|LLP|PLC|Charity|CIC|LP|Unlimited|Society|Overseas|)$/));
+    keys.forEach((k) => expect(legalTag(k)).not.toBe(k));
+    expect(legalTag("ltd")).toBe("Ltd");
+    expect(legalTag("private-limited-guarant-nsc")).toBe("Ltd");
+    expect(legalTag("oversea-company")).toBe("Overseas");
+  });
+
+  it("drops a trailing Limited, Ltd, LLP or PLC and title-cases the rest", () => {
+    expect(displayName("BRIGHT CAFE LIMITED")).toBe("Bright Cafe");
+    expect(displayName("Joe's Kitchen Ltd")).toBe("Joe's Kitchen");
+    expect(displayName("TESCO PLC")).toBe("Tesco");
+    expect(displayName("LIMITED")).toBe("Limited");
   });
 });

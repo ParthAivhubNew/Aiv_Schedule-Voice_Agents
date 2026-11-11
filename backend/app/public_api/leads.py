@@ -192,7 +192,7 @@ async def _contacts_for(db: AsyncSession, biz: BusinessRecord, mode: str, web_bu
 
 async def _save_leads(db: AsyncSession, rows: List[BusinessRecord], contacts: Dict[str, List[Dict[str, Any]]]) -> Dict[str, str]:
     """Save found companies as leads (skipping ones already saved). Returns business id -> lead id."""
-    from app.api.lead_accounts import AccountIn, add_accounts, AccountsIn
+    from app.api.lead_accounts import AccountIn, AccountsIn, save_accounts
 
     have = {a.business_record_id: a.id for a in (await db.execute(
         select(LeadAccount).where(LeadAccount.business_record_id.in_([r.id for r in rows])))).scalars().all()}
@@ -206,7 +206,7 @@ async def _save_leads(db: AsyncSession, rows: List[BusinessRecord], contacts: Di
                                industry=(r.sic_text or r.industry or "").split(" | ")[0], region=r.postcode or r.region or "",
                                source="scout", business_record_id=r.id))
     if fresh:
-        await add_accounts(AccountsIn(accounts=fresh), db)
+        await save_accounts(db, AccountsIn(accounts=fresh), "")
     return {a.business_record_id: a.id for a in (await db.execute(
         select(LeadAccount).where(LeadAccount.business_record_id.in_([r.id for r in rows])))).scalars().all()}
 
@@ -490,12 +490,12 @@ async def import_leads(body: ImportIn, request: Request, db: AsyncSession = Depe
         return {"estimate": est}
     if not est["can_afford"]:
         fail(402, "insufficient_credits", "You do not have enough credits for those checks.", estimate=est, top_up_url=links.fix_url("billing"))
-    from app.api.lead_accounts import AccountIn, AccountsIn, add_accounts
+    from app.api.lead_accounts import AccountIn, AccountsIn, save_accounts
 
-    saved = await add_accounts(AccountsIn(accounts=[AccountIn(
+    saved = await save_accounts(db, AccountsIn(accounts=[AccountIn(
         name=x.name, website=x.website or "", phone=x.phone or "", email=x.email or "", contact_name=x.contact_name or "",
         contact_title=x.contact_title or "", industry=x.industry or "", region=x.region or "", notes=x.notes or "", source="import")
-        for x in body.leads]), db)
+        for x in body.leads]), "")
     ids = [a["id"] for a in saved["accounts"]]
     if not body.checks:
         return {"added": saved["added"], "skipped": saved["skipped"], "data": saved["accounts"]}
@@ -583,7 +583,7 @@ async def lists_create(body: ListBody, request: Request, db: AsyncSession = Depe
     ctx = await authorize(request, db, "leads:search", "leads")
     if is_test(ctx):
         return {"list": {"id": "lst_test", "name": body.name, "ids": body.ids}, "simulated": True}
-    return await _app_call(create(ListIn(name=body.name, ids=body.ids), db))
+    return await _app_call(create(ListIn(name=body.name, ids=body.ids), request, db))
 
 
 @router.patch("/lists/{list_id}")

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,7 +81,7 @@ def _name(raw: str) -> str:
     return name
 
 
-async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[str]) -> Dict[str, Any]:
+async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[str], owner: str = "") -> Dict[str, Any]:
     """Add companies to a list by id, or by name (an existing list with that name, else a new one).
     Used when saving a search or an imported file straight into a list."""
     lists = await _load(db)
@@ -92,7 +92,7 @@ async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[
         if not hit:
             if len(lists) >= MAX_LISTS:
                 raise HTTPException(status_code=400, detail=f"You can keep up to {MAX_LISTS} lists. Delete one first.")
-            hit = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": name, "ids": [], "created_at": datetime.utcnow().isoformat() + "Z"}
+            hit = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": name, "ids": [], "owner": owner, "created_at": datetime.utcnow().isoformat() + "Z"}
             lists.insert(0, hit)
     if not hit:
         raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
@@ -131,14 +131,17 @@ async def all_lists(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
 
 
 @router.post("")
-async def create(body: ListIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def create(body: ListIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     lists = await _load(db)
     if len(lists) >= MAX_LISTS:
         raise HTTPException(status_code=400, detail=f"You can keep up to {MAX_LISTS} lists. Delete one first.")
     name = _name(body.name)
     if any(l["name"].lower() == name.lower() for l in lists):
         raise HTTPException(status_code=409, detail=f"You already have a list called {name}.")
-    made = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": name, "ids": await _existing(db, body.ids),
+    from app.core.auth_middleware import current
+
+    ctx = current(request) or {}
+    made = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": name, "ids": await _existing(db, body.ids), "owner": ctx.get("name") or ctx.get("username") or "",
             "created_at": datetime.utcnow().isoformat() + "Z"}
     await _save(db, [made] + lists)
     wanted = list(dict.fromkeys(body.ids))

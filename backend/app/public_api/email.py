@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -689,6 +690,24 @@ class SendIn(BaseModel):
 DIRECT_DAILY_LIMIT = 25  # one-to-one emails an organisation may send through the API in a day
 
 
+async def _entity_for(db: AsyncSession, to: str, body: SendIn) -> str:
+    """corporate or individual for one one-off email. A saved company is judged by the register like everywhere else; an address we hold
+    nothing on is a company only when the name given has Ltd, LLP, PLC or similar and the mailbox is not a personal webmail one."""
+    from app.models.models import BusinessRecord, LeadAccount
+    from app.services import send_readiness as SR
+
+    if body.to_is_a_person:
+        return "individual"
+    acc = (await db.execute(select(LeadAccount).where(func.lower(LeadAccount.email) == to).limit(1))).scalars().first()
+    if acc is not None:
+        biz = await db.get(BusinessRecord, acc.business_record_id) if acc.business_record_id else None
+        d = SR.eligibility(acc, biz, address=to)
+        if not d["ok"]:
+            fail(422, "cannot_send", f"{d['reason']}, so nothing was sent.")
+        return "corporate" if d["email"] else "individual"
+    return "corporate" if SR.has_legal_suffix(body.company) and not SR.is_webmail(to) else "individual"
+
+
 @router.post("/send", status_code=201)
 async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Send one email to one person now. No warm-up wait and no sending hours, because it is one personal message,
@@ -709,7 +728,7 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
         find_mailbox(await _visible_mailboxes(db, ctx), body.mailbox_id, body.from_)
         return {"id": f"em_test_{uuid.uuid4().hex[:12]}", "status": "sent", "to": to, "from": "test@example.com", "mailbox_id": "mb_test", "test": True}
 
-    start = datetime.combine(date.today(), datetime.min.time())
+    start = datetime.combine(datetime.utcnow().date(), datetime.min.time())  # sent_at is stored in UTC, so the day starts at UTC midnight
     sent_today = len([m for m in (await db.execute(select(EmailMessage).where(
         EmailMessage.campaign_id == "", EmailMessage.is_warmup.is_(False), EmailMessage.sent_at >= start))).scalars().all()])
     if sent_today >= DIRECT_DAILY_LIMIT:
@@ -734,8 +753,8 @@ async def send_one(body: SendIn, request: Request, db: AsyncSession = Depends(ge
              fix_url=mailbox_settings_url(), mailboxes=[{"id": m.id, "email": m.email, "reason": mailbox_block(m, today.get(m.id, 0))} for m in boxes])
 
     who = SimpleNamespace(first_name=body.first_name, last_name=body.last_name, company=body.company, email=to, vars=None)
-    result = await send_cold_email(db, org, mailbox, to, render(body.subject, who), render(body.body, who),
-                                   entity_type="individual" if body.to_is_a_person else "corporate")
+    entity = await _entity_for(db, to, body)
+    result = await send_cold_email(db, org, mailbox, to, render(body.subject, who), render(body.body, who), entity_type=entity)
     await db.commit()
     status = result["status"]
     if status == "sent":
@@ -919,23 +938,19 @@ async def campaign_results(campaign_id: str, request: Request, db: AsyncSession 
     if is_test(ctx) or campaign_id.startswith(SANDBOX):
         return {"campaign_id": campaign_id, "totals": zero, "by_step": [], "reply_categories": {}, "as_of": now, "simulated": True}
     camp = await _campaign(db, campaign_id)
-    steps = {s.id: s.step_number for s in (await db.execute(select(EmailSequenceStep).where(EmailSequenceStep.campaign_id == camp.id))).scalars().all()}
+    from app.services import journeys as J
+
     msgs = (await db.execute(select(EmailMessage).where(EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)))).scalars().all()
-
-    def tally(rows) -> Dict[str, Any]:
-        sent = [m for m in rows if m.status not in ("queued", "failed")]
-        n = len(sent)
-        count = lambda pred: sum(1 for m in sent if pred(m))
-        opened, replied, bounced = count(lambda m: (m.open_count or 0) > 0 or m.status == "replied"), count(lambda m: m.status == "replied"), count(lambda m: m.status == "bounced")
-        pct = lambda v: round(100 * v / n, 1) if n else None
-        return {"sent": n, "opened": opened, "replied": replied, "bounced": bounced, "failed": sum(1 for m in rows if m.status == "failed"),
-                "open_rate": pct(opened), "reply_rate": pct(replied), "bounce_rate": pct(bounced)}
-
-    by_step = []
-    for number in sorted({steps.get(m.sequence_step_id) for m in msgs if steps.get(m.sequence_step_id)}):
-        by_step.append({"step": number, **tally([m for m in msgs if steps.get(m.sequence_step_id) == number])})
+    sent = [m for m in msgs if m.status not in ("queued", "failed")]
+    n = len(sent)
+    count = lambda pred: sum(1 for m in sent if pred(m))
+    opened, replied, bounced = count(lambda m: (m.open_count or 0) > 0 or m.status == "replied"), count(lambda m: m.status == "replied"), count(lambda m: m.status == "bounced")
+    pct = lambda v: round(100 * v / n, 1) if n else None
+    totals = {"sent": n, "opened": opened, "replied": replied, "bounced": bounced, "failed": sum(1 for m in msgs if m.status == "failed"),
+              "open_rate": pct(opened), "reply_rate": pct(replied), "bounce_rate": pct(bounced)}
+    by_step = [r for r in await J.step_results(db, camp) if r["sent"] or r["failed"]]
     cats = Counter((m.reply_category or "uncategorised") for m in msgs if m.status == "replied")
-    return {"campaign_id": camp.id, "name": camp.name, "status": camp.status, "totals": tally(msgs), "by_step": by_step,
+    return {"campaign_id": camp.id, "name": camp.name, "status": camp.status, "totals": totals, "by_step": by_step,
             "reply_categories": dict(cats), "as_of": now}
 
 

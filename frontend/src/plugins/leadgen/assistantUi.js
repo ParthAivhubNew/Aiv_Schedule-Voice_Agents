@@ -71,3 +71,60 @@ export function questionFor(messages, index) {
 
 // A card that opens a hash screen ("#/voice/logs") versus the Leads results screen.
 export const isHashScreen = (screen) => typeof screen === "string" && screen.startsWith("#/");
+
+// ── Saved chats ─────────────────────────────────────────────────────────────
+// A chat is saved with the cards each answer showed, so reopening it shows them again. The server drops cards that are
+// too big and marks the answer `cards_lost`; chats saved before cards were kept have none either.
+
+const TOP_KEPT = 50; // the names a search listed: enough for "save these", the card reopens the full search
+
+export function savedMessage(m) {
+  const out = { id: m.id, role: m.role, text: m.text };
+  if (m.role === "user") return out;
+  if (m.from) out.from = m.from;
+  if (m.steps?.length) out.steps = m.steps;
+  if (m.found) out.found = { ...m.found, top: (m.found.top || []).slice(0, TOP_KEPT) };
+  if (m.view) out.view = m.view;
+  if (m.proposals?.length) out.proposals = m.proposals;
+  if (m.choices?.length) out.choices = m.choices;
+  return out;
+}
+
+// Only finished offers are kept: "Done" stays done, a web search keeps the companies it found.
+export function savedActs(acts) {
+  const out = {};
+  for (const [id, a] of Object.entries(acts || {})) {
+    if (a?.state === "done") out[id] = { state: "done", ...(a.text ? { text: a.text } : {}), ...(a.results ? { results: a.results.slice(0, 20) } : {}), ...(a.saved ? { saved: a.saved } : {}) };
+  }
+  return out;
+}
+
+const ON_SCREEN = /\bon (?:the |your )?screen\b/i;
+export const LOST_NOTE = "The results from this answer were not kept. Ask again to see them.";
+
+// The answer's words without the sentences that point at something on screen.
+function withoutScreenClaim(text) {
+  const kept = String(text || "").split(/(?<=[.!?])\s+/).filter((s) => !ON_SCREEN.test(s));
+  return [...kept, LOST_NOTE].join(" ").trim();
+}
+
+export function restoreChat(saved) {
+  const chat = saved?.chat || [];
+  // Chats saved before cards were kept hold only a count; the chat's filters belong to its last search, so only that answer gets its card back.
+  let lastCount = -1;
+  chat.forEach((m, i) => { if (typeof m.found === "number" && m.found > 0) lastCount = i; });
+  const messages = chat.map((m, i) => {
+    const base = { id: m.id, role: m.role === "user" || m.who === "user" ? "user" : "assistant", text: m.text || "" };
+    if (base.role === "user") return base;
+    let found = m.found && typeof m.found === "object" ? m.found : null;
+    if (i === lastCount) found = { total: m.found, filters: saved.filters || {}, top: [] };
+    const view = m.view || viewFromFound(found);
+    const proposals = m.proposals || [];
+    const out = { ...base, from: m.from, steps: m.steps, found, view, proposals, choices: m.choices || [] };
+    if (!view && !proposals.length && (m.cards_lost || ON_SCREEN.test(base.text))) out.text = withoutScreenClaim(base.text);
+    return out;
+  });
+  const last = [...messages].reverse().find((m) => m.found?.total);
+  const listed = last ? { total: last.found.total, capped: last.found.capped, asked: last.found.asked, filters: last.found.filters, top: (last.found.top || []).slice(0, TOP_KEPT) } : null;
+  return { messages, acts: saved?.acts || {}, state: saved?.state || {}, filters: saved?.filters || {}, listed };
+}

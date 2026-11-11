@@ -84,6 +84,7 @@ def render(template: str, enr: EmailEnrollment, booking_link: str = "") -> str:
     values = {"first_name": enr.first_name, "firstname": enr.first_name, "last_name": enr.last_name,
               "lastname": enr.last_name, "company": enr.company, "email": enr.email,
               "personalline": str((getattr(enr, "vars", None) or {}).get("personal_line") or "").strip(),
+              "sourceline": str((getattr(enr, "vars", None) or {}).get("source_line") or "").strip(),
               "bookinglink": booking_link}
 
     def sub(m: "re.Match[str]") -> str:
@@ -164,7 +165,7 @@ async def send_warmup(db: AsyncSession, org_id: str, mb: EmailMailbox, partners:
         return False
     subject, body = random.choice(WARMUP_LINES)
     res = await send_cold_email(db, org_id, mb, random.choice(partners), subject, body,
-                                is_warmup=True, warmup_id=uuid.uuid4().hex[:16])
+                                entity_type="corporate", is_warmup=True, warmup_id=uuid.uuid4().hex[:16])
     return res["status"] == "sent"
 
 
@@ -229,17 +230,34 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         # failing, any other ready mailbox in the campaign takes over, so one bad mailbox never stalls the list.
         sticky = boxes.get(enr.mailbox_id)
         candidates = [sticky] if sticky is not None and sticky.status in SENDING else pool
+        if J.SOURCE_TAG.search((step.body_template or "") + (step.subject or "") + (step.body_b or "") + (step.subject_b or "")):
+            await J.ensure_source_line(db, enr)  # people who joined before {{source_line}} existed get theirs now
         link = ""
         if re.search(r"\{\{\s*booking_?link\s*\}\}", (step.body_template or "") + (step.subject or ""), re.I):
             link = await booking_link_for(db, org_id, enr)  # empty without the Voice plan, so no broken link goes out
-        subject_tpl, body_tpl = J.pick_version(enr, step)
-        from app.services import form_links as FL  # {{form_link:ID}} becomes this person's own link to that form
+        # An approval row, pending or approved, always supplies the text: edits are never lost, even if approval was switched off since.
+        approval = await J.approval_for(db, enr.id, step.id)
+        if J.approval_reason(camp, list(boxes.values())):
+            if approval is None or approval.status != "approved":
+                if approval is None:  # written now, so the person reads exactly what would go out
+                    subject_tpl, body_tpl = J.pick_version(enr, step)
+                    from app.services import form_links as FL
 
-        subject_tpl, body_tpl = await FL.resolve(db, org_id, enr, subject_tpl), await FL.resolve(db, org_id, enr, body_tpl)
-        subject = render(subject_tpl, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
-        body = render(body_tpl, enr, link)
-        from app.services.enrichment_waterfall import classify_pecr_entity
+                    subject_tpl, body_tpl = await FL.resolve(db, org_id, enr, subject_tpl), await FL.resolve(db, org_id, enr, body_tpl)
+                    await J.park_for_approval(db, camp, enr, step, render(subject_tpl, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else ""),
+                                              render(body_tpl, enr, link), now)
+                continue
+        if approval is not None:
+            subject, body = approval.subject, approval.body
+        else:
+            subject_tpl, body_tpl = J.pick_version(enr, step)
+            from app.services import form_links as FL  # {{form_link:ID}} becomes this person's own link to that form
 
+            subject_tpl, body_tpl = await FL.resolve(db, org_id, enr, subject_tpl), await FL.resolve(db, org_id, enr, body_tpl)
+            subject = render(subject_tpl, enr, link).strip() or (f"Re: {enr.last_subject}" if enr.last_subject else "")
+            body = render(body_tpl, enr, link)
+        # Judged again right here, not trusted from when they joined: nobody who may not be emailed is, whatever let them in.
+        verdict = await J.email_decision(db, enr)
         res, mb = None, None
         for c in candidates:
             if not _has_room(c, await day_log(db, c.id), camp, now):
@@ -247,7 +265,7 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             mb = c
             res = await send_cold_email(db, org_id, c, enr.email, subject, body, campaign_id=camp.id,
                                         sequence_step_id=step.id, enrollment_id=enr.id, prospect_id=enr.prospect_id or "",
-                                        entity_type=classify_pecr_entity(enr.company, enr.email), accept_risk=True,
+                                        entity_type="corporate" if verdict["email"] else "individual",
                                         in_reply_to=enr.last_message_id if enr.current_step > 1 else "",
                                         from_alias=(camp.alias_map or {}).get(c.id, ""), brand=brand)
             if res["status"] != "failed":
@@ -261,9 +279,15 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             enr.mailbox_id = mb.id
             enr.last_message_id = res["message_id"]
             enr.last_subject = enr.last_subject or subject
+            if approval is not None:
+                approval.status = "sent"
             await _advance(enr, steps, now)
-        elif res["status"] in ("suppressed", "blocked_pecr"):
-            enr.status = "suppressed" if res["status"] == "suppressed" else "blocked"
+        elif res["status"] == "blocked_pecr":  # not emailed: reached another way, and the journey carries on
+            if approval is not None:
+                approval.status = "cancelled"
+            await J.reach_other_way(db, camp, enr, step, steps, verdict, now)
+        elif res["status"] == "suppressed":
+            enr.status = "suppressed"
             enr.next_action_at, enr.finish_reason = None, res["status"]
         else:
             enr.next_action_at = now + RETRY_AFTER

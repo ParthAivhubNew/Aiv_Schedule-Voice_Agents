@@ -166,6 +166,12 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("Type: " + filters["company_category"])
     if filters.get("size_bands"):
         chips.append("Size (filed accounts): " + ", ".join(filters["size_bands"]))
+    if filters.get("company_types"):
+        from app.services.fit_score import COMPANY_TYPES
+
+        chips.append("Type: " + ", ".join(COMPANY_TYPES[t][0] for t in filters["company_types"] if t in COMPANY_TYPES))
+    if filters.get("exclude_charities"):
+        chips.append("No charities")
     if filters.get("min_age_years") is not None:
         chips.append(f"Age: {filters['min_age_years']:g}+ years")
     if filters.get("max_age_years") is not None:
@@ -180,6 +186,19 @@ def describe(filters: Dict[str, Any]) -> List[str]:
     for key, label in (("not_keyword", "Not about"), ("not_towns", "Not in"), ("not_company_category", "Not type")):
         if filters.get(key):
             chips.append(label + ": " + ", ".join(filters[key]))
+    # Phase 4 / 7d
+    if filters.get("near"):
+        n = filters["near"]
+        chips.append(f"Within {n['miles']:g} miles of {n.get('postcode') or 'the postcode'}")
+    if filters.get("signals"):
+        from app.services import fit_score as FS
+
+        days = {"new_director": f" ({FS.NEW_DIRECTOR_DAYS} days)", "accounts_due": f" ({FS.DUE_SOON_DAYS} days)"}
+        names = {"new_director": "New director", "accounts_due": "Accounts due soon", "filed_late": "Accounts overdue", "new_company": "New company"}
+        chips += [names[k] + days.get(k, "") for k in filters["signals"] if k in names]
+    if filters.get("site"):
+        names = {"mtd": "mentions Making Tax Digital", "hiring": "is hiring", "software": "names its software"}
+        chips.append("Website " + " or ".join(names[k] for k in filters["site"] if k in names))
     if filters.get("saved"):
         chips.append("Already in your lists" if filters["saved"] == "only" else "Not in any of your lists")
     return chips

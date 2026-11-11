@@ -275,6 +275,12 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
         logger.warning("web lookup failed for %s: %s", biz.name, err)
         raise
     stamp = datetime.utcnow().isoformat() + "Z"
+    if got.get("site_pages"):  # Phase 7d: what its own website says (software, Making Tax Digital, hiring), read from pages already fetched
+        from app.services import site_signals
+
+        keep = dict(biz.raw_data or {})
+        keep["site_signals"] = site_signals.extract(got["site_pages"])
+        biz.raw_data = keep
     options = await _remember_options(db, biz, got.get("options") or {})
     if got.get("ledger", {}).get("outcome") == "closed":
         return {"website": "", "phones": [], "emails": [], "team": [], "sources": [], "source": "web", "verified": False, "found": False, "cached": False,

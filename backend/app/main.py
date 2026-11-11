@@ -50,6 +50,8 @@ from app.api.assistant_feedback import router as assistant_feedback_router
 from app.api.agent import router as agent_router
 from app.api.mail_prefs import router as mail_prefs_router
 from app.api.lead_lists import router as lead_lists_router
+from app.api.lia import router as lia_router  # Phase 7c
+from app.api.saved_searches import router as saved_searches_router  # Phase 4
 from app.api.connected import router as connected_router
 from app.api.connected_home import router as connected_home_router
 from app.api.connected_social import router as connected_social_router
@@ -70,6 +72,8 @@ from app.api.number_check import router as number_check_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.email_design import router as email_design_router
 from app.api.journeys import router as journeys_router
+from app.api.eligibility import router as eligibility_router, staff_router as consent_staff_router
+from app.api.icp import router as icp_router, staff_router as fit_weights_staff_router
 from app.api.mail_client import router as mail_client_router
 from app.api.developer_keys import router as developer_keys_router
 from app.api.developer_webhooks import router as developer_webhooks_router
@@ -79,6 +83,7 @@ from app.api.embed_connect import router as embed_connect_router
 from app.api.v1_public import router as v1_public_router
 from app.api.jobs import router as jobs_router
 from app.api.human_calls import router as human_calls_router
+from app.api.call_permissions import router as call_permissions_router  # Phase 7a
 from app.api.inbound_forms import public_router as inbound_public_router, router as inbound_router
 from app.public_api.preview import router as preview_router
 from app.websockets.media_stream import router as media_stream_router
@@ -984,9 +989,12 @@ app.include_router(assistant_feedback_router, prefix=settings.API_PREFIX)
 app.include_router(agent_router, prefix=settings.API_PREFIX)
 app.include_router(mail_prefs_router, prefix=settings.API_PREFIX)
 app.include_router(lead_lists_router, prefix=settings.API_PREFIX)
+app.include_router(lia_router, prefix=settings.API_PREFIX)  # Phase 7c: legitimate interests assessment
+app.include_router(saved_searches_router, prefix=settings.API_PREFIX)  # Phase 4: saved searches
 app.include_router(inbound_router, prefix=settings.API_PREFIX)
 app.include_router(jobs_router, prefix=settings.API_PREFIX)
 app.include_router(human_calls_router, prefix=settings.API_PREFIX)
+app.include_router(call_permissions_router, prefix=settings.API_PREFIX)  # Phase 7a
 app.include_router(inbound_public_router, prefix=settings.API_PREFIX)  # /api/f/<key>: a published web form, no sign-in
 app.include_router(connected_router, prefix=settings.API_PREFIX)
 app.include_router(connected_home_router, prefix=settings.API_PREFIX)
@@ -1013,6 +1021,10 @@ app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(email_design_router, prefix=settings.API_PREFIX)
 app.include_router(journeys_router, prefix=settings.API_PREFIX)
+app.include_router(eligibility_router, prefix=settings.API_PREFIX)
+app.include_router(consent_staff_router, prefix=settings.API_PREFIX)
+app.include_router(icp_router, prefix=settings.API_PREFIX)
+app.include_router(fit_weights_staff_router, prefix=settings.API_PREFIX)
 app.include_router(mail_client_router, prefix=settings.API_PREFIX)
 app.include_router(developer_keys_router, prefix=settings.API_PREFIX)
 app.include_router(developer_webhooks_router, prefix=settings.API_PREFIX)

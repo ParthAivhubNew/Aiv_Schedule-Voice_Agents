@@ -113,3 +113,26 @@ export function orgGroups(people, query = "") {
   ];
   return groups.map((g) => ({ ...g, people: q ? g.people.filter((p) => `${p.name} ${p.role}`.toLowerCase().includes(q)) : g.people })).filter((g) => g.people.length);
 }
+
+// The register's company type as one short tag. The raw codes ("PRI/LBG/NSC", "ltd") are never shown.
+export function legalTag(category, regNo = "") {
+  const t = String(category || "").toLowerCase().replace(/[-_]+/g, " ");
+  const raw = String(category || "");
+  if (/charit/.test(t) || /\bCIO\b/.test(raw) || /^CC-/i.test(String(regNo || ""))) return "Charity";
+  if (/public limited|\bplc\b/.test(t)) return "PLC";
+  if (/liability partnership|\bllp\b/.test(t)) return "LLP";
+  if (/community interest|\bcic\b/.test(t)) return "CIC";
+  if (/limited partnership/.test(t)) return "LP";
+  if (/unlimited|\bpri\/ultd/.test(t)) return "Unlimited";
+  if (/provident|society/.test(t)) return "Society";
+  if (/oversea/.test(t)) return "Overseas";
+  if (/guarant|^pri\//.test(t) || /private limited|\bltd\b/.test(t)) return "Ltd";
+  return "";
+}
+
+// "BRIGHT CAFE LIMITED" -> "Bright Cafe". The full legal name stays in the cell's title.
+export function displayName(name) {
+  const nice = niceName(name);
+  const short = nice.replace(/[\s,]+(limited|ltd\.?|llp|plc)$/i, "").trim();
+  return short || nice;
+}

@@ -126,6 +126,8 @@ class CallGate:
     warnings: _List[str] = field(default_factory=list)
     callee_timezone: str = ""
     callee_local_time: str = ""
+    flags: _List[str] = field(default_factory=list)  # e.g. "check_tps"
+    needs: str = ""  # what would let the call through, e.g. "ai_consent"
 
 
 def _in_window(local: _dt, policy: str, weekday_start: str, weekday_end: str, lunch_start: str, lunch_end: str) -> tuple:
@@ -288,9 +290,11 @@ async def add_do_not_call(db, number: str, name: str = "") -> bool:
     return True
 
 
-async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) -> CallGate:
-    """Never raises: a failure inside the check itself lets the call through with a warning,
-    so a bug here can never stop calling altogether (opt-outs aside)."""
+async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None, *, kind: str = "ai") -> CallGate:
+    """Never raises. kind is "ai" (automated or AI-voiced) or "human" (a person dials from the browser phone).
+    A failure inside the hours check lets the call through with a warning, so a bug there never stops calling.
+    The permission check goes the other way for AI calls: if it cannot be answered the call is refused, because
+    an AI call without recorded permission is the one thing that breaks PECR."""
     import zoneinfo
 
     from sqlalchemy.future import select as _select
@@ -306,6 +310,24 @@ async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None) 
             return gate
     except Exception as err:
         gate.warnings.append(f"Opt-out list could not be checked: {err}")
+    from app.services import call_permission
+
+    try:
+        perm = await call_permission.decide(db, to_number, kind, now_utc)
+    except Exception as err:
+        if kind == "ai":
+            gate.allowed = False
+            gate.needs = "ai_consent"
+            gate.reasons.append("Permission for this call could not be checked, so it was not placed.")
+            return gate
+        perm = {"allowed": True, "reasons": [], "warnings": [f"TPS could not be checked: {err}"], "flags": ["check_tps"], "needs": ""}
+    gate.flags.extend(perm["flags"])
+    gate.warnings.extend(perm["warnings"])
+    if not perm["allowed"]:
+        gate.allowed = False
+        gate.needs = perm["needs"]
+        gate.reasons.extend(perm["reasons"])
+        return gate
     from app.services.credits import can_start
 
     ok, why = await can_start(db, "voice_minute")

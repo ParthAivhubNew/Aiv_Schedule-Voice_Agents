@@ -59,9 +59,9 @@ async def open_one(db: AsyncSession, business_id: str, kind: str) -> None:
         await db.commit()
 
 
-async def open_for_saved(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
-    """A company this organisation has saved to a list shows what the register holds for it: its website, phone and email are opened
-    (free, once, as a click would). Returns the opened set including these."""
+async def open_many(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
+    """Opens every register-held website, phone and email of these companies for this organisation (free, once each, as a click would).
+    Returns the opened set including these."""
     from app.services import lead_filters
 
     fresh = []
@@ -76,3 +76,8 @@ async def open_for_saved(db: AsyncSession, businesses: Iterable[Any], seen: Set[
         db.add(ContactReveal(business_id=business_id, kind=kind))
     await db.commit()
     return seen | set(fresh)
+
+
+async def open_for_saved(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
+    """A company this organisation has saved to a list shows what the register holds for it."""
+    return await open_many(db, businesses, seen)

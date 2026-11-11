@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedText, blankStep, blockers, headline, moveStep, stepLine, stepsForSave, waitText } from "./journeyLogic";
+import { addedText, blankStep, blockers, headline, moveStep, opensNote, planWords, rateText, resultsBar, stepLine, stepTable, stepsForSave, waitText, withTag } from "./journeyLogic";
 
 describe("what a journey's steps say", () => {
   it("describes the wait before each step", () => {
@@ -65,14 +65,41 @@ describe("before starting", () => {
 
 describe("people kept out and queued", () => {
   it("says who was left out and that a draft waits for Start", () => {
-    const text = addedText({ added: 4, queued: true, excluded_total: 1, skipped: { problem: 1 }, warned_total: 2, warned_counts: { unchecked: 1, individual: 1 } });
+    const text = addedText({ added: 4, queued: true, excluded_total: 1, skipped: { problem: 1 }, plan: { email: 2, quick_choice: 1, reach_other_way: 1 } });
     expect(text).toContain("1 left out: 1 closed or wrong company number.");
-    expect(text).toContain("Heads up: 1 not checked by us, 1 individuals with no consent recorded.");
-    expect(text).toContain("at your own risk");
+    expect(text).toContain("2 get email, 1 needs a quick choice, 1 is reached another way.");
+    expect(text).not.toMatch(/own risk|breach/);
     expect(text).toContain("They start when you press Start.");
+  });
+  it("puts what happens to everyone in plain words, singular and plural", () => {
+    expect(planWords({ email: 186, quick_choice: 9, reach_other_way: 5 })).toBe("186 get email, 9 need a quick choice, 5 are reached another way");
+    expect(planWords({ email: 1 })).toBe("1 gets email");
+    expect(addedText({ added: 3, plan: { email: 3 }, skipped: {} })).toBe("Added 3.");
   });
   it("counts a draft's people as queued and uses the singular", () => {
     expect(headline({ in_progress: 4, by_status: {} }, 0, "draft")).toBe("4 queued");
     expect(headline({ people: 1, in_progress: 0, by_status: {} })).toBe("1 person");
+  });
+});
+
+describe("results bar", () => {
+  it("shows seven numbers in order and treats missing ones as zero", () => {
+    const bar = resultsBar({ sent: 10, delivered: 9, opened: 4, replied: 2, bounced: 1, opted_out: 1 });
+    expect(bar.map((b) => b.label)).toEqual(["Sent", "Delivered", "Opened", "Replied", "Booked", "Bounced", "Opted out"]);
+    expect(bar.find((b) => b.key === "booked").value).toBe(0);
+    expect(bar.find((b) => b.key === "delivered").value).toBe(9);
+  });
+  it("explains opens by whether tracking is on", () => {
+    expect(opensNote({ opens_tracked: false })).toContain("open tracking is off in Settings");
+    expect(opensNote({ opens_tracked: true })).toBe("Opens are a minimum; some mail apps hide them.");
+  });
+  it("formats rates and inserts a tag once", () => {
+    expect(rateText(33.3)).toBe("33.3%");
+    expect(rateText(null)).toBe("-");
+    expect(withTag("Hi", "{{source_line}}")).toBe("Hi\n\n{{source_line}}");
+    expect(withTag("Hi {{source_line}}", "{{source_line}}")).toBe("Hi {{source_line}}");
+  });
+  it("keeps email steps in the table", () => {
+    expect(stepTable({ by_step: [{ channel: "email", sent: 0 }, { channel: "call", sent: 0 }] })).toHaveLength(1);
   });
 });

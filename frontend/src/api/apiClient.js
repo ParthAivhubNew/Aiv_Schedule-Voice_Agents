@@ -374,6 +374,7 @@ export const api = {
   searchCompanies: (body) => apiRequest('/leads/search', { method: 'POST', body, timeoutMs: 40000 }),
   searchSelectAll: (body) => apiRequest('/leads/search/ids', { method: 'POST', body, timeoutMs: 90000 }),
   findCompanyWebsite: (id, kind = 'website', hint = '') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-website`, { method: 'POST', body: { kind, hint }, timeoutMs: 60000 }),
+  revealMany: (ids) => apiRequest('/leads/companies/reveal-many', { method: 'POST', body: { ids } }),
   revealContact: (id, kind) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: { kind } }),
   chooseContact: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/choose`, { method: 'POST', body }),
   findSocial: (id, network, hint = '') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-social`, { method: 'POST', body: { network, hint }, timeoutMs: 60000 }),
@@ -427,6 +428,7 @@ export const api = {
     } catch { /* the sweep closes it */ }
   },
   answerCheckPick: (accountId, body) => apiRequest(`/leads/checks/picks/${encodeURIComponent(accountId)}`, { method: 'POST', body }),
+  acceptBestCheckPicks: (body) => apiRequest('/leads/checks/picks/best', { method: 'POST', body }),
   getCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}`),
   pauseCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
   resumeCompanyCheck: (id) => apiRequest(`/leads/checks/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
@@ -452,6 +454,11 @@ export const api = {
   saveConnectionRules: (rules) => apiRequest('/together/rules', { method: 'PUT', body: { rules } }),
   getConnectionLeads: () => apiRequest('/together/leads'),
   getPipeline: () => apiRequest('/together/pipeline'),
+  // Phase 6: the Today strip. Phase 7c: the legitimate interests assessment.
+  getToday: () => apiRequest('/together/today'),
+  getLia: () => apiRequest('/leads/lia'),
+  saveLia: (body) => apiRequest('/leads/lia', { method: 'PUT', body }),
+  getLiaFile: () => apiRequest('/leads/lia.txt', { asBlob: true }),
   getNextActions: (limit = 5) => apiRequest(`/together/next-actions?limit=${limit}`),
   getAgenda: ({ date = '', focus = '' } = {}) => apiRequest(`/together/agenda?date=${encodeURIComponent(date)}&focus=${encodeURIComponent(focus)}`),
   getAgendaMonth: (month) => apiRequest(`/together/agenda-month?month=${encodeURIComponent(month)}`),
@@ -754,6 +761,7 @@ export const api = {
   journeyStatus: (id, status) => apiRequest(`/journeys/${id}/status`, { method: 'POST', body: { status } }),
   journeyPeople: (id, body) => apiRequest(`/journeys/${id}/people`, { method: 'POST', body }),
   journeyRemovePerson: (id, enrollmentId) => apiRequest(`/journeys/${id}/people/${enrollmentId}`, { method: 'DELETE' }),
+  journeyPreview: (id, enrollmentId = '', stepKey = '') => apiRequest(`/journeys/${id}/preview?enrollment_id=${encodeURIComponent(enrollmentId)}&step_key=${encodeURIComponent(stepKey)}`),
   journeySuggestions: (id) => apiRequest(`/journeys/${id}/suggestions`),
   journeyClone: (id) => apiRequest(`/journeys/${id}/clone`, { method: 'POST' }),
   journeyDelete: (id) => apiRequest(`/journeys/${id}`, { method: 'DELETE' }),
@@ -763,6 +771,43 @@ export const api = {
   },
   journeyTaskDone: (id, outcome = '') => apiRequest(`/journeys/tasks/${id}/done`, { method: 'POST', body: { outcome } }),
   journeyTaskSkip: (id) => apiRequest(`/journeys/tasks/${id}/skip`, { method: 'POST' }),
+  journeyApprovals: (journey = '') => apiRequest(`/journeys/approvals${journey ? `?journey=${encodeURIComponent(journey)}` : ''}`),
+  journeyApprovalEdit: (id, body) => apiRequest(`/journeys/approvals/${id}`, { method: 'PATCH', body }),
+  journeyApprove: (id) => apiRequest(`/journeys/approvals/${id}/approve`, { method: 'POST' }),
+  journeyApproveAll: (journey = '') => apiRequest('/journeys/approvals/approve-all', { method: 'POST', body: { journey } }),
+  // The ideal customer and the fit score
+  getIcp: () => apiRequest('/leads/icp'),
+  saveIcp: (body) => apiRequest('/leads/icp', { method: 'PUT', body }),
+  draftIcp: (website = '') => apiRequest('/leads/icp/draft', { method: 'POST', body: { website }, timeoutMs: 60000 }),
+  sicCodes: (q) => apiRequest(`/leads/sic-codes?q=${encodeURIComponent(q)}`),
+  // Phase 4: saved searches and the radius filter
+  radiusDistricts: (postcode, miles) => apiRequest(`/leads/radius-districts?postcode=${encodeURIComponent(postcode)}&miles=${encodeURIComponent(miles)}`),
+  savedSearches: () => apiRequest('/leads/saved-searches'),
+  saveSearch: (body) => apiRequest('/leads/saved-searches', { method: 'POST', body, timeoutMs: 60000 }),
+  updateSavedSearch: (id, body) => apiRequest(`/leads/saved-searches/${id}`, { method: 'PATCH', body }),
+  deleteSavedSearch: (id) => apiRequest(`/leads/saved-searches/${id}`, { method: 'DELETE' }),
+  runSavedSearch: (id) => apiRequest(`/leads/saved-searches/${id}/run`, { method: 'POST', timeoutMs: 60000 }),
+  companyNews: (id) => apiRequest(`/leads/companies/${id}/news`),
+  // Who may get email (worked out free from the register), consent and retention
+  leadEligibility: (id) => apiRequest(`/leads/eligibility/${id}`),
+  leadEligibilityChoose: (id, body) => apiRequest(`/leads/eligibility/${id}/choose`, { method: 'POST', body }),
+  leadEligibilityCounts: (listId = '') => apiRequest(`/leads/eligibility${listId ? `?list_id=${encodeURIComponent(listId)}` : ''}`),
+  consentOptions: () => apiRequest('/leads/consent'),
+  consentDeclare: (body) => apiRequest('/leads/consent', { method: 'POST', body }),
+  consentProof: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiRequest('/leads/consent/proof', { method: 'POST', body: form });
+  },
+  retentionList: () => apiRequest('/leads/retention'),
+  retentionDelete: (ids = []) => apiRequest('/leads/retention/delete', { method: 'POST', body: { ids } }),
+  // Phase 7: customers withdraw their own consent answers; permission to call with AI-voiced calls
+  consentWithdraw: (id, reason = '') => apiRequest(`/leads/consent/${encodeURIComponent(id)}/withdraw`, { method: 'POST', body: { reason } }),
+  callPermissions: () => apiRequest('/voice/call-permissions/list'),
+  callPermissionFor: (number) => apiRequest(`/voice/call-permissions?number=${encodeURIComponent(number)}`),
+  callPermissionWording: ({ company = '', number = '', product = '' } = {}) => apiRequest(`/voice/call-permissions/wording?${new URLSearchParams({ company, number, product })}`),
+  callPermissionRecord: (body) => apiRequest('/voice/call-permissions', { method: 'POST', body }),
+  callPermissionWithdraw: (id, method = '') => apiRequest(`/voice/call-permissions/${encodeURIComponent(id)}/withdraw`, { method: 'POST', body: { method } }),
   emailFind: (body) => apiRequest('/email/find', { method: 'POST', body, timeoutMs: 90000 }),
   emailSent: (params = {}) => {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null && v !== undefined));

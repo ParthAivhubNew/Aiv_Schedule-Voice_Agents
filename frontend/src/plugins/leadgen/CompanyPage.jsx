@@ -169,10 +169,10 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     try { const r = await api.findCompanyWebsite(c.id, kind); if (r.charged) announceCreditsChanged(); if (!r.found) { setPick({ kind, person: "", anchor: kind, options: r.options || [] }); if ((r.options || []).length) setWaiting((w) => ({ ...w, [kind]: r.options })); } say(r.found ? `Found the ${kind}${r.source === "deep" ? " with the deep web search" : r.source === "web" ? " with the web search" : ""}.${r.charged ? " Credits used for this find." : ""}` : r.note || "Nothing found. Nothing was charged."); await load(); } catch (e) { say(e.message || "The lookup didn't finish. Nothing was charged.", true); }
     setBusy("");
   };
-  // Opens one contact our registry holds. Free, once. It never searches for anything.
-  const open = async (kind) => {
-    setBusy(`open:${kind}`);
-    try { await api.revealContact(c.id, kind); say(`Opened the ${kind}. It stays visible from now on.`); await load(); } catch (e) { say(e.message || "Couldn't open that.", true); }
+  // Opens everything our registry holds for this company. Free, once. It never searches for anything.
+  const open = async () => {
+    setBusy("open");
+    try { await api.revealMany([c.id]); say("Opened what we hold. It stays visible from now on."); await load(); } catch (e) { say(e.message || "Couldn't open that.", true); }
     setBusy("");
   };
   const NETS = { linkedin: "LinkedIn page", facebook: "Facebook page", x: "X profile", instagram: "Instagram profile" };
@@ -289,14 +289,17 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
                         {[...((c.listing_page.also_seen || {}).phones || []), ...((c.listing_page.also_seen || {}).emails || [])].length
                           ? <span style={{ display: "block", fontSize: 11.5, color: C.slate }}>Also on that page: {[...((c.listing_page.also_seen || {}).phones || []), ...((c.listing_page.also_seen || {}).emails || [])].join(", ")}. Not added to the company. Use Find phone or Find email to pick it.</span> : null}</span>
                     : <span style={{ fontSize: 13, color: C.slate }}>{k.kind === "website" ? "Website" : k.kind === "phone" ? "Phone" : "Email"}</span>}
-                {k.closed ? <button type="button" style={{ ...btn(true, busy === `open:${k.kind}`), padding: "3px 9px", minHeight: 28 }} disabled={busy === `open:${k.kind}`} title="We hold this. Open it once and it stays visible. Free." onClick={() => open(k.kind)}>
-                  {busy === `open:${k.kind}` ? <Spinner size={12} /> : null} Open {k.kind} · free</button> : null}
+                {k.closed ? <span title="We hold this. Use Reveal" style={{ fontSize: 13, color: C.slateLight }}>Held</span> : null}
                 {k.value || (!k.canFind && !k.closed) ? <span title={k.label}><Pill tone={SOURCE_TONE[k.source]}>{k.sourceWord}</Pill></span> : null}
                 {k.canFind ? <button type="button" title={waiting[k.kind] ? "Check the closest matches and choose the right one" : `Look for this company's ${k.kind}. Charged only if one is found`} style={{ ...btn(false, busy === k.kind), padding: "3px 9px", minHeight: 28 }} disabled={busy === k.kind} onClick={() => find(k.kind)}>
                   {busy === k.kind ? <Spinner size={12} /> : waiting[k.kind] ? <Search size={12} /> : k.missed ? <XCircle size={12} color={C.red} /> : <Search size={12} />} {waiting[k.kind] ? "Check matches" : k.missed ? "Nothing confirmed · search again" : <>Find · <LookupCost /></>}</button> : null}
               </div>
             );
           })}
+          {contacts.some((k) => k.closed) ? (
+            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy === "open"} title="Show the website, phone and email we hold. Free." onClick={open}>
+              {busy === "open" ? <Spinner size={12} /> : null} Reveal</button>
+          ) : null}
         </div>
         <div style={{ ...row, gap: 10 }}>
           {Object.entries(NETS).map(([network, label]) => (

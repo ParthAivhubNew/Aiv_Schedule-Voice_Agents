@@ -17,6 +17,45 @@ FIELDS: Dict[str, str] = {"phone": "phones", "email": "emails"}  # company field
 MAX_OPTIONS = 5
 SOURCE = "Web search"
 
+# Mailboxes that are not a person. The frontend keeps the same words in plugins/leadgen/inboxes.js (a test checks they match).
+# General inboxes reach someone who can buy or pass the message on; role inboxes reach a department that will not.
+GENERAL_INBOXES = frozenset({
+    "sales", "info", "hello", "contact", "contactus", "enquiries", "enquiry", "office", "mail", "team", "general",
+    "bookings", "orders", "reception", "marketing", "newbusiness", "hi",
+})
+ROLE_INBOXES = frozenset({
+    "support", "help", "helpdesk", "service", "customerservice", "customerservices", "customercare", "care",
+    "ir", "investor", "investors", "investorrelations", "press", "media", "pr", "news", "newsroom",
+    "accounts", "accountspayable", "billing", "invoices", "invoice", "finance", "payments",
+    "admin", "administrator", "noreply", "donotreply", "postmaster", "webmaster", "hostmaster", "abuse",
+    "security", "privacy", "dpo", "gdpr", "dataprotection", "legal", "compliance",
+    "hr", "jobs", "careers", "recruitment", "complaints", "returns", "feedback", "notifications", "alerts",
+})
+
+
+def inbox_kind(email: str) -> str:
+    """"person", "general" or "role" for an email address, by its part before the @."""
+    local = (email or "").strip().lower().split("@")[0]
+    whole = re.sub(r"[^a-z]", "", local)  # no-reply, customer.service -> noreply, customerservice
+    first = re.split(r"[._+-]", local)[0]  # support.uk, info-leeds -> support, info
+    for word in (whole, first):
+        if word in ROLE_INBOXES:
+            return "role"
+        if word in GENERAL_INBOXES:
+            return "general"
+    return "person"
+
+
+_TIER = {"person": 0, "general": 1, "role": 2}
+
+
+def rank(field: str, values: List[str]) -> List[str]:
+    """Best first. Emails: a named person, then sales@/info@-style inboxes, then support@, ir@ and the like.
+    Phones keep the search's order. The sort is stable, so ties keep the search's order too."""
+    if field != "email":
+        return list(values)
+    return sorted(values, key=lambda v: _TIER[inbox_kind(v)])
+
 
 def _key(field: str, value: str) -> str:
     return re.sub(r"\D", "", value) if field == "phone" else value.strip().lower()
@@ -32,7 +71,7 @@ def candidates(research: Optional[Dict[str, Any]], field: str) -> List[str]:
         if v and k and k not in seen:
             seen.add(k)
             out.append(v)
-    return out[:MAX_OPTIONS]
+    return rank(field, out)[:MAX_OPTIONS]
 
 
 def add_picks(acc: Any, before: Dict[str, str], result: Dict[str, Any]) -> int:
@@ -94,10 +133,28 @@ def skip(acc: Any, field: str) -> None:
     _update(acc, field, {"skipped_at": datetime.utcnow().isoformat() + "Z"})
 
 
+def ranked_options(pick: Dict[str, Any]) -> List[Dict[str, Any]]:
+    # Picks saved before ranking existed hold the search's order, so they are ranked again when read.
+    opts = [o for o in pick.get("options") or [] if o.get("value")]
+    order = rank(pick.get("field", ""), [o["value"] for o in opts])
+    return sorted(opts, key=lambda o: order.index(o["value"]))
+
+
+def choose_best(acc: Any) -> List[Tuple[str, str]]:
+    """Accept the best guess for every open pick on this company. Returns (field, value) for each one saved."""
+    done = []
+    for p in open_picks(acc):
+        opts = ranked_options(p)
+        if opts:
+            done.append((p["field"], choose(acc, p["field"], opts[0]["value"])))
+    return done
+
+
 def as_cards(rows: Iterable[Any]) -> List[Dict[str, Any]]:
     out = []
     for acc in rows:
         for p in open_picks(acc):
             out.append({"account_id": acc.id, "name": acc.name, "region": acc.region or "", "field": p["field"],
-                        "options": p.get("options") or [], "skipped": bool(p.get("skipped_at"))})
+                        "options": ranked_options(p), "skipped": bool(p.get("skipped_at")),
+                        "job_id": (acc.verification or {}).get("job_id") or ""})
     return out

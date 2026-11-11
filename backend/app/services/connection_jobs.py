@@ -198,6 +198,16 @@ async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None)
     if ent.get("leads"):
         out["callbacks"] = await callbacks_due(db, now)
     await weekly_summary(db, org_id, now, rules)
+    if ent.get("leads"):
+        from app.services.eligibility import nightly
+
+        await nightly(db, org_id, now)
+        try:  # Phase 4: weekly saved searches top up their lists
+            from app.services import saved_searches
+
+            await saved_searches.weekly(db, org_id, now)
+        except Exception as err:
+            logger.warning(f"[connections] {org_id}: saved searches failed: {err}")
     await db.commit()
     return out
 

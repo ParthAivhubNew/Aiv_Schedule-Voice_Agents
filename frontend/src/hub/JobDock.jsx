@@ -69,6 +69,7 @@ export default function JobDock() {
   const act = async (fn) => { setBusy(true); setError(""); try { await fn(); } catch (e) { setError(e.message || "That didn't work."); } finally { await load(); setBusy(false); } };
   const choose = (c, value) => act(() => api.answerCheckPick(c.account_id, { field: c.field, value }));
   const skip = (c) => act(async () => { setSkipped((s) => [...s, `${c.account_id}:${c.field}`]); await api.answerCheckPick(c.account_id, { field: c.field, skip: true }); });
+  const acceptAll = () => act(() => api.acceptBestCheckPicks({ ids: [...new Set(cards.map((c) => c.account_id))] }));
   const pct = job && job.total ? Math.round((job.done / job.total) * 100) : 0;
   const counts = job?.counts || {};
 
@@ -113,6 +114,11 @@ export default function JobDock() {
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ ...text, fontSize: 14, fontWeight: 600 }}>Needs you ({cards.length})</div>
               <div style={muted}>Nothing here is saved until you choose. Skipped items stay here.</div>
+              {cards.length > 1 ? (
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ justifySelf: "start" }} disabled={busy} onClick={acceptAll}>
+                  <Check size={14} /> Accept all best guesses ({cards.length})
+                </button>
+              ) : null}
               {ordered.map((c) => <PickCard key={`${c.account_id}:${c.field}`} card={c} onChoose={choose} onSkip={skip} busy={busy} />)}
             </div>
           ) : null}

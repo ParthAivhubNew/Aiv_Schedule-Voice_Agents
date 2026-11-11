@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choiceAction, compactCount, customizeText, filtersText, isHashScreen, liveChoices, questionFor, viewCountText, viewFromFound, FEEDBACK_REASONS } from "./assistantUi";
+import { choiceAction, compactCount, customizeText, filtersText, isHashScreen, liveChoices, questionFor, restoreChat, savedActs, savedMessage, viewCountText, viewFromFound, FEEDBACK_REASONS, LOST_NOTE } from "./assistantUi";
 import { profileGaps, profileIsThin } from "./profileThin";
 import { setPendingDraft, takePendingDraft } from "../../utils/draftHandoff";
 
@@ -88,6 +88,46 @@ describe("Customize your AI", () => {
   it("still calls a profile thin by the same rule as before", () => {
     expect(profileIsThin({})).toBe(true);
     expect(profileGaps({ profile: { company: "A", sells: "B", audience: "C", offer: "D" } })).toEqual([]);
+  });
+});
+
+describe("reopening an earlier chat", () => {
+  const found = { total: 3162, capped: false, asked: 20, filters: { towns: ["leeds"], sectors: ["dentist"] }, top: Array.from({ length: 80 }, (_, i) => ({ id: `c${i}`, name: `Co ${i}` })) };
+  const view = { kind: "companies", title: "Dentists in Leeds", summary: "", filter_count: 2, total: 3162, asked: 20, screen: "find_leads" };
+  const proposal = { id: "p1", kind: "add_to_list", title: "Save 20 to a list", detail: "Free", params: { list_name: "Leeds dentists", how_many: 20 } };
+  const live = [
+    { id: "u1", role: "user", text: "dentists in Leeds" },
+    { id: "a1", role: "assistant", text: "I found 3,162. A table of 20 is on screen.", found, view, proposals: [proposal], choices: [{ label: "Show all", open: "view" }], steps: [{ label: "Searched" }] },
+  ];
+
+  it("shows the same card, offers and pick-one the answer showed", () => {
+    const saved = { id: "a_1", chat: live.map(savedMessage), filters: found.filters, acts: savedActs({ p1: { state: "done", text: "Saved 20." }, p2: { state: "running" } }), state: { last_total: 3162 } };
+    const back = restoreChat(JSON.parse(JSON.stringify(saved)));
+    const a = back.messages[1];
+    expect(a.text).toBe("I found 3,162. A table of 20 is on screen.");
+    expect(a.view).toEqual(view);
+    expect(a.found.filters).toEqual(found.filters);
+    expect(a.proposals).toEqual([proposal]);
+    expect(a.choices).toHaveLength(1);
+    expect(back.acts).toEqual({ p1: { state: "done", text: "Saved 20." } }); // a finished offer stays done; one still running is not kept
+    expect(back.state).toEqual({ last_total: 3162 });
+    expect(back.listed).toMatchObject({ total: 3162, asked: 20, filters: found.filters });
+    expect(back.listed.top).toHaveLength(50);
+  });
+
+  it("a chat saved before cards were kept gets its last search's card back from the count", () => {
+    const back = restoreChat({ filters: { towns: ["york"] }, chat: [{ id: "u1", role: "user", text: "cafes in York" }, { id: "a1", role: "assistant", text: "Here they are.", found: 48 }] });
+    expect(back.messages[1].view).toMatchObject({ total: 48 });
+    expect(back.messages[1].found.filters).toEqual({ towns: ["york"] });
+  });
+
+  it("never says something is on screen when nothing came back", () => {
+    const back = restoreChat({ chat: [{ id: "u1", role: "user", text: "x" }, { id: "a1", role: "assistant", text: "Found 12 cafes. They are on screen now. Want me to save them?" }] });
+    expect(back.messages[1].text).toBe(`Found 12 cafes. Want me to save them? ${LOST_NOTE}`);
+    const lost = restoreChat({ chat: [{ id: "u1", role: "user", text: "x" }, { id: "a1", role: "assistant", text: "Here you go.", cards_lost: true }] });
+    expect(lost.messages[1].text).toBe(`Here you go. ${LOST_NOTE}`);
+    const plain = restoreChat({ chat: [{ id: "u1", role: "user", text: "x" }, { id: "a1", role: "assistant", text: "You have 3 lists." }] });
+    expect(plain.messages[1].text).toBe("You have 3 lists.");
   });
 });
 

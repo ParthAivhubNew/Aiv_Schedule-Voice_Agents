@@ -21,12 +21,16 @@ from app.core.auth_middleware import current
 from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import (
+    BusinessRecord,
     CallLog,
     ContactEvent,
     ContactRegistry,
+    CreditEntry,
+    EmailApproval,
     EmailEnrollment,
     EmailMailbox,
     EmailMessage,
+    EmailSendLog,
     LeadAccount,
     LiveCall,
     Meeting,
@@ -160,6 +164,61 @@ async def next_actions(request: Request, limit: int = 5, db: AsyncSession = Depe
     return {"items": items[: max(1, min(limit, 20))], "total": len(items), "plugins": ent}
 
 
+# ── Phase 6: the Today strip on Home ────────────────────────────────────────
+TODAY_LINKS = {"replies": "#/leadgen/mail", "approvals": "#/leadgen/outreach", "meetings": "#/voice/schedule", "bounces": "#/leadgen/mailboxes", "credits": "#/leadgen/subscription"}
+
+
+async def replies_waiting(db: AsyncSession, now: datetime) -> int:
+    """Interested or question replies from the last 60 days that nobody has acted on since they came in.
+    The reply's own "Replied:" line on the timeline does not count as acting."""
+    rows = (await db.execute(select(EmailMessage.reply_from, EmailMessage.recipient_email, EmailMessage.replied_at).where(
+        EmailMessage.status == "replied", EmailMessage.is_warmup.is_(False), EmailMessage.reply_category.in_(("interested", "question")),
+        EmailMessage.replied_at >= now - timedelta(days=60)))).all()
+    if not rows:
+        return 0
+    emails = {(f or r or "").strip().lower() for f, r, _ in rows if (f or r)}
+    leads = {a.email.strip().lower(): a.id for a in (await db.execute(select(LeadAccount).where(func.lower(LeadAccount.email).in_(list(emails))))).scalars().all() if a.email}
+    last: Dict[str, datetime] = {}
+    if leads:
+        for lid, at in (await db.execute(select(ContactEvent.lead_id, func.max(ContactEvent.at)).where(
+                ContactEvent.lead_id.in_(list(leads.values())), ~ContactEvent.summary.like("Replied%")).group_by(ContactEvent.lead_id))).all():
+            last[lid] = at
+    n = 0
+    for f, r, at in rows:
+        lid = leads.get((f or r or "").strip().lower())
+        if not (lid and last.get(lid) and at and last[lid] > at):
+            n += 1
+    return n
+
+
+@router.get("/together/today")
+async def today(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Five numbers for the top of Home. A number appears only for a plugin the organisation has; credits always do."""
+    from app.services import credits as CR
+
+    ent = (await C.availability(db, current_org()))["plugins"]
+    now = datetime.utcnow()
+    out: Dict[str, Any] = {"links": {}}
+    if ent.get("leads"):
+        out["replies_waiting"] = await replies_waiting(db, now)
+        out["approvals_waiting"] = int((await db.execute(select(func.count(EmailApproval.id)).where(EmailApproval.status == "pending"))).scalar() or 0)
+        since = (now - timedelta(days=7)).date().isoformat()
+        sent, bounced = (await db.execute(select(func.coalesce(func.sum(EmailSendLog.campaign_sent_count), 0), func.coalesce(func.sum(EmailSendLog.bounced_count), 0))
+                                          .where(EmailSendLog.date >= since))).one()
+        out["bounce_rate_7d"] = round(min(1.0, int(bounced) / int(sent)), 4) if int(sent) else 0.0
+        out["sent_7d"] = int(sent)
+        out["links"].update(replies=TODAY_LINKS["replies"], approvals=TODAY_LINKS["approvals"], bounces=TODAY_LINKS["bounces"])
+    if ent.get("voice"):
+        monday = datetime(now.year, now.month, now.day) - timedelta(days=now.weekday())
+        out["meetings_this_week"] = int((await db.execute(select(func.count(Meeting.id)).where(Meeting.created_at >= monday, Meeting.created_at < monday + timedelta(days=7)))).scalar() or 0)
+        out["links"]["meetings"] = TODAY_LINKS["meetings"]
+    used = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(CreditEntry.amount < 0, CreditEntry.created_at >= now - timedelta(days=7)))).scalar() or 0
+    out["credits_used_7d"] = abs(int(used))
+    out["credits_left"] = int(await CR.balance(db))
+    out["links"]["credits"] = TODAY_LINKS["credits"]
+    return out
+
+
 # ── One day across every app ────────────────────────────────────────────────
 @router.get("/together/agenda")
 async def agenda_for_day(date: str = "", focus: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
@@ -268,8 +327,28 @@ def _csv(rows: List[List[Any]]) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
     for r in rows:
-        w.writerow([("'" + str(c) if isinstance(c, str) and c[:1] in "=+-@" else c) for c in r])  # a cell can never run as a formula
+        w.writerow([("'" + str(c) if isinstance(c, str) and c and c[:1] in "=+-@" else c) for c in r])  # a cell can never run as a formula
     return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="contacts.csv"'})
+
+
+def found_where(a: LeadAccount, rec: Any = None) -> tuple:
+    """("Companies House register" | the website host | "", date) for a saved company. Imported and typed-in companies have no outside source."""
+    from urllib.parse import urlparse
+
+    from app.services import journeys as J
+
+    where, day = J.source_parts(a, rec)
+    if where:  # the same source the email's {{source_line}} names
+        return where.removeprefix("the "), day.isoformat() if day else ""
+    when = a.created_at.date().isoformat() if a.created_at else ""
+    for src in (getattr(rec, "sources", None) or []):
+        key = f"{src.get('source_type', '')} {src.get('source_id', '')}".lower()
+        if "companies" in key or src.get("source_type") == "bulk_csv":
+            return "Companies House register", (str(src.get("confirmed_at") or "")[:10] or when)
+    if (a.source or "") in ("import", "manual"):
+        return "", ""
+    host = urlparse(a.source_url or "").netloc.removeprefix("www.")
+    return host, when if host else ""
 
 
 @router.get("/contacts/export.csv")
@@ -280,11 +359,16 @@ async def export_contacts(request: Request, db: AsyncSession = Depends(get_db)):
     counts: Dict[str, Dict[str, int]] = {}
     for lid, kind, n in (await db.execute(select(ContactEvent.lead_id, ContactEvent.kind, func.count(ContactEvent.id)).where(ContactEvent.lead_id.is_not(None)).group_by(ContactEvent.lead_id, ContactEvent.kind))).all():
         counts.setdefault(lid, {})[kind] = int(n)
-    rows: List[List[Any]] = [["Company", "Contact", "Email", "Phone", "Website", "Stage", "Last call outcome", "Last contacted", "Emails", "Calls", "Meetings", "Posts", "Notes", "Source"]]
+    # Phase 7c: where each company came from, so a customer can show the source if asked.
+    recs = {r.id: r for r in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_([a.business_record_id for a in leads if a.business_record_id] or [""])))).scalars().all()}
+    rows: List[List[Any]] = [["Company", "Contact", "Email", "Phone", "Website", "Stage", "Last call outcome", "Last contacted", "Emails", "Calls", "Meetings", "Posts", "Notes", "Source",
+                              "Where found", "Found on", "Saved by", "Saved on"]]
     for a in leads:
         c = counts.get(a.id, {})
+        where, found = found_where(a, recs.get(a.business_record_id or ""))
         rows.append([a.name, a.contact_name, a.email, a.phone, a.website, a.stage or "new", a.last_call_outcome or "", a.last_contact_at.date().isoformat() if a.last_contact_at else "",
-                     c.get("email", 0), c.get("call", 0), c.get("meeting", 0), c.get("post", 0), c.get("note", 0), a.source])
+                     c.get("email", 0), c.get("call", 0), c.get("meeting", 0), c.get("post", 0), c.get("note", 0), a.source,
+                     where, found, (a.custom or {}).get("saved_by", "") if isinstance(a.custom, dict) else "", a.created_at.date().isoformat() if a.created_at else ""])
     return _csv(rows)
 
 

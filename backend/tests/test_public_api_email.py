@@ -1,7 +1,7 @@
 """Phase 5: email campaigns through the public API: the AI drafts, someone approves, only then does it send."""
 import asyncio
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import httpx
 import pytest
@@ -444,7 +444,7 @@ async def test_one_to_one_sending_keeps_its_safety_rules(db, admin_token, outbox
     await _ready_box(db, status="active")
     key = await _key(admin_token)
     weak = await _key(admin_token, scopes=("email:write",))
-    body = {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello"}
+    body = {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello", "company": "Bloggs Ltd"}
     async with _http(weak) as c:
         assert (await c.post("/v1/email/send", json=body)).status_code == 403  # sending needs the approve permission
     async with _http(key) as c:
@@ -510,7 +510,7 @@ async def _second_box(db, **kw):
 
 
 def _mail(**extra):
-    return {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello", **extra}
+    return {"to": "jo@bloggs.test", "subject": "Hi", "body": "Hello", "company": "Bloggs Ltd", **extra}
 
 
 async def test_the_mailbox_list_gives_ids_and_why_one_cannot_send(db, admin_token):
@@ -598,7 +598,7 @@ async def test_a_chosen_mailbox_that_cannot_send_says_why(db, admin_token, outbo
         await db.commit()
     # the daily limit of the mailbox itself
     await _second_box(db)
-    db.add(EmailSendLog(id="log1", mailbox_id="mb_2", date=datetime.utcnow().date().isoformat(), sent_count=40))
+    db.add(EmailSendLog(id="log1", mailbox_id="mb_2", date=date.today().isoformat(), sent_count=40))  # the mailbox day is the server local day, as day_log has it
     await db.commit()
     async with _http(key) as c:
         full = await c.post("/v1/email/send", json=_mail(mailbox_id="mb_2"))

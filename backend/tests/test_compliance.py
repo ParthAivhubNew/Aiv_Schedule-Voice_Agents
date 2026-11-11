@@ -6,6 +6,17 @@ import pytest
 pytestmark = pytest.mark.db
 
 
+@pytest.fixture(autouse=True)
+def _permission_not_under_test(monkeypatch):
+    """These tests are about opt-outs and hours. Permission for AI calls is covered in test_call_permission.py."""
+    from app.services import call_permission
+
+    async def allowed(db, num, kind="ai", now=None):
+        return {"allowed": True, "reasons": [], "warnings": [], "flags": [], "needs": ""}
+
+    monkeypatch.setattr(call_permission, "decide", allowed)
+
+
 async def _profile(db, policy="respectful"):
     from app.models.models import CompanyProfile
     from app.services import credits as K

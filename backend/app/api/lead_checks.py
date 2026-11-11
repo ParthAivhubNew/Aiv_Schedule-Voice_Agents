@@ -114,6 +114,28 @@ async def list_picks(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     return {"picks": cards, "count": len(cards)}
 
 
+class BestIn(BaseModel):
+    job_id: str = ""  # only the picks this check left; empty = every open pick
+    ids: List[str] = []  # only these companies; empty = all
+
+
+# Declared before /picks/{account_id} so "best" is not read as a company id.
+@router.post("/picks/best")
+async def accept_best(body: BestIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Accept all best guesses: save the top option of every open pick."""
+    q = select(LeadAccount).where(cast(LeadAccount.verification, Text).like('%"pick"%'))
+    if body.ids:
+        q = q.where(LeadAccount.id.in_(body.ids[:MAX_COMPANIES]))
+    rows = (await db.execute(q)).scalars().all()
+    chosen = []
+    for acc in rows:
+        if body.job_id and (acc.verification or {}).get("job_id") != body.job_id:
+            continue
+        chosen += [{"account_id": acc.id, "field": f, "value": v} for f, v in check_picks.choose_best(acc)]
+    await db.commit()
+    return {"accepted": len(chosen), "chosen": chosen}
+
+
 @router.post("/picks/{account_id}")
 async def answer_pick(account_id: str, body: PickIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     acc = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()

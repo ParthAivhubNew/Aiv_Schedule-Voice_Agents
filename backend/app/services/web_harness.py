@@ -155,6 +155,21 @@ def _closed(status: str) -> bool:
     return bool(s) and s not in ("active", "open", "live", "registered")
 
 
+SITE_PAGES_CHARS = 30_000
+
+
+def _own_pages(pages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """[{url, text}] from the company's own site, up to SITE_PAGES_CHARS of text in all."""
+    out, left = [], SITE_PAGES_CHARS
+    for p in pages:
+        if left <= 0:
+            break
+        text = str(p.get("text") or "")[:left]
+        left -= len(text)
+        out.append({"url": p["url"], "text": text})
+    return out
+
+
 async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[Dict[str, Any]] = None, scope: str = "leadgen",
                        threshold: int = G.THRESHOLD, margin: int = G.MARGIN, want: str = "all",
                        boosts: Optional[Dict[str, Dict[str, int]]] = None, hint: str = "") -> Dict[str, Any]:
@@ -351,6 +366,8 @@ async def find_company(db: Any, *, name: str, place: str = "", facts: Optional[D
     out["found"] = bool(out["website"] or out["phones"] or out["emails"])
     # the company's own site links to its social pages: free, and said by the company itself
     own_dom = (w["key"] if w else "") or (G.registered_domain(F["website"]) if F["website"] else "")
+    # Phase 7d: the company's own pages we read, kept so company_contacts can pull website signals from them (no extra fetch)
+    out["site_pages"] = _own_pages([r for r in raw if r.get("read") and own_dom and G.registered_domain(r["url"]) == own_dom]) if own_dom else []
     out["social_links"] = social_links_of([r["url"] for r in raw if r.get("read") and own_dom and G.registered_domain(r["url"]) == own_dom]) if own_dom else {}
     # No clear winner for a field: the best few candidates, so the person can pick (and the pick teaches the next lookup)
     from app.services import contact_choices as CH

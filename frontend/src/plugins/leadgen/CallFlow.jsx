@@ -18,6 +18,7 @@ export const SKIP_WORDS = {
   recently_called: "were contacted recently",
   already_queued: "are already in a running call round",
   outside_hours: "can't be called at this hour",
+  no_call_permission: "have no recorded permission for AI calls",
 };
 
 const overlay = { position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 };
@@ -170,7 +171,7 @@ export function CallDialog({ target, onClose, onToast, upsell = false }) {
                     </div>
                   </>
                 ) : (
-                  <div style={muted}>Nobody here can be called right now. Fix the numbers in Check & improve, or wait for the hold to pass.</div>
+                  <div style={muted}>Nobody here can be called right now. Fix the numbers with Get contacts, or wait for the hold to pass.</div>
                 )}
               </>
             ) : null}

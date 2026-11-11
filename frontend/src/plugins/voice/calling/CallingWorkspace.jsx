@@ -88,6 +88,8 @@ import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
 import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
 import { WorkingHoursTab } from "./WorkingHoursTab";
+import { CallPermissions } from "./CallPermissions";
+import { isNoPermission, onPermissionRequest } from "../../../utils/callConsent";
 import { NumbersPage } from "./NumbersPage";
 import { WhatsappInbox } from "./WhatsappInbox";
 import { CallingSchedule } from "./CallingSchedule";
@@ -1460,8 +1462,10 @@ export function CallingWorkspace({
   const showToast = useCallback((t) => {
     window.clearTimeout(toastTimer.current);
     setToast(t);
-    toastTimer.current = window.setTimeout(() => setToast(""), 2800);
+    toastTimer.current = window.setTimeout(() => setToast(""), isNoPermission(t) ? 9000 : 2800);
   }, []);
+  const [permissionAsk, setPermissionAsk] = useState(null); // {number, company} from a refused AI dial: the form opens prefilled
+  useEffect(() => onPermissionRequest((d) => { setPermissionAsk(d); goPage("hours"); }), []);
   useEffect(() => {
     const onNotice = (e) => showToast(e.detail);
     window.addEventListener(NOTICE_EVENT, onNotice);
@@ -2971,8 +2975,13 @@ export function CallingWorkspace({
             fontWeight: 600,
             boxShadow: "0 10px 28px rgba(18,20,28,0.18)",
             maxWidth: 260,
-            pointerEvents: "none",
-          }}>{toast}</div>
+            pointerEvents: isNoPermission(toast) ? "auto" : "none",
+          }}>
+            {toast}
+            {isNoPermission(toast) ? (
+              <button type="button" className="ui-btn ui-btn--sm" style={{ display: "block", marginTop: 6, minHeight: 40 }} onClick={() => { setPermissionAsk({}); goPage("hours"); setToast(""); }}>Record permission</button>
+            ) : null}
+          </div>
         ) : null}
 
         <div className={(page === "list" || page === "assistant") && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates" || page === "assistant") ? "hidden" : "auto", padding: (page === "list" || page === "assistant") && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates" || page === "assistant") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates" || page === "assistant") ? "column" : undefined }}>
@@ -4487,7 +4496,10 @@ export function CallingWorkspace({
           )}
 
           {page === "hours" && canSee(operator, "company") && (
-            <WorkingHoursTab operator={operator} />
+            <>
+              <WorkingHoursTab operator={operator} />
+              <CallPermissions ask={permissionAsk} />
+            </>
           )}
             </>
           )}

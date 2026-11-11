@@ -230,3 +230,19 @@ async def test_a_saved_company_page_shows_what_the_user_gave_us_and_a_saved_comp
     assert page["mine"]["check"]["verdict"] == "looks_ok" and page["mine"]["import_flags"][0]["code"] == "EMAIL_ROLE"
     assert (await client.post("/api/leads/accounts/acc_mine/register")).json() == {"business_record_id": "br_t1"}
     assert (await client.post("/api/leads/accounts/acc_lonely/register")).json() == {"business_record_id": ""}
+
+
+@pytest.mark.db
+async def test_profile_has_fit_none_without_icp_and_next_action(client, db, monkeypatch):
+    from app.services import company_contacts as CC
+
+    async def no_registry(*a, **k):
+        return False
+
+    monkeypatch.setattr(CC, "refresh_from_registry", no_registry)
+    db.add(_biz(officers=[{"name": "LEE, Ann", "role": "director", "first_name": "Ann", "last_name": "Lee", "appointed_on": "2019-01-05", "v": 2}]))
+    await db.commit()
+    c = (await client.get("/api/leads/companies/br_t1/profile")).json()["company"]
+    assert c["fit"] is None and c["icp_set"] is False
+    assert c["best_contact"]["name"] == "Ann Lee" and c["best_contact"]["source"] == "register"
+    assert c["next_action"]["key"] == "find"

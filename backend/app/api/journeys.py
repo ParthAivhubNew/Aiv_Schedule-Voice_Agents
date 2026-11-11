@@ -7,6 +7,9 @@ POST   /journeys/from-template        a draft from a ready-made journey
 POST   /journeys/draft                a draft written by the AI from the business profile and a goal
 GET    /journeys/tasks                manual steps waiting for a person (status, journey, due today)
 POST   /journeys/tasks/{id}/done|skip
+GET    /journeys/approvals            emails waiting to be approved (journey=)
+PATCH  /journeys/approvals/{id}       change the subject or text before it goes
+POST   /journeys/approvals/{id}/approve, POST /journeys/approvals/approve-all
 GET    /journeys/{id}                 one journey: steps, settings, the check before starting, tasks, people
 PUT    /journeys/{id}/steps           replace the steps (people keep their place)
 PATCH  /journeys/{id}/settings        name, goal, sending days and hours, mailboxes, daily cap, exit rules
@@ -27,7 +30,7 @@ from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
 from app.database import get_db
-from app.models.models import EmailCampaign, EmailEnrollment, EmailSequenceStep, JourneyTask
+from app.models.models import EmailApproval, EmailCampaign, EmailEnrollment, EmailSequenceStep, JourneyTask
 from app.services import journeys as J
 
 router = APIRouter(prefix="/journeys", tags=["Journeys"])
@@ -161,6 +164,67 @@ async def task_skip(task_id: str, request: Request, db: AsyncSession = Depends(g
     return {"task": out}
 
 
+class ApprovalEdit(BaseModel):
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+class ApproveAllIn(BaseModel):
+    journey: str = ""
+
+
+@router.get("/approvals")
+async def approvals(request: Request, journey: str = "", db: AsyncSession = Depends(get_db)):
+    current(request)
+    rows = await J.list_approvals(db, journey)
+    return {"approvals": rows, "count": len(rows)}
+
+
+@router.patch("/approvals/{approval_id}")
+async def approval_edit(approval_id: str, body: ApprovalEdit, request: Request, db: AsyncSession = Depends(get_db)):
+    current(request)
+    try:
+        out = await J.edit_approval(db, approval_id, subject=body.subject, body=body.body)
+    except J.JourneyError as err:
+        raise _fail(err)
+    await db.commit()
+    return {"approval": out}
+
+
+@router.post("/approvals/approve-all")
+async def approval_all(body: ApproveAllIn, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    n = await J.approve_all(db, body.journey, by=ctx.get("operator_id") or "")
+    await db.commit()
+    return {"approved": n}
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approval_ok(approval_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = current(request)
+    n = await J.approve(db, [approval_id], by=ctx.get("operator_id") or "")
+    if not n:
+        raise HTTPException(status_code=400, detail="That email isn't waiting any more.")
+    await db.commit()
+    return {"approved": n}
+
+
+@router.get("/{journey_id}/preview")
+async def preview(journey_id: str, request: Request, enrollment_id: str = "", step_key: str = "", db: AsyncSession = Depends(get_db)):
+    """One email as a real person in this journey would get it, with the footer. Nothing is sent or saved."""
+    current(request)
+    try:
+        return await J.preview(db, await _journey(db, journey_id), enrollment_id, step_key)
+    except J.JourneyError as err:
+        raise _fail(err)
+
+
+@router.get("/{journey_id}/results")
+async def journey_results(journey_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    current(request)
+    return await J.results(db, await _journey(db, journey_id))
+
+
 @router.get("/{journey_id}")
 async def one(journey_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = current(request)
@@ -226,6 +290,7 @@ async def remove_person(journey_id: str, enrollment_id: str, request: Request, d
     if not row:
         raise HTTPException(status_code=404, detail="That person isn't in this journey.")
     await J.cancel_tasks(db, row.id)
+    await J.cancel_approvals(db, row.id)
     await db.delete(row)
     await db.commit()
     return {"ok": True}
@@ -251,7 +316,7 @@ async def clone(journey_id: str, request: Request, db: AsyncSession = Depends(ge
 async def delete(journey_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     current(request)
     camp = await _journey(db, journey_id)
-    for model in (EmailEnrollment, EmailSequenceStep, JourneyTask):
+    for model in (EmailEnrollment, EmailSequenceStep, JourneyTask, EmailApproval):
         for row in (await db.execute(select(model).where(model.campaign_id == camp.id))).scalars().all():
             await db.delete(row)
     await db.delete(camp)

@@ -7,6 +7,8 @@ import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
 import { useLookupPrice } from "./CreditsChip";
 import { NotesButton } from "./Notes";
+import { FitBadge, SignalTags } from "./FitParts";
+import { displayName, legalTag } from "./companyLogic";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -146,7 +148,7 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing }) {
+export function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing }) {
   const price = useLookupPrice();
   // No website of its own, but the company's exact page on a directory or social site: shown as that, with the site's name.
   if (!value && !web && kind === "website" && listing && listing.url) {
@@ -154,10 +156,7 @@ function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confir
       <a href={listing.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: C.cobalt, display: "inline-flex", alignItems: "center", gap: 3 }}>Listed on {listing.site} <ExternalLink size={11} /></a>{" "}
       <span style={{ ...text, fontSize: 10.5, color: listing.confirmed ? C.green : C.slate }}>{listing.confirmed ? "page confirmed" : "unconfirmed"}</span></span>;
   }
-  if (!value && closed) {
-    const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
-    return <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title={`We hold this company's ${kind}. Open it once and it stays visible. Free.`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onOpen(); }}><Icon size={13} /> {state === "busy" ? "Opening…" : `Open ${kind} · free`}</button>;
-  }
+  if (!value && closed) return <span style={{ color: C.slateLight }} title="We hold this. Use Reveal on the row">Held</span>;
   if (!value && web) {
     return <span title={confirmed ? "Confirmed by the business, through a form we emailed it" : "Found by a web search for this company"} style={{ whiteSpace: "nowrap" }}>{kind === "website" ? link(web) : kind === "phone" ? <a href={`tel:${String(web).replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{web}</a> : web} <span style={{ ...text, fontSize: 10.5, color: C.slate }}>web</span></span>;
   }
@@ -208,7 +207,7 @@ function LinksCell({ c, onFind, onReveal, lookups }) {
         const wrap = { display: "inline-flex", alignItems: "center" };
         const anchor = k === "website" ? {} : { "data-reach": `${c.id}:${k}` };
         if (href) return <span key={k} {...anchor} style={wrap}><a href={href} target="_blank" rel="noreferrer" title={label} aria-label={label} onClick={(e) => e.stopPropagation()} style={{ color: C.ink, display: "inline-flex" }}><Icon size={17} /></a></span>;
-        if (k === "website" && (c.closed || {}).website) return <span key={k} style={wrap}><button type="button" title="We hold this company's website. Open it once, free" aria-label="Open website" disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onReveal(c, "website"); }} style={{ all: "unset", cursor: "pointer", color: C.cobalt, display: "inline-flex" }}><Icon size={17} /></button></span>;
+        if (k === "website" && (c.closed || {}).website) return <span key={k} style={wrap} title="We hold this. Use Reveal on the row"><span style={{ color: C.slateLight, opacity: 0.5, display: "inline-flex" }}><Icon size={17} /></span></span>;
         const pending = state === "options";
         const tip = state === "busy" ? "Looking…" : pending ? "Check the closest matches and choose the right one" : state === "none" || (c.missed || {})[k] ? `Not found right now. Try again later` : `Find the ${label.toLowerCase()}`;
         return (
@@ -242,20 +241,26 @@ function Divider({ profile, count, cols }) {
   );
 }
 
-export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, lookups, busy }) {
+export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, onRevealRow, lookups, busy, showFit = false, fitSorted = false, onSortFit }) {
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
-  const cols = 10;
+  const cols = showFit ? 11 : 10;
   const seen = new Set();
   let last = null; // a divider is drawn whenever the group changes, so no row ever sits under the wrong heading
   return (
     <>
     <GridTools id="find-companies" pinned={COMPANY_PIN} />
     <div className="ui-scroll fl-table" aria-busy={busy || undefined} style={{ opacity: busy ? 0.55 : 1, transition: "opacity .15s" }}>
-      <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1020 }}>
+      <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: showFit ? 1200 : 1020 }}>
         <thead>
           <tr>
             <th style={{ ...th, ...pinned(0, 4), width: 36, background: "#FAFBFC" }}><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></th>
             <th style={{ ...th, background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
+            {showFit ? (
+              <th style={th} aria-sort={fitSorted ? "descending" : "none"}>
+                <button type="button" onClick={onSortFit} disabled={busy || fitSorted || !onSortFit} title={fitSorted ? "Sorted by best fit" : "Sort by best fit"}
+                  style={{ all: "unset", cursor: fitSorted ? "default" : "pointer" }}>Fit{fitSorted ? " ↓" : ""}</button>
+              </th>
+            ) : null}
             <th style={th}>Industry</th>
             <th style={th}>Location</th>
             <th style={th}>Website</th>
@@ -286,15 +291,18 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                       <CompanyAvatar c={c} />
                       <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
-                          {c.name}
+                          <span title={c.name} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayName(c.name)}</span>
+                          {legalTag(c.company_category, c.registration_number) ? <span style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(c.company_category, c.registration_number)}</span> : null}
                           <NotesButton companyId={c.id} name={c.name} />
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
-                        <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{[c.company_category, c.registration_number && `No. ${c.registration_number}`].filter(Boolean).join(" · ")}</div>
+                        <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{c.registration_number ? `No. ${c.registration_number}` : ""}</div>
+                        {c.signals?.length ? <div style={{ marginTop: 3 }}><SignalTags signals={c.signals} /></div> : null}
                       </div>
                     </div>
                   </Cell>
+                  {showFit ? <Cell style={{ maxWidth: 240 }}><FitBadge fit={c.fit} /></Cell> : null}
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={plainSector(c.industry)}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
@@ -302,7 +310,13 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
-                  <Cell style={{ textAlign: "right" }}><SaveCell saved={isSaved(c)} onSave={() => onSave(c)} /></Cell>
+                  <Cell style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {Object.keys(c.closed || {}).length && onRevealRow ? (
+                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Show the website, phone and email we hold for this company. Free."
+                        onClick={(e) => { e.stopPropagation(); onRevealRow(c); }}>Reveal</button>
+                    ) : null}{" "}
+                    <SaveCell saved={isSaved(c)} onSave={() => onSave(c)} />
+                  </Cell>
                 </tr>
               </React.Fragment>
             );

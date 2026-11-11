@@ -232,7 +232,7 @@ async def _save_to_list(db: AsyncSession, ctx: Dict[str, Any], args: Dict[str, A
                                notes=" · ".join(str(x) for x in (c.get("registration_number") and f"Reg no. {c['registration_number']}", c.get("status"), c.get("postcode")) if x)) for c in rows]
     if not accounts:
         return "The search found no companies, so nothing was saved."
-    res = await LAcc.add_accounts(LAcc.AccountsIn(accounts=accounts, list_name=name), db)
+    res = await LAcc.save_accounts(db, LAcc.AccountsIn(accounts=accounts, list_name=name), "")
     return f"Saved {res['added']} new companies to “{name}” ({res['matched']} were already saved and were added to the list too)."
 
 

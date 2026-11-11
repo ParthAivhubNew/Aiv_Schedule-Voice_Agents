@@ -8,18 +8,20 @@ export const STEP_TYPES = [
   { channel: "task", label: "Task", plugin: "Leads", hint: "Anything else you do by hand" },
   { channel: "social_task", label: "Social task", plugin: "Social", hint: "Like, comment or message on social" },
   { channel: "linkedin_task", label: "LinkedIn task", plugin: "Leads", hint: "A reminder: LinkedIn is never automated" },
+  { channel: "letter_task", label: "Letter task", plugin: "Leads", hint: "A reminder to post a letter" },
 ];
 
-export const TASK_CHANNELS = ["manual_email", "call_task", "task", "social_task", "linkedin_task"];
+export const TASK_CHANNELS = ["manual_email", "call_task", "task", "social_task", "linkedin_task", "letter_task"];
 export const STATUS_WORDS = { draft: "Draft", running: "Running", paused: "Paused", completed: "Finished" };
 export const STATUS_TONES = { draft: "slate", running: "green", paused: "amber", completed: "blue" };
 export const PERSON_WORDS = {
   active: "In progress", replied: "Replied", booked: "Booked", completed: "Finished", finished: "Finished", unresponsive: "No answer", form_returned: "Sent the form back",
-  bounced: "Bounced", unsubscribed: "Opted out", suppressed: "Opted out", blocked: "Blocked",
+  bounced: "Bounced", unsubscribed: "Opted out", suppressed: "Opted out", blocked: "Reached another way",
 };
 export const FINISH_WORDS = {
   replied: "replied", not_interested: "not interested", meeting_booked: "booked a meeting", unsubscribed: "opted out", unresponsive: "never answered",
   interested: "interested on a call", do_not_contact: "asked not to be contacted", stage: "no longer a prospect", bounced: "email bounced", finished: "finished all steps",
+  not_eligible: "company closed or wrong number",
 };
 export const CALL_OUTCOMES = [
   ["connected", "Spoke to them"], ["interested", "Interested"], ["callback_requested", "Call me back"], ["no_answer", "No answer"],
@@ -103,11 +105,43 @@ export function addedText(out) {
   const kept = out.excluded_total || 0;
   const safety = kept ? ` ${kept} left out: ${[[s.problem, "closed or wrong company number"], [s.email_bad, "emails that can't receive mail"]]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(", ")}.` : "";
-  const w = out.warned_counts || {};
-  const risk = out.warned_total ? ` Heads up: ${[[w.unchecked, "not checked by us"], [w.individual, "individuals with no consent recorded"]].filter(([n]) => n).map(([n, t]) => `${n} ${t}`).join(", ")}. They will be emailed at your own risk: unchecked addresses can bounce and hurt your sender reputation, and emailing an individual without consent can breach UK marketing-email rules.` : "";
+  const route = out.plan && (out.plan.quick_choice || out.plan.reach_other_way) ? ` ${planWords(out.plan)}.` : "";
   const queued = out.queued && !out.dry_run && out.added ? " They start when you press Start." : "";
-  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}${safety}${risk}${queued}`;
+  return `${out.dry_run ? "Would add" : "Added"} ${out.added}.${why.length ? ` Skipped: ${why.join(", ")}.` : ""}${safety}${route}${queued}`;
+}
+
+// "186 get email, 9 need a quick choice, 5 are reached another way". Never a refusal: everyone stays in the journey.
+export function planWords(plan) {
+  const p = plan || {};
+  const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  return [
+    p.email ? n(p.email, "gets email", "get email") : "",
+    p.quick_choice ? n(p.quick_choice, "needs a quick choice", "need a quick choice") : "",
+    p.reach_other_way ? n(p.reach_other_way, "is reached another way", "are reached another way") : "",
+  ].filter(Boolean).join(", ");
 }
 
 // Tasks overdue or due today come first.
 export const sortTasks = (tasks) => [...(tasks || [])].sort((a, b) => String(a.due_at || "").localeCompare(String(b.due_at || "")));
+
+// Phase 5: the results bar and the per-step table.
+export const RESULT_BAR = [["sent", "Sent"], ["delivered", "Delivered"], ["opened", "Opened"], ["replied", "Replied"], ["booked", "Booked"], ["bounced", "Bounced"], ["opted_out", "Opted out"]];
+
+export function resultsBar(results) {
+  const r = results || {};
+  return RESULT_BAR.map(([key, label]) => ({ key, label, value: Number(r[key]) || 0 }));
+}
+
+export function opensNote(results) {
+  return results && results.opens_tracked === false
+    ? "Opens are not counted: open tracking is off in Settings → Connections."
+    : "Opens are a minimum; some mail apps hide them.";
+}
+
+export const rateText = (v) => (v === null || v === undefined ? "-" : `${v}%`);
+
+// The per-step rows; calls and tasks that sent no email are left out.
+export const stepTable = (results) => ((results && results.by_step) || []).filter((r) => r.channel === "email" || r.sent > 0);
+
+// Adds a tag on its own line at the end of the text, unless it is already there.
+export const withTag = (body, tag) => (String(body || "").includes(tag) ? body : [String(body || "").trimEnd(), tag].filter(Boolean).join("\n\n"));

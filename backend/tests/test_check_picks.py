@@ -71,6 +71,75 @@ def test_skipping_keeps_it_open_and_saves_nothing():
     assert a.phone == "" and len(P.open_picks(a)) == 1 and P.as_cards([a])[0]["skipped"] is True
 
 
+def test_a_named_person_comes_first_then_sales_style_inboxes_then_role_inboxes():
+    found = {"emails": ["help@ao.com", "support@ao.com", "ir@ao.com", "info@ao.com", "john.roberts@ao.com", "sales@ao.com", "no-reply@ao.com"]}
+    got = P.candidates(found, "email")
+    assert got[:3] == ["john.roberts@ao.com", "info@ao.com", "sales@ao.com"]  # ties keep the search's order
+    assert set(got[3:]) <= {"help@ao.com", "support@ao.com", "ir@ao.com", "no-reply@ao.com"}
+    assert [P.inbox_kind(e) for e in ("customer.service@x.com", "support.uk@x.com", "info-leeds@x.com", "jsmith@x.com")] == ["role", "role", "general", "person"]
+    assert P.candidates({"phones": ["0113 2", "0113 1"]}, "phone") == ["0113 2", "0113 1"]  # phones keep the search's order
+
+
+def test_a_pick_saved_before_ranking_is_shown_ranked():
+    a = acc(verification={"fixes": [{"kind": "pick", "field": "email", "applied": False,
+                                      "options": [{"value": "ir@ao.com", "source": "Web search"}, {"value": "hello@ao.com", "source": "Web search"}]}]})
+    assert [o["value"] for o in P.as_cards([a])[0]["options"]] == ["hello@ao.com", "ir@ao.com"]
+
+
+def test_accept_all_best_guesses_saves_the_top_option_of_every_open_pick():
+    a = acc(verification={"fixes": [
+        {"kind": "pick", "field": "email", "applied": False, "options": [{"value": "support@ao.com"}, {"value": "sales@ao.com"}]},
+        {"kind": "pick", "field": "phone", "applied": False, "options": [{"value": "0113 1"}, {"value": "0113 2"}]},
+        {"kind": "pick", "field": "email", "applied": True, "chosen": "x@ao.com", "options": [{"value": "x@ao.com"}]}]})
+    assert P.choose_best(a) == [("email", "sales@ao.com"), ("phone", "0113 1")]
+    assert a.email == "sales@ao.com" and a.phone == "0113 1" and P.open_picks(a) == []
+    assert P.choose_best(a) == []  # nothing left open
+
+
+def test_the_frontend_has_the_same_inbox_words():
+    import re
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "plugins" / "leadgen" / "inboxes.js").read_text(encoding="utf-8")
+
+    def words(name):
+        body = re.search(name + r" = new Set\(\[(.*?)\]\)", js, re.S).group(1)
+        return set(re.findall(r'"([a-z]+)"', body))
+
+    assert words("GENERAL_INBOXES") == set(P.GENERAL_INBOXES)
+    assert words("ROLE_INBOXES") == set(P.ROLE_INBOXES)
+
+
+@pytest.mark.db
+async def test_accept_all_best_guesses_over_http_only_touches_the_check_asked_for(db):
+    import httpx
+    from fastapi import FastAPI
+
+    from app.api import lead_checks
+    from app.models.models import LeadAccount
+
+    def pick(job):
+        return {"verdict": "looks_ok", "job_id": job, "fixes": [{"kind": "pick", "field": "email", "applied": False,
+                "options": [{"value": "ir@ao.com", "source": "Web search"}, {"value": "jane.doe@ao.com", "source": "Web search"}]}]}
+
+    db.add_all([LeadAccount(id="acc_b1", name="AO World", region="Bolton", verification=pick("job_1")),
+                LeadAccount(id="acc_b2", name="Oak Dental", region="Leeds", verification=pick("job_2"))])
+    await db.commit()
+    app = FastAPI()
+    app.include_router(lead_checks.router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/leads/checks/picks/best", json={"job_id": "job_1"})
+        assert r.status_code == 200 and r.json()["accepted"] == 1 and r.json()["chosen"][0] == {"account_id": "acc_b1", "field": "email", "value": "jane.doe@ao.com"}
+        left = (await c.get("/leads/checks/picks")).json()
+        assert [p["account_id"] for p in left["picks"]] == ["acc_b2"]
+        assert (await c.post("/leads/checks/picks/best", json={})).json()["accepted"] == 1
+        assert (await c.get("/leads/checks/picks")).json()["count"] == 0
+    for row_id in ("acc_b1", "acc_b2"):
+        row = await db.get(LeadAccount, row_id)
+        await db.refresh(row)
+        assert row.email == "jane.doe@ao.com"
+
+
 @pytest.mark.db
 async def test_picks_over_http_list_choose_and_conflict(db):
     import httpx

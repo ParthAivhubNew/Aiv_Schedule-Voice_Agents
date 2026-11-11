@@ -9,7 +9,7 @@ import { notice } from "../../utils/notice";
 import { ArrowLeft, ChevronRight, Mail, MoreHorizontal, Phone, Plus, Trash2 } from "lucide-react";
 
 // "Reply with times": the free times in their own time zone and a booking link, as the body of a reply.
-function ReplyWithTimes({ r }) {
+export function ReplyWithTimes({ r }) {
   const { available } = useConnection("booking_in_email");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -51,6 +51,7 @@ export function readiness(m) {
   }
   if (m.status === "connected") return { tone: "blue", title: "Ready to warm up.", body: "Your domain settings are in place. Next, start warm-up: this mailbox sends a few emails a day and slowly sends more, so inboxes learn to trust it and your emails do not land in spam." };
   if (m.status === "paused") return { tone: "amber", title: "Sending is paused.", body: m.pause_reason || "Start it again when you are ready." };
+  if (m.bounce_health && m.bounce_health.state === "warning") return { tone: "amber", title: "Bounces are getting high.", body: m.bounce_health.text };
   if (m.status === "warming") return { tone: "blue", title: "Warming up.", body: `Day ${m.consecutive_healthy_days} of about 21. This mailbox sends a few emails a day and sends more each day, until it reaches your daily target. Do not rush it: it protects your emails from going to spam.` };
   return null;
 }

@@ -18,4 +18,10 @@ describe("the one message a mailbox card shows", () => {
     expect(readiness({ ...base, status: "warming", consecutive_healthy_days: 4 }).body).toContain("Day 4 of about 21");
     expect(readiness({ ...base, status: "active" })).toBeNull();
   });
+  it("warns at 1.5% bounces, before the mailbox pauses itself at 2%", () => {
+    const warn = readiness({ ...base, status: "active", bounce_health: { state: "warning", text: "Bounces are at 1.6% over 7 days. At 2% this mailbox pauses itself." } });
+    expect(warn.tone).toBe("amber");
+    expect(warn.body).toContain("1.6%");
+    expect(readiness({ ...base, status: "active", bounce_health: { state: "ok", text: "" } })).toBeNull();
+  });
 });

@@ -16,12 +16,18 @@ import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar } from "./FindLeadsParts";
+import { IcpPrompt, useIcp } from "./FitParts";
+import { sortOptions } from "./fitLogic";
 import { CompanyDrawer } from "./CompanyDrawer";
 import { NotesButton, notesChanged } from "./Notes";
 import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
+// Phase 4: SIC picker, radius, signals, saved searches
+import { SicPicker } from "./IcpEditor";
+import { SavedSearches } from "./SavedSearches";
+import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
 
 // The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
 export const SELECT_ALL_LIMIT = 2000;
@@ -34,16 +40,17 @@ const CHECK_TIPS = {
   hasPhone: "Only companies we already hold a phone number for",
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
+  noCharities: "Leave out charities and companies on the charity register",
 };
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", notSector: "", notTown: "", notCategory: "", saved: "", title: "" };
+const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown"], size: ["sizes"], company: ["category", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
-const isOn = (form, k) => (Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
-const sortLabels = [["best", "Best match"], ["newest", "Newest first"], ["name", "Name A to Z"]];
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
+const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "CIC"], ["guarantee", "By guarantee"], ["partnership", "Partnership"]];
 
 const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -74,6 +81,7 @@ function formToFilters(f) {
   // One box for industry words and company names: each word is matched against both.
   if (String(f.name || "").trim()) out.name_contains = f.name.trim();
   if (splitList(f.sector).length) out.keyword = splitList(f.sector);
+  if (splitList(f.sic).length) out.sic_codes = splitList(f.sic);
   if (splitList(f.town).length) out.towns = splitList(f.town);
   if (splitList(f.postcode).length) out.postcode_prefixes = splitList(f.postcode);
   if (f.sizes.length) out.size_bands = f.sizes;
@@ -81,6 +89,8 @@ function formToFilters(f) {
   if (num(f.maxAge) !== undefined) out.max_age_years = num(f.maxAge);
   if (f.includeClosed) out.status = "any";
   if (f.category.trim()) out.company_category = f.category.trim();
+  if ((f.types || []).length) out.company_types = f.types;
+  if (f.noCharities) out.exclude_charities = true;
   if (f.hasWebsite) out.has_website = true;
   if (f.includeNonBusiness) out.include_non_business = true;
   if (f.includeSecondary) out.include_secondary_activity = true;
@@ -90,6 +100,8 @@ function formToFilters(f) {
   if (splitList(f.notTown).length) out.not_towns = splitList(f.notTown);
   if (splitList(f.notCategory).length) out.not_company_category = splitList(f.notCategory);
   if (f.saved === "only" || f.saved === "exclude") out.saved = f.saved;
+  if (f.near?.districts?.length) out.near = f.near;
+  if ((f.signals || []).length) out.signals = f.signals;
   return out;
 }
 
@@ -100,13 +112,15 @@ function appliedWords(f) {
 
 function filtersToForm(fl) {
   return {
-    name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
+    name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "),
+    types: fl.company_types || [], noCharities: !!fl.exclude_charities, town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
     includeNonBusiness: !!fl.include_non_business, includeSecondary: !!fl.include_secondary_activity, hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
     notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
     saved: fl.saved || "", title: "",
+    near: fl.near || null, nearPostcode: fl.near?.postcode || "", nearMiles: fl.near ? String(fl.near.miles) : "5", nearError: "", signals: fl.signals || [],
   };
 }
 
@@ -331,7 +345,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany }) {
+function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -342,6 +356,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [searched, setSearched] = useState(false);
   const [tab, setTab] = useState("companies"); // companies | people
   const [sort, setSort] = useState("best");
+  const icp = useIcp();
+  const [icpSet, setIcpSet] = useState(false); // what the server said for the list on screen
   const [page, setPage] = useState(1);
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
   const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
@@ -407,6 +423,22 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     return savedKeys.has(c.id) || Boolean(d && savedKeys.has(d));
   };
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // Phase 4: names for the SIC codes picked here, and the radius lookup (the districts inside N miles of a postcode)
+  const [sicLabels, setSicLabels] = useState({});
+  const lookRadius = async (postcode, miles) => {
+    const pc = String(postcode || "").trim();
+    if (!pc) { setForm((f) => ({ ...f, near: null, nearError: "" })); return; }
+    try {
+      const r = await api.radiusDistricts(pc, miles);
+      setForm((f) => ({ ...f, near: nearFromReply(pc, miles, r), nearError: "" }));
+    } catch (err) {
+      setForm((f) => ({ ...f, near: null, nearError: err.message || "That postcode could not be looked up." }));
+    }
+  };
+  const applySaved = (filters) => {
+    const f = { ...EMPTY_FORM, ...filtersToForm(cleanFilters(filters)) };
+    setExcluded([]); setForm(f); setTab("companies"); search(null, f, 0, null, undefined, undefined, true);
+  };
   const toggleSize = (s) => setForm((f) => ({ ...f, sizes: f.sizes.includes(s) ? f.sizes.filter((x) => x !== s) : [...f.sizes, s] }));
 
   // Map pins: look up the points for whatever is on screen, once per company.
@@ -425,11 +457,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     })();
   }, [view, companies]);
 
-  // Opening Find Leads shows the whole register, best profiles and biggest names first; filters then narrow it.
+  // Opening Find Leads shows the companies that match the ideal customer, best fit first. Without one it shows the whole
+  // register, best profiles and biggest names first; filters then narrow it.
   const browsed = useRef(false);
   useEffect(() => {
-    if (browsed.current) return;
+    if (browsed.current || icp.loading) return;
     browsed.current = true;
+    if (icp.isSet && Object.keys(icp.filters || {}).length) {
+      const f = { ...EMPTY_FORM, ...filtersToForm(icp.filters) };
+      setForm(f);
+      setSort("fit");
+      if (!seenIncoming.current) search(null, f, 0, null, undefined, "fit", true);
+      return;
+    }
     // The opening list this browser saw last time shows at once, then the fresh one replaces it quietly.
     try {
       const kept = JSON.parse(localStorage.getItem(FIRST_KEY) || "null");
@@ -439,7 +479,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       }
     } catch { /* nothing kept: the placeholder rows show instead */ }
     search(null, EMPTY_FORM, 0, null);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [icp.loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The opening list never stays empty: if it failed (server busy, a restart, a slow first sort) or came back empty, it is tried
   // again by itself, up to three times, until the person starts a search of their own.
@@ -513,6 +553,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       if (myRun !== runId.current) return;
       if (r.points) setPoints((p) => ({ ...p, ...r.points }));
       setCompanies(r.companies);
+      setIcpSet(Boolean(r.icp_set));
       setPage(Math.floor(offset / pageRef.current) + 1);
       lastQuery.current = query;
       setSelKey(JSON.stringify([query.filters, query.sort, query.drop_terms]));
@@ -812,6 +853,17 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     try { const r = await api.revealContact(c.id, kind); applyCompany(c.id, r.company); store.toast(`${kind[0].toUpperCase()}${kind.slice(1)} opened for ${c.name}.`); } catch (err) { store.toast(err.message || "Couldn't open that."); }
     setLookups((m) => { const n = { ...m }; delete n[key]; return n; });
   };
+  // Opens everything our registry holds for these companies. Free: no credits are used.
+  const revealMany = async (rows) => {
+    const ids = rows.filter((c) => Object.keys(c.closed || {}).length).map((c) => c.id);
+    if (!ids.length) return;
+    try {
+      const r = await api.revealMany(ids);
+      (r.companies || []).forEach((co) => applyCompany(co.id, co));
+      store.toast(`Opened ${(r.companies || []).length.toLocaleString()} ${(r.companies || []).length === 1 ? "company" : "companies"}. Free.`);
+    } catch (err) { store.toast(err.message || "Couldn't open them."); }
+  };
+  const revealRow = (c) => revealMany([c]);
   const findSite = async (c, kind = "website") => {
     const key = `${c.id}:${kind}`;
     if (lookups[key] === "busy") return;
@@ -957,6 +1009,37 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         panes={[{ id: "chat", label: "Search" }, { id: "results", label: "Results", badge: searched && total ? total.toLocaleString() : "" }]} />
       <style>{CHAT_CSS}</style>
       <>
+      <div className="fl-toolbar" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" className="ui-btn ui-btn--secondary hide-mobile" style={{ height: 40 }} aria-pressed={filtersShown} title={filtersShown ? "Hide the filters" : "Show the filters"} onClick={toggleFilters}>
+          {filtersShown ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />} Filters{filterCount ? ` · ${filterCount}` : ""}
+        </button>
+        <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }} style={{ flex: "1 1 280px", minWidth: 0 }}>
+          <label title="Find a company by its name. Searches every registered company" style={{ position: "relative", display: "block" }}>
+            <Search size={15} color={C.slate} style={{ position: "absolute", left: 12, top: 12 }} />
+            <input className="ui-input" aria-label="Company name" value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" style={{ height: 40, paddingLeft: 36, paddingRight: form.name ? 34 : undefined }} />
+            {form.name ? <button type="button" aria-label="Clear the company name" onClick={() => setField("name", "")} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 11, top: 12, color: C.slate, display: "inline-flex" }}><X size={14} /></button> : null}
+          </label>
+        </form>
+        {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
+        <div role="tablist" aria-label="What to look for" className="fl-seg">
+          {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
+              <Icon size={15} /> {name}
+            </button>
+          ))}
+        </div>
+        {tab === "companies" ? (
+          <div role="tablist" aria-label="Results view" className="fl-seg">
+            {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
+              <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
+                title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
+                onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}>
+                <Icon size={15} /> {name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
       <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
@@ -966,14 +1049,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
               <button type="button" className="fl-collapse" aria-label="Hide the filters" title="Hide the filters to give the results more room" onClick={toggleFilters}><ChevronsLeft size={16} /></button>
             </div>
-            <label style={{ ...field, flex: "none" }} title="Find a company by its name. Searches every registered company">
-              <span style={label}>Company name</span>
-              <span style={{ position: "relative", display: "block" }}>
-                <Search size={14} color={C.slate} style={{ position: "absolute", left: 10, top: 10 }} />
-                <input className="ui-input" value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="Tesco, Greggs, Smith & Sons" style={{ paddingLeft: 30, paddingRight: form.name ? 30 : undefined }} />
-                {form.name ? <button type="button" aria-label="Clear the company name" onClick={() => setField("name", "")} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 9, top: 9, color: C.slate, display: "inline-flex" }}><X size={14} /></button> : null}
-              </span>
-            </label>
           </div>
           {tab === "people" ? (
             <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")}>
@@ -986,6 +1061,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
             <label style={field} title="Leave out companies whose name or sector has any of these words"><span style={label}>Leave out</span>
               <input className="ui-input" value={form.notSector} onChange={(e) => setField("notSector", e.target.value)} placeholder="franchise, holdings" /></label>
+            <div style={field} title="The register's industry codes. A short code takes every code that starts with it"><span style={label}>Industry (SIC codes)</span>
+              <SicPicker value={splitList(form.sic)} labels={sicLabels} onChange={(codes, labels) => { setField("sic", codes.join(", ")); setSicLabels(labels); }} /></div>
             {check("includeSecondary", "Include side activities")}
           </FilterGroup>
           <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")}>
@@ -998,6 +1075,26 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
             <label style={field} title="Leave out companies in these towns"><span style={label}>Leave out towns</span>
               <input className="ui-input" value={form.notTown} onChange={(e) => setField("notTown", e.target.value)} placeholder="Bradford" /></label>
+            <div style={field} title="Companies whose registered office is in the postcode districts inside this distance">
+              <span style={label}>Within</span>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <select className="ui-input" aria-label="Miles" style={{ width: 96, flex: "0 0 auto" }} value={form.nearMiles}
+                  onChange={(e) => { setField("nearMiles", e.target.value); if (form.nearPostcode.trim()) lookRadius(form.nearPostcode, e.target.value); }}>
+                  {RADIUS_MILES.map((m) => <option key={m} value={m}>{m} {m === 1 ? "mile" : "miles"}</option>)}
+                </select>
+                <input className="ui-input" aria-label="of this postcode" style={{ flex: "1 1 120px", minWidth: 0 }} value={form.nearPostcode} placeholder="of LS1 4AP"
+                  onChange={(e) => setField("nearPostcode", e.target.value)} onBlur={() => lookRadius(form.nearPostcode, form.nearMiles)} />
+              </div>
+              {form.near?.districts?.length ? <span style={muted}>{coversText(form.near)}</span> : null}
+              {form.nearError ? <span role="alert" style={{ ...muted, color: C.red || "#B42318" }}>{form.nearError}</span> : null}
+            </div>
+          </FilterGroup>
+          <FilterGroup title="Reasons to get in touch now" active={activeIn("signals")} open={groups.signals} onToggle={() => setGroup("signals")} onClear={() => clearGroup("signals")}>
+            {SIGNAL_OPTIONS.map(([key, name, tip]) => (
+              <label key={key} title={tip} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", minHeight: 40 }}>
+                <input type="checkbox" checked={form.signals.includes(key)} onChange={() => setField("signals", toggleIn(form.signals, key))} /> {name}
+              </label>
+            ))}
           </FilterGroup>
           <FilterGroup title="Size (filed accounts)" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
@@ -1010,6 +1107,14 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")}>
             <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
               <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Any of the legal forms ticked">
+              {TYPE_OPTIONS.map(([id, name]) => {
+                const on = (form.types || []).includes(id);
+                return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Type: ${name}`} onClick={() => setField("types", on ? form.types.filter((x) => x !== id) : [...(form.types || []), id])}
+                  style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
+              })}
+            </div>
+            {check("noCharities", "Leave out charities")}
             <label style={field} title="Leave out these legal forms"><span style={label}>Leave out types</span>
               <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP" /></label>
             <div style={{ display: "flex", gap: 8 }}>
@@ -1044,29 +1149,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          {!filtersShown ? (
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm hide-mobile" style={{ height: 36 }} title="Show the filters" onClick={toggleFilters}>
-              <ChevronsRight size={15} /> Filters{filterCount ? ` · ${filterCount}` : ""}
-            </button>
-          ) : null}
-          <div role="tablist" aria-label="What to look for" className="fl-seg">
-            {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
-              <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
-                <Icon size={15} /> {name}
-              </button>
-            ))}
-          </div>
-          {tab === "companies" ? (
-            <div role="tablist" aria-label="Results view" className="fl-seg">
-              {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-                <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
-                  title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
-                  onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}>
-                  <Icon size={15} /> {name}
-                </button>
-              ))}
-            </div>
-          ) : null}
           {searched && tab === "companies" && !area ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
         </div>
       {firstLoad ? (
@@ -1130,12 +1212,13 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
               ) : null}
             </div>
+            {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <div style={{ flexBasis: "100%" }}><IcpPrompt onSet={onSetIcp} /></div> : null}
             {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
             {!area ? (
               <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 Sort
                 <select className="ui-input" aria-label="Sort results" value={sort} disabled={busy} onChange={(e) => changeSort(e.target.value)} style={{ height: 30, padding: "0 6px", width: "auto" }}>
-                  {sortLabels.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  {sortOptions(icp.isSet).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
             ) : null}
@@ -1270,15 +1353,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => bulkSave("Unsorted")}><Plus size={14} /> Save {sel.count.toLocaleString()}</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askList({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, confirm: "Add" }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => bulkSave(FAVOURITES)}><Star size={14} /> Favourite</button>
+                {pickedRows.some((c) => Object.keys(c.closed || {}).length) ? (
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealMany(pickedRows)}>Reveal {pickedRows.filter((c) => Object.keys(c.closed || {}).length).length.toLocaleString()}</button>
+                ) : null}
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
               </SelectionBar>
               <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
               {companies.length ? (
                 <CompaniesTable busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
+                  showFit={icpSet} fitSorted={sort === "fit"} onSortFit={area ? undefined : () => changeSort("fit")}
                   onPick={sel.toggle}
                   onPickAll={() => sel.togglePage(companies.map((c) => c.id))}
-                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} lookups={lookups} />
+                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} onRevealRow={revealRow} lookups={lookups} />
               ) : searched && !inArea && !busy ? (
                 <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
               ) : null}
@@ -1319,7 +1406,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistan
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

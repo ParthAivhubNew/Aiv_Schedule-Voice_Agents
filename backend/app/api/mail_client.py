@@ -24,7 +24,7 @@ from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
 from app.database import get_db
-from app.models.models import EmailMailbox, MailMessage
+from app.models.models import EmailMailbox, EmailMessage, LeadAccount, MailMessage
 from app.services import mail_sync as S
 from app.services import mail_transport as T
 from app.services.email_dispatcher import alias_for, day_log, mailbox_settings
@@ -190,6 +190,24 @@ async def _matching_heads(db: AsyncSession, boxes: Dict[str, EmailMailbox], fold
     return thread_heads(rows), len(rows) >= SCAN_CAP
 
 
+async def reply_categories(db: AsyncSession, senders: List[str]) -> Dict[str, tuple]:
+    """{sender email: (reply category, saved company id)} for senders who answered a campaign email in the last 60 days.
+    Two batched queries for the whole page; the newest reply wins."""
+    addrs = {(a or "").strip().lower() for a in senders if a}
+    if not addrs:
+        return {}
+    since = datetime.utcnow() - timedelta(days=60)
+    rows = (await db.execute(select(EmailMessage.reply_from, EmailMessage.reply_category).where(
+        func.lower(EmailMessage.reply_from).in_(list(addrs)), EmailMessage.status == "replied", EmailMessage.replied_at >= since)
+        .order_by(EmailMessage.replied_at.asc()))).all()
+    cat = {(f or "").strip().lower(): (c or "") for f, c in rows}
+    if not cat:
+        return {}
+    leads = {(e or "").strip().lower(): i for i, e in (await db.execute(select(LeadAccount.id, LeadAccount.email).where(
+        func.lower(LeadAccount.email).in_(list(cat))))).all()}
+    return {a: (c, leads.get(a, "")) for a, c in cat.items() if c}
+
+
 @router.get("/messages")
 async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str = "", q: str = "", unread: bool = False,
                         starred: bool = False, attachments: bool = False, limit: int = 40, offset: int = 0,
@@ -210,11 +228,13 @@ async def list_messages(request: Request, folder: str = "inbox", mailbox_id: str
                                                   .where(MailMessage.mailbox_id.in_(list(boxes)), MailMessage.thread_key.in_(keys), MailMessage.folder.notin_(("trash", "spam")))
                                                   .group_by(MailMessage.thread_key))).all():
             stats[key] = (int(n), int(unread_n or 0))
+    cats = await reply_categories(db, [m.from_email for m in page if m.folder != "sent"])
     out = []
     for m in page:
         row = _row(m, boxes.get(m.mailbox_id))
         n, unread_n = stats.get(m.thread_key, (1, 0 if m.is_read else 1))
         row["count"], row["unread_count"] = max(n, 1), unread_n
+        row["reply_category"], row["lead_id"] = cats.get((m.from_email or "").strip().lower(), ("", ""))
         out.append(row)
     return {"threads": out, "total": total, "total_capped": capped}
 

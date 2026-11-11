@@ -2,16 +2,19 @@ import React, { useCallback, useEffect, useState } from "react";
 import { takePendingList } from "./openList";
 import { GridTools } from "../../components/GridTools";
 import { CardsSkeleton } from "../../app/Loader";
-import { Check, ListChecks, Megaphone, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import { Check, ListChecks, Megaphone, Pencil, Plus, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
-import { AccountsView, contactFor, emailFor, phoneFor } from "./AccountsViews";
+import { AccountsView, contactFor, emailFor, MoreMenu, openFixes, phoneFor } from "./AccountsViews";
+import { useIcp } from "./FitParts";
+import { listStats } from "./listLogic";
 import { useConnection } from "../../hooks/useConnections";
 import { buildCallList, LISTS_CHANGED, setOpenList, stageCallList } from "../../utils/leadToVoice";
 import { navigateHash } from "../../utils/route";
-import { CallButton, useCallDialog } from "./CallFlow";
+import { useCallDialog } from "./CallFlow";
 import { LOCK_TIP, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
+import { ConsentDeclaration } from "./ConsentDeclaration";
 
 // Lists: a named group of saved companies. Build one in Saved Accounts, enrich it here, then run a
 // campaign on it. A list only remembers which companies are in it; the companies stay in Saved Accounts.
@@ -88,6 +91,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   const { lists, loading, reload } = listsStore;
   const { available: canCall } = useConnection("call_leads");
   const call = useCallDialog(store.toast);
+  const icp = useIcp();
   const [reach, setReach] = useState({}); // per company: has it been called, is it interested (from the connections view)
   useEffect(() => {
     let live = true;
@@ -104,6 +108,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   const [openId, setOpenId] = useState(takePendingList); // a list id, "all" for every company, or "" for the overview
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
+  const [consentFor, setConsentFor] = useState(""); // id of the list whose consent question is open
   const open = lists.find((l) => l.id === openId);
   const rename = async (id, name) => {
     setBusy(true);
@@ -122,7 +127,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   // "Review in Voice first": the same companies, opened on the Voice call list to look over and change before calling.
   const reviewInVoice = (name, members) => {
     const list = buildCallList(name, members, phoneFor, contactFor, emailFor);
-    if (!list.records.length) { store.toast("None of these companies has a phone number yet. Check & improve them first."); return; }
+    if (!list.records.length) { store.toast("None of these companies has a phone number yet. Use Get contacts on them first."); return; }
     if (!stageCallList(list)) { store.toast("Couldn't pass the list to Voice."); return; }
     navigateHash("#/voice/list");
   };
@@ -142,6 +147,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   if (openId === "all" || open) {
     const scope = open ? new Set(open.ids) : null;
     const { members, withEmail } = open ? listReach(open, store.accounts) : listReach({ ids: store.accounts.map((a) => a.id) }, store.accounts);
+    const fixIds = members.filter((a) => openFixes(a).length).map((a) => a.id);
     const act = async (fn, done) => {
       setBusy(true);
       try {
@@ -162,27 +168,33 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
             : <div style={{ ...text, fontSize: 17, fontWeight: 600, color: C.ink }}>All companies</div>}
           <span style={muted}>{members.length.toLocaleString()} companies · {withEmail.length.toLocaleString()} with an email{progress(members.map((m) => m.id))}</span>
           <span style={{ flex: 1 }} />
-          <CallButton label="Call this list" lockedLabel="Call this list · add Voice" disabled={busy || !members.length}
-            onClick={() => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" })}
-            onLocked={() => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, true)} />
-          {canCall ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy || !members.length} title="Open these companies on the Voice call list to look them over first"
-              onClick={() => reviewInVoice(open ? open.name : "All companies", members)}>Review in Voice</button>
-          ) : null}
           {open ? (
-            <>
-              <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!withEmail.length} onClick={() => onCampaign(open.id)}
-                title={withEmail.length ? "" : "None of these companies has an email yet. Check & improve them first."}>
-                <Megaphone size={14} /> Start a campaign
-              </button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title="Change the name of this list"
-                onClick={() => setRenaming(open.id)}><Pencil size={14} /> Rename</button>
-              <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy || open.ids.some((i) => locked.has(i))} title={open.ids.some((i) => locked.has(i)) ? LOCK_TIP : "Delete the list only. The companies stay in your account"}
-                onClick={async () => { if (await askConfirm({ title: `Delete the list ${open.name}?`, body: "The companies stay in your account and in your other lists.", confirm: "Delete list", danger: true })) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); }}><Trash2 size={14} /> Delete</button>
-            </>
+            <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!withEmail.length} onClick={() => onCampaign(open.id)}
+              title={withEmail.length ? "" : "None of these companies has an email yet. Use Get contacts first."}>
+              <Megaphone size={14} /> Start campaign
+            </button>
           ) : null}
+          <MoreMenu items={[
+            { label: canCall ? "Call this list" : "Call this list · add Voice", disabled: busy || !members.length, title: "Have your AI caller phone them",
+              onClick: () => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, !canCall) },
+            canCall ? { label: "Review in Voice", disabled: busy || !members.length, title: "Open these companies on the Voice call list to look them over first", onClick: () => reviewInVoice(open ? open.name : "All companies", members) } : null,
+            open ? { label: "How they agreed", title: "Tell us how these contacts agreed to hear from you, so sole traders among them can be emailed", onClick: () => setConsentFor(consentFor === open.id ? "" : open.id) } : null,
+            { label: "Review old contacts", title: "See contacts you haven't touched in a long time and decide which to keep or delete", onClick: () => onGo("retention") },
+            open ? { label: "Rename", disabled: busy, title: "Change the name of this list", onClick: () => setRenaming(open.id) } : null,
+            open ? { label: "Delete list", danger: true, disabled: busy || open.ids.some((i) => locked.has(i)), title: open.ids.some((i) => locked.has(i)) ? LOCK_TIP : "Delete the list only. The companies stay in your account",
+              onClick: async () => { if (await askConfirm({ title: `Delete the list ${open.name}?`, body: "The companies stay in your account and in your other lists.", confirm: "Delete list", danger: true })) act(async () => { await api.deleteLeadList(open.id); setOpenId(""); }, "List deleted."); } } : null,
+            fixIds.length ? { label: `Accept all fixes (${fixIds.length.toLocaleString()})`, disabled: busy, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details",
+              onClick: async () => {
+                if (!(await askConfirm({ title: `Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes?`, body: "The values you had stay noted in each company's check details.", confirm: "Apply fixes" }))) return;
+                try { const r = await api.acceptCheckFixes(fixIds); await store.reload(); store.toast(r.applied ? `Applied ${r.applied} ${r.applied === 1 ? "fix" : "fixes"}.` : "Nothing to apply."); } catch (e) { store.toast(e.message || "Couldn't apply the fixes."); }
+              } } : null,
+          ]} />
         </div>
-        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} />
+        {open && consentFor === open.id ? (
+          <ConsentDeclaration key={open.id} listId={open.id} scope="list" count={open.ids.length} onClose={() => setConsentFor("")}
+            onDone={(_, msg) => { store.toast?.(msg); store.reload?.(); }} />
+        ) : null}
+        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} moreInHeader />
         {call.dialog}
       </div>
     );
@@ -218,39 +230,39 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
         <div className="ui-card" style={{ overflow: "hidden" }}>
           <GridTools id="my-lists" />
           <div className="ui-scroll" style={{ overflowX: "auto" }}>
-            <table className="ui-table" style={{ minWidth: 640 }}>
+            <table className="ui-table" style={{ minWidth: 820 }}>
               <thead>
                 <tr>
                   <th>List name</th>
                   <th style={{ textAlign: "right" }} title="Companies in the list">Companies</th>
+                  <th style={{ textAlign: "right" }} title="Has an email that passed the checks and has not been contacted yet">Ready to email</th>
                   <th style={{ textAlign: "right" }} title="How many have an email we can send to">With an email</th>
-                  <th>Created</th>
+                  <th style={{ textAlign: "right" }} title="The average fit score of the companies that have one">Avg fit</th>
+                  <th>Owner</th>
+                  <th title="Where most of these companies came from">Source</th>
                   <th title="When companies were last added or taken out">Last changed</th>
                   <th style={{ textAlign: "right" }} aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((l) => (
+                {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((full) => { const l = { ...full, stats: listStats(full.members) }; return (
                   <tr key={l.id} title={`Open ${l.name}`} style={{ cursor: "pointer" }} onClick={() => { if (renaming !== l.id) setOpenId(l.id); }}>
                     <td>
                       <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} size={14} />
                       {progress(l.members.map((m) => m.id)) ? <div style={{ ...muted, fontSize: 12 }}>{progress(l.members.map((m) => m.id)).replace(/^ · /, "")}</div> : null}
                     </td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.members.length.toLocaleString()}</td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.stats.ready.toLocaleString()}</td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.withEmail.length.toLocaleString()}</td>
-                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.created_at)}</td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{icp.isSet && l.stats.avgFit != null ? l.stats.avgFit : "–"}</td>
+                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.owner || "–"}</td>
+                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.stats.source || "–"}</td>
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.updated_at || l.created_at)}</td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
                       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
-                      {l.id !== "all" ? (
-                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!l.withEmail.length} onClick={() => onCampaign(l.id)}
-                          title={l.withEmail.length ? "Start an email campaign on this list" : "None of these companies has an email yet. Check & improve them first."}>
-                          <Megaphone size={13} /> Campaign
-                        </button>
-                      ) : null}
                     </td>
                   </tr>
-                ))}
+                ); })}
               </tbody>
             </table>
           </div>

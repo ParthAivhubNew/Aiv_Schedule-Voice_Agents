@@ -6,6 +6,8 @@ import { announceCreditsChanged } from "./CreditsChip";
 import { C, FONT_BODY } from "../../tokens";
 import { askText } from "./Dialogs";
 import { SearchStatus } from "./SearchStatus";
+import { IcpEditor } from "./IcpEditor";
+import { LiaCard } from "./LiaCard"; // Phase 7c
 
 // Smart email writing. The AI is given two things only: what the user told us about their own business
 // ("About your business") and what we hold about each company, every fact labelled with where it came from.
@@ -67,7 +69,7 @@ export function ProfileBox({ onReady, onManage, page = false, compact = false })
   if (!saved) return error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null;
   const ready = !saved.missing.length;
   const locked = saved.can_edit === false;
-  return (
+  const box = (
     <div className="ui-card" style={{ padding: 12, display: "grid", gap: 10, borderColor: ready ? undefined : C.amber }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {page ? null : <strong style={{ ...text, fontSize: 13.5, color: C.ink }} title="The same company profile your other Outreach tools use">About your business</strong>}
@@ -136,6 +138,8 @@ export function ProfileBox({ onReady, onManage, page = false, compact = false })
       ) : null}
     </div>
   );
+  // The full page also holds the ideal customer: who to sell to sits beside what you sell.
+  return page ? <>{box}<IcpEditor /><LiaCard /></> : box;
 }
 
 // "Write with AI" for the whole sequence.

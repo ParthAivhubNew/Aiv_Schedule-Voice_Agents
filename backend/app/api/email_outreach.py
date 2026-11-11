@@ -129,6 +129,8 @@ class MailboxPatch(BaseModel):
 
 
 def _mailbox_out(mb: EmailMailbox, log: Optional[EmailSendLog]) -> Dict[str, Any]:
+    from app.services.email_warmup_engine import bounce_health
+
     s = mailbox_settings(mb)
     return {
         "id": mb.id, "email": mb.email, "display_name": mb.display_name, "provider": mb.provider,
@@ -136,6 +138,7 @@ def _mailbox_out(mb: EmailMailbox, log: Optional[EmailSendLog]) -> Dict[str, Any
         "daily_cap": mb.daily_cap, "max_daily_target": mb.max_daily_target, "signature": mb.signature or "",
         "warmup_quota": mb.warmup_quota or 0, "campaign_quota": mb.campaign_quota or 0,
         "consecutive_healthy_days": mb.consecutive_healthy_days, "bounce_rate_7d": mb.bounce_rate_7d,
+        "bounce_health": bounce_health(mb.bounce_rate_7d or 0.0),
         "warmup_started_at": _iso(mb.warmup_started_at), "graduated_at": _iso(mb.graduated_at),
         "spf_verified": mb.spf_verified, "dkim_verified": mb.dkim_verified, "dkim_override": bool(mb.dkim_override),
         "dmarc_verified": mb.dmarc_verified, "mx_verified": mb.mx_verified,
@@ -159,7 +162,21 @@ async def list_mailboxes(request: Request, db: AsyncSession = Depends(get_db)):
     today = datetime.utcnow().date().isoformat()
     boxes = (await db.execute(select(EmailMailbox).order_by(EmailMailbox.created_at.desc()))).scalars().all()
     logs = {l.mailbox_id: l for l in (await db.execute(select(EmailSendLog).where(EmailSendLog.date == today))).scalars().all()}
-    return {"mailboxes": [_mailbox_out(mb, logs.get(mb.id)) for mb in boxes]}
+    # Phase 6: the Mail deliverability card reads the last 7 days of sends and complaints per mailbox.
+    week: Dict[str, Dict[str, int]] = {}
+    since = (datetime.utcnow() - timedelta(days=7)).date().isoformat()
+    for l in (await db.execute(select(EmailSendLog).where(EmailSendLog.date >= since))).scalars().all():
+        w = week.setdefault(l.mailbox_id, {"sent": 0, "bounced": 0, "complaints": 0})
+        w["sent"] += l.campaign_sent_count or 0
+        w["bounced"] += l.bounced_count or 0
+        w["complaints"] += l.complaint_count or 0
+    out = []
+    for mb in boxes:
+        row = _mailbox_out(mb, logs.get(mb.id))
+        w = week.get(mb.id, {"sent": 0, "bounced": 0, "complaints": 0})
+        row.update(sent_7d=w["sent"], bounced_7d=w["bounced"], complaints_7d=w["complaints"])
+        out.append(row)
+    return {"mailboxes": out}
 
 
 async def create_mailbox(db: AsyncSession, operator_id: str, body: MailboxBody) -> EmailMailbox:

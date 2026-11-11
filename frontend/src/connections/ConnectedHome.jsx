@@ -5,6 +5,7 @@ import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { navigateHash } from "../utils/route";
 import { openConnectionSettings, openPlans, useConnections } from "../hooks/useConnections";
+import { todayTiles } from "./todayStrip";
 
 // The top of Home once there is something to show: where the pipeline stands, what to do next, one inbox, one search
 // and a short setup list. Each part appears only for the plugins the organisation has.
@@ -120,6 +121,35 @@ const Empty = ({ children }) => <div style={{ ...muted, padding: "6px 0" }}>{chi
 const row = { display: "flex", gap: 10, alignItems: "center", borderTop: `1px solid ${C.border}`, padding: "9px 0" };
 const clamp = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" };
 
+// Phase 6: five numbers at the top of Home, each a link to where the work is. Two columns on a phone.
+const TODAY_CSS = `
+.home-today{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.home-tile{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-height:64px;padding:10px 12px;border:1px solid ${C.border};border-radius:10px;background:#fff}
+.home-tile:hover{background:${C.paperSoft}}
+.home-tile:focus-visible{outline:2px solid ${C.cobalt};outline-offset:2px}
+.home-tile.warn{background:#fffbeb;border-color:#f3d28a}
+@media (max-width:820px){.home-today{grid-template-columns:repeat(2,minmax(0,1fr))}.home-today>:last-child:nth-child(odd){grid-column:1 / -1}}
+`;
+
+function TodayStrip({ data }) {
+  const tiles = todayTiles(data);
+  if (!tiles.length) return null;
+  return (
+    <section aria-label="Today">
+      <style>{TODAY_CSS}</style>
+      <div className="home-today">
+        {tiles.map((t) => (
+          <button key={t.key} type="button" className={`home-tile${t.warn ? " warn" : ""}`} onClick={() => t.href && navigateHash(t.href)}>
+            <span style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 600, lineHeight: 1.15, color: t.warn ? "#92400e" : C.ink, fontVariantNumeric: "tabular-nums" }}>{t.value}</span>
+            <span style={{ ...muted, color: t.warn ? "#92400e" : C.slate }}>{t.label}</span>
+            {t.note ? <span style={{ ...muted, fontSize: 12, color: "#92400e" }}>{t.note}</span> : null}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function ConnectedHome({ operator, cards, plainCards, greeting }) {
   const { plugins, loading } = useConnections();
   const [pipe, setPipe] = useState(null);
@@ -128,6 +158,7 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
   const [inboxFailed, setInboxFailed] = useState(false);
   const [check, setCheck] = useState(null);
   const [week, setWeek] = useState(null);
+  const [today, setToday] = useState(null);
   const [tab, setTab] = useState("all");
   const [mail, setMail] = useState({ busy: false, note: "" });
   const owned = Object.values(plugins).filter(Boolean).length;
@@ -143,6 +174,7 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
     loadInbox();
     api.getConnectionChecklist().then(setCheck).catch(() => setCheck(null));
     api.getWeeklySummary().then(setWeek).catch(() => setWeek(null));
+    api.getToday().then(setToday).catch(() => setToday(null));
   }, [loading, owned]);
   if (loading || !owned) return <>{greeting}{plainCards}</>;
 
@@ -170,6 +202,7 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
         <div style={{ minWidth: 0 }}>{greeting}</div>
         <div className="home-search"><SearchBox /></div>
       </div>
+      <TodayStrip data={today} />
       {cards}
       <div className="home-main">
         <div className="home-col">

@@ -70,11 +70,17 @@ async def send_lead_email(db: AsyncSession, org_id: str, lead: LeadAccount, subj
     mb = next((m for m in boxes if m.status in SENDING), None)
     if mb is None:
         return {"status": "skipped", "why": "no mailbox ready"}
+    from app.models.models import BusinessRecord
+    from app.services import send_readiness as SR
     from app.services.email_dispatcher import send_cold_email
-    from app.services.enrichment_waterfall import classify_pecr_entity
 
-    res = await send_cold_email(db, org_id, mb, lead.email, subject, body,
-                                entity_type=classify_pecr_entity(lead.name, lead.email))
+    biz = await db.get(BusinessRecord, lead.business_record_id) if lead.business_record_id else None
+    d = SR.eligibility(lead, biz, address=lead.email)
+    if not d["ok"]:
+        return {"status": "skipped", "why": d["reason"]}
+    if not d["email"]:
+        return {"status": "skipped", "why": "reached another way: " + d["reason"]}
+    res = await send_cold_email(db, org_id, mb, lead.email, subject, body, entity_type="corporate")
     if res.get("status") == "sent":
         await C.record_event(db, "email", lead_id=lead.id, registry_id=lead.registry_id or "",
                              ref_id=res.get("message_id", "") or uuid.uuid4().hex[:12], summary=f"Email sent: {subject}"[:200],

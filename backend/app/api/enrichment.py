@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import json
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -350,7 +351,28 @@ async def fill_gaps(req: FillGapsRequest):
 
 # ── Chat history: one private list per signed-in person, per plugin ─────────
 _CHATS_KEPT = 30
-_CHAT_PLUGINS = ("leadgen", "voice", "leadgen_assistant")
+_CHAT_PLUGINS = ("leadgen", "voice", "leadgen_assistant", "leadgen_assistant_memory", "voice_assistant", "voice_assistant_memory",
+                 "social_assistant", "social_assistant_memory")
+# What an assistant answer showed beside its words (the draft card, offers, pick-one). Kept so a reopened chat shows them again
+# instead of a reply that says "on screen" over nothing.
+_CARD_KEYS = ("view", "found", "proposals", "choices", "from", "steps")
+_CARDS_MAX = 150_000  # characters of JSON per answer; past that the cards are dropped and the answer is marked
+_EXTRA_MAX = 60_000
+
+
+def _size(v: Any) -> int:
+    return len(json.dumps(v, default=str))
+
+
+def _cards(m: Dict[str, Any]) -> Dict[str, Any]:
+    out = {k: m[k] for k in _CARD_KEYS if m.get(k) not in (None, "", [], {})}
+    if isinstance(out.get("found"), int) or not out:
+        return out
+    if _size(out) > _CARDS_MAX and isinstance(out.get("found"), dict):
+        out["found"] = {**out["found"], "top": []}  # the card still reopens the search; only the names it listed are lost
+    if _size(out) > _CARDS_MAX:
+        return {"cards_lost": True}
+    return out
 
 
 def _chats_key(request: Request, plugin: str) -> str:
@@ -370,6 +392,8 @@ class ChatIn(BaseModel):
     at: Optional[float] = None
     chat: List[Dict[str, Any]] = []
     filters: Optional[Dict[str, Any]] = None
+    acts: Optional[Dict[str, Any]] = None  # offers already used in this chat, so a reopened chat does not offer them again
+    state: Optional[Dict[str, Any]] = None  # what the assistant needs to follow on ("save these")
 
 
 async def _list_chats(request: Request, db: AsyncSession, plugin: str) -> Dict[str, Any]:
@@ -387,12 +411,16 @@ async def _save_chat(body: ChatIn, request: Request, db: AsyncSession, plugin: s
         who = "user" if (m.get("role") or m.get("who")) == "user" else ("ai" if "who" in m else "assistant")
         msg = {"id": str(m.get("id", ""))[:40], "text": str(m.get("text", ""))[:6000]}
         msg["who" if "who" in m else "role"] = who
-        if isinstance(m.get("found"), int):
-            msg["found"] = m["found"]
+        if who != "user":
+            msg.update(_cards(m))
         msgs.append(msg)
     if not any((m.get("role") or m.get("who")) == "user" for m in msgs):
         return {"saved": False}
     entry = {"id": body.id[:40], "title": (body.title or msgs[0]["text"])[:70], "at": body.at or 0, "chat": msgs, "filters": body.filters or {}}
+    for k in ("acts", "state"):
+        v = getattr(body, k)
+        if v and _size(v) <= _EXTRA_MAX:
+            entry[k] = v
     old = (await _get_doc(db, key)).get("chats", [])
     await _put_doc(db, key, {"chats": ([entry] + [c for c in old if c.get("id") != entry["id"]])[:_CHATS_KEPT]})
     await db.commit()

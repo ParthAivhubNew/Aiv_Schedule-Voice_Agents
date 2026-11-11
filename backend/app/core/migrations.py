@@ -954,6 +954,34 @@ async def _partner_admin_screens(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE partners ADD COLUMN IF NOT EXISTS allow_admin_screens BOOLEAN DEFAULT FALSE"))
 
 
+async def _eligibility_and_consent(conn: AsyncConnection) -> None:
+    """Phase 0 of the email rules: who may get email (worked out from the register), recorded consent, the approval
+    queue switch, and the retention flag. The two new tables come from create_all. Existing organisations keep sending
+    as they do (approval off); organisations that sign up from now on start with approval on."""
+    # A step that cannot get its table lock in 5 seconds fails and is retried at the next start, instead of queueing behind a long query
+    # and blocking every read and write on the table behind it. The three CREATE INDEX statements below are not CONCURRENTLY (that cannot
+    # run in this transaction): they block writes to lead_accounts while they build, which is short at today's table size.
+    await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+    for col, kind in (("consent_id", "VARCHAR DEFAULT ''"), ("eligibility", "VARCHAR DEFAULT ''"), ("eligibility_note", "JSON"),
+                      ("retention_flagged_at", "TIMESTAMP")):
+        await conn.execute(text(f"ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS {col} {kind}"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_eligibility ON lead_accounts (eligibility)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_consent_id ON lead_accounts (consent_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_lead_accounts_retention_flagged_at ON lead_accounts (retention_flagged_at)"))
+    await conn.execute(text("ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS approval_required BOOLEAN DEFAULT FALSE"))
+    await conn.execute(text("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS send_approval BOOLEAN DEFAULT FALSE"))
+
+
+async def _icp_and_register_dates(conn: AsyncConnection) -> None:
+    """Phase 1: the ideal customer on the company profile, and the register's filing dates as columns. Every column is added
+    empty, with no default, so it is instant even on millions of rows. Filling the dates for rows already imported, and their
+    indexes (built CONCURRENTLY), is scripts/backfill_register_dates.py; new imports fill them as they load."""
+    await conn.execute(text("SET LOCAL lock_timeout = '5s'"))  # fail fast and retry next start rather than queue behind a long query on business_records
+    await conn.execute(text("ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS icp JSON"))
+    for col in ("accounts_due_on", "last_accounts_on", "confstmt_due_on", "last_confstmt_on"):
+        await conn.execute(text(f"ALTER TABLE business_records ADD COLUMN IF NOT EXISTS {col} DATE"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -1019,6 +1047,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_21_people_todo_index_with_id", _people_todo_index_with_id),
     ("2026_11_22_partner_admin_screens", _partner_admin_screens),
     ("2026_11_23_credit_user_and_caps", _credit_user_and_caps),
+    ("2026_11_24_eligibility_and_consent", _eligibility_and_consent),
+    ("2026_11_25_icp_and_register_dates", _icp_and_register_dates),
 ]
 
 

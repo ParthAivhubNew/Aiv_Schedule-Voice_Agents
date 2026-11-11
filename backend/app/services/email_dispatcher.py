@@ -232,8 +232,7 @@ async def send_cold_email(
     sequence_step_id: str = "",
     enrollment_id: str = "",
     prospect_id: str = "",
-    entity_type: str = "corporate",
-    accept_risk: bool = False,
+    entity_type: str,
     is_warmup: bool = False,
     warmup_id: str = "",
     in_reply_to: str = "",
@@ -249,7 +248,7 @@ async def send_cold_email(
         suppressed, reason = await is_email_suppressed(db, to, org_id)
         if suppressed:
             return {"status": "suppressed", "reason": reason}
-        if entity_type == "individual" and not accept_risk:  # accept_risk: the owner was warned when adding the person and chose to send
+        if entity_type == "individual":  # the journey engine reaches them another way instead
             return {"status": "blocked_pecr", "reason": "UK PECR: a person's own mailbox needs their consent first."}
         ok, why = await can_start(db, "email_send")
         if not ok:

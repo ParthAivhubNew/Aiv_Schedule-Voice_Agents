@@ -10,10 +10,10 @@ import { Drawer } from "./FindLeadsParts";
 import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDesign";
 import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, priBtn, secBtn } from "../scheduler/ScheduleWindow";
 import { parseLeads } from "./OutreachViews";
-import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, FileText, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import {
-  CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, sortTasks, stepLine,
-  stepsForSave, typeOf, waitText,
+  CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, opensNote, rateText, resultsBar, sortTasks, stepLine,
+  stepTable, stepsForSave, typeOf, waitText, withTag,
 } from "./journeyLogic";
 
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
@@ -21,8 +21,8 @@ const small = { fontSize: 12, color: C.slate };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", ink: "#92400e" }, green: { bg: "#f0fdf4", ink: "#166534" } };
 const label = { display: "grid", gap: 4, fontSize: 12, fontWeight: 600, color: C.slate };
-const ICONS = { email: Mail, call: Phone, manual_email: PenLine, call_task: Phone, task: CheckSquare, social_task: Share2, linkedin_task: Users };
-const ACCENT = { email: [C.cobalt, C.cobaltSoft], manual_email: [C.cobalt, C.cobaltSoft], call: [C.teal, C.tealSoft], call_task: [C.teal, C.tealSoft], social_task: [C.amber, C.amberSoft], task: [C.slate, C.paperSoft], linkedin_task: [C.slate, C.paperSoft] };
+const ICONS = { email: Mail, call: Phone, manual_email: PenLine, call_task: Phone, task: CheckSquare, social_task: Share2, linkedin_task: Users, letter_task: FileText };
+const ACCENT = { email: [C.cobalt, C.cobaltSoft], manual_email: [C.cobalt, C.cobaltSoft], call: [C.teal, C.tealSoft], call_task: [C.teal, C.tealSoft], social_task: [C.amber, C.amberSoft], task: [C.slate, C.paperSoft], linkedin_task: [C.slate, C.paperSoft], letter_task: [C.slate, C.paperSoft] };
 
 // ── A list that scrolls like a wheel: no scroll bar, arrows where there is more, the edges fade ─────────────────
 const WHEEL_CSS = `
@@ -93,6 +93,87 @@ function FormPicker({ onPick }) {
   );
 }
 
+function ResultsBar({ results, onOpen }) {
+  if (!results || !results.sent) return null;
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <button type="button" onClick={onOpen} aria-label="Open results by step" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(84px, 1fr))", gap: 8, padding: "10px 12px", border: `1px solid ${C.borderLight}`, borderRadius: 12, background: "#fff", minHeight: 44 }}>
+        {resultsBar(results).map((b) => (
+          <span key={b.key}><span style={{ display: "block", fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{b.value}</span><span style={small}>{b.label}</span></span>
+        ))}
+      </button>
+      <div style={small}>{opensNote(results)}</div>
+    </div>
+  );
+}
+
+function StepTable({ results }) {
+  const rows = stepTable(results);
+  if (!rows.length) return null;
+  const cell = { padding: "6px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <strong style={{ fontSize: 13.5 }}>Each step</strong>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 12.5, minWidth: 420, width: "100%" }}>
+          <thead><tr style={{ color: C.slate }}>{["Step", "Sent", "Delivered", "Opened", "Replied", "Booked", "Bounced", "Opted out"].map((h, i) => <th key={h} style={{ ...cell, textAlign: i ? "right" : "left", fontWeight: 600 }}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.step_key} style={{ borderTop: `1px solid ${C.borderLight}` }}>
+              <td style={{ ...cell, textAlign: "left" }}>{r.step}</td><td style={cell}>{r.sent}</td><td style={cell}>{r.delivered}</td><td style={cell}>{r.opened} ({rateText(r.open_rate)})</td>
+              <td style={cell}>{r.replied} ({rateText(r.reply_rate)})</td><td style={cell}>{r.booked}</td><td style={cell}>{r.bounced}</td><td style={cell}>{r.opted_out}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PreviewBox({ journeyId, people, steps }) {
+  const [who, setWho] = useState("");
+  const [stepKey, setStepKey] = useState("");
+  const [shown, setShown] = useState(null);
+  const [err, setErr] = useState("");
+  const emails = steps.filter((s) => s.channel === "email" && s.key);
+  useEffect(() => {
+    if (!who) { setShown(null); setErr(""); return undefined; }
+    let live = true;
+    api.journeyPreview(journeyId, who, stepKey).then((r) => { if (live) { setShown(r); setErr(""); } }).catch((e) => { if (live) { setShown(null); setErr(e.message || "That preview didn't load."); } });
+    return () => { live = false; };
+  }, [journeyId, who, stepKey]);
+  if (!people.length || !emails.length) return null;
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ ...row, alignItems: "flex-end" }}>
+        <label style={{ ...label, flex: "1 1 220px" }}>Preview with a real person
+          <select style={input} value={who} onChange={(e) => setWho(e.target.value)}>
+            <option value="">Choose someone</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name || p.company || p.email}{p.company && p.name ? ` (${p.company})` : ""}</option>)}
+          </select>
+        </label>
+        {emails.length > 1 ? (
+          <label style={{ ...label, flex: "0 1 160px" }}>Email
+            <select style={input} value={stepKey} onChange={(e) => setStepKey(e.target.value)}>
+              <option value="">First email</option>
+              {emails.map((s) => <option key={s.key} value={s.key}>Step {s.step}</option>)}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {err ? <div role="status" style={small}>{err}</div> : null}
+      {shown ? (
+        <div style={{ border: `1px solid ${C.borderLight}`, borderRadius: 12, background: "#fff", padding: 12, display: "grid", gap: 8, overflowWrap: "anywhere" }}>
+          <div style={small}>To {shown.to || "(no email address)"}</div>
+          <strong style={{ fontSize: 14 }}>{shown.subject || "(same thread)"}</strong>
+          <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{shown.body_text}</div>
+          <div style={{ ...small, whiteSpace: "pre-wrap", borderTop: `1px solid ${C.borderLight}`, paddingTop: 8 }}>{shown.footer_text}</div>
+          {shown.approval_note ? <div style={small}>{shown.approval_note}. It waits for you before it goes out.</div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove, callOk }) {
   const Icon = ICONS[step.channel] || Mail;
   const [fg, bg] = ACCENT[step.channel] || ACCENT.task;
@@ -127,7 +208,10 @@ function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove,
               <label style={label}>{step.channel === "manual_email" ? "The email you will send" : "Email"}
                 <textarea style={{ ...input, minHeight: 110, resize: "vertical" }} value={step.body} onChange={set("body")} placeholder={"Hi {{first_name}},\n\n"} />
               </label>
-              <div style={small}>Use {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"} and {"{{personal_line}}"}.</div>
+              <div style={{ ...small, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span>Use {"{{first_name}}"}, {"{{last_name}}"}, {"{{company}}"}, {"{{personal_line}}"} and {"{{source_line}}"} (says where you found them).</span>
+                <button type="button" style={{ ...btn(false), minHeight: 40 }} onClick={() => onChange({ ...step, body: withTag(step.body, "{{source_line}}") })}>Insert source line</button>
+              </div>
               <FormPicker onPick={(id) => onChange({ ...step, body: [(step.body || "").trimEnd(), "{{form_link:" + id + "}}"].filter(Boolean).join(String.fromCharCode(10, 10)) })} />
               {step.channel === "email" ? (
                 second ? (
@@ -210,7 +294,8 @@ function NeedsYou({ tasks, replied, onDone, onSkip, onMail, busy }) {
           <div key={t.id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{t.title}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{t.title}{t.needs_screening ? <> <Pill tone="amber">Check TPS first</Pill></> : null}</div>
+                {t.instead_of_email ? <div style={small}>In place of an email, so the journey carries on.</div> : null}
                 <div style={small}>{[t.contact, t.company, t.phone, t.email].filter(Boolean).join(" · ")}{t.due_at ? ` · due ${when(t.due_at)}` : ""}</div>
                 {t.notes ? <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", marginTop: 4, color: C.textInk, overflowWrap: "anywhere" }}>{t.notes}</div> : null}
               </div>
@@ -233,6 +318,75 @@ function NeedsYou({ tasks, replied, onDone, onSkip, onMail, busy }) {
   );
 }
 
+// ── Who gets email, and the one-click choices that are left ─────────────────
+function AudienceCard({ audience, busy, onChoose }) {
+  const a = audience || {};
+  if (!a.text) return null;
+  const choices = a.choices || [];
+  return (
+    <div style={{ ...card, display: "grid", gap: 10, padding: 12 }} aria-label="Who gets what">
+      <strong style={{ fontSize: 14 }}>{a.text}</strong>
+      {a.reach_other_way ? <div style={small}>Sole traders and individuals need their consent before a marketing email, so the journey makes a call, letter or LinkedIn task for them instead and carries on.</div> : null}
+      {choices.map((c) => (
+        <div key={c.lead_id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{c.name} <span style={{ ...small, fontWeight: 400 }}>{c.email}</span></div>
+          <div style={row}>
+            {(c.candidates || []).map((x) => (
+              <button key={x.id} type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { business_record_id: x.id }, `Matched to ${x.name}.`)}>
+                Is this {x.name}{x.number ? ` (${x.number})` : ""}?
+              </button>
+            ))}
+            <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { sole_trader: true }, `${c.name} will be reached another way.`)}>It's a sole trader</button>
+          </div>
+          {!(c.candidates || []).length ? <div style={small}>No close match in the company register.</div> : null}
+        </div>
+      ))}
+      {a.quick_choice > choices.length ? <div style={small}>Showing {choices.length} of {a.quick_choice}. More show here as you answer these.</div> : null}
+    </div>
+  );
+}
+
+// ── Emails waiting for the person to read and approve ───────────────────────
+function ApprovalQueue({ items, reason, busy, onSave, onApprove, onApproveAll }) {
+  const [open, setOpen] = useState("");
+  const [draft, setDraft] = useState({ subject: "", body: "" });
+  if (!items.length) return reason ? <div style={small}>{reason}. Emails wait here for you before they go.</div> : null;
+  const edit = (a) => { setOpen(a.id); setDraft({ subject: a.subject, body: a.body }); };
+  return (
+    <div style={{ ...card, display: "grid", gap: 10, padding: 12 }} aria-label="Emails waiting for you">
+      <div style={{ ...row, justifyContent: "space-between" }}>
+        <strong style={{ fontSize: 14 }}>{items.length} {items.length === 1 ? "email is" : "emails are"} waiting for you</strong>
+        <button type="button" style={btn(true, busy)} disabled={busy} onClick={onApproveAll}>Approve all {items.length}</button>
+      </div>
+      {reason ? <div style={small}>{reason}.</div> : null}
+      {items.map((a) => (
+        <div key={a.id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
+          {open === a.id ? (
+            <>
+              <input aria-label="Subject" style={input} value={draft.subject} maxLength={300} onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))} />
+              <textarea aria-label="Email" style={{ ...input, minHeight: 120, resize: "vertical" }} value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
+              <div style={row}>
+                <button type="button" style={btn(true, busy || !draft.body.trim())} disabled={busy || !draft.body.trim()} onClick={async () => { await onSave(a.id, draft); setOpen(""); }}>Save</button>
+                <button type="button" style={btn(false)} onClick={() => setOpen("")}>Cancel</button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{a.subject || "(reply in the same thread)"}{a.edited ? <span style={{ ...small, fontWeight: 400 }}> · edited</span> : null}</div>
+                <div style={small}>To {[a.email, a.company].filter(Boolean).join(" · ")}</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", marginTop: 4, color: C.textInk, overflowWrap: "anywhere", maxHeight: 96, overflow: "hidden" }}>{a.body}</div>
+              </div>
+              <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => edit(a)}>Edit</button>
+              <button type="button" style={btn(true, busy)} disabled={busy} onClick={() => onApprove(a.id)}>Approve</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Rules: the same fields and look as the Voice and Social schedulers (days, times, a daily limit), then when to stop ──
 const DAY_OPTIONS = WEEKDAYS.map(([n, w]) => ({ id: n, label: w }));
 const ALWAYS_STOP = ["reply", "booking", "optout"];
@@ -242,7 +396,7 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
   const [draft, setDraft] = useState(() => ({
     mailbox_ids: s.mailbox_ids || [], days_of_week: s.days_of_week || [], sending_window_start: s.sending_window_start, sending_window_end: s.sending_window_end,
     daily_cap: s.daily_cap || 0, one_at_a_time: s.one_at_a_time !== false, on_not_interested: s.rules.on_not_interested !== false, on_form: s.rules.on_form !== false, unresponsive_days: s.rules.unresponsive_days,
-    skip_stages: s.rules.skip_stages || [],
+    skip_stages: s.rules.skip_stages || [], approval_required: Boolean(s.approval_required),
   }));
   const [more, setMore] = useState(false);
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
@@ -275,6 +429,9 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
         <Chips options={[{ id: "reply", label: "Reply" }, { id: "booking", label: "Book a meeting" }, { id: "optout", label: "Opt out" }, { id: "not_interested", label: "Say they are not interested" }, { id: "form", label: "Send back a form" }]}
           value={stopValue} onChange={(v) => set({ on_not_interested: v.includes("not_interested"), on_form: v.includes("form") })} />
       </Field>
+      <Field label="Before each email goes" hint="Always on while a mailbox is still warming up.">
+        <Chips options={[{ id: "approve", label: "Let me read and approve it" }]} value={draft.approval_required ? ["approve"] : []} onChange={(v) => set({ approval_required: v.includes("approve") })} />
+      </Field>
       <div style={{ marginBottom: 14 }}>
         <button type="button" aria-expanded={more} style={secBtn} onClick={() => setMore((m) => !m)}>{more ? "Fewer options" : "More options"}</button>
       </div>
@@ -293,7 +450,7 @@ function RulesPanel({ j, mailboxes, onSave, saving }) {
       ) : null}
       <button type="button" style={{ ...priBtn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={() => onSave({
         mailbox_ids: draft.mailbox_ids, days_of_week: draft.days_of_week, sending_window_start: draft.sending_window_start, sending_window_end: draft.sending_window_end,
-        daily_cap: draft.daily_cap, one_at_a_time: draft.one_at_a_time, rules: { on_not_interested: draft.on_not_interested, on_form: draft.on_form, unresponsive_days: draft.unresponsive_days, skip_stages: draft.skip_stages },
+        daily_cap: draft.daily_cap, one_at_a_time: draft.one_at_a_time, approval_required: draft.approval_required, rules: { on_not_interested: draft.on_not_interested, on_form: draft.on_form, unresponsive_days: draft.unresponsive_days, skip_stages: draft.skip_stages },
       })}>{saving ? <><Spinner size={13} /> Saving</> : "Save"}</button>
     </div>
   );
@@ -358,7 +515,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
   const red = blockers(j.preflight);
   const live = j.status === "running";
   const edit = (next) => { setSteps(next); setDirty(true); };
-  const fix = { people: () => setAdding(true), settings: () => setRules(true), mailboxes: () => onGo("mailboxes"), business: () => onGo("business"), credits: () => onGo("subscription"), voice: () => openPlans("voice"), steps: () => setAddMenu(true) };
+  const fix = { people: () => setAdding(true), settings: () => setRules(true), mailboxes: () => onGo("mailboxes"), business: () => onGo("business"), credits: () => onGo("subscription"), voice: () => openPlans("voice"), steps: () => setAddMenu(true), quick_choice: () => document.getElementById(`aud-${j.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }) };
   const people = j.people || [];
   const shown = showAll ? people : people.slice(0, 5);
   const mailList = parseLeads(paste);
@@ -417,6 +574,17 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
           ))}
         </div>
       ) : (j.results.waiting_on_a_task ? <div style={small}>{j.results.waiting_on_a_task} waiting on a task.</div> : null)}
+
+      <ResultsBar results={j.results} onOpen={() => { setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }} />
+      <PreviewBox journeyId={j.id} people={j.people || []} steps={steps} />
+
+      <div id={`aud-${j.id}`}>
+        <AudienceCard audience={j.audience} busy={busy} onChoose={(lid, body, ok) => task(() => api.leadEligibilityChoose(lid, body), ok)} />
+      </div>
+      <ApprovalQueue items={j.approvals || []} reason={j.approval?.reason} busy={busy}
+        onSave={(aid, body) => task(() => api.journeyApprovalEdit(aid, body), "Saved. Approve it and it goes out as it reads now.")}
+        onApprove={(aid) => task(() => api.journeyApprove(aid), "Approved. It goes out in the next sending window.")}
+        onApproveAll={() => task(() => api.journeyApproveAll(j.id), "All approved. They go out in the next sending windows.")} />
 
       <NeedsYou tasks={j.tasks} replied={j.results.by_status.replied} busy={busy} onMail={() => onGo("mail")}
         onDone={(tid, outcome) => task(() => api.journeyTaskDone(tid, outcome), "Task done.")} onSkip={(tid) => task(() => api.journeyTaskSkip(tid), "Task skipped.")} />
@@ -496,6 +664,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{p.name || p.email || p.company}</div>
               <div style={small}>{[p.company, p.email].filter(Boolean).join(" · ")}</div>
+              {p.timeline && p.timeline.length ? <div style={small}>{p.timeline[p.timeline.length - 1].text}</div> : null}
               <div style={small}>{p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
             <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
@@ -530,6 +699,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               <div key={k}><div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{v}{x ? <span style={{ fontSize: 12, color: C.slate }}> {x}</span> : null}</div><div style={small}>{k}</div></div>
             ))}
           </div>
+          <StepTable results={j.results} />
           {Object.keys(j.results.variants || {}).length ? (
             <div style={{ display: "grid", gap: 4 }}>
               <strong style={{ fontSize: 13.5 }}>Second version test</strong>

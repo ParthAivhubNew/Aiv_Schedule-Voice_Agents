@@ -400,7 +400,7 @@ export function CheckProgress({ check, pendingCount, onRecheck, onFilter }) {
 }
 
 // ---------------------------------------------------------------- the box before a run
-export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
+export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode = "check" }) {
   // Phone and email checks are part of every run, not options: a company isn't checked until both are.
   const email = true, phone = true;
   const [web, setWeb] = useState(true);
@@ -436,17 +436,38 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
   };
   const max = est?.max_credits;
   const li = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 };
+  const contacts = mode === "contacts"; // "Get contacts": web search is always part of it, and the most it can cost comes first
+  const count = est ? est.companies : ids.length;
+  const costBox = (
+    <div style={{ background: C.paperSoft, borderRadius: 6, padding: "10px 12px", ...text, fontSize: 13, color: C.textInk }}>
+      {max ? (
+        contacts ? (
+          <>
+            Up to <strong>{max.total.toLocaleString()} credits</strong>, only charged for verified finds
+            <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>{est.rates.check_email} credits per email found, {est.rates.lead_lookup} per web or deep search find. The rest is given back.</div>
+            <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>Your Leads balance: {est.balance.toLocaleString()} credits.</div>
+          </>
+        ) : (
+          <>
+            The most this could cost is <strong>{max.total.toLocaleString()} credits</strong>. You only pay for what's used, and the rest is given back.
+            <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>Your Leads balance: {est.balance.toLocaleString()} credits.</div>
+          </>
+        )
+      ) : "Working out the cost…"}
+    </div>
+  );
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div role="dialog" aria-label="Check & improve" onClick={(e) => e.stopPropagation()} className="ui-card"
+      <div role="dialog" aria-label={contacts ? "Get contacts" : "Check & improve"} onClick={(e) => e.stopPropagation()} className="ui-card"
         style={{ width: "min(100%, 520px)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-            Check & improve {est ? est.companies.toLocaleString() : ids.length.toLocaleString()} {(est ? est.companies : ids.length) === 1 ? "company" : "companies"}
+            {contacts ? "Get contacts for" : "Check & improve"} {count.toLocaleString()} {count === 1 ? "company" : "companies"}
           </div>
           <button type="button" className="ui-icon-btn" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={muted}>Each company is corrected and completed one step at a time, cheapest first. Blanks are filled in. A value you gave that looks wrong is never overwritten: it is offered as a fix you can accept, with your original kept beside it.</div>
+        {contacts ? costBox : null}
+        <div style={muted}>{contacts ? "Each company is looked up one step at a time, cheapest first. Blanks are filled in, and nothing you already have is overwritten." : "Each company is corrected and completed one step at a time, cheapest first. Blanks are filled in. A value you gave that looks wrong is never overwritten: it is offered as a fix you can accept, with your original kept beside it."}</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
           <li style={li}><strong>Our records</strong>, plus website and email format checks: free</li>
           <li style={li}><strong>Company register</strong>, asked directly when our records can't settle it: {est ? `${est.rates.check_registry} credit${est.rates.check_registry === 1 ? "" : "s"} each` : "…"}{est && !est.ready.registry ? " (not set up yet, so skipped)" : ""}</li>
@@ -454,7 +475,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
           <li style={li}><strong>Every phone number</strong>, asked of the phone network: {est ? (!est.ready.phone ? "not set up yet, so skipped" : `${est.rates.lead_phone_check} credit${est.rates.lead_phone_check === 1 ? "" : "s"} per 5 numbers, ${est.phone_rows.toLocaleString()} to check. Numbers checked in the last 30 days are free`) : "…"}</li>
           <li style={li}><strong>Every email</strong>, tested before you send, and the work email of each named contact found or confirmed: {est ? (!est.ready.email ? "not set up yet, so skipped" : `${est.rates.check_email} credits for each verified email found, ${est.with_contact.toLocaleString()} have a contact name to look up`) : "…"}</li>
         </ul>
-        <label title="A live search of the open web for the company's people, phone numbers and emails" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
+        {contacts ? null : <label title="A live search of the open web for the company's people, phone numbers and emails" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} style={{ marginTop: 3 }} />
           <span>
             Also search the web for each company's people, phones and emails{est ? ` (${est.rates.lead_lookup} credits for each company where something is found)` : ""}
@@ -462,15 +483,8 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose }) {
               {est ? `${est.web_rows.toLocaleString()} of these haven't been looked up yet. Ones already looked up are skipped.` : ""}
             </span>
           </span>
-        </label>
-        <div style={{ background: C.paperSoft, borderRadius: 6, padding: "10px 12px", ...text, fontSize: 13, color: C.textInk }}>
-          {max ? (
-            <>
-              The most this could cost is <strong>{max.total.toLocaleString()} credits</strong>. You only pay for what's used, and the rest is given back.
-              <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>Your Leads balance: {est.balance.toLocaleString()} credits.</div>
-            </>
-          ) : "Working out the cost…"}
-        </div>
+        </label>}
+        {contacts ? null : costBox}
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" className="ui-btn ui-btn--ghost" title="Put the choices back to how they were" onClick={() => { setWeb(true); setError(""); }}>Reset</button>

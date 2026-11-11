@@ -19,7 +19,7 @@ from app.services.identity import lead_phone, match_lead_to_registry
 
 logger = logging.getLogger("lead_calls")
 
-SKIP_REASONS = ("no_phone", "failed_check", "do_not_call", "recently_called", "already_queued", "outside_hours")
+SKIP_REASONS = ("no_phone", "failed_check", "do_not_call", "recently_called", "already_queued", "outside_hours", "no_call_permission")
 SKIP_WORDS = {
     "no_phone": "no phone number",
     "failed_check": "the number failed the check",
@@ -27,6 +27,7 @@ SKIP_WORDS = {
     "recently_called": "contacted recently",
     "already_queued": "already in a running call round",
     "outside_hours": "outside calling hours right now",
+    "no_call_permission": "no recorded permission for AI calls",
 }
 GATE_LIMIT = 300  # calling hours are checked for this many; beyond it the dial itself still checks
 
@@ -108,6 +109,9 @@ async def plan_calls(db: AsyncSession, leads: List[LeadAccount], *, override_rec
                 gate = await check_call_allowed(db, phone)
                 if not gate.allowed and any("opted out" in r for r in gate.reasons):
                     skipped["do_not_call"].append(a.id)
+                    continue
+                if not gate.allowed and gate.needs == "ai_consent":
+                    skipped["no_call_permission"].append(a.id)
                     continue
                 if not gate.allowed:
                     skipped["outside_hours"].append(a.id)

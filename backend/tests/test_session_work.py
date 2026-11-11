@@ -64,6 +64,40 @@ async def test_chat_history_keeps_the_latest_thirty_and_each_plugin_has_its_own(
     assert (await client.delete("/api/enrichment/chats/voice/v_1")).json()["deleted"] is True
 
 
+async def test_a_reopened_assistant_chat_keeps_the_cards_its_answers_showed(client):
+    """Reopening a chat used to bring back only the words, so "a table of 20 is on screen" pointed at nothing."""
+    found = {"total": 3162, "capped": False, "asked": 20, "filters": {"towns": ["leeds"]}, "top": [{"id": "c1", "name": "Oak Dental"}]}
+    view = {"kind": "companies", "title": "Dentists in Leeds", "total": 3162, "asked": 20, "screen": "find_leads"}
+    proposal = {"id": "p1", "kind": "add_to_list", "title": "Save 20 to a list", "params": {"list_name": "Leeds dentists", "how_many": 20}}
+    chat = {"id": "a_1", "title": "Dentists", "filters": found["filters"], "acts": {"p1": {"state": "done", "text": "Saved 20."}}, "state": {"last_total": 3162},
+            "chat": [{"id": "u1", "role": "user", "text": "dentists in Leeds", "view": {"sneaky": True}},
+                     {"id": "a1", "role": "assistant", "text": "A table of 20 is on screen.", "found": found, "view": view, "proposals": [proposal],
+                      "choices": [{"label": "Show all", "open": "view"}]}]}
+    assert (await client.put("/api/enrichment/chats/leadgen_assistant", json=chat)).json()["saved"] is True
+    back = (await client.get("/api/enrichment/chats/leadgen_assistant")).json()["chats"][0]
+    user, answer = back["chat"]
+    assert "view" not in user  # only answers carry cards
+    assert answer["view"] == view and answer["found"] == found and answer["proposals"] == [proposal] and answer["choices"][0]["open"] == "view"
+    assert back["acts"] == {"p1": {"state": "done", "text": "Saved 20."}} and back["state"] == {"last_total": 3162}
+
+    # too big to keep: the listed names go first, and past that the answer is marked so it does not claim a card
+    big = {**chat, "id": "a_2", "chat": [chat["chat"][0], {**chat["chat"][1], "found": {**found, "top": [{"name": "x" * 1000}] * 200}}]}
+    await client.put("/api/enrichment/chats/leadgen_assistant", json=big)
+    kept = (await client.get("/api/enrichment/chats/leadgen_assistant")).json()["chats"][0]["chat"][1]
+    assert kept["found"]["top"] == [] and kept["found"]["total"] == 3162 and kept["view"] == view
+    huge = {**chat, "id": "a_3", "chat": [chat["chat"][0], {**chat["chat"][1], "proposals": [{**proposal, "detail": "y" * 200_000}]}]}
+    await client.put("/api/enrichment/chats/leadgen_assistant", json=huge)
+    lost = (await client.get("/api/enrichment/chats/leadgen_assistant")).json()["chats"][0]["chat"][1]
+    assert lost.get("cards_lost") is True and "view" not in lost
+
+
+async def test_voice_and_social_assistants_and_memory_can_save_chats(client):
+    for key in ("voice_assistant", "social_assistant", "leadgen_assistant_memory", "voice_assistant_memory", "social_assistant_memory"):
+        body = {"id": "m_1", "title": "only UK", "chat": [{"id": "1", "role": "user", "text": "only UK"}]}
+        assert (await client.put(f"/api/enrichment/chats/{key}", json=body)).json()["saved"] is True, key
+        assert [c["id"] for c in (await client.get(f"/api/enrichment/chats/{key}")).json()["chats"]] == ["m_1"]
+
+
 async def test_chat_history_needs_a_sign_in(anon):
     assert (await anon.get("/api/enrichment/leads-chats")).status_code == 401
 

@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader, Spinner } from "../../app/Loader";
 import {
   Archive, ArrowLeft, Ban, Bold, MessageSquare, Forward, FileText, Inbox, Italic, Link2, List, Mail, MailOpen, Paperclip, PenSquare,
-  RefreshCw, Reply, ReplyAll, Search, Send, ShieldAlert, Star, Trash2, Underline, X,
+  ChevronDown, ChevronRight, RefreshCw, Reply, ReplyAll, Search, Send, ShieldAlert, Star, Trash2, Underline, X,
 } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
-import { DoNotEmailView, RepliesList, SentList } from "./OutreachViews";
-import { bulkDoneText, conversations, MAIL_SELECT_CAP } from "./mailBulk";
+import { DoNotEmailView, RepliesList, ReplyWithTimes, SentList } from "./OutreachViews";
+import { bulkDoneText, conversations, deliverability, DMARC_NOTE, MAIL_SELECT_CAP, MORE_FOLDERS, REPLY_CHIP, replyNextStep } from "./mailBulk";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 
 const FOLDERS = [
@@ -38,6 +38,11 @@ const CSS = `
 .ml-ibtn:hover{background:${C.paperSoft};color:${C.ink}}
 .ml-ibtn[disabled]{opacity:.4;cursor:default}
 .ml-back{display:none}
+.ml-tag{display:inline-block;padding:1px 8px;border-radius:999px;font:600 11px ${FONT_BODY};white-space:nowrap}
+.ml-tag.green{background:#f0fdf4;color:#166534}.ml-tag.blue{background:#eff6ff;color:#1e40af}.ml-tag.slate{background:#f1f2f5;color:#4b5563}.ml-tag.red{background:#fef2f2;color:#b91c1c}
+.ml-step{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid ${C.border};background:${C.paperSoft}}
+.ml-step .ui-btn{min-height:40px}
+.ml-card{margin:10px 0 0;padding:10px;border:1px solid ${C.border};border-radius:10px;background:#fff;font:12px/1.5 ${FONT_BODY};color:${C.slate}}
 @keyframes ml-spin{to{transform:rotate(360deg)}}
 @media (max-width:900px){
   .ml{grid-template-columns:1fr;height:calc(100dvh - 170px)}
@@ -241,6 +246,9 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   const [compose, setCompose] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [pane, setPane] = useState("list");
+  const [openMeta, setOpenMeta] = useState({ category: "", lead_id: "" }); // reply category and saved company of the open conversation
+  const [moreFolders, setMoreFolders] = useState(false);
+  const [health, setHealth] = useState([]); // /email/mailboxes: the last 7 days per mailbox
   const alive = useRef(true);
   // A new message asked for from another screen: opened once the mailboxes are known, with the address filled in.
   useEffect(() => {
@@ -295,6 +303,7 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   }, [boxId, loadList, loadCounts, loadBoxes]);
 
   useEffect(() => { loadBoxes(); }, [loadBoxes]);
+  useEffect(() => { api.emailMailboxes().then((r) => alive.current && setHealth(r.mailboxes || [])).catch(() => {}); }, []);
   useEffect(() => { setLoading(true); loadList(); loadCounts(); }, [loadList, loadCounts]);
   useEffect(() => {
     sync(false);
@@ -304,6 +313,7 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   }, [boxId]);
 
   const openThread = async (t) => {
+    if ("reply_category" in t) setOpenMeta({ category: t.reply_category || "", lead_id: t.lead_id || "" });
     setOpen(t.thread_key);
     setPane("read");
     setImages(false);
@@ -349,6 +359,19 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   };
   const editDraft = (m) => setCompose({ mailbox_id: m.mailbox_id, to: m.to.map((p) => p.email).join(", "), cc: (m.cc || []).map((p) => p.email).join(", "), subject: m.subject, html: m.body_html || esc(m.body_text).replace(/\n/g, "<br>"), draft_id: m.id, in_reply_to_id: "" });
 
+  const markLost = async () => {
+    if (!openMeta.lead_id) { flash("Save this company in Lead Gen first, then you can mark it lost."); return; }
+    try { await api.setLeadStage(openMeta.lead_id, "lost", "Not interested, from Mail"); flash("Marked as lost."); }
+    catch (e) { flash(e.message || "Couldn't mark it lost."); }
+  };
+  const nextStep = replyNextStep(openMeta.category);
+  const runStep = () => {
+    if (!nextStep) return;
+    if (nextStep.key === "reply") reply(false);
+    else if (nextStep.key === "lost") markLost();
+    else if (nextStep.key === "wait") flash("Leave it for 3 days, then follow up.");
+  };
+
   const pageIds = useMemo(() => data.threads.map((t) => t.id), [data.threads]);
   const allPicked = pageIds.length > 0 && pageIds.every((id) => sel.has(id));
   const chosen = useMemo(() => Array.from(sel.ids), [sel.ids]);
@@ -356,6 +379,16 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   const inTrash = folder === "trash";
   const wide = folder.startsWith("c_");
   const current = boxes?.find((b) => b.id === boxId);
+  const folderButton = ([id, label, Icon]) => {
+    const c = counts[id] || {};
+    const n = id === "drafts" ? c.total : c.unread;
+    return (
+      <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
+        <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>{n ? <span style={{ ...small, fontWeight: 700, color: id === "inbox" ? "var(--ui-accent)" : C.slate }}>{n}</span> : null}
+      </button>
+    );
+  };
+  const shownHealth = health.filter((m) => !boxId || m.id === boxId);
 
   if (boxes && !boxes.length) {
     return (
@@ -370,20 +403,21 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   return (
     <div>
       <style>{CSS}</style>
+      {health.filter((m) => m.bounce_health?.state === "warning").map((m) => (
+        <div key={m.id} role="status" style={{ marginBottom: 10, padding: "9px 12px", borderRadius: 10, background: "#fffbeb", border: "1px solid #f3d28a", color: "#92400e", fontFamily: FONT_BODY, fontSize: 13 }}>
+          <strong>{m.email}.</strong> {m.bounce_health.text}
+        </div>
+      ))}
       <div className="ml" data-pane={pane}>
         <nav className="ml-rail" aria-label="Folders">
           <button type="button" className="ui-btn ui-btn--primary" style={{ marginBottom: 8 }} onClick={() => setCompose({ mailbox_id: boxId || boxes?.[0]?.id })} disabled={!boxes?.length}>
             <PenSquare size={15} /> Write
           </button>
-          {FOLDERS.map(([id, label, Icon]) => {
-            const c = counts[id] || {};
-            const n = id === "drafts" ? c.total : c.unread;
-            return (
-              <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
-                <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>{n ? <span style={{ ...small, fontWeight: 700, color: id === "inbox" ? "var(--ui-accent)" : C.slate }}>{n}</span> : null}
-              </button>
-            );
-          })}
+          {FOLDERS.filter(([id]) => !MORE_FOLDERS.includes(id)).map(folderButton)}
+          <button type="button" className="ml-folder" aria-expanded={moreFolders || MORE_FOLDERS.includes(folder)} onClick={() => setMoreFolders((v) => !v)}>
+            {moreFolders || MORE_FOLDERS.includes(folder) ? <ChevronDown size={16} /> : <ChevronRight size={16} />} <span style={{ flex: 1 }}>More folders</span>
+          </button>
+          {moreFolders || MORE_FOLDERS.includes(folder) ? FOLDERS.filter(([id]) => MORE_FOLDERS.includes(id)).map(folderButton) : null}
           <div className="ml-group">Campaigns</div>
           {CAMPAIGN_VIEWS.map(([id, label, Icon]) => (
             <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
@@ -397,6 +431,25 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
               <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.email}</span>{b.unread ? <span style={{ ...small, fontWeight: 700 }}>{b.unread}</span> : null}
             </button>
           ))}
+          {shownHealth.length ? (
+            <div className="ml-card" aria-label="Deliverability">
+              <div style={{ fontWeight: 700, color: C.ink, marginBottom: 4 }}>Deliverability, last 7 days</div>
+              {shownHealth.map((m) => {
+                const d = deliverability(m);
+                return (
+                  <div key={m.id} style={{ marginBottom: 8, color: d.warn ? "#92400e" : C.slate }}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink, fontWeight: 600 }} title={m.email}>{m.email}</div>
+                    <div>Bounced: {d.bounce}</div>
+                    <div>Complaints: {d.complaints}</div>
+                    <div>SPF: {d.spf}</div>
+                    <div>DKIM: {d.dkim}</div>
+                    <div>DMARC check: {d.dmarc}</div>
+                  </div>
+                );
+              })}
+              <div>{DMARC_NOTE}</div>
+            </div>
+          ) : null}
         </nav>
 
         {wide ? (
@@ -461,6 +514,7 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
                       <span style={small}>{shortWhen(t.sent_at)}</span>
                     </div>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: t.unread_count ? 600 : 400, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.subject || "(no subject)"}</div>
+                    {t.reply_category && REPLY_CHIP[t.reply_category] ? <div><span className={`ml-tag ${REPLY_CHIP[t.reply_category][1]}`}>{REPLY_CHIP[t.reply_category][0]}</span></div> : null}
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ ...small, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.snippet}</span>
                       {t.has_attachments ? <Paperclip size={13} color={C.slate} aria-label="Has attachment" /> : null}
@@ -507,6 +561,14 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
                   </>
                 )}
               </div>
+              {nextStep && last && last.folder !== "sent" ? (
+                <div className="ml-step">
+                  <span className={`ml-tag ${REPLY_CHIP[openMeta.category][1]}`}>{REPLY_CHIP[openMeta.category][0]}</span>
+                  {nextStep.key === "times" ? <ReplyWithTimes r={{ email: last.from.email, name: last.from.name, subject: last.subject }} />
+                    : nextStep.passive ? <span style={small}>{nextStep.label}</span>
+                    : <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={runStep}>{nextStep.label}</button>}
+                </div>
+              ) : null}
               <div style={{ overflowY: "auto", flex: 1, minHeight: 0, padding: "14px 18px" }}>
                 <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, margin: "0 0 12px", overflowWrap: "anywhere" }}>{last?.subject || "(no subject)"}</h2>
                 {thread.some((m) => m.body_html) ? (

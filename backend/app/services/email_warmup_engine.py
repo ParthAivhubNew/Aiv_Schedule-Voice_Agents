@@ -69,7 +69,18 @@ def compute_ramp_schedule(max_target: int = 40, total_days: int = 28) -> List[in
 
 # ── Core Pure Decision Engine ──────────────────────────────────────────────────
 
+def bounce_health(bounce_rate: float) -> Dict[str, Any]:
+    """{state: ok | warning | paused, text} for a mailbox's 7-day bounce rate, in words a person can act on."""
+    pct = f"{(bounce_rate or 0) * 100:.1f}%"
+    if (bounce_rate or 0) >= BOUNCE_PAUSE_THRESHOLD:
+        return {"state": "paused", "text": f"Bounces are at {pct} over 7 days. Sending pauses at 2% to protect your sender reputation."}
+    if (bounce_rate or 0) >= BOUNCE_WARN_THRESHOLD:
+        return {"state": "warning", "text": f"Bounces are at {pct} over 7 days. At 2% this mailbox pauses itself. Check the addresses in your lists before sending more."}
+    return {"state": "ok", "text": ""}
+
+
 BOUNCE_PAUSE_THRESHOLD = 0.02  # 2.0% bounce rate triggers auto-pause
+BOUNCE_WARN_THRESHOLD = 0.015  # 1.5%: still sending, but the person is told before it reaches the pause
 MIN_SENDS_FOR_RATE_CHECK = 10  # Don't evaluate bounce rate on negligible volume
 GRADUATION_HEALTHY_DAYS = 21   # 21 continuous healthy days to graduate
 EARLY_CAMPAIGN_MIN = 2         # real emails a day allowed in the first week of warm-up

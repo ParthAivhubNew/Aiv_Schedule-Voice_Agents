@@ -36,7 +36,7 @@ export function ContactPoints({ id, stamp = "" }) {
           {by[k].map((p) => (
             <div key={p.id} style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", fontSize: 13, lineHeight: 1.45 }}>
               {p.hidden
-                ? <span style={{ color: C.slate }}>Held by the register. Open it above, free.</span>
+                ? <span style={{ color: C.slate }}>We hold this. Use Reveal above.</span>
                 : <a href={href(p)} target={p.kind === "phone" || p.kind === "email" ? undefined : "_blank"} rel="noreferrer" style={{ color: C.cobalt, overflowWrap: "anywhere", minWidth: 0 }}>{p.value}</a>}
               {p.owner ? <span style={{ color: C.slate, fontSize: 12 }}>· {p.owner}</span> : null}
               <span title={p.confidence === "picked" ? "Someone chose this from the suggestions" : p.confidence === "register" ? "Published by a register" : "Found by a search"}>

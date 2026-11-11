@@ -55,7 +55,9 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
         return "unknown"
 
     # Check for consumer webmail domains
-    if any(email.lower().endswith(f"@{domain}") for domain in ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"]):
+    from app.services.send_readiness import is_webmail
+
+    if is_webmail(email):
         return "individual"
 
     # Check for corporate suffix in company name

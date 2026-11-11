@@ -237,7 +237,7 @@ async def start(db, *, user_id: str, to: str, from_number: str, lead_id: str = "
     ok, why = await K.can_start(db, "voice_minute")
     if not ok:
         raise HumanCallError(402, why, "NO_CREDIT")
-    gate = await compliance.check_call_allowed(db, to_e164)
+    gate = await compliance.check_call_allowed(db, to_e164, kind="human")
     if not gate.allowed:
         raise HumanCallError(403, " ".join(gate.reasons) or "This call is not allowed.", "BLOCKED", {"reasons": list(gate.reasons)})
     if record:

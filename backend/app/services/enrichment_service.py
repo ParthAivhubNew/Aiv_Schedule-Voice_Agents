@@ -570,7 +570,7 @@ _TAVILY_WHY = {
 
 
 async def search_tavily(query: str, max_results: int = 5, *, include_domains: Optional[List[str]] = None, exclude_domains: Optional[List[str]] = None,
-                        depth: str = "basic", meter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+                        depth: str = "basic", meter: Optional[Dict[str, Any]] = None, days: Optional[int] = None) -> List[Dict[str, Any]]:
     """Tavily: AI-agent search API, platform-wide key (billed to orgs via the lead_lookup credit). basic is 1 Tavily credit and
     advanced 2. Narrowing to a company's own site is include_domains (never query text); directories are exclude_domains. Each result
     carries Tavily's relevance `score`. A 429 is retried once after the wait Tavily asks for. `meter`, when given, counts the
@@ -584,6 +584,8 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
         body["include_domains"] = include_domains[:20]
     if exclude_domains:
         body["exclude_domains"] = exclude_domains[:150]
+    if days:  # recent news only: Tavily's news topic with a look-back window
+        body["topic"], body["days"] = "news", int(days)
     results: List[Dict[str, Any]] = []
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:

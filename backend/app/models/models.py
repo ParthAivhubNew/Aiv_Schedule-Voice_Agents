@@ -145,6 +145,10 @@ class CompanyProfile(Base):
     ico_ref = Column(String, default="")
     dpo_contact = Column(String, default="")
     postal_address = Column(Text, default="")  # printed under every cold email (PECR: who is sending, and where to reach them)
+    send_approval = Column(Boolean, default=False)  # new journeys check each email before it goes; on for organisations that signed up after it existed
+    # The ideal customer: SIC codes, postcode areas / radius, size bands, company types, exclude charities (see services/fit_score.clean_icp).
+    # No fit score is shown until this says something.
+    icp = Column(JSON, nullable=True)
     dnc_notes = Column(Text, default="Opt-outs logged immediately and excluded from all future missions.")
     # Organisation time settings: the one source every feature reads (see org_settings.py).
     timezone = Column(String, default="Europe/London")
@@ -1386,8 +1390,57 @@ class EmailCampaign(Base):
     bcc = Column(String, default="")
     one_at_a_time = Column(Boolean, default=True)  # a person already in another running journey is not added to this one
     template_key = Column(String, default="")  # the ready-made journey it started from, if any
+    # Each email waits in the approval queue instead of sending. Always on while a sending mailbox is still warming up.
+    approval_required = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailApproval(Base):
+    """One journey email written and parked for the person to read, edit and approve before it goes."""
+    __tablename__ = "email_approvals"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    campaign_id = Column(String, index=True, nullable=False)
+    enrollment_id = Column(String, index=True, nullable=False)
+    step_id = Column(String, default="")
+    email = Column(String, default="")
+    company = Column(String, default="")
+    subject = Column(Text, default="")
+    body = Column(Text, default="")
+    edited = Column(Boolean, default=False)
+    status = Column(String, default="pending", index=True)  # pending | approved | sent | cancelled
+    approved_by = Column(String, default="")
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ConsentDeclaration(Base):
+    """What a customer told us about how a set of contacts agreed to hear from them. Kept as said, with who said it and when,
+    so it can be shown, spot-checked and revoked. Nothing is approved by staff first."""
+    __tablename__ = "consent_declarations"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    basis = Column(String, nullable=False)  # opted_in | existing_customer | enquiry | not_sure
+    source = Column(Text, default="")  # where they agreed: "sign-up form on our website"
+    agreed_on = Column(String, default="")  # YYYY-MM-DD, as the customer gave it
+    scope = Column(String, default="import")  # import | list | account
+    list_id = Column(String, default="")
+    lead_ids = Column(JSON, nullable=True)
+    count = Column(Integer, default=0)
+    wording = Column(Text, default="")  # the question and the answer exactly as shown
+    wording_version = Column(String, default="")
+    proof_file = Column(String, default="")  # stored file name under data/consent_proof/<org>/
+    proof_name = Column(String, default="")
+    proof_ref = Column(Text, default="")  # or a reference to where the proof is kept
+    declared_by = Column(String, default="")
+    declared_by_name = Column(String, default="")
+    declared_at = Column(DateTime, default=datetime.utcnow, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String, default="")
+    revoke_reason = Column(Text, default="")
 
 
 class EmailSequenceStep(Base):
@@ -1604,6 +1657,13 @@ class LeadAccount(Base):
     # Who may be emailed: a recorded consent lets an individual (sole trader) be contacted.
     consent_basis = Column(String, default="")
     consent_at = Column(DateTime, nullable=True)
+    consent_id = Column(String, default="", index=True)  # the ConsentDeclaration that recorded it, so revoking that declaration clears it
+    # Who may get email, worked out free from our own register copy when saved (see services/eligibility.py):
+    # ready | quick_choice | reach_other_way. eligibility_note holds {reason, by: auto|user, at}.
+    eligibility = Column(String, default="", index=True)
+    eligibility_note = Column(JSON, nullable=True)
+    # Set by the retention sweep: 12 months since the last contact (or since it was added, if never contacted).
+    retention_flagged_at = Column(DateTime, nullable=True, index=True)
     # Points at the shared, cross-organisation fact about this company (see BusinessRecord below).
     # This org's own notes/status never leave this row; only the shared, public half is pointed to.
     business_record_id = Column(String, ForeignKey("business_records.id"), nullable=True, index=True)
@@ -1958,6 +2018,11 @@ class BusinessRecord(Base):
     postcode = Column(String, nullable=True)
     incorporated_on = Column(Date, nullable=True)
     size_band = Column(String, nullable=True)
+    # The register's own filing dates, copied out of its file so "due soon" can be filtered and sorted on (see fit_score.signals).
+    accounts_due_on = Column(Date, nullable=True)
+    last_accounts_on = Column(Date, nullable=True)
+    confstmt_due_on = Column(Date, nullable=True)
+    last_confstmt_on = Column(Date, nullable=True)
     officers = Column(JSON, nullable=True)  # [{name, role, appointed_on, ...}] -- fetched per-company, not during a bulk import
     significant_control = Column(JSON, nullable=True)  # [{name, kind, notified_on, ...}] -- who actually owns/controls it
     sources = Column(JSON, nullable=True)  # [{source_id, source_type, confirmed_at}, ...]
@@ -2476,3 +2541,39 @@ class AssistantFeedback(Base):
     lesson_saved = Column(Boolean, default=False)
     status = Column(String, index=True, default="new")  # new | fixed | dismissed (set by staff)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ── Phase 7a: voice compliance ──────────────────────────────────────────────
+class CallConsent(Base):
+    """Permission to call one number with automated or AI-voiced calls (PECR). Kept with the exact wording shown, who recorded it and how,
+    so it can be produced if asked. Withdrawing sets withdrawn_at; the row stays."""
+    __tablename__ = "call_consents"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True)
+    number = Column(String, nullable=False, index=True)  # E.164
+    lead_id = Column(String, default="")
+    company_name = Column(String, default="")
+    person_name = Column(String, default="")
+    product = Column(String, default="")
+    collected_at = Column(DateTime, default=datetime.utcnow)
+    method = Column(String, default="verbal_recorded")  # verbal_recorded | web_form | written | email
+    wording_version = Column(String, default="")
+    wording_text = Column(Text, default="")
+    evidence_ref = Column(Text, default="")
+    recorded_by = Column(String, default="")
+    withdrawn_at = Column(DateTime, nullable=True)
+    withdrawn_by = Column(String, default="")
+    withdraw_method = Column(String, default="")
+
+
+class PhoneScreening(Base):
+    """The last TPS/CTPS screening result for a number. Shared by every organisation (a number's listing is not private), so no org_id and
+    no row-level security."""
+    __tablename__ = "phone_screenings"
+
+    number = Column(String, primary_key=True)
+    tps_status = Column(String, default="unknown")  # unknown | clear | listed
+    ctps = Column(Boolean, default=False)
+    screened_at = Column(DateTime, default=datetime.utcnow)
+    provider = Column(String, default="")

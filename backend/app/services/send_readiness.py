@@ -1,73 +1,120 @@
-"""Who may be emailed. One rule set used by the Leads screens and by journeys, so they never disagree.
+"""Who may be emailed. One rule set used by the Leads screens and by journeys, so they never disagree. Pure: callers load the
+account and its register record.
 
-A company is blocked when its check found a problem (closed, or its number belongs to another company),
-when it was never confirmed, or when it looks like an individual (a sole trader: emailing one needs consent
-under PECR) and no consent is recorded. Pure: callers load the account and its register record.
+Every saved company falls in one of three groups, worked out from our own copy of the company register:
+- ready: a confirmed active Ltd, LLP, PLC or other body corporate (a Scottish partnership counts). Emailed as normal.
+- quick_choice: no clear register match yet. One click settles it: pick the right company, or say it is a sole trader.
+- reach_other_way: a sole trader, an individual or an ordinary partnership. Under PECR these need consent before a marketing
+  email, so the journey reaches them another way (a call, a letter or LinkedIn) and carries on.
 
-Two kinds of no. HARD: a closed or wrong company, or an address that cannot receive mail: nothing is gained by sending.
-SOFT: not checked yet, or an individual with no consent recorded: the person may still send, at their own risk, and is told so
-(ok stays True and code/reason carry the warning).
+A recorded consent makes anyone emailable. A company the register shows as closed, a number that belongs to another company,
+or an address that cannot receive mail is never sent to: nothing is gained by it.
 """
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app.services import normalise
 
 _LEGAL = re.compile(r"\b(ltd|limited|llp|plc|cic|inc|lp)\b\.?", re.I)
 
+READY, QUICK, OTHER = "ready", "quick_choice", "reach_other_way"
+GROUPS = (READY, QUICK, OTHER)
 BLOCKING = ("problem", "email_bad")  # never sent
-WARNING = ("unchecked", "individual")  # sent at the sender's own risk, with a notice
+CONSENT_BASES = ("opted_in", "existing_customer", "enquiry")
+# Bodies corporate the bulk register labels in words normalise.is_corporate does not cover.
+WEBMAIL = ("gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com", "live.co.uk",
+           "icloud.com", "me.com", "aol.com", "msn.com", "btinternet.com", "sky.com", "talktalk.net", "virginmedia.com", "protonmail.com")
+# A real company number: eight digits, or a prefix the register uses for a body corporate (not CC- charity numbers, IP- societies and so on).
+_COMPANY_NUMBER = re.compile(r"(\d{8}|(SC|NI|OC|SO|NC|R0|LP|SL|SE)\d{6})")
+_MORE_CORPORATE = ("charitable incorporated", "royal charter", "society", "industrial and provident", "overseas company", "unlimited")
+
+
+def is_webmail(address: Any) -> bool:
+    """A personal mailbox (gmail, hotmail...) rather than one at the company's own domain."""
+    a = str(address or "").strip().lower()
+    return "@" in a and a.rsplit("@", 1)[1] in WEBMAIL
 
 
 def has_legal_suffix(name: Any) -> bool:
     return bool(_LEGAL.search(str(name or "")))
 
 
-def _result(ok: bool, code: str = "", reason: str = "") -> Dict[str, Any]:
-    return {"ok": ok, "code": code, "reason": reason}
+def pecr_corporate(category: Any, number: Any = "") -> bool:
+    """A corporate subscriber under PECR. A partnership in England, Wales or Northern Ireland (ordinary or limited) is not a legal
+    person, so it is treated like a sole trader; a Scottish partnership and any LLP are."""
+    s = str(category or "").lower()
+    if not s:
+        return False
+    if "partnership" in s:
+        return "limited liability" in s or "scottish" in s or str(number or "").upper().startswith(("SL", "SO"))
+    return normalise.is_corporate(s) or any(k in s for k in _MORE_CORPORATE)
 
 
-def _risky(code: str, reason: str) -> Dict[str, Any]:
-    """Allowed, with a warning the person must see."""
-    return _result(True, code, reason + ". You can still send, at your own risk")
+def has_consent(account: Any) -> bool:
+    """Any recorded basis except "not sure" (older rows hold the customer's own words, not one of CONSENT_BASES)."""
+    basis = str(getattr(account, "consent_basis", "") or "").strip()
+    return bool(basis) and basis != "not_sure"
 
 
-def eligibility(account: Any, biz: Optional[Any] = None) -> Dict[str, Any]:
-    """{ok, code, reason} for one saved company. code is '', problem or email_bad (ok False), or unchecked or individual (ok True, a warning)."""
+def group_of(account: Any, biz: Optional[Any] = None) -> Tuple[str, str]:
+    """(group, reason). A choice the person made wins; then the register record; then the check; then what was stored at save."""
+    from app.services.person_record import is_person_account
+
+    note = getattr(account, "eligibility_note", None) or {}
+    stored = getattr(account, "eligibility", "") or ""
+    if note.get("by") == "user" and stored in GROUPS:
+        return stored, str(note.get("reason") or "")
+    verdict = ((getattr(account, "verification", None) or {}).get("verdict") or "")
+    if verdict == "person" or is_person_account(account):
+        return OTHER, "An individual or sole trader, not a registered company"
+    if biz is not None and (getattr(biz, "registration_number", "") or getattr(biz, "company_category", "")):
+        category = str(getattr(biz, "company_category", "") or "")
+        number = str(getattr(biz, "registration_number", "") or "")
+        if not category and not _COMPANY_NUMBER.fullmatch(number.upper()):
+            return QUICK, "The register record has no company type and a number that is not a company number"
+        if pecr_corporate(category, number) or not category:
+            return READY, f"Active on the company register{f' as a {category}' if category else ''}"
+        return OTHER, f"On the register as a {category}, which is treated like a sole trader for email"
+    if verdict == "verified":
+        return READY, "Confirmed on the company register"
+    if stored in GROUPS:
+        return stored, str(note.get("reason") or "")
+    return QUICK, "Not matched to the company register yet"
+
+
+def _result(ok: bool, code: str = "", reason: str = "", *, email: Optional[bool] = None, group: str = "") -> Dict[str, Any]:
+    return {"ok": ok, "email": ok if email is None else email, "code": code, "reason": reason, "group": group}
+
+
+def eligibility(account: Any, biz: Optional[Any] = None, address: str = "") -> Dict[str, Any]:
+    """{ok, email, code, group, reason} for one saved company. ok False only for a closed or wrong company or a dead address (code problem or
+    email_bad): it is left out. `address` is the mailbox about to be written to: a personal webmail one at a ready company still needs consent. Otherwise ok is True and `email` says whether email steps go to it; code is then '' or its group."""
     v = getattr(account, "verification", None) or {}
     verdict = v.get("verdict", "")
-    if not verdict and biz is not None:
-        # Never run through Check & improve, but linked to a register record: that record's own status is a check.
+    if biz is not None:
         status = str(getattr(biz, "status", "") or "").lower()
-        if status in ("active", "registered", "open"):
-            verdict = "verified"
-        elif status:
+        if status and status not in ("active", "registered", "open"):
             return _result(False, "problem", f"The company register shows it as {biz.status}")
     if verdict in ("problem", "mismatch"):
         why = (v.get("reasons") or [""])[0]
         return _result(False, "problem", why or "Its check found a problem with this company")
     if (v.get("email") or {}).get("state") == "invalid":
         return _result(False, "email_bad", "Its email address can't receive mail")
-    if not verdict:
-        return _risky("unchecked", "Not checked yet: Check & improve would confirm it")
-    if verdict in ("not_found", "unclear"):
-        return _risky("unchecked", "Its check could not confirm the company")
-    consent = bool(getattr(account, "consent_basis", "") or "")
-    if verdict == "person":
-        return _result(True) if consent else _risky("individual", "An individual, not a company: emailing one without their consent can breach the UK marketing-email rules (PECR)")
-    corporate = verdict == "verified" or has_legal_suffix(getattr(account, "name", "")) or (
-        biz is not None and normalise.is_corporate(getattr(biz, "company_category", "")))
-    if not corporate and not consent:
-        return _risky("individual", "Looks like a sole trader or individual: emailing one without their consent can breach the UK marketing-email rules (PECR)")
-    return _result(True)
+    group, why = group_of(account, biz)
+    if group == READY:
+        if is_webmail(address) and not has_consent(account):
+            return _result(True, OTHER, "A personal email address (gmail, hotmail...), so it needs their consent", email=False, group=OTHER)
+        return _result(True, "", why, group=group)
+    if has_consent(account):
+        return _result(True, "", "Consent recorded", group=group)
+    return _result(True, group, why, email=False, group=group)
 
 
 def pasted_person(company: Any) -> Dict[str, Any]:
-    """A person typed or pasted in with no saved company: clean when the company they work for is plainly a company,
-    otherwise allowed with a warning."""
+    """A person typed or pasted in with no saved company: emailed when the company beside them is plainly a company (Ltd, LLP, PLC),
+    otherwise reached another way."""
     name = str(company or "").strip()
-    if not name:
-        return _risky("unchecked", "No company name, so there is nothing to check this person against")
-    if not has_legal_suffix(name):
-        return _risky("individual", "The company name has no Ltd, LLP or PLC: it may be a sole trader, who needs consent")
-    return _result(True)
+    if has_legal_suffix(name):
+        return _result(True, "", "", group=READY)
+    why = "No company name beside them" if not name else "No Ltd, LLP or PLC in the company name, so they may be a sole trader"
+    return _result(True, OTHER, why, email=False, group=OTHER)

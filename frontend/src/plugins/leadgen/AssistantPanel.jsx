@@ -10,7 +10,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
 import { ChoiceCard, CustomizeBanner, FeedbackBar, ViewCard, cardsCss } from "./AssistantCards";
-import { choiceAction, customizeText, isHashScreen, liveChoices, questionFor, viewFromFound } from "./assistantUi";
+import { choiceAction, customizeText, isHashScreen, liveChoices, questionFor, restoreChat, savedActs, savedMessage, viewFromFound } from "./assistantUi";
 import { profileGaps, profileIsThin } from "./profileThin";
 import { webResultText } from "./foundText";
 import { addedText } from "./journeyLogic";
@@ -446,6 +446,15 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   useEffect(() => {
     if (seed && seed.id !== lastSeed.current && open && !busy) { lastSeed.current = seed.id; send(seed.text); }
   });
+  // An offer that finishes ("Saved 20 to Leeds dentists") is saved with the chat, so reopening it does not offer it again.
+  const saveRef = useRef(null);
+  const savedDone = useRef("");
+  const doneNow = Object.keys(savedActs(acts)).sort().join(",");
+  useEffect(() => {
+    if (doneNow === savedDone.current) return;
+    savedDone.current = doneNow;
+    if (doneNow) saveRef.current?.();
+  }, [doneNow]);
 
   if (!render && !page) return null;
 
@@ -454,9 +463,10 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (!first) return;
     api.saveChatHistory(HISTORY_KEY, {
       id: chatId.current, title: first.text.slice(0, 70), at: Date.now(), filters: filters.current,
-      chat: list.map((m) => ({ id: m.id, role: m.role, text: m.text, ...(m.found ? { found: m.found.total } : {}) })),
+      chat: list.map(savedMessage), acts: savedActs(sh.s.acts), state: turn.current || {},
     }).then(() => { if (page) loadHistory(); }).catch(() => {});
   };
+  saveRef.current = () => remember(messages);
 
   const send = async (override) => {
     const text = String(override ?? input).trim();
@@ -527,9 +537,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => setHistory([]));
   };
   const openChat = (h) => {
-    run.current += 1; setBusy(false); setActs({});
-    chatId.current = h.id; filters.current = h.filters || {}; turn.current = {}; listed.current = null;
-    setMessages((h.chat || []).map((m) => ({ id: m.id, role: m.role === "user" ? "user" : "assistant", text: m.text })));
+    const back = restoreChat(h);
+    run.current += 1; setBusy(false); setSuggest([]);
+    savedDone.current = Object.keys(savedActs(back.acts)).sort().join(","); // what is restored is already saved
+    setActs(back.acts);
+    chatId.current = h.id; filters.current = back.filters; turn.current = back.state; listed.current = back.listed;
+    setMessages(back.messages);
     setView("chat");
   };
   const forget = (id) => { setHistory((h) => h.filter((x) => x.id !== id)); api.deleteChatHistory(HISTORY_KEY, id).catch(() => {}); };

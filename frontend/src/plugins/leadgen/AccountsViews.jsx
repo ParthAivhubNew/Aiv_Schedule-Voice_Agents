@@ -7,7 +7,7 @@ import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { openPhone } from "../../utils/humanCall";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -20,18 +20,25 @@ import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LO
 import { askConfirm, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { LeadActivity, StageBadge } from "./LeadActivity";
-import { FilterCards, buildFilterCards } from "./FilterCards";
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
 import { filledSummary } from "./profileState";
+import { ConsentDeclaration } from "./ConsentDeclaration";
+import { inboxKind } from "./inboxes";
+import { FitBadge, ICP_EVENT, IcpPrompt, SignalTags, useIcp } from "./FitParts";
+import { byFit } from "./fitLogic";
+import { displayName, legalTag } from "./companyLogic";
+import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
+import { SelectionBar } from "./FindLeadsParts";
+import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
 
 // The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
 // add-account form. Nothing here is made up: a field nobody found stays empty.
 
-const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand", inbound_form: "Web form" };
+export const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand", inbound_form: "Web form" };
 // Where a company came from, in a sentence a person understands.
-const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand", inbound_form: "Sent through your web form" };
+export const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand", inbound_form: "Sent through your web form" };
 const sourceWords = (src) => SOURCE_WORDS[src] || SOURCE_WORDS.manual;
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -74,8 +81,13 @@ export function useLeadAccounts(onToast, onListsChanged) {
   useEffect(() => {
     reload();
   }, [reload]);
+  useEffect(() => { // the fit scores come with the list: a saved ideal customer reads it again
+    window.addEventListener(ICP_EVENT, reload);
+    return () => window.removeEventListener(ICP_EVENT, reload);
+  }, [reload]);
 
-  const replace = (a) => setAccounts((prev) => prev.map((x) => (x.id === a.id ? a : x)));
+  // Single-company answers don't carry the fit score or signals (only the list does), so the ones already shown are kept.
+  const replace = (a) => setAccounts((prev) => prev.map((x) => (x.id === a.id ? { fit: x.fit, signals: x.signals, ...a } : x)));
   const stopped = useRef(new Set()); // account ids whose person stopped waiting for the lookup in flight
   const lookup = async (id, kind, call, message, failure) => {
     stopped.current.delete(id);
@@ -247,17 +259,17 @@ function tipsFor(a) {
   if (gaps.length) {
     const list = gaps.map((k) => NAMES[k]).join(", ");
     tips.push(searched
-      ? ["Still missing: " + list, "Our records and the web were searched and these are not published anywhere we can reach. Improve again re-runs the search. New details appear here as we find them."]
-      : ["Missing: " + list, "Press Improve this company. We check our records, then the web, and fill in what we find."]);
+      ? ["Still missing: " + list, "Our records and the web were searched and these are not published anywhere we can reach. Find contact again re-runs the search. New details appear here as we find them."]
+      : ["Missing: " + list, "Press Find contact. We check our records, then the web, and fill in what we find."]);
   }
   if (!has("website") && gaps.length) tips.push(["Know the website?", "If you have it from your own file or a conversation, type it under Details. We then read that site for the phone, email and contact."]);
-  if (has("website") && !has("phone") && searched) tips.push(["No phone on their site", "We read the company's own pages and found no number. A deep web search looks beyond the site and runs as part of Improve."]);
-  if (has("website") && !has("contact_name")) tips.push(["No named contact", has("email") && SHARED_INBOX.test(a.email) ? "Only a shared inbox was found. An email to it reaches the firm, not a person. Improve looks for the owner or director on their pages." : "We look for the owner or director on the company's own pages."]);
+  if (has("website") && !has("phone") && searched) tips.push(["No phone on their site", "We read the company's own pages and found no number. A deep web search looks beyond the site and runs as part of Find contact."]);
+  if (has("website") && !has("contact_name")) tips.push(["No named contact", has("email") && SHARED_INBOX.test(a.email) ? "Only a shared inbox was found. An email to it reaches the firm, not a person. Find contact looks for the owner or director on their pages." : "We look for the owner or director on the company's own pages."]);
   if (has("email") && SHARED_INBOX.test(a.email) && has("contact_name")) tips.push(["Shared inbox", "The email is a shared address. It works, but a message to a named person usually gets more replies. Check the email lines for this lead."]);
-  if (v.phone?.state === "invalid") tips.push(["This number isn't usable", (v.phone.note ? v.phone.note + " " : "") + "Correct it under Details, or Improve to find another."]);
-  else if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Check & improve from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
-  if (v.email?.state === "invalid") tips.push(["This email will bounce", "The address failed our test. Correct it under Details, or Improve to find another."]);
-  else if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Check & improve from the list. We test the address before you send, so it doesn't bounce."]);
+  if (v.phone?.state === "invalid") tips.push(["This number isn't usable", (v.phone.note ? v.phone.note + " " : "") + "Correct it under Details, or use Find contact to look for another."]);
+  else if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Get contacts from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
+  if (v.email?.state === "invalid") tips.push(["This email will bounce", "The address failed our test. Correct it under Details, or use Find contact to look for another."]);
+  else if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Get contacts from the list. We test the address before you send, so it doesn't bounce."]);
   if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something. You can also leave this company out of a campaign."]);
   return tips;
 }
@@ -272,78 +284,6 @@ function TipsCard({ account }) {
       {tips.map(([title, body]) => (
         <div key={title} style={{ ...muted, fontSize: 12.5 }}><strong style={{ color: C.textInk }}>{title}.</strong> {body}</div>
       ))}
-    </div>
-  );
-}
-
-// The one button that finds what is missing about a company, with the steps and the most it can cost shown first.
-const FIELD_NAMES = { website: "website", phone: "phone", email: "email", contact_name: "contact" };
-function ImproveCard({ store, account }) {
-  const credits = useLeadCredits();
-  const state = store.improving[account.id];
-  const busy = Boolean(store.researching[account.id]);
-  const rates = credits?.rates || {};
-  const webCost = rates.lead_lookup?.credits, deepCost = rates.google_deep_search?.credits;
-  const most = (webCost || 0) + (deepCost || 0);
-  const missing = ["website", "phone", "email", "contact_name"].filter((k) => !String(account[k] || "").trim());
-  const dot = (st) => st === "done" ? ["#15803D", "✓"] : st === "fail" ? ["#B91C1C", "!"] : st === "skip" ? [C.slateLight, "–"] : st === "run" ? [C.ink, ""] : [C.border, ""];
-  const steps = state?.steps || [
-    { key: "records", label: "Check our own records", state: "idle", note: "Free" },
-    { key: "web", label: "Search the web for details, people and sources", state: "idle", note: webCost == null ? "" : `${creditWord(webCost)}, only if something is found` },
-    { key: "deep", label: "Deep web search for a phone or website", state: "idle", note: deepCost == null ? "Only if still missing" : `${creditWord(deepCost)}, only if still missing and found` },
-    { key: "verify", label: "Check the phone, email and website", state: "idle", note: rates.lead_phone_check ? `${creditWord(rates.lead_phone_check.credits)} per ${rates.lead_phone_check.unit} checked` : "" },
-  ];
-  const r = state?.done ? state.result : null;
-  const ended = account.verification?.verdict === "problem";
-  const finished = steps.filter((st) => st.state === "done" || st.state === "skip" || st.state === "fail").length;
-  const live = busy && state && !state.done;
-  const running = steps.find((st) => st.state === "run");
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {state ? (
-        <div>
-          <div className={`imp-bar${live ? " imp-bar--live" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={finished}>
-            <span style={{ width: `${Math.max(live ? 8 : 0, Math.round((finished / steps.length) * 100))}%` }} />
-          </div>
-          <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
-            {live ? <span className="imp-dots">{running ? `${running.label}` : "Starting"}</span> : `Step ${finished} of ${steps.length} finished`}
-          </div>
-        </div>
-      ) : null}
-      {ended ? (
-        <div role="note" style={{ ...text, fontSize: 12.5, color: C.red, background: C.redSoft, borderRadius: 8, padding: "8px 11px", lineHeight: 1.45 }}>
-          This company has ended, so we don't search for its contact details. Anything found online would belong to a different business.
-        </div>
-      ) : null}
-      <div style={{ ...muted, fontSize: 12.5 }}>
-        {r ? (r.added.length ? `Added ${r.added.map((k) => FIELD_NAMES[k]).join(", ")}. New details are tagged above. Nothing you already had was changed.`
-          : r.problem ? `It stopped: ${r.problem}` : "We searched our records and the web and found nothing more. Nothing was charged.")
-          : missing.length ? `${missing.length} detail${missing.length === 1 ? " is" : "s are"} missing (${missing.map((k) => FIELD_NAMES[k]).join(", ")}). One button tries every source, cheapest first.`
-            : "Every contact detail is filled in. You can still look for more people, emails and sources."}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {steps.map((st) => {
-          const [color, mark] = dot(st.state);
-          return (
-            <div key={st.key} className={`imp-step imp-step--${st.state}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 6px", ...text, fontSize: 13, color: st.state === "skip" ? C.slateLight : C.textInk }}>
-              <span aria-hidden className={st.state === "done" || st.state === "fail" ? "imp-pop" : ""} style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${color}`, background: st.state === "done" || st.state === "fail" ? color : "transparent", color: "#fff", fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>
-                {st.state === "run" ? <Spinner size={11} /> : mark}
-              </span>
-              <span style={{ flex: 1 }}>{st.label}</span>
-              <span key={st.note} className="imp-note" style={{ fontSize: 12, color: st.state === "fail" ? C.red : st.state === "done" && st.note.startsWith("Added") ? "#15803D" : C.slate }}>{st.note}</span>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" className="ui-btn ui-btn--primary" disabled={busy || ended} onClick={() => store.improve(account.id, { again: Boolean(state?.done) })}
-          title="Tries our records first (free), then the web, then a deep web search if a phone or website is still missing. You are charged only for what is found.">
-          {busy ? <Spinner size={14} /> : <Sparkles size={14} />} {busy ? "Working…" : state?.done || account.researched_at ? "Improve again" : "Improve this company"}
-        </button>
-        <span style={{ ...muted, fontSize: 12 }}>
-          {most ? `Most it can cost: ${creditWord(most)}. ` : ""}Charged only when something new is found.{credits ? ` You have ${credits.balance.toLocaleString()}.` : ""}
-        </span>
-      </div>
     </div>
   );
 }
@@ -383,7 +323,6 @@ function SiteLink({ account }) {
 
 // ---------------------------------------------------------------- Saved Accounts
 // Columns a person can hide from their own view of the table (kept in their browser; nothing is deleted).
-const ROLE_INBOXES = new Set(["info", "sales", "admin", "contact", "hello", "office", "enquiries", "enquiry", "support", "accounts", "mail", "team", "hr", "jobs", "careers", "marketing", "service", "bookings", "orders", "reception", "help", "general"]);
 
 // What a row can honestly show for "Contact" and "Email": what is saved on the company first, then what its
 // research found, so a researched company is never shown as empty while its dossier holds the details.
@@ -401,7 +340,7 @@ function Empty({ a, field }) {
   if (field && (a.on_file || []).includes(field)) {
     return <span title="Our records hold this. Open the company to see it." style={{ ...text, fontSize: 11.5, fontWeight: 600, color: "#1D4ED8", background: "#DBEAFE", borderRadius: 4, padding: "1px 6px" }}>On file</span>;
   }
-  return <span title={wasLookedUp(a) ? "We looked and found nothing." : "Nothing here yet. Use Check & improve to look for it."} style={{ color: C.slateLight }}>—</span>;
+  return <span title={wasLookedUp(a) ? "We looked and found nothing." : "Nothing here yet. Use Get contacts to look for it."} style={{ color: C.slateLight }}>—</span>;
 }
 
 // A number saved on the company first, then what research found, so a researched company never looks empty.
@@ -514,7 +453,7 @@ function FoundSummary({ account, store }) {
       {extra.length ? <div style={{ ...text, fontSize: 12.5, color: C.textInk }}>Also found: {extra.join(", ")}. See the research below.</div> : null}
       <div style={{ ...text, fontSize: 12, color: C.slateLight }}>
         {tried.length ? `Checked: ${tried.join(", ")}.` : "Not checked yet."}
-        {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Improve this company below to search for them"}.` : ""}
+        {missing.length ? ` ${missing.length === 1 ? "One detail is" : `${missing.length} details are`} still missing${looked ? "" : ". Use Find contact on the Research tab to search for them"}.` : ""}
         {` The ${f.after_pct}% counts four details: website, phone, email and contact, 25% each.`}
       </div>
     </section>
@@ -528,7 +467,7 @@ export function contactFor(a) {
   if (person) return { text: person.name, title: person.title || person.role || "", fromResearch: true };
   const named = (r.email_contacts || []).find((c) => c.name);
   if (named) return { text: named.name, title: "", fromResearch: true };
-  const mailbox = [...(r.team || []).map((t) => t.email), ...(r.emails || [])].find((e) => /^[a-z]{2,}[._-][a-z]{2,}@/i.test(e || "") && !ROLE_INBOXES.has(String(e).split(/[._-]|@/)[0].toLowerCase()));
+  const mailbox = [...(r.team || []).map((t) => t.email), ...(r.emails || [])].find((e) => /^[a-z]{2,}[._-][a-z]{2,}@/i.test(e || "") && inboxKind(e) === "person");
   if (mailbox) return { text: mailbox, title: "", fromResearch: true };
   return null;
 }
@@ -552,7 +491,7 @@ export function customColumns(accounts) {
 }
 
 // Where a menu opens: just under its button, in the window, so the table's rounded edge never clips it.
-function menuSpot(box, side) {
+export function menuSpot(box, side) {
   const r = box.current ? box.current.getBoundingClientRect() : { bottom: 0, left: 0, right: 0 };
   return side === "right" ? { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) } : { top: r.bottom + 4, left: Math.max(8, r.left) };
 }
@@ -562,6 +501,35 @@ const VIEWS_KEY = "aivhub_accounts_views";
 const readViews = () => {
   try { const v = JSON.parse(localStorage.getItem(VIEWS_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => x && typeof x.name === "string") : []; } catch { return []; }
 };
+// A small "More" button with a menu of rarer actions, opened just under it in the window so the table never clips it.
+export function MoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  const list = items.filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((o) => !o)}><MoreHorizontal size={14} /> More</button>
+      {open ? (
+        <div role="menu" className="ui-card" style={{ position: "fixed", ...menuSpot(box, "right"), zIndex: 60, minWidth: 220, padding: 6, boxShadow: "0 12px 32px rgba(20,24,40,.16)" }}>
+          {list.map((it) => (
+            <button key={it.label} type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={it.disabled} title={it.title}
+              style={{ width: "100%", justifyContent: "flex-start", minHeight: 36, color: it.danger ? C.red : undefined }} onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ViewsMenu({ current, onApply, onToast }) {
   const [open, setOpen] = useState(false);
   const [views, setViews] = useState(readViews);
@@ -577,10 +545,10 @@ function ViewsMenu({ current, onApply, onToast }) {
   }, [open]);
   const keep = (next) => { setViews(next); try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* the views just are not remembered */ } };
   const saveCurrent = async () => {
-    const name = await askText({ title: "Save this view", label: "A name for these columns and this filter, for example Ready to call", confirm: "Save view", maxLength: 40 });
+    const name = await askText({ title: "Save this view", label: "A name for these columns, this tab and this filter, for example Ready to call", confirm: "Save view", maxLength: 40 });
     if (!name) return;
     const n = name.trim();
-    keep([{ name: n, hidden: current.hidden, scope: current.scope }, ...views.filter((v) => v.name.toLowerCase() !== n.toLowerCase())].slice(0, 20));
+    keep([{ name: n, hidden: current.hidden, tab: current.tab, filter: current.filter }, ...views.filter((v) => v.name.toLowerCase() !== n.toLowerCase())].slice(0, 20));
     setActive(n);
     setOpen(false);
     onToast(`Saved the view ${n}.`);
@@ -592,7 +560,7 @@ function ViewsMenu({ current, onApply, onToast }) {
       </button>
       {open ? (
         <div role="menu" className="ui-card" style={{ position: "fixed", ...menuSpot(box, "left"), zIndex: 60, minWidth: 230, maxHeight: "min(420px, 60vh)", overflowY: "auto", padding: 6, boxShadow: "0 12px 32px rgba(20,24,40,.16)" }}>
-          {[{ name: "Default view", hidden: [], scope: "all" }, ...views].map((v) => (
+          {[{ name: "Default view", hidden: [], tab: "", filter: "" }, ...views].map((v) => (
             <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <button type="button" role="menuitem" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: 1, justifyContent: "flex-start", fontWeight: (active || "Default view") === v.name ? 700 : 400 }}
                 onClick={() => { onApply(v); setActive(v.name === "Default view" ? "" : v.name); setOpen(false); }}>{v.name}</button>
@@ -623,14 +591,12 @@ export function readiness(a) {
   if (!emailFor(a)?.text && wasLookedUp(a)) return "noemail";
   return "other";
 }
-const ACCOUNT_CHIPS = [
-  ["all", "All", () => true, "Every company in this list"],
+const TABS = [["ready", "Ready", "Has an email that passed the checks"], ["needs", "Needs contact", "No email we can send to yet"], ["contacted", "Contacted", "You have already been in touch"]];
+// The old filter cards, now behind one "More filters" menu. Each shows only while some company matches it.
+const MORE_CHIPS = [
   ["new", "New data found", (a) => foundCount(a) > 0, "Companies where we filled in a blank or found extra people, emails or phones"],
-  ["ready", "Ready to email", (a) => readiness(a) === "ready", "Has an email that passed the checks"],
   ["fixes", "Fixes to review", (a) => readiness(a) === "fixes", "We found a better value than the one you had. Nothing changes until you accept it"],
-  ["attention", "Needs attention", (a) => readiness(a) === "attention", "The company looks closed, or its email can't receive mail"],
   ["flagged", "Import warnings", (a) => (a.import_flags || []).length > 0, "Problems noticed when the file was imported, such as a company number that belongs to another company"],
-  ["noemail", "No email found", (a) => readiness(a) === "noemail", "We looked and found no email"],
 ];
 const VERDICT_TIPS = {
   verified: "Confirmed active by the official register or our records",
@@ -644,21 +610,25 @@ const VERDICT_TIPS = {
 const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
 const COMPANY_PIN = ["Company"];
 
-export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "" }) {
+export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "", moreInHeader = false }) {
   const [filter, setFilter] = useState("");
-  const [scope, setScope] = useState("all");
+  const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
+  const [moreFilter, setMoreFilter] = useState("");
+  const [picksOnly, setPicksOnly] = useState(false);
   const [pageSize, setPageSize] = useState(() => {
     try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
   const [pageNo, setPageNo] = useState(0);
-  useEffect(() => { setPageNo(0); }, [filter, scope, listId]);
-  const sel = useBulkSelect(`${filter}|${scope}|${listId}`); // ids ticked for the bulk actions; a new filter or list clears them
-  const [checking, setChecking] = useState(null); // { ids, pendingOnly } while the cost box is open
+  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId]);
+  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}`); // ids ticked for the bulk actions; a new filter or list clears them
+  const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
   const [listing, setListing] = useState(false); // the Add to list box is open
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   const locked = useLocked();
   const call = useCallDialog(store.toast);
+  const icp = useIcp();
+  const [sortBy, setSortBy] = useState(""); // "" = Best fit once an ideal customer is set, else most complete first
   const [extra, setExtra] = useState({}); // score, warm and call history per company, from the connections view
   useEffect(() => {
     let live = true;
@@ -682,26 +652,41 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   };
   const showing = (id) => !hidden.includes(id);
   const shownOwn = own.filter((n) => showing(`c:${n}`));
-  const columnCount = 2 + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
+  const fitShown = icp.isSet && showing("fit");
+  const order = sortBy || (icp.isSet ? "fit" : "complete");
+  const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
-  // Verdict filters appear once some companies have been checked.
-  const verdictChips = VERDICT_ORDER
-    .map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k])
-    .filter(([, , pred]) => base.some(pred))
-    .map(([id, label, pred]) => [id, label, pred, VERDICT_TIPS[id.slice(2)]]);
+  const buckets = { ready: [], needs: [], contacted: [] };
+  base.forEach((a) => buckets[bucket(a)].push(a));
+  const tabsShown = TABS.filter(([k]) => buckets[k].length);
+  const tab = buckets[tabPref]?.length ? tabPref : tabsShown[0]?.[0] || "needs";
+  const pickRows = base.filter((a) => openPicks(a).length);
+  const picks = picksOnly && pickRows.length > 0; // "Needs your choice" looks across every tab
+  const inTab = picks ? pickRows : buckets[tab];
+  const verdictChips = VERDICT_ORDER.map((k) => [`v_${k}`, VERDICTS[k].label, (a) => a.verification?.verdict === k, VERDICT_TIPS[k]]);
   const historyChips = [
     ["h_never", "Never called", (a) => extra[a.id]?.history === "never", "No call has been made to this company"],
     ["h_no_answer", "Called, no answer", (a) => extra[a.id]?.history === "no_answer", "Called, but nobody picked up or it went to voicemail"],
     ["h_interested", "Interested", (a) => extra[a.id]?.history === "interested", "Spoke with them and they showed interest"],
     ["h_recent", "Contacted recently", (a) => extra[a.id]?.history === "recent", "Called within your re-contact gap"],
     ["h_warm", "Warm", (a) => Boolean(extra[a.id]?.warm), "Opened your emails or engaged with your posts"],
-  ].filter(([id, , pred]) => id === "h_never" || base.some(pred));
-  const chips = [...ACCOUNT_CHIPS, ...historyChips, ...verdictChips];
-  const filterCards = buildFilterCards(base, chips);
-  const scopePred = (chips.find(([id]) => id === scope) || ACCOUNT_CHIPS[0])[2];
-  const shown = completeFirst(base
-    .filter(scopePred)
-    .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q))));
+  ];
+  const allChips = [...MORE_CHIPS, ...historyChips, ...verdictChips];
+  const available = allChips.filter(([, , pred]) => inTab.some(pred));
+  const activeChip = available.find(([id]) => id === moreFilter);
+  const flags = duplicateFlags(base);
+  const matching = inTab
+    .filter(activeChip ? activeChip[2] : () => true)
+    .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
+  // A filter chosen elsewhere (the check results) opens the tab that holds the companies it finds.
+  const focusFilter = (id) => {
+    const chip = allChips.find(([cid]) => cid === id);
+    const where = chip ? TABS.map((t) => t[0]).find((k) => buckets[k].some(chip[2])) : "";
+    if (where) setTabPref(where);
+    setPicksOnly(false);
+    setMoreFilter(id);
+  };
+  const shown = order === "fit" && icp.isSet ? byFit(completeFirst(matching)) : completeFirst(matching);
   const shownIds = shown.map((a) => a.id);
   const lastPage = Math.max(0, Math.ceil(shown.length / pageSize) - 1);
   const page = Math.min(pageNo, lastPage);
@@ -725,6 +710,18 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const allShownPicked = pagePicked(sel.ids, pageIds);
   const pickedIds = base.filter((a) => sel.has(a.id)).map((a) => a.id); // companies removed since are dropped
   const pickedWord = sel.everything && pickedIds.length === shownIds.length ? `All ${pickedIds.length.toLocaleString()} selected` : `${pickedIds.length.toLocaleString()} selected`;
+  const pickedOnFile = base.filter((a) => sel.has(a.id) && a.on_file?.length && a.business_record_id);
+  const revealRows = async (rows) => {
+    const ids = rows.map((a) => a.business_record_id).filter(Boolean);
+    if (!ids.length) return;
+    try {
+      const r = await api.revealMany(ids);
+      await store.reload();
+      store.toast(`Opened ${(r.companies || []).length.toLocaleString()} ${(r.companies || []).length === 1 ? "company" : "companies"}. Free.`);
+    } catch (e) {
+      store.toast(e.message || "Couldn't open them.");
+    }
+  };
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
   const fullCount = base.filter((a) => (a.completeness?.pct || 0) >= 71).length; // 5 of 7 key details
@@ -743,7 +740,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   // The ticked companies become a list of their own, and the campaign is started on it.
   const startCampaign = async () => {
     const withEmail = pickedIds.filter((id) => emailFor(base.find((a) => a.id === id) || {})?.text);
-    if (!withEmail.length) { store.toast("None of the ticked companies has an email yet. Use Check & improve first."); return; }
+    if (!withEmail.length) { store.toast("None of the ticked companies has an email yet. Use Get contacts first."); return; }
     const name = await askText({ title: `Start a campaign on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Campaign ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, confirm: "Continue", maxLength: 80 });
     if (!name) return;
     try {
@@ -763,55 +760,91 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       store.toast(e.message || "Couldn't apply the fixes.");
     }
   };
+  const acceptAllFixes = async (ids) => {
+    if (await askConfirm({ title: `Apply ${ids.length.toLocaleString()} ${ids.length === 1 ? "company's" : "companies'"} suggested fixes?`, body: "The values you had stay noted in each company's check details.", confirm: "Apply fixes" })) acceptFixes(ids);
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {!icp.loading && !icp.isSet ? <IcpPrompt onSet={() => onGo("business")} /> : null}
       <div style={{ ...muted, fontSize: 12.5 }} title="Each company is scored on website, phone, email, address, industry, people and size. What our register holds counts.">
-        Most complete companies first. {fullCount.toLocaleString()} of {base.length.toLocaleString()} have at least 5 of the 7 key details; {base.filter((a) => (a.completeness?.pct || 0) === 100).length.toLocaleString()} have all 7.
+        {order === "fit" && icp.isSet ? "Best fit first." : "Most complete companies first."} {fullCount.toLocaleString()} of {base.length.toLocaleString()} have at least 5 of the 7 key details; {base.filter((a) => (a.completeness?.pct || 0) === 100).length.toLocaleString()} have all 7.
       </div>
-      <FilterCards cards={filterCards} active={scope} onPick={setScope} />
-      <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => setScope(`v_${k}`)}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="Companies by what to do next" style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%", flex: "0 1 auto" }}>
+          {tabsShown.map(([k, label, tip]) => {
+            const on = !picks && tab === k;
+            return (
+              <button key={k} type="button" role="tab" aria-selected={on} title={tip} onClick={() => { setTabPref(k); setPicksOnly(false); }}
+                style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", color: on ? "#fff" : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                {label} {buckets[k].length.toLocaleString()}
+              </button>
+            );
+          })}
+        </div>
+        {pickRows.length ? (
+          <button type="button" aria-pressed={picks} title="We found more than one phone or email for these. Pick the right one" onClick={() => setPicksOnly((v) => !v)}
+            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? "#B45309" : "#FEF3C7", color: picks ? "#fff" : "#92400E", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Needs your choice {pickRows.length.toLocaleString()}
+          </button>
+        ) : null}
+        {available.length ? (
+          <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
+            <option value="">More filters</option>
+            {available.map(([id, label]) => <option key={id} value={id}>{label} ({inTab.filter(allChips.find(([cid]) => cid === id)[2]).length.toLocaleString()})</option>)}
+          </select>
+        ) : null}
+      </div>
+      <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => focusFilter(`v_${k}`)}
         onRecheck={() => setChecking({ ids: base.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
 
       <div className="ui-card" style={{ overflow: "hidden" }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
           <span style={{ flex: 1 }} />
-          <span style={{ ...muted, fontSize: 12.5 }}>{pickedIds.length ? pickedWord : "Tick companies to enrich or list them"}</span>
-          {fixIds.length ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Apply every suggested fix in this list. The value you had is kept in the company's check details"
-              onClick={async () => { if (await askConfirm({ title: `Apply ${fixIds.length.toLocaleString()} ${fixIds.length === 1 ? "company's" : "companies'"} suggested fixes?`, body: "The values you had stay noted in each company's check details.", confirm: "Apply fixes" })) acceptFixes(fixIds); }}>
-              Accept all fixes ({fixIds.length.toLocaleString()})
-            </button>
+          {!moreInHeader && fixIds.length ? (
+            <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
           ) : null}
-          <ViewsMenu current={{ hidden, scope }} onToast={store.toast} onApply={(v) => { saveHidden(v.hidden || []); setScope(chips.some(([id]) => id === v.scope) ? v.scope : "all"); }} />
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} disabled={!pickedIds.length} onClick={deleteTicked}
-            title="Delete the ticked companies for good. They leave every list and journey.">
-            Delete {pickedIds.length || ""}
+          <ViewsMenu current={{ hidden, tab: tabPref, filter: moreFilter }} onToast={store.toast}
+            onApply={(v) => {
+              saveHidden(v.hidden || []);
+              const wanted = v.filter ?? (v.scope && v.scope !== "all" ? v.scope : "");
+              setTabPref(TABS.some(([k]) => k === v.tab) ? v.tab : "");
+              setMoreFilter(allChips.some(([id]) => id === wanted) ? wanted : "");
+              setPicksOnly(false);
+            }} />
+        </div>
+        <SelectionBar count={pickedIds.length} label={pickedWord} onClear={sel.clear}>
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={check.job?.status === "running"}
+            title="Look for the emails and phone numbers these companies are missing. You see the most it can cost first"
+            onClick={() => setChecking({ ids: pickedIds, pendingOnly: false, mode: "contacts" })}>
+            <ShieldCheck size={14} /> Get contacts
           </button>
+          {pickedOnFile.length ? (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealRows(pickedOnFile)}>Reveal {pickedOnFile.length.toLocaleString()}</button>
+          ) : null}
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} onClick={() => setListing(true)}
+            title="Group these companies in a named list, ready for a campaign">
+            Add to list
+          </button>
+          <CallButton label="Call" lockedLabel="Call · add Voice"
+            onClick={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` })}
+            onLocked={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` }, true)} />
           {listId ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || pickedIds.some((i) => locked.has(i))} onClick={() => removeFromList(pickedIds)}
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={pickedIds.some((i) => locked.has(i))} onClick={() => removeFromList(pickedIds)}
               title={pickedIds.some((i) => locked.has(i)) ? LOCK_TIP : "Take the ticked companies out of this list"}>
               Remove from list
             </button>
           ) : null}
-          <CallButton label={`Call ${pickedIds.length || ""}`.trim()} lockedLabel="Call · add Voice" disabled={!pickedIds.length}
-            onClick={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` })}
-            onLocked={() => call.open({ kind: "selected", ids: pickedIds, name: `${pickedIds.length} selected` }, true)} />
-          {onCampaign ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || !listsStore} title="Put the ticked companies in a list and start an email campaign on it" onClick={startCampaign}>
+          {onCampaign && !listId ? (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} title="Put the ticked companies in a list and start an email campaign on it" onClick={startCampaign}>
               <Megaphone size={14} /> Email campaign
             </button>
           ) : null}
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!pickedIds.length || !listsStore} onClick={() => setListing(true)}
-            title="Group these companies in a named list, ready for a campaign">
-            Add to list
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} onClick={deleteTicked}
+            title="Delete the ticked companies for good. They leave every list and journey.">
+            Delete
           </button>
-          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!pickedIds.length || check.job?.status === "running"}
-            title="Correct and complete these companies: our records, the company registers, the web, and missing emails"
-            onClick={() => setChecking({ ids: pickedIds, pendingOnly: false })}>
-            <ShieldCheck size={14} /> Check & improve
-          </button>
-        </div>
+        </SelectionBar>
         <SelectAllNotice sel={sel} pageIds={pageIds} total={shownIds.length} onSelectAll={() => sel.selectAll(shownIds)} />
         <GridTools id="my-list" pinned={COMPANY_PIN} />
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
@@ -822,6 +855,14 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" />
                 </th>
                 <th>Company</th>
+                {fitShown ? (
+                  <th aria-sort={order === "fit" ? "descending" : "none"} style={{ whiteSpace: "nowrap" }}>
+                    <button type="button" className="ui-link" title={order === "fit" ? "Sorted by best fit. Click to sort by most complete" : "Sort by best fit"}
+                      onClick={() => setSortBy(order === "fit" ? "complete" : "fit")} style={{ font: "inherit", color: "inherit" }}>
+                      Fit{order === "fit" ? " ↓" : ""}
+                    </button>
+                  </th>
+                ) : null}
                 {showing("phone") ? <th title="The number you saved, or one research found. A tick means the phone network confirmed it">Phone</th> : null}
                 {showing("email") ? <th title="The email you saved, or one research found">Email</th> : null}
                 {showing("contact") ? <th title="The person to write to">Contact</th> : null}
@@ -829,7 +870,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                 {showing("quality") ? <th title="How much of the website, phone, email, address, industry, people and size we hold. Hover a row to see what is missing">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
                 {showing("website") ? <th title="The company's own website">Website</th> : null}
-                {showing("source") ? <th title="Where this company came from">Found by</th> : null}
+                {showing("source") ? <th title="How and when this company was first saved">First seen via</th> : null}
                 {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
                 <th style={{ width: 1 }} aria-label="Actions" />
               </tr>
@@ -839,10 +880,18 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                 <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : "#fff" }}>
                   <td><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
                   <td>
-                    <button type="button" title="Open this company's details" onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{a.name}</button>
+                    <button type="button" title={a.name} onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{displayName(a.name)}</button>
+                    {legalTag(a.registry?.company_category, a.registration_number) ? <span style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(a.registry?.company_category, a.registration_number)}</span> : null}
                     <span style={{ marginLeft: 4 }}><NotesButton companyId={a.id} name={a.name} /></span>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
+                    {a.signals?.length || flags[a.id] ? (
+                      <div style={{ marginTop: 3, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                        <SignalTags signals={a.signals} />
+                        {flags[a.id] ? <span title={FLAG_WORDS[flags[a.id][0]][1]} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{FLAG_WORDS[flags[a.id][0]][0]}</span> : null}
+                      </div>
+                    ) : null}
                   </td>
+                  {fitShown ? <td style={{ maxWidth: 260 }}><FitBadge fit={a.fit} /></td> : null}
                   {showing("phone") ? (
                     <td style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                       {phoneFor(a) ? (
@@ -897,7 +946,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     </td>
                   ) : null}
                   {showing("website") ? <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}><SiteLink account={a} /></td> : null}
-                  {showing("source") ? <td style={{ color: C.slate }}>{SOURCE_LABEL[a.source] || "Added by hand"}</td> : null}
+                  {showing("source") ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{firstSeen(a)}</td> : null}
                   {shownOwn.map((n) => (
                     <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {a.custom?.[n] || <span style={{ color: C.slateLight }}>—</span>}
@@ -905,6 +954,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   ))}
                   <td style={{ textAlign: "right" }}>
                     <span style={{ display: "inline-flex", gap: 6 }}>
+                      {a.on_file?.length && a.business_record_id ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Show the website, phone and email we hold. Free." onClick={() => revealRows([a])}>Reveal</button> : null}
                       <button title="Open this company's full details" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => onOpen(a)}>
                         {store.researching[a.id] ? <><Spinner size={13} /> Working…</> : "Open"}
                       </button>
@@ -913,7 +963,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   </td>
                 </tr>
               ))}
-              {!shown.length ? <tr><td colSpan={columnCount} style={{ color: C.slate }}>Nothing matches “{filter}”.</td></tr> : null}
+              {!shown.length ? <tr><td colSpan={columnCount} style={{ color: C.slate }}>{filter ? `Nothing matches “${filter}”.` : "Nothing here."}</td></tr> : null}
               <tr><td colSpan={columnCount} style={{ padding: "6px 8px" }}>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Type in one more company yourself" onClick={onAdd}><Plus size={14} /> Add a row</button>
               </td></tr>
@@ -941,7 +991,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         ) : null}
       </div>
       {checking ? (
-        <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} onStart={check.start} onClose={() => setChecking(null)} />
+        <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} mode={checking.mode} onStart={check.start} onClose={() => setChecking(null)} />
       ) : null}
       {listing && listsStore ? <AddToListDialog ids={pickedIds} listsStore={listsStore} onToast={store.toast} onClose={() => setListing(false)} /> : null}
       {call.dialog}
@@ -994,7 +1044,7 @@ function Dossier({ account, store }) {
   if (!account.researched_at) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ ...muted, flex: "1 1 220px" }}>Nothing researched yet. Use Improve above and what is found appears here: people, phones, emails and sources.</span>
+        <span style={{ ...muted, flex: "1 1 220px" }}>Nothing researched yet. Use Find contact above and what is found appears here: people, phones, emails and sources.</span>
       </div>
     );
   }
@@ -1160,6 +1210,7 @@ function AccountFieldGrid({ fields, form, setForm, minWidth = 190, autoFocusFirs
 }
 
 const PANEL_TABS = [
+  { id: "summary", label: "Summary", tip: "The fit, who to contact, the best email and phone, and the next step" },
   { id: "overview", label: "Overview", tip: "Contact details, whether they passed our checks, and the columns from your file" },
   { id: "research", label: "Research", tip: "Find a missing phone, email or contact, and read what we found about the company" },
   { id: "details", label: "Details", tip: "Change the saved name, phone, email and contact, or remove the company" },
@@ -1175,7 +1226,8 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
   const [form, setForm] = useState(() => Object.fromEntries(ACCOUNT_FIELDS.map(([k]) => [k, live[k] || ""])));
   const [confirmRemove, setConfirmRemove] = useState(false);
   const changed = ACCOUNT_FIELDS.some(([k]) => (form[k] || "") !== (live[k] || ""));
-  const [tab, setTab] = useProfileTab("account", PANEL_TABS.map((t) => t.id), "overview");
+  const [tab, setTab] = useProfileTab("account.v2", PANEL_TABS.map((t) => t.id), "summary");
+  const summary = useCompanyProfile(live.business_record_id || "", tab === "summary");
   const notesApi = useNotes({ companyId: live.business_record_id || "", accountId: live.id });
   const tabBase = `acct-${live.id}`;
   const custom = Object.entries(live.custom || {});
@@ -1222,6 +1274,9 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
           tabs={PANEL_TABS.map((t) => (t.id === "notes" ? { ...t, count: notesApi.notes.length || 0 } : t))} />
         </div>
         <div style={{ padding: "4px 20px 20px", display: "flex", flexDirection: "column", gap: 0, flex: 1 }}>
+          <TabPanel idBase={tabBase} id="summary" value={tab}>
+            <SummaryTab profile={summary.profile} account={live} loading={summary.loading} error={summary.error} onGoTab={setTab} />
+          </TabPanel>
           <TabPanel idBase={tabBase} id="overview" value={tab}>
             <EndedBanner account={live} />
             {["problem", "not_found"].includes(live.verification?.verdict) ? <div style={{ paddingTop: 12 }}><CheckDetails account={live} /></div> : null}
@@ -1249,9 +1304,9 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
             ) : null}
           </TabPanel>
           <TabPanel idBase={tabBase} id="research" value={tab}>
-            <Collapsible id="account:improve" defaultOpen title="Improve this company" summary={store.researching[live.id] ? "Running now" : tipsFor(live).length ? `${tipsFor(live).length} ${tipsFor(live).length === 1 ? "tip" : "tips"}` : ""}>
+            <Collapsible id="account:improve" defaultOpen title="Find contact" summary={store.researching[live.id] ? "Running now" : tipsFor(live).length ? `${tipsFor(live).length} ${tipsFor(live).length === 1 ? "tip" : "tips"}` : ""}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <ImproveCard store={store} account={live} />
+                <FindContactButton store={store} account={live} />
                 <TipsCard account={live} />
                 {store.researching[live.id] && store.researching[live.id] !== "improve" ? (
                   <SearchStatus title={store.researching[live.id] === "deep" ? `Deep web search on ${live.name}` : store.researching[live.id] === "quick" ? `Checking our records for ${live.name}` : `Looking up ${live.name}`}
@@ -1291,7 +1346,7 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
           </TabPanel>
           <TabPanel idBase={tabBase} id="activity" value={tab}>
             <Collapsible id="account:activity" defaultOpen title="Activity" summary={live.connection?.stage ? `Stage: ${String(live.connection.stage).replace(/_/g, " ")}` : ""}>
-              <LeadActivity account={live} store={store} onGoTab={setTab} find={{ text: "Use Improve this company on the Research tab.", tab: "research" }} />
+              <LeadActivity account={live} store={store} onGoTab={setTab} find={{ text: "Use Find contact on the Research tab.", tab: "research" }} />
             </Collapsible>
           </TabPanel>
         </div>
@@ -1427,11 +1482,12 @@ function ImportReport({ done, onGo, onClose, onToast }) {
         {stat(done.warned, "saved with a warning", "Saved, but worth a look: a personal mailbox, a shared inbox, a mobile, or no Ltd in the name")}
       </div>
       {(done.quarantined || []).length ? <QuarantineBox rows={done.quarantined} /> : null}
+      {done.newIds?.length ? <ConsentDeclaration leadIds={done.newIds} scope="import" count={done.newIds.length} onDone={(_, msg) => onToast?.(msg)} /> : null}
       {!done.added && !done.matched ? <div style={{ ...muted, fontSize: 13 }}>Nothing was added.</div> : null}
       {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", ...muted, fontSize: 12.5 }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
       {gaps.length || done.custom?.length ? (
         <div style={{ ...muted, fontSize: 12.5, display: "flex", flexDirection: "column", gap: 4 }}>
-          {gaps.length ? <div>Missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. Open the list and use "Check & improve" to fill these and fix what looks wrong.</div> : null}
+          {gaps.length ? <div>Missing in your file: {gaps.map(([label, n]) => `${n.toLocaleString()} ${label}${n === 1 ? "" : "s"}`).join(", ")}. Open the list and use "Get contacts" to fill these and fix what looks wrong.</div> : null}
           {done.custom?.length ? <div>Your own columns were kept: {done.custom.join(", ")}.</div> : null}
         </div>
       ) : null}

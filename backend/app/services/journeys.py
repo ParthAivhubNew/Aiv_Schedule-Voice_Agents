@@ -19,13 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.services.form_links import has_bare_tag
-from app.models.models import (EmailCampaign, EmailEnrollment, EmailMessage, EmailSequenceStep, JourneyTask, LeadAccount, Prospect)
+from app.models.models import (EmailApproval, EmailCampaign, EmailEnrollment, EmailMessage, EmailSequenceStep, JourneyTask, LeadAccount, Prospect)
 
 logger = logging.getLogger("journeys")
 
 NAME = "Journeys"
 TASK_KINDS = {"manual_email": "Write and send an email", "call_task": "Make a call", "task": "Do a task", "social_task": "Do a social task",
-              "linkedin_task": "Do a LinkedIn task"}
+              "linkedin_task": "Do a LinkedIn task", "letter_task": "Send a letter"}
 EMAIL_LIKE = ("email", "manual_email")
 STEP_CHANNELS = ("email", "call", *TASK_KINDS)
 CALL_CONDITIONS = ("always", "no_reply", "opened_no_reply")
@@ -199,6 +199,7 @@ async def exit_enrollment(db: AsyncSession, enr: EmailEnrollment, reason: str, *
     enr.last_action_at = now or datetime.utcnow()
     await cancel_tasks(db, enr.id)
     await cancel_queued_calls(db, enr)
+    await cancel_approvals(db, enr.id)
     return True
 
 
@@ -260,10 +261,11 @@ async def advance(db: AsyncSession, enr: EmailEnrollment, steps: Dict[int, Email
 
 # ── Tasks ───────────────────────────────────────────────────────────────────
 def _task_out(t: JourneyTask, campaign_name: str = "") -> Dict[str, Any]:
+    instead = (t.step_key or "").startswith(SWAP_PREFIX)
     return {"id": t.id, "campaign_id": t.campaign_id, "journey": campaign_name, "enrollment_id": t.enrollment_id, "lead_id": t.lead_id or "",
             "kind": t.kind, "kind_label": TASK_KINDS.get(t.kind, "Task"), "title": t.title, "notes": t.notes, "contact": t.contact,
             "company": t.company, "email": t.email, "phone": t.phone, "due_at": t.due_at.isoformat() + "Z" if t.due_at else None,
-            "status": t.status, "outcome": t.outcome}
+            "status": t.status, "outcome": t.outcome, "instead_of_email": instead, "needs_screening": instead and t.kind == "call_task"}
 
 
 async def _lead(db: AsyncSession, enr: EmailEnrollment) -> Optional[LeadAccount]:
@@ -466,6 +468,217 @@ async def already_sent(db: AsyncSession, enrollment_id: str, step_id: str) -> bo
         EmailMessage.status.in_(("sent", "delivered", "replied", "bounced"))).limit(1))).first())
 
 
+# ── Who gets email, and the other way for those who don't ───────────────────
+SWAP_PREFIX = "swap:"  # step_key of a task made in place of an email
+OTHER_WAY_WORDS = {"call_task": "a call", "letter_task": "a letter", "linkedin_task": "a LinkedIn task", "task": "a task to find another way"}
+
+
+async def email_decision(db: AsyncSession, enr: EmailEnrollment) -> Dict[str, Any]:
+    """The send-time answer for one person (see send_readiness): their saved company when there is one, else the company beside them."""
+    from app.services import send_readiness as SR
+
+    if enr.lead_id:
+        accounts, records = await _eligibility_inputs(db, [{"lead_id": enr.lead_id}])
+        acc = accounts.get(enr.lead_id)
+        if acc is not None:
+            return SR.eligibility(acc, records.get(acc.business_record_id), address=enr.email or "")
+    return SR.pasted_person(enr.company)
+
+
+def other_channel(lead: Optional[LeadAccount]) -> str:
+    """How to reach someone who may not be emailed: by phone when there is a number, else by post, else LinkedIn, else a task to find a way."""
+    from app.services.identity import lead_phone
+
+    if lead is not None and lead_phone(lead):
+        return "call_task"
+    if lead is not None and ((lead.address or "").strip() or (lead.postcode or "").strip()):
+        return "letter_task"
+    if lead is not None and (lead.linkedin_url or "").strip():
+        return "linkedin_task"
+    return "task"
+
+
+def note_timeline(enr: EmailEnrollment, text: str, now: datetime) -> None:
+    """A line in this person's journey timeline (kept on the enrolment, newest last, at most 20)."""
+    v = dict(enr.vars or {})
+    v["timeline"] = [*(v.get("timeline") or []), {"at": now.isoformat() + "Z", "step": enr.current_step, "text": text[:300]}][-20:]
+    enr.vars = v
+
+
+async def reach_other_way(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollment, step: EmailSequenceStep, steps: Dict[int, EmailSequenceStep],
+                          verdict: Dict[str, Any], now: datetime) -> str:
+    """This email step is not sent to this person: one task to reach them another way is made (once per person), the journey's
+    timeline says so, and the journey carries on to its next step. Returns the task kind."""
+    lead = await _lead(db, enr)
+    kind = other_channel(lead)
+    who = enr.company or (lead.name if lead else "") or enr.first_name or enr.email
+    why = verdict.get("reason") or "They may not be emailed without their consent"
+    have = (await db.execute(select(JourneyTask.id).where(JourneyTask.enrollment_id == enr.id, JourneyTask.step_key.like(f"{SWAP_PREFIX}%")).limit(1))).first()
+    if not have:
+        titles = {"call_task": f"Call {who}", "letter_task": f"Send a letter to {who}", "linkedin_task": f"Reach {who} on LinkedIn",
+                  "task": f"Find another way to reach {who}"}
+        notes = f"Not emailed: {why}."
+        if kind == "call_task":
+            notes += " Needs screening: check the number against the TPS register before you call."
+        elif kind == "letter_task" and lead is not None:
+            notes += " Address: " + ", ".join(x for x in ((lead.address or "").strip(), (lead.postcode or "").strip()) if x) + "."
+        elif kind == "linkedin_task" and lead is not None:
+            notes += f" Profile: {lead.linkedin_url}."
+        await make_task(db, camp, enr, kind=kind, title=titles[kind], notes=notes, step_key=f"{SWAP_PREFIX}{step.step_key or step.id}", park=False, now=now)
+    text = f"Step {enr.current_step}: email not sent ({why}). {OTHER_WAY_WORDS[kind][0].upper()}{OTHER_WAY_WORDS[kind][1:]} instead."
+    note_timeline(enr, text, now)
+    if enr.lead_id:
+        try:
+            from app.services import connections as C
+
+            await C.record_event(db, "note", lead_id=enr.lead_id, ref_id=f"swap:{enr.id}:{step.id}", summary=f"Journey {camp.name}: {text}")
+        except Exception as err:
+            logger.debug("journey swap event not written: %s", err)
+    await advance(db, enr, steps, now)
+    return kind
+
+
+# ── Checking each email before it goes ──────────────────────────────────────
+def approval_reason(camp: EmailCampaign, boxes: List[Any]) -> str:
+    """Why this journey's emails wait for approval, or "" when they go straight out. A mailbox still warming up always asks."""
+    warming = [b.email for b in boxes if getattr(b, "status", "") == "warming" and b.id in (camp.mailbox_ids or [])]
+    if warming:
+        return f"{warming[0]} is still warming up, so each email waits for you to approve it"
+    if camp.approval_required:
+        return "You check each email before it goes"
+    return ""
+
+
+def _approval_out(a: EmailApproval, journey: str = "") -> Dict[str, Any]:
+    return {"id": a.id, "campaign_id": a.campaign_id, "journey": journey, "enrollment_id": a.enrollment_id, "email": a.email, "company": a.company,
+            "subject": a.subject, "body": a.body, "edited": bool(a.edited), "status": a.status,
+            "created_at": a.created_at.isoformat() + "Z" if a.created_at else None}
+
+
+async def approval_for(db: AsyncSession, enrollment_id: str, step_id: str) -> Optional[EmailApproval]:
+    return (await db.execute(select(EmailApproval).where(EmailApproval.enrollment_id == enrollment_id, EmailApproval.step_id == step_id,
+                                                         EmailApproval.status.in_(("pending", "approved"))).order_by(EmailApproval.created_at.desc()).limit(1))).scalars().first()
+
+
+async def park_for_approval(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollment, step: EmailSequenceStep, subject: str, body: str,
+                            now: datetime) -> EmailApproval:
+    """The email is written now and waits in the queue; the person is held until it is approved."""
+    row = EmailApproval(id=f"ap_{uuid.uuid4().hex[:12]}", campaign_id=camp.id, enrollment_id=enr.id, step_id=step.id, email=enr.email or "",
+                        company=enr.company or "", subject=subject, body=body, status="pending", created_at=now)
+    db.add(row)
+    enr.waiting_on, enr.waiting_since, enr.next_action_at = f"approval:{row.id}", now, None
+    return row
+
+
+async def release_parked(db: AsyncSession, camp: EmailCampaign) -> int:
+    """Approval was switched off: people parked for it go on at once. Their pending emails stay, so any edit is still the text that goes."""
+    now = datetime.utcnow()
+    rows = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active",
+                                                           EmailEnrollment.waiting_on.like("approval:%")))).scalars().all()
+    for e in rows:
+        e.waiting_on, e.waiting_since, e.next_action_at = "", None, now
+    return len(rows)
+
+
+async def cancel_approvals(db: AsyncSession, enrollment_id: str) -> int:
+    n = 0
+    for a in (await db.execute(select(EmailApproval).where(EmailApproval.enrollment_id == enrollment_id, EmailApproval.status.in_(("pending", "approved"))))).scalars().all():
+        a.status = "cancelled"
+        n += 1
+    return n
+
+
+async def list_approvals(db: AsyncSession, campaign_id: str = "", limit: int = 200) -> List[Dict[str, Any]]:
+    q = select(EmailApproval, EmailCampaign.name).join(EmailCampaign, EmailCampaign.id == EmailApproval.campaign_id, isouter=True).where(EmailApproval.status == "pending")
+    if campaign_id:
+        q = q.where(EmailApproval.campaign_id == campaign_id)
+    rows = (await db.execute(q.order_by(EmailApproval.created_at).limit(max(1, min(limit, 500))))).all()
+    return [_approval_out(a, name or "") for a, name in rows]
+
+
+async def _pending(db: AsyncSession, approval_id: str) -> EmailApproval:
+    a = await db.get(EmailApproval, approval_id)
+    if a is None or a.status != "pending":
+        raise JourneyError("That email isn't waiting any more.")
+    return a
+
+
+async def edit_approval(db: AsyncSession, approval_id: str, *, subject: Optional[str] = None, body: Optional[str] = None) -> Dict[str, Any]:
+    a = await _pending(db, approval_id)
+    if subject is not None:
+        a.subject = str(subject).strip()[:300]
+    if body is not None:
+        if not str(body).strip():
+            raise JourneyError("The email can't be empty.")
+        a.body = str(body)[:10000]
+    a.edited = True
+    return _approval_out(a)
+
+
+async def approve(db: AsyncSession, approval_ids: List[str], *, by: str = "", now: Optional[datetime] = None) -> int:
+    """Approved emails go out in the next sending window, exactly as they read in the queue."""
+    now = now or datetime.utcnow()
+    n = 0
+    for aid in approval_ids:
+        a = await db.get(EmailApproval, aid)
+        if a is None or a.status != "pending":
+            continue
+        a.status, a.approved_by, a.approved_at = "approved", by or "", now
+        enr = await db.get(EmailEnrollment, a.enrollment_id)
+        if enr is not None and enr.status == "active" and enr.waiting_on == f"approval:{a.id}":
+            enr.waiting_on, enr.next_action_at = "", now
+        n += 1
+    return n
+
+
+async def approve_all(db: AsyncSession, campaign_id: str = "", *, by: str = "", now: Optional[datetime] = None) -> int:
+    q = select(EmailApproval.id).where(EmailApproval.status == "pending")
+    if campaign_id:
+        q = q.where(EmailApproval.campaign_id == campaign_id)
+    return await approve(db, list((await db.execute(q)).scalars().all()), by=by, now=now)
+
+
+async def _swap_unpermitted_call(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollment, step: EmailSequenceStep,
+                                 steps: Dict[int, EmailSequenceStep], lead: Optional[LeadAccount], now: datetime) -> bool:
+    """An AI call may not be placed to a number with no recorded permission. One task to call by hand is made instead (once per person) and
+    the journey carries on. Anything that stops the check leaves the step to the call itself, which is refused there."""
+    try:
+        from app.services import call_permission as CP
+        from app.services.identity import lead_phone
+
+        lead = lead or await _lead(db, enr)
+        phone = lead_phone(lead) if lead is not None else ""
+        if not phone:
+            return False
+        if (step.condition or "always") == "opened_no_reply":
+            opened = (await db.execute(select(func.count(EmailMessage.id)).where(EmailMessage.enrollment_id == enr.id, EmailMessage.open_count > 0))).scalar() or 0
+            if not opened:
+                return False
+        verdict = await CP.decide(db, phone, "ai")
+        if verdict.get("needs") != "ai_consent":
+            return False
+    except Exception as err:
+        logger.debug("call permission check skipped: %s", err)
+        return False
+    who = enr.company or (lead.name if lead else "") or enr.first_name or enr.email
+    key = f"{SWAP_PREFIX}{step.step_key or step.id}"
+    have = (await db.execute(select(JourneyTask.id).where(JourneyTask.enrollment_id == enr.id, JourneyTask.step_key == key).limit(1))).first()
+    if not have:
+        await make_task(db, camp, enr, kind="call_task", title=f"Call {who}", notes="No permission for AI calls recorded. Call yourself. Check TPS first.",
+                        step_key=key, park=False, now=now)
+    text = f"Step {enr.current_step}: no permission for AI calls recorded. A call for you to make instead."
+    note_timeline(enr, text, now)
+    if enr.lead_id:
+        try:
+            from app.services import connections as C
+
+            await C.record_event(db, "note", lead_id=enr.lead_id, ref_id=f"swap:{enr.id}:{step.id}", summary=f"Journey {camp.name}: {text}")
+        except Exception as err:
+            logger.debug("journey swap event not written: %s", err)
+    await advance(db, enr, steps, now)
+    return True
+
+
 async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollment, step: EmailSequenceStep,
                       steps: Dict[int, EmailSequenceStep], rules: Dict[str, Any], now: datetime) -> bool:
     """Everything that can settle a due person without sending: a stage that means stop, a call that never reported back, a skipped channel,
@@ -475,11 +688,13 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
     if lead is not None and (lead.stage or "new") in rules["skip_stages"]:
         await exit_enrollment(db, enr, "stage", now=now)
         return True
-    if enr.lead_id and ch in EMAIL_LIKE:  # a check done after they joined (closed company, wrong number) still stops the email
-        accounts, records = await _eligibility_inputs(db, [{"lead_id": enr.lead_id}])
-        saved = accounts.get(enr.lead_id)
-        if saved is not None and not eligible_person(saved, records, {})["ok"]:
+    if ch in EMAIL_LIKE and not enr.email_blocked:  # judged again at send time: a check, a choice or a revoked consent since they joined counts
+        verdict = await email_decision(db, enr)
+        if not verdict["ok"]:  # a closed company or a number that belongs to another: nothing is gained by any step
             await exit_enrollment(db, enr, "not_eligible", now=now)
+            return True
+        if not verdict["email"]:
+            await reach_other_way(db, camp, enr, step, steps, verdict, now)
             return True
     if enr.waiting_on == "call":  # the call reported nothing in time: treat it as unanswered
         await apply_call_outcome(db, enr, camp, steps, "no_answer", now, waiting=True)
@@ -489,6 +704,8 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
         return True
     if ch == "call" and enr.call_blocked:
         await advance(db, enr, steps, now)
+        return True
+    if ch == "call" and await _swap_unpermitted_call(db, camp, enr, step, steps, lead, now):
         return True
     if ch in TASK_KINDS:
         await start_task_step(db, camp, enr, step, now)
@@ -544,10 +761,11 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
         busy_elsewhere = set((await db.execute(select(EmailEnrollment.email).join(EmailCampaign, EmailCampaign.id == EmailEnrollment.campaign_id).where(
             EmailEnrollment.status == "active", EmailEnrollment.campaign_id != camp.id, EmailCampaign.status == "running"))).scalars().all())
     added, now = 0, datetime.utcnow()
-    skipped = {"invalid": 0, "duplicate": 0, "do_not_email": 0, "in_another_journey": 0, "no_contact": 0, "problem": 0, "unchecked": 0, "individual": 0,
-               "email_bad": 0}
+    skipped = {"invalid": 0, "duplicate": 0, "do_not_email": 0, "in_another_journey": 0, "no_contact": 0, "problem": 0, "email_bad": 0}
     excluded: List[Dict[str, Any]] = []  # who was kept out (closed company, address that cannot receive mail), and why
-    warned: List[Dict[str, Any]] = []  # who was added although unchecked or an individual without consent: sent at the owner's risk
+    plan = {"email": 0, "quick_choice": 0, "reach_other_way": 0}  # what happens to the people added: emailed, waiting on a one-click choice, reached another way
+    quick: List[Dict[str, Any]] = []
+    other: List[Dict[str, Any]] = []
     accounts, records = await _eligibility_inputs(db, people)
     running = camp.status == "running"
     for p in people:
@@ -570,12 +788,16 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
             continue
         acc = accounts.get(lead_id) if lead_id else None
         verdict = eligible_person(acc, records, p)
+        who = {"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]}
         if not verdict["ok"]:
             skipped[verdict["code"]] += 1
-            excluded.append({"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]})
+            excluded.append(who)
             continue
-        if verdict["code"]:
-            warned.append({"email": addr, "company": str(p.get("company") or "")[:160], "lead_id": lead_id or "", "code": verdict["code"], "reason": verdict["reason"]})
+        if verdict["email"]:
+            plan["email"] += 1
+        else:
+            plan[verdict["group"]] += 1
+            (quick if verdict["group"] == "quick_choice" else other).append(who)
         if addr:
             have_email.add(addr)
         if lead_id:
@@ -584,15 +806,36 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
         if dry_run:
             continue
         eid = f"en_{uuid.uuid4().hex[:12]}"
+        pvars = dict(p.get("vars") or {})
+        if acc is not None:
+            pvars["source_line"] = source_sentence(acc, records.get(acc.business_record_id) if acc.business_record_id else None)
         db.add(EmailEnrollment(id=eid, campaign_id=camp.id, prospect_id=p.get("prospect_id") or None, lead_id=lead_id, email=addr,
                                first_name=str(p.get("first_name") or "").strip()[:80], last_name=str(p.get("last_name") or "").strip()[:80],
                                company=str(p.get("company") or "").strip()[:160], current_step=1, current_step_key=(first.step_key or first.id) if first else "",
-                               status="active", next_action_at=now if running else None, variant=variant_for(eid) if varied else "a", vars=p.get("vars") or None))
+                               status="active", next_action_at=now if running else None, variant=variant_for(eid) if varied else "a", vars=pvars or None))
     if not dry_run:
         await db.flush()
-    return {"added": added, "skipped": skipped, "excluded": excluded[:200], "excluded_total": len(excluded),
-            "warned": warned[:200], "warned_total": len(warned), "warned_counts": {c: sum(1 for w in warned if w["code"] == c) for c in ("unchecked", "individual")},
-            "queued": not running}
+    return {"added": added, "skipped": skipped, "excluded": excluded[:200], "excluded_total": len(excluded), "plan": plan,
+            "quick_choices": quick[:200], "other_way": other[:200], "plan_text": plan_text(plan) if needs_email else "", "queued": not running}
+
+
+def plan_text(plan: Dict[str, int], other_by: Optional[Dict[str, int]] = None) -> str:
+    """"186 get email, 9 need a quick choice, 5 get a call instead": what happens to the people in a journey, never a refusal."""
+    def n(k: int, one: str, many: str) -> str:
+        return f"{k} {one if k == 1 else many}"
+
+    parts = []
+    if plan.get("email"):
+        parts.append(n(plan["email"], "gets email", "get email"))
+    if plan.get("quick_choice"):
+        parts.append(n(plan["quick_choice"], "needs a quick choice", "need a quick choice"))
+    if other_by:
+        for kind, k in sorted(other_by.items(), key=lambda x: -x[1]):
+            if k:
+                parts.append(n(k, "gets", "get") + f" {OTHER_WAY_WORDS.get(kind, 'another way')} instead")
+    elif plan.get("reach_other_way"):
+        parts.append(n(plan["reach_other_way"], "is reached another way", "are reached another way"))
+    return ", ".join(parts)
 
 
 async def _eligibility_inputs(db: AsyncSession, people: List[Dict[str, Any]]):
@@ -611,8 +854,99 @@ def eligible_person(acc: Optional[LeadAccount], records: Dict[str, Any], person:
     from app.services import send_readiness as SR
 
     if acc is not None:
-        return SR.eligibility(acc, records.get(acc.business_record_id))
+        return SR.eligibility(acc, records.get(acc.business_record_id), address=str(person.get("email") or ""))
     return SR.pasted_person(person.get("company"))
+
+
+# ── Where we found them ────────────────────────────────────────────────────
+def source_parts(lead: Optional[LeadAccount], rec: Any = None) -> tuple:
+    """("the Companies House register" | a website host | "", the day we found them as a date or None). Imported and typed-in companies have no outside source."""
+    from urllib.parse import urlparse
+
+    if lead is None:
+        return "", None
+    created = lead.created_at.date() if getattr(lead, "created_at", None) else None
+    for src in (getattr(rec, "sources", None) or []):
+        key = f"{src.get('source_type', '')} {src.get('source_id', '')}".lower()
+        if "companies" in key or src.get("source_type") == "bulk_csv":
+            try:
+                return "the Companies House register", datetime.fromisoformat(str(src.get("confirmed_at") or "")[:10]).date()
+            except ValueError:
+                return "the Companies House register", created
+    if (lead.source or "") in ("web", "research"):
+        host = urlparse(lead.source_url or "").netloc.removeprefix("www.")
+        if host:
+            return host, created
+    return "", None
+
+
+def source_sentence(lead: Optional[LeadAccount], rec: Any = None) -> str:
+    where, when = source_parts(lead, rec)
+    if not where:
+        return ""
+    day = f" on {when.day} {when:%b %Y}" if when else ""
+    return f"We found {lead.name} on {where}{day}."
+
+
+async def source_line(db: AsyncSession, lead: Optional[LeadAccount]) -> str:
+    """The sentence that tells a person where we got their details (UK GDPR Article 14), or "" when the company came from the user's own files."""
+    if lead is None:
+        return ""
+    rec = None
+    if lead.business_record_id:
+        from app.models.models import BusinessRecord
+
+        rec = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == lead.business_record_id))).scalars().first()
+    return source_sentence(lead, rec)
+
+
+async def ensure_source_line(db: AsyncSession, enr: EmailEnrollment) -> str:
+    """The enrolment's {{source_line}}, filled the first time it is needed for people who joined before it existed."""
+    v = dict(enr.vars or {})
+    if "source_line" not in v:
+        v["source_line"] = await source_line(db, await _lead(db, enr)) if enr.lead_id else ""
+        enr.vars = v
+    return v["source_line"]
+
+
+SOURCE_TAG = re.compile(r"\{\{\s*source_?line\s*\}\}", re.I)
+
+
+async def preview(db: AsyncSession, camp: EmailCampaign, enrollment_id: str = "", step_key: str = "") -> Dict[str, Any]:
+    """An email exactly as one real person in this journey would get it, footer included. Nothing is saved or sent."""
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from app.models.models import EmailMailbox
+    from app.services import form_links as FL
+    from app.services.email_dispatcher import _sender_line
+    from app.services.email_worker import booking_link_for, render
+
+    q = select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id)
+    enr = (await db.execute(q.where(EmailEnrollment.id == enrollment_id))).scalars().first() if enrollment_id else None
+    if enr is None:
+        enr = (await db.execute(q.order_by((EmailEnrollment.status == "active").desc(), EmailEnrollment.created_at).limit(1))).scalars().first()
+    if enr is None:
+        raise JourneyError("Add people to this journey first, then you can preview an email with one of them.")
+    steps = await steps_of(db, camp.id)
+    step = next((x for x in steps if (x.step_key or x.id) == step_key or str(x.step_number) == step_key), None) if step_key else None
+    step = step or next((x for x in steps if x.channel == "email"), None)
+    if step is None or step.channel != "email":
+        raise JourneyError("Pick an email step to preview.")
+    subject_tpl, body_tpl = pick_version(enr, step)
+    subject_tpl, body_tpl = await FL.resolve(db, camp.org_id, enr, subject_tpl), await FL.resolve(db, camp.org_id, enr, body_tpl)
+    vars_ = dict(enr.vars or {})
+    if "source_line" not in vars_:
+        vars_["source_line"] = await source_line(db, await _lead(db, enr)) if enr.lead_id else ""
+    shown = SimpleNamespace(first_name=enr.first_name, last_name=enr.last_name, company=enr.company, email=enr.email, vars=vars_)
+    link = await booking_link_for(db, camp.org_id, enr)
+    why = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/legal/business-data"
+    sender = await _sender_line(db)
+    footer = (f"{sender}\n\n" if sender else "") + f"Not interested? Unsubscribe: (unsubscribe link)\nWhy you got this, and where we found your details: {why}"
+    boxes = list((await db.execute(select(EmailMailbox))).scalars().all())
+    return {"to": enr.email, "person": f"{enr.first_name} {enr.last_name}".strip() or enr.company or enr.email, "step_key": step.step_key or step.id,
+            "subject": render(subject_tpl, shown, link).strip(), "body_text": render(body_tpl, shown, link), "footer_text": footer,
+            "approval_note": approval_reason(camp, boxes)}
 
 
 # ── Reading a journey ───────────────────────────────────────────────────────
@@ -620,11 +954,57 @@ STATUS_GROUPS = {"in_progress": ("active",), "replied": ("replied",), "booked": 
                  "unresponsive": ("unresponsive",), "bounced": ("bounced",), "opted_out": ("unsubscribed", "suppressed", "blocked")}
 
 
+async def step_results(db: AsyncSession, camp: EmailCampaign) -> List[Dict[str, Any]]:
+    """One row per step: what went out and what came of it. A booking or an opt-out belongs to the step whose message the person last
+    received before it happened. Opens are a minimum: a mail app that blocks the tracking picture hides them."""
+    steps = await steps_of(db, camp.id)
+    by_id = {st.id: st for st in steps}
+    msgs = (await db.execute(select(EmailMessage).where(EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)))).scalars().all()
+    status_of = dict((await db.execute(select(EmailEnrollment.id, EmailEnrollment.status).where(EmailEnrollment.campaign_id == camp.id))).all())
+    sent_msgs = [m for m in msgs if m.status not in ("queued", "failed")]
+    last: Dict[str, EmailMessage] = {}
+    for m in sorted(sent_msgs, key=lambda x: x.sent_at or x.created_at or datetime.min):
+        if m.enrollment_id:
+            last[m.enrollment_id] = m
+    booked: Dict[str, int] = {}
+    opted: Dict[str, int] = {}
+    counted = set()
+    for eid, m in last.items():
+        if m.sequence_step_id not in by_id:
+            continue
+        if status_of.get(eid) == "booked":
+            booked[m.sequence_step_id] = booked.get(m.sequence_step_id, 0) + 1
+        if status_of.get(eid) in ("unsubscribed", "suppressed"):
+            opted[m.sequence_step_id] = opted.get(m.sequence_step_id, 0) + 1
+            counted.add(eid)
+    for m in sent_msgs:  # an unsubscribe reply counts even when the person's status was set another way
+        if m.reply_category == "unsubscribe" and m.enrollment_id not in counted and m.sequence_step_id in by_id:
+            opted[m.sequence_step_id] = opted.get(m.sequence_step_id, 0) + 1
+            counted.add(m.enrollment_id)
+    out = []
+    for st in steps:
+        rows = [m for m in msgs if m.sequence_step_id == st.id]
+        sent = [m for m in rows if m.status not in ("queued", "failed")]
+        n = len(sent)
+        replied = sum(1 for m in sent if m.status == "replied")
+        bounced = sum(1 for m in sent if m.status == "bounced")
+        opened = sum(1 for m in sent if (m.open_count or 0) > 0 or m.status == "replied")
+        pct = lambda v: round(100 * v / n, 1) if n else None
+        out.append({"step": st.step_number, "step_key": st.step_key or st.id, "channel": "call" if st.channel == "voice_call" else st.channel,
+                    "sent": n, "delivered": n - bounced, "opened": opened, "replied": replied, "booked": booked.get(st.id, 0), "bounced": bounced,
+                    "opted_out": opted.get(st.id, 0), "failed": sum(1 for m in rows if m.status == "failed"),
+                    "open_rate": pct(opened), "reply_rate": pct(replied), "bounce_rate": pct(bounced)})
+    return out
+
+
 async def results(db: AsyncSession, camp: EmailCampaign) -> Dict[str, Any]:
     status = dict((await db.execute(select(EmailEnrollment.status, func.count(EmailEnrollment.id)).where(
         EmailEnrollment.campaign_id == camp.id).group_by(EmailEnrollment.status))).all())
     waiting = (await db.execute(select(func.count(EmailEnrollment.id)).where(
-        EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.waiting_on != ""))).scalar() or 0
+        EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.waiting_on != "",
+        ~EmailEnrollment.waiting_on.like("approval:%")))).scalar() or 0
+    for_approval = (await db.execute(select(func.count(EmailApproval.id)).where(
+        EmailApproval.campaign_id == camp.id, EmailApproval.status == "pending"))).scalar() or 0
     msgs = dict((await db.execute(select(EmailMessage.status, func.count(EmailMessage.id)).where(
         EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)).group_by(EmailMessage.status))).all())
     opened = (await db.execute(select(func.count(EmailMessage.id)).where(
@@ -641,15 +1021,50 @@ async def results(db: AsyncSession, camp: EmailCampaign) -> Dict[str, Any]:
         d["replied"] += n if st == "replied" else 0
     for d in variants.values():
         d["reply_rate"] = round(100 * d["replied"] / d["sent"], 1) if d["sent"] else 0.0
-    return {"people": sum(status.values()), "in_progress": people["in_progress"], "waiting_on_a_task": waiting, "by_status": people,
+    from app.services.connections import get_rules
+
+    by_step = await step_results(db, camp)
+    return {"people": sum(status.values()), "in_progress": people["in_progress"], "waiting_on_a_task": waiting, "waiting_for_approval": for_approval, "by_status": people,
             "sent": sent, "opened": opened, "replied": msgs.get("replied", 0), "bounced": msgs.get("bounced", 0),
+            "delivered": sent - msgs.get("bounced", 0), "booked": sum(r["booked"] for r in by_step), "opted_out": sum(r["opted_out"] for r in by_step),
+            "by_step": by_step, "opens_tracked": bool((await get_rules(db)).get("warm_lead_prompt")),
             "reply_rate": round(100 * msgs.get("replied", 0) / sent, 1) if sent else 0.0,
             "bounce_rate": round(100 * msgs.get("bounced", 0) / sent, 1) if sent else 0.0,
             "variants": variants if len(variants) > 1 else {}}
 
 
-async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str) -> List[Dict[str, Any]]:
-    """What stands between this journey and starting, in plain words: red must be fixed, amber will clear or is a heads-up, green is fine."""
+async def audience(db: AsyncSession, camp: EmailCampaign, *, with_choices: bool = True, choice_limit: int = 10) -> Dict[str, Any]:
+    """Who of the people still in it gets email, who needs a one-click choice and who is reached another way (and how), with the
+    choices to make inline. Free: our own data only."""
+    from app.services import eligibility as EL
+
+    enrs = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active").limit(5000))).scalars().all()
+    accounts, records = await _eligibility_inputs(db, [{"lead_id": e.lead_id} for e in enrs if e.lead_id])
+    plan = {"email": 0, "quick_choice": 0, "reach_other_way": 0}
+    other_by: Dict[str, int] = {}
+    choices: List[Dict[str, Any]] = []
+    for e in enrs:
+        acc = accounts.get(e.lead_id) if e.lead_id else None
+        d = eligible_person(acc, records, {"company": e.company, "email": e.email})
+        if not d["ok"]:
+            continue
+        if d["email"]:
+            plan["email"] += 1
+            continue
+        if d["group"] == "quick_choice":
+            plan["quick_choice"] += 1
+            if with_choices and acc is not None and len(choices) < choice_limit:
+                choices.append({"lead_id": acc.id, "name": acc.name, "email": e.email, "reason": d["reason"], "candidates": await EL.candidates(db, acc)})
+            continue
+        plan["reach_other_way"] += 1
+        kind = other_channel(acc)
+        other_by[kind] = other_by.get(kind, 0) + 1
+    return {**plan, "other_by": other_by, "choices": choices, "text": plan_text(plan, other_by)}
+
+
+async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str, aud: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """What stands between this journey and starting, in plain words: red must be fixed, amber will clear or is a heads-up, green is fine.
+    `aud` is the audience when the caller already worked it out (the journey summary does), so it is not read twice."""
     from app.api import email_outreach as EO
     from app.models.models import EmailMailbox
     from app.services import credits as credit
@@ -667,6 +1082,8 @@ async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str) -> List[
     total_people = (await db.execute(select(func.count(EmailEnrollment.id)).where(EmailEnrollment.campaign_id == camp.id))).scalar() or 0
     if not n_people:
         add("red", "Nobody is waiting to start: everyone in it has finished or left." if total_people else "Nobody is in this journey yet.", "people")
+    if steps and kinds[0] == "email" and not SOURCE_TAG.search(steps[0].body_template or ""):
+        add("amber", "Step 1 does not say where you found them. Add {{source_line}} so people know (UK GDPR Article 14).", "steps")
     if any(k == "email" for k in kinds):
         from app.models.models import CompanyProfile
 
@@ -697,6 +1114,15 @@ async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str) -> List[
                 add("red", f"Up to {calls} calls could use about {cp['minutes_needed']} minutes and you have {cp['minutes_left']} left.", "voice")
             else:
                 add("amber", f"Up to {calls} calls may be placed, only inside calling hours and only to people with a number that passed the check.")
+    if n_people and any(k in EMAIL_LIKE for k in kinds):
+        aud = aud or await audience(db, camp, with_choices=False)
+        if aud["text"]:
+            add("amber" if aud["quick_choice"] or aud["reach_other_way"] else "green", aud["text"] + ".", "quick_choice" if aud["quick_choice"] else "")
+    if any(k == "email" for k in kinds):
+        boxes = (await db.execute(select(EmailMailbox))).scalars().all()
+        why = approval_reason(camp, boxes)
+        if why:
+            add("amber", f"{why}. They wait under Emails waiting for you.")
     manual = [k for k in kinds if k in TASK_KINDS]
     if manual:
         add("amber", f"{len(manual)} step{'s' if len(manual) != 1 else ''} will make tasks for you to do by hand. They show under Needs you today.")
@@ -790,12 +1216,19 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
     out["steps"] = [step_out(s) for s in await steps_of(db, camp.id)]
     out["settings"] = {"mailbox_ids": camp.mailbox_ids or [], "aliases": camp.alias_map or {}, "sending_window_start": camp.sending_window_start,
                        "sending_window_end": camp.sending_window_end, "days_of_week": camp.days_of_week or [], "min_delay_seconds": camp.min_delay_seconds,
-                       "daily_cap": camp.daily_cap or 0, "rules": rules_of(camp), "one_at_a_time": bool(camp.one_at_a_time)}
-    out["preflight"] = await preflight(db, camp, org_id)
+                       "daily_cap": camp.daily_cap or 0, "rules": rules_of(camp), "one_at_a_time": bool(camp.one_at_a_time),
+                       "approval_required": bool(camp.approval_required)}
+    from app.models.models import EmailMailbox
+
+    out["approval"] = {"reason": approval_reason(camp, (await db.execute(select(EmailMailbox))).scalars().all())}
+    out["approvals"] = await list_approvals(db, camp.id, limit=50)
+    out["audience"] = await audience(db, camp)
+    out["preflight"] = await preflight(db, camp, org_id, aud=out["audience"])
     out["schedule"] = await schedule(db, camp, out["steps"])
     out["tasks"] = await list_tasks(db, campaign_id=camp.id, limit=20)
     out["people"] = [{"id": e.id, "email": e.email, "name": f"{e.first_name} {e.last_name}".strip(), "company": e.company, "status": e.status, "step": e.current_step,
-                      "finish_reason": e.finish_reason or "", "waiting": e.waiting_on or "", "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None}
+                      "finish_reason": e.finish_reason or "", "waiting": e.waiting_on or "", "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None,
+                      "timeline": ((e.vars or {}).get("timeline") or [])[-5:]}
                      for e in (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id).order_by(EmailEnrollment.created_at.desc()).limit(200))).scalars().all()]
     return out
 
@@ -839,7 +1272,8 @@ async def clone(db: AsyncSession, camp: EmailCampaign, name: str = "") -> EmailC
                         alias_map=dict(camp.alias_map or {}), timezone_policy=camp.timezone_policy, sending_window_start=camp.sending_window_start,
                         sending_window_end=camp.sending_window_end, days_of_week=list(camp.days_of_week or []), min_delay_seconds=camp.min_delay_seconds,
                         max_delay_seconds=camp.max_delay_seconds, goal=camp.goal or "", daily_cap=camp.daily_cap or 0, exit_rules=dict(camp.exit_rules or {}),
-                        owner_id=camp.owner_id or "", tags=list(camp.tags or []), one_at_a_time=camp.one_at_a_time, template_key=camp.template_key or "")
+                        owner_id=camp.owner_id or "", tags=list(camp.tags or []), one_at_a_time=camp.one_at_a_time, template_key=camp.template_key or "",
+                        approval_required=bool(camp.approval_required))
     db.add(new)
     await db.flush()
     steps = []
@@ -849,6 +1283,22 @@ async def clone(db: AsyncSession, camp: EmailCampaign, name: str = "") -> EmailC
         steps.append(d)
     await save_steps(db, new, clean_steps(steps))
     return new
+
+
+APPROVAL_DEFAULT_FROM = datetime(2026, 11, 11)
+
+
+async def _approval_default(db: AsyncSession, prof: Any) -> bool:
+    """Whether a new journey asks for approval when nothing was said: the company's own setting, else on for organisations made from the
+    day the approval step shipped (older ones keep sending straight away)."""
+    if prof is not None:
+        return bool(getattr(prof, "send_approval", False))
+    from app.core.tenancy import current_org
+    from app.models.models import Organization
+
+    org = await db.get(Organization, current_org())
+    made = getattr(org, "created_at", None)
+    return bool(made and made >= APPROVAL_DEFAULT_FROM)
 
 
 async def create(db: AsyncSession, *, name: str, goal: str = "", steps: List[Dict[str, Any]], mailbox_ids: Optional[List[str]] = None,
@@ -861,6 +1311,9 @@ async def create(db: AsyncSession, *, name: str, goal: str = "", steps: List[Dic
     if not (name or "").strip():
         raise JourneyError("Give the journey a name.")
     have = set((await db.execute(select(EmailMailbox.id))).scalars().all())
+    from app.models.models import CompanyProfile
+
+    prof = (await db.execute(select(CompanyProfile).limit(1))).scalars().first()
     if mailbox_ids is None:
         boxes = (await db.execute(select(EmailMailbox))).scalars().all()
         mailbox_ids = [m.id for m in boxes if m.status in ("warming", "active", "graduated")]
@@ -868,7 +1321,8 @@ async def create(db: AsyncSession, *, name: str, goal: str = "", steps: List[Dic
                          timezone_policy="org", sending_window_start=s.get("sending_window_start") or "09:00", sending_window_end=s.get("sending_window_end") or "17:00",
                          days_of_week=sorted(set(s.get("days_of_week") or [1, 2, 3, 4, 5])), min_delay_seconds=max(30, int(s.get("min_delay_seconds") or 120)),
                          max_delay_seconds=max(30, int(s.get("min_delay_seconds") or 120)), goal=(goal or "").strip()[:600], daily_cap=_int(s.get("daily_cap"), 0, 5000),
-                         exit_rules=s.get("rules") or None, owner_id=owner_id, one_at_a_time=bool(s.get("one_at_a_time", True)), template_key=template_key)
+                         exit_rules=s.get("rules") or None, owner_id=owner_id, one_at_a_time=bool(s.get("one_at_a_time", True)), template_key=template_key,
+                         approval_required=bool(s["approval_required"]) if "approval_required" in s else await _approval_default(db, prof))
     db.add(camp)
     await db.flush()
     await save_steps(db, camp, clean)
@@ -902,6 +1356,10 @@ async def update_settings(db: AsyncSession, camp: EmailCampaign, s: Dict[str, An
         camp.daily_cap = _int(s["daily_cap"], 0, 5000)
     if "one_at_a_time" in s:
         camp.one_at_a_time = bool(s["one_at_a_time"])
+    if "approval_required" in s:
+        was, camp.approval_required = bool(camp.approval_required), bool(s["approval_required"])
+        if was and not camp.approval_required:
+            await release_parked(db, camp)
     if "rules" in s:
         merged = {**(camp.exit_rules or {}), **{k: v for k, v in (s["rules"] or {}).items() if k in DEFAULT_RULES}}
         camp.exit_rules = merged
@@ -934,6 +1392,18 @@ TEMPLATES: List[Dict[str, Any]] = [
      "steps": [_e("A note for the new leadership at {{company}}", "Hi {{first_name}},\n\nCongratulations on the new role. Newly appointed leaders often look at [the area you help with] in the first months. Would a short intro be useful?\n\nThanks"),
                {"channel": "call", "delay_days": 3, "condition": "no_reply", "goal": "Congratulate them and ask if a short intro would be useful.", "voicemail": "hang_up"},
                _e("", "Hi {{first_name}}, I'll keep this short: happy to share how others in your position approach this.", 3)]},
+    {"key": "accountants", "name": "Accountancy practices", "goal": "Offer a useful service to accountancy firms.", "best_for": "Accountants and bookkeepers found on the register.",
+     "steps": [_e("A question for {{company}}", "Hi {{first_name}},\n\n{{source_line}} I help practices like yours with [what you offer]. Would a short overview be useful?\n\nThanks"),
+               _e("", "Hi {{first_name}}, one more thought for {{company}}: [a useful angle in one line]. Worth a short call?", 4),
+               {"channel": "call_task", "delay_days": 3, "title": "Call {{company}}", "notes": "Ask who looks after [the area you help with] and offer a short overview."}]},
+    {"key": "ltd_companies", "name": "Limited companies", "goal": "Start a conversation with small limited companies.", "best_for": "Small limited companies found on the register.",
+     "steps": [_e("Quick question for {{company}}", "Hi {{first_name}},\n\n{{source_line}} I help small companies with [what you offer]. Is that something worth a quick chat?\n\nThanks"),
+               _e("", "Hi {{first_name}}, a short follow-up. If [the problem you solve] is on your list, I can send a one-page summary.", 4),
+               {"channel": "call_task", "delay_days": 3, "title": "Call {{company}}", "notes": "Ask the one question from the first email. Keep it under two minutes."}]},
+    {"key": "landlords", "name": "Property landlords", "goal": "Reach landlords and property companies.", "best_for": "Property letting and holding companies found on the register.",
+     "steps": [_e("Rental property at {{company}}", "Hi {{first_name}},\n\n{{source_line}} I help landlords with [what you offer]. Can I send a short note on how it works?\n\nThanks"),
+               _e("", "Hi {{first_name}}, checking you saw my note. Happy to keep it to a few lines.", 4),
+               {"channel": "call_task", "delay_days": 3, "title": "Call {{company}}", "notes": "Ask how many properties they manage and whether [your service] would help."}]},
     {"key": "win_back", "name": "Win back", "goal": "Reopen a conversation that went quiet.", "best_for": "People you spoke to before who stopped replying.",
      "steps": [_e("Still relevant for {{company}}?", "Hi {{first_name}},\n\nWe spoke a while ago about [topic]. Is it still on your list, or has it moved on?\n\nThanks"),
                _e("", "Hi {{first_name}}, last note from me. If it's not a priority I'll close this off.", 5),

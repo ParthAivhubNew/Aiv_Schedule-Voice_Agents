@@ -180,7 +180,7 @@ async def test_follow_up_threads_under_the_first_email_on_the_same_mailbox(clien
     camp = (await client.post("/api/email/campaigns", json={
         "name": "F", "mailbox_ids": [mb["id"]],
         "steps": [{"subject": "Hello", "body": "One"}, {"delay_days": 2, "body": "Two"}]})).json()["campaign"]
-    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp"}]})
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp Ltd"}]})
     await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
     await _run(db, MONDAY_10)
     await _run(db, MONDAY_10 + timedelta(days=1))  # not due yet
@@ -205,7 +205,7 @@ async def test_a_follow_up_moves_to_another_mailbox_when_the_first_is_blocked(cl
     camp = (await client.post("/api/email/campaigns", json={
         "name": "Spare", "mailbox_ids": [m["id"] for m in boxes],
         "steps": [{"subject": "Hello", "body": "One"}, {"delay_days": 2, "body": "Two"}]})).json()["campaign"]
-    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp"}]})
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp Ltd"}]})
     await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
     campaign_mail = lambda: [m for _, m in mail.sent if m["Subject"] in ("Hello", "Re: Hello")]  # the two mailboxes also warm each other up
     await _run(db, MONDAY_10)
@@ -239,7 +239,7 @@ async def test_a_campaign_can_send_as_an_alias_of_its_mailbox(client, db, mail):
         "name": "As sales", "mailbox_ids": [mb["id"]], "aliases": {mb["id"]: "sales@acme-sales.com", "mb_nope": "x@acme-sales.com"},
         "steps": [{"subject": "Hello", "body": "One"}]})).json()["campaign"]
     assert camp["aliases"] == {mb["id"]: "sales@acme-sales.com"}
-    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp"}]})
+    await client.post(f"/api/email/campaigns/{camp['id']}/leads", json={"leads": [{"email": "bo@corp.io", "company": "Corp Ltd"}]})
     await client.post(f"/api/email/campaigns/{camp['id']}/status", json={"status": "running"})
     await _run(db, MONDAY_10)
     sent = [m for _, m in mail.sent if m["Subject"] == "Hello"]

@@ -18,7 +18,7 @@ from sqlalchemy.future import select
 from app.models.models import BusinessRecord, ContactEvent, EmailCampaign, EmailEnrollment, LeadAccount
 from app.services import business_records
 from app.services import company_contacts as CC
-from app.services import lead_filters
+from app.services import lead_filters, next_action
 
 logger = logging.getLogger("company_profile")
 
@@ -203,6 +203,9 @@ async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
         "name": lead.name or "", "source": lead.source or "", "contact_name": lead.contact_name or "", "contact_title": lead.contact_title or "",
         "phone": lead.phone or "", "email": lead.email or "", "website": lead.website or "", "notes": lead.notes or "",
         "registration_number": getattr(lead, "registration_number", "") or "", "postcode": getattr(lead, "postcode", "") or "",
+        "checks": {"email": ((verdict.get("email") or {}).get("state") or ""), "phone_ok": (verdict.get("phone") or {}).get("verified"),
+                   "checked_at": verdict.get("checked_at", "")},
+        "open_picks": sum(1 for fx in verdict.get("fixes") or [] if fx.get("kind") == "pick" and not fx.get("applied")),
         "custom": lead.custom or {}, "import_flags": getattr(lead, "import_flags", None) or [],
         "check": {"verdict": verdict.get("verdict", ""), "reasons": verdict.get("reasons") or [], "checked_at": verdict.get("checked_at", "")} if verdict else None,
         "added": lead.created_at.isoformat() + "Z" if lead.created_at else None,
@@ -257,6 +260,22 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         "description": (biz.description or "")[:600],
     }
     out.update(await _saved(db, biz))
+    from app.services import fit_score as FS
+    from app.services import icp as ICP
+
+    ctx = await ICP.context(db)
+    out["fit"] = FS.fit(biz, ctx[0], FS.signals(biz, today), FS.contacts_of(biz), ctx[1]) if ctx else None
+    out["icp_set"] = bool(ctx)
+    first = officers[0] if officers else None
+    out["best_contact"] = {"name": CC_name(first), "role": first.get("role") or "", "email": first.get("work_email") or "", "source": "register"} if first else None
+    mine = out.get("mine") or {}
+    verdict = (mine.get("check") or {})
+    out["next_action"] = next_action.decide({
+        "status": biz.status or "", "closed": status_tone(biz.status or "") == "red", "verdict": verdict.get("verdict", ""), "stage": out.get("stage", ""),
+        "open_picks": mine.get("open_picks", 0), "last_contact_at": (out["activity"][0]["at"] if out.get("activity") else None),
+        "email_ok": bool(mine.get("email") or contact["email"]["value"]) and (mine.get("checks") or {}).get("email") != "invalid",
+        "has_email": bool(mine.get("email") or contact["email"]["value"]), "has_phone": bool(mine.get("phone") or contact["phone"]["value"]),
+        "director": (mine.get("contact_name") or (out["best_contact"] or {}).get("name") or "")})
     return out
 
 

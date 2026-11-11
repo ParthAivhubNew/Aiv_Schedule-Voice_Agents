@@ -215,7 +215,7 @@ async def _seed_company(org_id: str, company: str) -> None:
     try:
         with org_scope(org_id):
             async with AsyncSessionLocal() as s:
-                s.add(CompanyProfile(id="default", name=company, website="", social="", pitch="", industry=""))
+                s.add(CompanyProfile(id="default", name=company, website="", social="", pitch="", industry="", send_approval=True))
                 await s.commit()
     except Exception as err:
         import logging

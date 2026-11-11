@@ -23,6 +23,13 @@ def _voice_minutes(monkeypatch):
 
     monkeypatch.setattr(LC, "cost_preview", enough)
 
+    from app.services import call_permission as CP
+
+    async def permitted(db, num, kind="ai", now=None):
+        return {"allowed": True, "reasons": [], "warnings": [], "flags": [], "needs": ""}
+
+    monkeypatch.setattr(CP, "decide", permitted)  # call steps are tested here, not the consent rules (see test_call_permission)
+
 
 # ── the rules for steps (no database) ──────────────────────────────────────
 def test_steps_are_checked_in_plain_words():
@@ -522,25 +529,26 @@ async def test_open_tasks_show_on_the_days_agenda_and_overdue_ones_on_today(clie
 
 
 @pytest.mark.db
-async def test_closed_people_are_kept_out_and_unchecked_or_individual_ones_are_added_with_a_warning(client, db, mail):
+async def test_closed_people_are_kept_out_and_everyone_else_is_added_with_how_they_will_be_reached(client, db, mail):
     mb = await _ready(client, db)
     j = await _journey(client, mb, [EMAIL])
     await _lead(db, id="g_ok", name="Good Ltd", email="ok@good.com")
     await _lead(db, id="g_dead", name="Dead Ltd", email="x@dead.com", verification={"verdict": "problem", "reasons": ["Company register: Dissolved"]})
     await _lead(db, id="g_wrong", name="Wrong Ltd", email="x@wrong.com", verification={"verdict": "mismatch", "reasons": ["Company number 1 belongs to Other Ltd"]})
     await _lead(db, id="g_new", name="Unchecked Ltd", email="x@new.com", verification=None)
-    await _lead(db, id="g_cafe", name="Harbour Cafe", email="info@harbour.com", verification={"verdict": "looks_ok"})
-    await _lead(db, id="g_cafe_ok", name="Harbour Bistro", email="info@bistro.com", verification={"verdict": "looks_ok"}, consent_basis="signed up on our site")
+    await _lead(db, id="g_cafe", name="Harbour Cafe", email="info@harbour.com", verification={"verdict": "person"})
+    await _lead(db, id="g_cafe_ok", name="Harbour Bistro", email="info@bistro.com", verification={"verdict": "person"}, consent_basis="signed up on our site")
     people = [{"email": a, "company": n, "lead_id": i} for i, n, a in [
         ("g_ok", "Good Ltd", "ok@good.com"), ("g_dead", "Dead Ltd", "x@dead.com"), ("g_wrong", "Wrong Ltd", "x@wrong.com"),
         ("g_new", "Unchecked Ltd", "x@new.com"), ("g_cafe", "Harbour Cafe", "info@harbour.com"), ("g_cafe_ok", "Harbour Bistro", "info@bistro.com")]]
     out = (await client.post(f"/api/journeys/{j['id']}/people", json={"people": people})).json()
-    assert out["added"] == 4  # verified, individual with consent, and the two sent at the owner's risk
-    assert out["skipped"]["problem"] == 2 and out["skipped"]["unchecked"] == 0 and out["skipped"]["individual"] == 0
-    why = {e["lead_id"]: e["code"] for e in out["excluded"]}
-    assert why == {"g_dead": "problem", "g_wrong": "problem"}
-    assert {w["lead_id"]: w["code"] for w in out["warned"]} == {"g_new": "unchecked", "g_cafe": "individual"}
-    assert all(w["reason"] for w in out["warned"]) and out["warned_total"] == 2
+    assert out["added"] == 4  # nobody is refused for being unchecked or a sole trader: they are reached another way
+    assert out["skipped"]["problem"] == 2
+    assert {e["lead_id"]: e["code"] for e in out["excluded"]} == {"g_dead": "problem", "g_wrong": "problem"}
+    assert out["plan"] == {"email": 2, "quick_choice": 1, "reach_other_way": 1}
+    assert [q["lead_id"] for q in out["quick_choices"]] == ["g_new"] and [o["lead_id"] for o in out["other_way"]] == ["g_cafe"]
+    assert out["plan_text"] == "2 get email, 1 needs a quick choice, 1 is reached another way"
+    assert "warned" not in out
 
 
 @pytest.mark.db
@@ -597,3 +605,138 @@ async def test_every_cold_email_carries_the_sender_and_the_unsubscribe_link(clie
     assert len(mail.sent) == 1
     body = mail.sent[0][1].get_body(preferencelist=("plain",)).get_content()
     assert "Acme Outreach Ltd, 1 High Street, Leeds LS1 1AA" in body and "Unsubscribe:" in body
+
+
+# ── Phase 5: results, preview, source line, templates ──────────────────────
+async def _two_step_journey(client, db):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL, {**EMAIL, "subject": "", "body": "again", "delay_days": 2}])
+    await _people(client, j["id"], "ann@client.com", "bob@client.com", "cy@client.com")
+    from types import SimpleNamespace
+
+    rows = (await db.execute(select(EmailSequenceStep.id).where(EmailSequenceStep.campaign_id == j["id"]).order_by(EmailSequenceStep.step_number))).scalars().all()
+    j["mailbox"] = mb
+    return j, [SimpleNamespace(id=i) for i in rows]
+
+
+def _msg(i, j, step, enr, status, minutes=0, **kw):
+    return EmailMessage(id=f"m_{i}", campaign_id=j["id"], sequence_step_id=step.id, enrollment_id=enr.id, recipient_email=enr.email, status=status,
+                        sent_at=MONDAY_10 + timedelta(minutes=minutes), **kw)
+
+
+@pytest.mark.db
+async def test_step_results_delivered_is_sent_minus_bounced(client, db, mail):
+    j, steps = await _two_step_journey(client, db)
+    enrs = await _enr(db, j["id"])
+    db.add_all([_msg(1, j, steps[0], enrs[0], "sent"), _msg(2, j, steps[0], enrs[1], "bounced"), _msg(3, j, steps[0], enrs[2], "replied")])
+    await db.commit()
+    camp = await db.get(EmailCampaign, j["id"])
+    rows = await J.step_results(db, camp)
+    assert [r["step"] for r in rows] == [1, 2]
+    first = rows[0]
+    assert (first["sent"], first["bounced"], first["delivered"], first["replied"]) == (3, 1, 2, 1)
+    assert first["reply_rate"] == 33.3 and rows[1]["sent"] == 0 and rows[1]["reply_rate"] is None
+    res = await J.results(db, camp)
+    assert res["delivered"] == 2 and res["by_step"][0]["delivered"] == 2 and res["opens_tracked"] in (True, False)
+
+
+@pytest.mark.db
+async def test_booked_attributed_to_last_step(client, db, mail):
+    j, steps = await _two_step_journey(client, db)
+    ann, bob, cy = sorted(await _enr(db, j["id"]), key=lambda e: e.email)
+    db.add_all([_msg(1, j, steps[0], ann, "sent", 0), _msg(2, j, steps[1], ann, "sent", 10), _msg(3, j, steps[0], bob, "sent", 0), _msg(4, j, steps[0], cy, "sent", 0)])
+    ann.status, bob.status, cy.status = "booked", "unsubscribed", "active"
+    await db.commit()
+    rows = await J.step_results(db, await db.get(EmailCampaign, j["id"]))
+    assert [(r["booked"], r["opted_out"]) for r in rows] == [(0, 1), (1, 0)]  # ann booked after step 2, bob left after step 1
+
+
+@pytest.mark.db
+async def test_preview_uses_real_enrollment_and_footer(client, db, mail):
+    j, _ = await _two_step_journey(client, db)
+    enr = next(e for e in await _enr(db, j["id"]) if e.email == "bob@client.com")
+    enr_id = enr.id
+    camp = await db.get(EmailCampaign, j["id"])
+    got = await J.preview(db, camp, enr_id)
+    assert got["to"] == "bob@client.com" and got["subject"] == "Hello Co bob Ltd" and got["body_text"].startswith("Hi Bob,")
+    assert "Acme Outreach Ltd, 1 High Street, Leeds LS1 1AA" in got["footer_text"] and "(unsubscribe link)" in got["footer_text"]
+    api = await client.get(f"/api/journeys/{j['id']}/preview", params={"enrollment_id": enr_id})
+    assert api.status_code == 200 and api.json()["to"] == "bob@client.com"
+    db.expire_all()
+    assert (await J.preview(db, await db.get(EmailCampaign, j["id"])))["to"]  # no person chosen: the first one
+    empty = await _journey(client, j["mailbox"], [EMAIL])
+    with pytest.raises(J.JourneyError):
+        await J.preview(db, await db.get(EmailCampaign, empty["id"]))
+
+
+def test_source_line_register_wording():
+    from types import SimpleNamespace
+
+    lead = SimpleNamespace(name="Acme Ltd", source="scout", source_url="", created_at=datetime(2026, 11, 9))
+    rec = SimpleNamespace(sources=[{"source_id": "companies_house", "source_type": "api", "confirmed_at": "2026-11-03T10:00:00"}])
+    assert J.source_sentence(lead, rec) == "We found Acme Ltd on the Companies House register on 3 Nov 2026."
+    web = SimpleNamespace(name="Acme Ltd", source="web", source_url="https://www.acme.co.uk/about", created_at=datetime(2026, 11, 9))
+    assert J.source_sentence(web, None) == "We found Acme Ltd on acme.co.uk on 9 Nov 2026."
+    for kind in ("import", "manual"):
+        assert J.source_sentence(SimpleNamespace(name="Acme Ltd", source=kind, source_url="", created_at=datetime(2026, 11, 9)), None) == ""
+    assert J.source_sentence(None) == ""
+
+
+@pytest.mark.db
+async def test_source_line_is_stored_on_enrolment_and_rendered(client, db, mail):
+    from app.services.email_worker import render
+
+    mb = await _ready(client, db)
+    await _lead(db, id="ld_9", name="Reg Ltd", email="ann@client.com", source="web", source_url="https://reg.example/x")
+    j = await _journey(client, mb, [{**EMAIL, "body": "Hi {{first_name}}. {{source_line}} Quick question."}])
+    await _people(client, j["id"], "ann@client.com", lead_ids=["ld_9"])
+    enr = await _enr(db, j["id"], "ann@client.com")
+    assert enr.vars["source_line"].startswith("We found Reg Ltd on reg.example on ")
+    assert "We found Reg Ltd" in render("{{source_line}}", enr)
+
+
+@pytest.mark.db
+async def test_preflight_amber_without_source_line(client, db, mail):
+    mb = await _ready(client, db)
+    bare = await _journey(client, mb, [EMAIL])
+    await _people(client, bare["id"], "ann@client.com")
+    with_tag = await _journey(client, mb, [{**EMAIL, "body": "Hi. {{source_line}} Question?"}])
+    await _people(client, with_tag["id"], "bob@client.com")
+
+    async def items(jid):
+        return await J.preflight(db, await db.get(EmailCampaign, jid), "org_default")
+
+    got = await items(bare["id"])
+    hit = [i for i in got if "where you found them" in i["text"]]
+    assert len(hit) == 1 and hit[0]["level"] == "amber" and hit[0]["fix"] == "steps"
+    assert not [i for i in got if i["level"] == "red"]  # it never blocks
+    assert not [i for i in await items(with_tag["id"]) if "where you found them" in i["text"]]
+
+
+def test_vertical_templates_valid():
+    keys = {t["key"]: t for t in J.TEMPLATES}
+    for k in ("accountants", "ltd_companies", "landlords"):
+        steps = J.clean_steps([dict(s) for s in keys[k]["steps"]])
+        assert len(steps) == 3 and "{{source_line}}" in steps[0]["body"] and steps[-1]["channel"] == "call_task"
+
+
+@pytest.mark.db
+async def test_journey_call_step_swaps_to_a_task_without_ai_permission(client, db, mail, monkeypatch):
+    from app.services import call_permission as CP
+
+    async def refuse(db_, num, kind="ai", now=None):
+        return {"allowed": False, "reasons": ["No permission recorded for AI calls to this number."], "warnings": [], "flags": [], "needs": "ai_consent"}
+
+    monkeypatch.setattr(CP, "decide", refuse)
+    mb = await _ready(client, db)
+    await _lead(db, id="ld_5", email="ann@client.com", name="Client Ltd", phone="+441132223333")
+    j = await _journey(client, mb, [EMAIL, {"channel": "call", "delay_days": 1, "goal": "Ask"}, {**EMAIL, "subject": "", "body": "after", "delay_days": 1}])
+    await _people(client, j["id"], "ann@client.com", lead_ids=["ld_5"])
+    await _go(client, j["id"])
+    await _run(db, MONDAY_10)
+    await _run(db, MONDAY_10 + timedelta(minutes=1))
+    await _run(db, MONDAY_10 + timedelta(days=1, minutes=5))
+    tasks = (await client.get("/api/journeys/tasks")).json()["tasks"]
+    assert len(tasks) == 1 and tasks[0]["kind"] == "call_task" and "Check TPS first" in tasks[0]["notes"]
+    enr = await _enr(db, j["id"], "ann@client.com")
+    assert enr.current_step == 3 and enr.waiting_on == ""  # the journey carried on
