@@ -705,6 +705,80 @@ async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str) -> List[
     return out
 
 
+def _clock(hm: str) -> int:
+    h, _, m = (hm or "00:00").partition(":")
+    return int(h or 0) * 60 + int(m or 0)
+
+
+def plan_schedule(*, days: List[int], start: str, end: str, tz: str, local: datetime, boxes: List[Dict[str, Any]], min_delay_s: int, daily_cap: int,
+                  waiting: int, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """When the emails go out, in words a customer can follow. Pure: `boxes` is [{email, status, quota}] for the journey's mailboxes.
+    It is an estimate: warming mailboxes send a few a day and the daily plan can change it."""
+    from app.services.email_worker import SENDING, next_window
+
+    names = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+    days = sorted(set(days or [1, 2, 3, 4, 5]))
+    day_text = "every day" if len(days) == 7 else "Mon to Fri" if days == [1, 2, 3, 4, 5] else ", ".join(names[d] for d in days)
+    gap = max(30, int(min_delay_s or 60))
+    window_s = max(0, (_clock(end) - _clock(start)) * 60)
+    ready = [b for b in boxes if b["status"] in SENDING]
+    per_box = [min(b["quota"], window_s // gap) for b in ready]
+    per_day = sum(per_box)
+    if daily_cap:
+        per_day = min(per_day, daily_cap)
+    cap_ok = per_day > 0
+    camp_like = type("C", (), {"days_of_week": days, "sending_window_start": start, "sending_window_end": end})()
+    open_now, opens = next_window(camp_like, local)  # same rule the sender uses
+    out: Dict[str, Any] = {"timezone": tz, "days_text": day_text, "window": f"{start} to {end}", "open_now": open_now, "next_opens": opens,
+                           "gap_seconds": gap, "per_day": per_day, "mailboxes_ready": len(ready), "waiting": waiting, "days_needed": 0, "finish": ""}
+    if cap_ok and waiting:
+        need = -(-waiting // per_day)
+        out["days_needed"] = need
+        d, n = local.date(), 0
+        left = need
+        while left > 0 and n < 400:
+            if d.isoweekday() in days and not (d == local.date() and local.strftime("%H:%M") >= end):
+                left -= 1
+                if left == 0:
+                    break
+            d += timedelta(days=1)
+            n += 1
+        out["finish"] = "today" if d == local.date() else "tomorrow" if d == local.date() + timedelta(days=1) else d.strftime("%A %d %B")
+    lines = [f"Emails go out {day_text}, {start} to {end} ({tz}). Nothing is sent outside those hours."]
+    lines.append("Sending is open now." if open_now else (f"Next sending window opens {opens}." if opens else "No sending day is switched on."))
+    if not ready:
+        lines.append("No mailbox is ready to send yet, so nothing can go out. Pick a sender under Rules.")
+    elif cap_ok:
+        lines.append(f"Pace: about one email every {gap // 60 if gap >= 120 else gap} {'minutes' if gap >= 120 else 'seconds'}, up to {per_day} a day"
+                     f"{' (your daily limit)' if daily_cap and per_day == daily_cap else ''}. New or warming mailboxes start small and send more each week.")
+    if out["finish"] and waiting:
+        lines.append(f"{waiting} {'person is' if waiting == 1 else 'people are'} waiting: the first email to everyone should be out by {out['finish']}.")
+    waits = []
+    for st in steps[1:]:
+        gap_txt = (f"{st['delay_days']} day{'s' if st['delay_days'] != 1 else ''}" if st["delay_days"] else "") + (f" {st['delay_hours']}h" if st["delay_hours"] else "")
+        waits.append(f"step {st['step']} {gap_txt.strip() or 'right away'} after the one before")
+    if waits:
+        lines.append("Follow-ups: " + "; ".join(waits) + ". A follow-up is skipped for anyone who replies, and still waits for a sending window.")
+    out["lines"] = lines
+    return out
+
+
+async def schedule(db: AsyncSession, camp: EmailCampaign, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from app.models.models import EmailMailbox
+    from app.services.email_worker import local_now
+    from app.services.org_settings import org_timezone
+
+    tz = await org_timezone(db)
+    ids = camp.mailbox_ids or []
+    rows = (await db.execute(select(EmailMailbox).where(EmailMailbox.id.in_(ids)))).scalars().all() if ids else []
+    boxes = [{"email": m.email, "status": m.status, "quota": (m.campaign_quota or m.daily_cap or 5)} for m in rows]
+    waiting = (await db.execute(select(func.count(EmailEnrollment.id)).where(
+        EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.waiting_on == "",
+        EmailEnrollment.current_step == 1))).scalar() or 0
+    return plan_schedule(days=camp.days_of_week or [1, 2, 3, 4, 5], start=camp.sending_window_start or "09:00", end=camp.sending_window_end or "17:00", tz=tz,
+                         local=local_now(tz), boxes=boxes, min_delay_s=camp.min_delay_seconds or 60, daily_cap=camp.daily_cap or 0, waiting=waiting, steps=steps)
+
+
 async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: bool = True) -> Dict[str, Any]:
     out = {"id": camp.id, "name": camp.name, "goal": camp.goal or "", "status": camp.status, "template_key": camp.template_key or "",
            "created_at": camp.created_at.isoformat() + "Z" if camp.created_at else None}
@@ -718,6 +792,7 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
                        "sending_window_end": camp.sending_window_end, "days_of_week": camp.days_of_week or [], "min_delay_seconds": camp.min_delay_seconds,
                        "daily_cap": camp.daily_cap or 0, "rules": rules_of(camp), "one_at_a_time": bool(camp.one_at_a_time)}
     out["preflight"] = await preflight(db, camp, org_id)
+    out["schedule"] = await schedule(db, camp, out["steps"])
     out["tasks"] = await list_tasks(db, campaign_id=camp.id, limit=20)
     out["people"] = [{"id": e.id, "email": e.email, "name": f"{e.first_name} {e.last_name}".strip(), "company": e.company, "status": e.status, "step": e.current_step,
                       "finish_reason": e.finish_reason or "", "waiting": e.waiting_on or "", "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None}

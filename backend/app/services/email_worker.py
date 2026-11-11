@@ -247,7 +247,7 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             mb = c
             res = await send_cold_email(db, org_id, c, enr.email, subject, body, campaign_id=camp.id,
                                         sequence_step_id=step.id, enrollment_id=enr.id, prospect_id=enr.prospect_id or "",
-                                        entity_type=classify_pecr_entity(enr.company, enr.email),
+                                        entity_type=classify_pecr_entity(enr.company, enr.email), accept_risk=True,
                                         in_reply_to=enr.last_message_id if enr.current_step > 1 else "",
                                         from_alias=(camp.alias_map or {}).get(c.id, ""), brand=brand)
             if res["status"] != "failed":

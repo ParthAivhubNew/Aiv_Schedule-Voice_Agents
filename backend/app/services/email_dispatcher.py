@@ -176,6 +176,7 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
     if mb.signature:
         body += "\n\n" + mb.signature.strip()
     link = why = ""
+    note = ""  # the footer's words, for the HTML copy where the links are short
     if warmup_id:
         msg[T.WARMUP_HEADER] = warmup_id
     else:
@@ -184,6 +185,13 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
         if not unsubscribe_override:
             msg["List-Unsubscribe"] = f"<{link}>, <mailto:{mb.email}?subject=unsubscribe>"
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        import html as _h
+
+        text_only = body
+        rule = "<hr style='border:0;border-top:1px solid #ddd;margin:20px 0 12px'>"
+        note = rule + (f"<p style='font-size:12px;color:#666;margin:0 0 6px'>{_h.escape(sender_line)}</p>" if sender_line else "")
+        note += (f"<p style='font-size:12px;color:#666;margin:0'>Not interested? <a href=\"{_h.escape(link, quote=True)}\">Unsubscribe</a>"
+                 f" &middot; <a href=\"{_h.escape(why, quote=True)}\">Why you got this</a></p>")
         if sender_line:
             body += f"\n\n--\n{sender_line}"
         body += (f"\n\n--\nNot interested? Unsubscribe: {link}"
@@ -205,7 +213,7 @@ def build(mb: EmailMailbox, to: str, subject: str, text: str, *, org_id: str, wa
         msg.add_alternative(designed, subtype="html")
         return msg
     msg.set_content(body)
-    page = _html_of(body)
+    page = _html_of(text_only) + note if note else _html_of(body)  # the HTML copy shows short footer links; the plain copy keeps the full addresses
     if open_marker and not warmup_id:  # lets Lead Gen see who is reading (Settings -> Connections can switch it off)
         page += f'<img src="{open_marker}" width="1" height="1" alt="" style="display:none">'
     msg.add_alternative(page, subtype="html")
@@ -225,6 +233,7 @@ async def send_cold_email(
     enrollment_id: str = "",
     prospect_id: str = "",
     entity_type: str = "corporate",
+    accept_risk: bool = False,
     is_warmup: bool = False,
     warmup_id: str = "",
     in_reply_to: str = "",
@@ -240,7 +249,7 @@ async def send_cold_email(
         suppressed, reason = await is_email_suppressed(db, to, org_id)
         if suppressed:
             return {"status": "suppressed", "reason": reason}
-        if entity_type == "individual":
+        if entity_type == "individual" and not accept_risk:  # accept_risk: the owner was warned when adding the person and chose to send
             return {"status": "blocked_pecr", "reason": "UK PECR: a person's own mailbox needs their consent first."}
         ok, why = await can_start(db, "email_send")
         if not ok:

@@ -34,3 +34,17 @@ def test_warmup_monotonicity():
     for i in range(len(schedule) - 1):
         assert schedule[i] <= schedule[i + 1]
         assert (schedule[i + 1] - schedule[i]) <= 10
+
+
+def test_a_plain_cold_email_shows_short_footer_links_in_html_and_full_addresses_in_text():
+    from types import SimpleNamespace
+
+    from app.services.email_dispatcher import build
+
+    mb = SimpleNamespace(email="me@x.com", display_name="Me", signature="", aliases=[])
+    msg = build(mb, "ann@y.com", "Hi", "Hello Ann", org_id="org_t", sender_line="Acme Ltd, 1 High St")
+    html = msg.get_body(("html",)).get_content()
+    text = msg.get_body(("plain",)).get_content()
+    assert ">Unsubscribe</a>" in html and ">Why you got this</a>" in html and "Acme Ltd, 1 High St" in html
+    assert "Unsubscribe: http" in text and "/api/legal/business-data" in text and "Acme Ltd, 1 High St" in text
+    assert "Not interested? Unsubscribe: http" not in html  # no raw address printed in the HTML copy

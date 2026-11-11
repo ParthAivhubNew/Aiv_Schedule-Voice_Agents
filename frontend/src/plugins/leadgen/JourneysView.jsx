@@ -382,7 +382,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
           </div>
           <div style={row}>
             {live ? <button type="button" style={btn(false)} onClick={() => run(() => api.journeyStatus(j.id, "paused"), "Paused. Nobody loses their place.")}><Pause size={14} /> Pause</button>
-              : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={async () => { const n = j.results?.in_progress || 0; if (j.status !== "paused" && n && !(await askConfirm({ title: `Start sending to ${n} ${n === 1 ? "person" : "people"}?`, body: "The first step goes out in the next sending window. You can pause it at any time.", confirm: "Start" }))) return; run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window."); }}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
+              : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={async () => { const n = j.results?.in_progress || 0; if (j.status !== "paused" && n && !(await askConfirm({ title: `Start sending to ${n} ${n === 1 ? "person" : "people"}?`, body: `${j.schedule?.lines?.slice(0, 2).join(" ") || "The first step goes out in the next sending window."}${j.schedule?.finish ? ` The first email to everyone should be out by ${j.schedule.finish}.` : ""} You can pause it at any time.`, confirm: "Start" }))) return; run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window."); }}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
             <button type="button" style={btn(false)} onClick={() => setRules(true)}><SlidersHorizontal size={14} /> Rules</button>
             <button type="button" style={btn(false)} title="Send these emails with your logo, colours and buttons" onClick={() => setLooks(true)}><PenLine size={14} /> Design</button>
             <button type="button" style={btn(false)} title="Ask the AI about this journey" onClick={() => onAskAssistant?.()}><Bot size={14} /> Ask AI</button>
@@ -461,6 +461,13 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         </div>
       </div>
 
+      {j.schedule?.lines?.length ? (
+        <div style={{ ...card, display: "grid", gap: 6, padding: 12 }} aria-label="When emails go out">
+          <strong style={{ fontSize: 14 }}>When emails go out</strong>
+          {j.schedule.lines.map((line, i) => <div key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>{line}</div>)}
+          <div style={small}>This is an estimate. Each person's exact next send shows under People once the journey is running.</div>
+        </div>
+      ) : null}
       <div style={{ ...card, display: "grid", gap: 10, padding: 12 }}>
         <div style={{ ...row, justifyContent: "space-between" }}>
           <strong style={{ fontSize: 14 }}>People <span style={{ ...small, fontWeight: 500 }}>{j.results.people}</span></strong>
@@ -489,7 +496,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{p.name || p.email || p.company}</div>
               <div style={small}>{[p.company, p.email].filter(Boolean).join(" · ")}</div>
-              <div style={small}>{p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && j.status !== "running" && j.status !== "paused" ? " · starts when you press Start" : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
+              <div style={small}>{p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? ` · next ${when(p.next_at)}` : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
             <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
           </div>
