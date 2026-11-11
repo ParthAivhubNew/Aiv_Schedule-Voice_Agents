@@ -26,7 +26,7 @@ from app.services import connection_handlers as H
 from app.services import connections as C
 from tests.conftest import make_user
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("funded_house_org")]
 ORG = "org_default"
 
 

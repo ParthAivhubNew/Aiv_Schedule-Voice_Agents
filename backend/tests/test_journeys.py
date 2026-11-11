@@ -11,6 +11,7 @@ from app.services import mail_transport as T
 from tests.test_email_outreach import MONDAY_10, _mailbox, _run, mail  # noqa: F401  (the fake mail server and helpers)
 
 EMAIL = {"channel": "email", "subject": "Hello {{company}}", "body": "Hi {{first_name}}, one question."}
+pytestmark = pytest.mark.usefixtures("funded_house_org")
 
 
 @pytest.fixture(autouse=True)

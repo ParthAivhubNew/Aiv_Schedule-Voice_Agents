@@ -78,6 +78,21 @@ async def db(schema):
         yield session
 
 
+@pytest.fixture
+async def funded_house_org(db):
+    """Aivhub's own company ("org_default") is a normal client with no free pass, so a test that needs the apps open gives it
+    a live plan in each app first, like any customer who subscribed. Credit balances stay untouched, so tests can still count them."""
+    from datetime import datetime, timedelta
+
+    from app.core.tenancy import org_scope
+    from app.models.models import BillingSubscription
+
+    with org_scope("org_default"):
+        db.add(BillingSubscription(id="org_default", status="active", current_period_end=datetime.utcnow() + timedelta(days=20),
+                                   plans={"voice": "plan_test", "leadgen": "plan_test", "scheduler": "plan_test"}))
+        await db.commit()
+
+
 async def make_user(db, username, role="Operator", password="Str0ng-pass!", org_id="org_default", must_change=False):
     """A signed-in user: returns (operator, access token)."""
     import uuid

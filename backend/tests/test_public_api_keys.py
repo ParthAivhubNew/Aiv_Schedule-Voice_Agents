@@ -5,7 +5,7 @@ import pytest
 
 from tests.conftest import make_user
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("funded_house_org")]
 
 
 def _http(token):

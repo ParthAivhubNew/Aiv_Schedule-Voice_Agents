@@ -6,7 +6,7 @@ import httpx
 import pytest
 from sqlalchemy.future import select
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("funded_house_org")]
 
 
 def _http(token):

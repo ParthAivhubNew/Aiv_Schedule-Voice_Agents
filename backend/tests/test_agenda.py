@@ -6,7 +6,7 @@ import pytest
 
 from tests.conftest import make_user
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("funded_house_org")]
 
 DAY = "2026-11-03"  # a Tuesday; in November London time is UTC
 
