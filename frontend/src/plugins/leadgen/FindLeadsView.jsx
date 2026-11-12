@@ -15,7 +15,7 @@ import { askConfirm, askList, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
-import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar } from "./FindLeadsParts";
+import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar, ViewMenu } from "./FindLeadsParts";
 import { IcpPrompt, useIcp } from "./FitParts";
 import { sortOptions } from "./fitLogic";
 import { CompanyDrawer } from "./CompanyDrawer";
@@ -1148,9 +1148,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       </aside>
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          {searched && tab === "companies" && !area ? <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} /> : null}
-        </div>
       {firstLoad ? (
         <div className="ui-card fl-card" style={{ overflow: "hidden", position: "relative" }}>
           <TopBar />
@@ -1206,33 +1203,22 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               </span>
             </div>
           ) : null}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: tab === "companies" && searched && !area ? "0 14px" : "10px 14px", minHeight: 46, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
               {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
                 <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
+              ) : searched && !area ? (
+                <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} />
               ) : null}
             </div>
-            {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <div style={{ flexBasis: "100%" }}><IcpPrompt onSet={onSetIcp} /></div> : null}
             {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
             {!area ? (
-              <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                Sort
-                <select className="ui-input" aria-label="Sort results" value={sort} disabled={busy} onChange={(e) => changeSort(e.target.value)} style={{ height: 30, padding: "0 6px", width: "auto" }}>
-                  {sortOptions(icp.isSet).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </label>
-            ) : null}
-            {!area ? (
-              <label style={{ ...text, fontSize: 12.5, color: C.slate, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                Show
-                <select className="ui-input" aria-label="Results per page" value={pageSize} disabled={busy}
-                  onChange={(e) => changePageSize(Number(e.target.value))} style={{ height: 30, padding: "0 6px", width: "auto" }}>
-                  {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
-                per page
-              </label>
+              <ViewMenu busy={busy} sortValue={sort} sortOptions={sortOptions(icp.isSet)}
+                sortLabel={(sortOptions(icp.isSet).find(([v]) => v === sort) || sortOptions(icp.isSet)[0])[1]}
+                onSort={changeSort} pageSize={pageSize} pageSizes={PAGE_SIZES} onPageSize={changePageSize} />
             ) : null}
           </div>
+          {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} inset /> : null}
           {broadenedNote && !busy ? (
             <div role="status" style={{ ...muted, fontSize: 12.5, padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>{broadenedNote}.</div>
           ) : null}

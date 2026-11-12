@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Target } from "lucide-react";
+import { Target, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { fitTip, fitTone } from "./fitLogic";
@@ -76,12 +76,24 @@ export function SignalTags({ signals, max = 2 }) {
 }
 
 // Shown where a score would be, until the ideal customer is set.
-export function IcpPrompt({ onSet }) {
-  return (
+const ICP_PROMPT_KEY = "aivhub_icp_prompt_dismissed";
+const promptDismissed = () => { try { return localStorage.getItem(ICP_PROMPT_KEY) === "1"; } catch (_) { return false; } };
+
+// The × hides it for good on this browser; setting the ideal customer removes it anyway.
+export function IcpPrompt({ onSet, inset = false }) {
+  const [hidden, setHidden] = useState(promptDismissed);
+  if (hidden) return null;
+  const dismiss = () => { setHidden(true); try { localStorage.setItem(ICP_PROMPT_KEY, "1"); } catch (_) { /* private window: hides for this visit only */ } };
+  const card = (
     <div role="note" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 12px", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff", ...text, fontSize: 13, color: C.textInk }}>
       <Target size={16} color={C.cobalt} aria-hidden="true" />
       <span style={{ flex: "1 1 260px" }}>Set your ideal customer to see how well each company fits, and why.</span>
       {onSet ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onSet}>Set your ideal customer</button> : null}
+      <button type="button" aria-label="Dismiss" title="Dismiss" onClick={dismiss}
+        style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, color: C.slate }}>
+        <X size={15} aria-hidden="true" />
+      </button>
     </div>
   );
+  return inset ? <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>{card}</div> : card;
 }

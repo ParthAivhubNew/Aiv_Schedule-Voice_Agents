@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
 import { openPhone } from "../../utils/humanCall";
-import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, PhoneCall, Plus, Search, X, XCircle } from "lucide-react";
+import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, PhoneCall, Plus, Search, SlidersHorizontal, X, XCircle } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -80,27 +80,67 @@ export function Avatar({ name, size = 32, logo = "" }) {
   );
 }
 
-// Total / Net new / Saved, like Apollo's: tap one to show only those.
+// All / New to you / Saved as underlined tabs: pick one to show only those.
 export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
   const plus = capped ? "+" : "";
   const net = Math.max(total - (saved || 0), 0);
   const tiles = [
-    ["", "Total", total, plus, "Every match"],
-    ["exclude", "Net new", net, plus, "Not in any of your lists yet"],
+    ["", "All", total, plus, "Every match"],
+    ["exclude", "New to you", net, plus, "Not in any of your lists yet"],
     ["only", "Saved", saved || 0, "", "Already in one of your lists"],
   ];
   return (
-    <div role="group" aria-label="Show" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
+    <div role="group" aria-label="Show" style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
       {tiles.map(([id, label, n, extra, tip]) => {
         const on = (filter || "") === id;
         return (
           <button key={label} type="button" title={tip} aria-pressed={on} disabled={busy} onClick={() => onPick(id)}
-            style={{ cursor: "pointer", height: 36, boxSizing: "border-box", padding: "0 12px", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", border: `1px solid ${on ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff", ...text, fontSize: 13 }}>
-            <span style={{ color: on ? C.cobaltDeep : C.slate, fontWeight: 600 }}>{label}</span>
-            <span style={{ fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{Number(n).toLocaleString()}{extra}</span>
+            style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", height: 46, display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", borderBottom: `2px solid ${on ? C.cobalt : "transparent"}`, ...text, fontSize: 13.5, opacity: busy ? 0.6 : 1 }}>
+            <span style={{ color: on ? C.ink : C.slate, fontWeight: on ? 600 : 500 }}>{label}</span>
+            <span style={{ color: on ? C.ink : C.slate, fontVariantNumeric: "tabular-nums" }}>{Number(n).toLocaleString()}{extra}</span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// "View · Best match" button; opens the sort order and results-per-page choices.
+export function ViewMenu({ sortLabel, sortValue, sortOptions, onSort, pageSize, pageSizes, onPageSize, busy }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const row = (on) => ({ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 6, ...text, fontSize: 13, color: C.ink, fontWeight: on ? 600 : 400, background: on ? C.paperSoft : "transparent" });
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" aria-haspopup="true" aria-expanded={open} disabled={busy} onClick={() => setOpen((v) => !v)}
+        style={{ all: "unset", cursor: busy ? "default" : "pointer", boxSizing: "border-box", height: 34, padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff", ...text, fontSize: 13, color: C.ink, whiteSpace: "nowrap", opacity: busy ? 0.6 : 1 }}>
+        <SlidersHorizontal size={14} aria-hidden="true" />
+        View · {sortLabel}
+      </button>
+      {open ? (
+        <div role="menu" style={{ position: "absolute", right: 0, top: 40, zIndex: 20, width: 220, padding: 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}>
+          <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, padding: "6px 10px 4px", textTransform: "uppercase", letterSpacing: 0.4 }}>Sort</div>
+          {sortOptions.map(([v, l]) => (
+            <button key={v} type="button" role="menuitemradio" aria-checked={sortValue === v} style={row(sortValue === v)} onClick={() => { onSort(v); setOpen(false); }}>
+              <span style={{ width: 14, display: "inline-flex" }}>{sortValue === v ? <Check size={13} aria-hidden="true" /> : null}</span>{l}
+            </button>
+          ))}
+          <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, padding: "10px 10px 4px", textTransform: "uppercase", letterSpacing: 0.4 }}>Per page</div>
+          {pageSizes.map((n) => (
+            <button key={n} type="button" role="menuitemradio" aria-checked={pageSize === n} style={row(pageSize === n)} onClick={() => { onPageSize(n); setOpen(false); }}>
+              <span style={{ width: 14, display: "inline-flex" }}>{pageSize === n ? <Check size={13} aria-hidden="true" /> : null}</span>{n}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
