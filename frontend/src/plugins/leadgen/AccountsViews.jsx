@@ -725,7 +725,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   };
   const pendingCount = base.filter((a) => a.verification?.pending_registry).length;
   const fixIds = base.filter((a) => openFixes(a).length).map((a) => a.id);
-  const fullCount = base.filter((a) => (a.completeness?.pct || 0) >= 71).length; // 5 of 7 key details
   // Takes companies out of the list being looked at (one or many). They stay in your account and in any other list.
   const removeFromList = async (ids) => {
     if (!(await askConfirm({ title: `Remove ${ids.length.toLocaleString()} ${ids.length === 1 ? "company" : "companies"} from this list?`, body: `${ids.length === 1 ? "It stays" : "They stay"} in your account and in your other lists.`, confirm: "Remove", danger: true }))) return;
@@ -767,9 +766,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {!icp.loading && !icp.isSet ? <IcpPrompt onSet={() => onGo("business")} /> : null}
-      <div style={{ ...muted, fontSize: 12.5 }} title="Each company is scored on website, phone, email, address, industry, people and size. What our register holds counts.">
-        {order === "fit" && icp.isSet ? "Best fit first." : "Most complete companies first."} {fullCount.toLocaleString()} of {base.length.toLocaleString()} have at least 5 of the 7 key details; {base.filter((a) => (a.completeness?.pct || 0) === 100).length.toLocaleString()} have all 7.
-      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div role="tablist" aria-label="Companies by what to do next" style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%", flex: "0 1 auto" }}>
           {tabsShown.map(([k, label, tip]) => {
@@ -805,6 +801,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           {!moreInHeader && fixIds.length ? (
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
           ) : null}
+          <span id="acc-grid-tools" style={{ display: "contents" }} />{/* the Default / My layout switch and Columns sit here, in this row */}
           <ViewsMenu current={{ hidden, tab: tabPref, filter: moreFilter }} onToast={store.toast}
             onApply={(v) => {
               saveHidden(v.hidden || []);
@@ -847,7 +844,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           </button>
         </SelectionBar>
         <SelectAllNotice sel={sel} pageIds={pageIds} total={shownIds.length} onSelectAll={() => sel.selectAll(shownIds)} />
-        <GridTools id="my-list" pinned={COMPANY_PIN} />
+        <GridTools id="my-list" pinned={COMPANY_PIN} into="acc-grid-tools" />
         <div className="ui-scroll" style={{ overflowX: "auto" }}>
           <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
