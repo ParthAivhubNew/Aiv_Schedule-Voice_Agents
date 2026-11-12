@@ -980,6 +980,7 @@ export function CallingWorkspace({
   const [liveCalls, setLiveCalls] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [logWho, setLogWho] = useState("all"); // all calls, only the AI's, or only the ones this person made themselves
   const [schedule, setSchedule] = useState([]);
   const [scheduleFocus, setScheduleFocus] = useState(""); // "list" opens booked list inside Schedule
   const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
@@ -2804,6 +2805,7 @@ export function CallingWorkspace({
   const pageDialableSelected = pagePicked(selectedIds, pageDialIds);
   const filteredLogs = useMemo(() => {
     const q = logQuery.trim().toLowerCase();
+    if (logWho === "mine") return [];
     return (logs || []).filter((l) => {
       const outcome = String(l.outcome || "").toLowerCase();
       if (logOutcome !== "all" && outcome !== logOutcome) return false;
@@ -2813,7 +2815,7 @@ export function CallingWorkspace({
       const flat = (v) => String(v).replace(/\s+/g, ""); // a phone number is matched without its spaces
       return blob.includes(q) || flat(blob).includes(flat(q));
     });
-  }, [logs, logQuery, logOutcome, logDirection]);
+  }, [logs, logQuery, logOutcome, logDirection, logWho]);
   const directionCount = { inbound: (logs || []).filter((l) => l.direction === "inbound").length, outbound: (logs || []).filter((l) => l.direction === "outbound").length };
   const logPageCount = Math.max(1, Math.ceil(filteredLogs.length / LOG_PAGE_SIZE));
   const logPageNo = Math.min(logPage, logPageCount);
@@ -3371,7 +3373,6 @@ export function CallingWorkspace({
                     </div>
                   ) : null}
                 </div>
-                <RecentHumanCalls />
 
                 <div className="ui-card list-card" style={{ flex: 1, minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json" hidden onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
@@ -4018,6 +4019,14 @@ export function CallingWorkspace({
                     style={{ ...fieldStyle(), paddingLeft: 34, height: 40 }}
                   />
                 </div>
+                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: "#fff" }} role="group" aria-label="Who made the call">
+                  {[["all", "Everyone"], ["ai", "AI calls"], ["mine", "My own calls"]].map(([id, label]) => (
+                    <button key={id} type="button" aria-pressed={logWho === id} onClick={() => { setLogWho(id); setLogPage(1); }}
+                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logWho === id ? C.ink : "transparent", color: logWho === id ? "#fff" : C.textInk }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: "#fff" }} role="group" aria-label="Direction of the call">
                   {[
                     ["all", "All calls", null],
@@ -4065,7 +4074,9 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              {!filteredLogs.length ? (
+              {logWho !== "ai" ? <RecentHumanCalls showEmpty={logWho === "mine"} /> : null}
+
+              {logWho === "mine" ? null : !filteredLogs.length ? (
                 <div style={{ ...card(), padding: 48, textAlign: "center", color: C.slate }}>
                   {logs.length ? "No logs match this filter." : "No logs yet. Ended calls land here."}
                 </div>
