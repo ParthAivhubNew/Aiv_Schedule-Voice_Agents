@@ -5,6 +5,7 @@ import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
 import { PluginCredits } from "../team/PluginCredits";
 import { AppSwitcher } from "./AppSwitcher";
+import { BrandMark } from "./BrandMark";
 import { useRailTip } from "./RailTip";
 import { NavItem } from "./NavItem";
 import { GlobalAssistant } from "./GlobalAssistant";
@@ -42,10 +43,21 @@ export function SidebarToggle({ collapsed, onToggle }) {
 
 // The top of an app's sidebar: its icon and name, with the collapse button at the right end of that row. In the icon rail
 // there is no room beside the icon, so the button sits under it (global.css).
-export function SidebarHead({ icon, accent, name, collapsed, onToggle }) {
+export function SidebarHead({ icon, accent, name, collapsed, onToggle, onHome }) {
+  const embedded = useEmbedded();
   return (
     <div className="sb-head">
-      <SidebarBrand icon={icon} accent={accent} name={name} flush />
+      {onHome && !embedded ? (
+        <button type="button" className="sb-home" onClick={onHome} title="Outreach by aivhub: back to Home" aria-label="Outreach by aivhub, back to Home">
+          <BrandMark size={32} />
+          <span className="sb-home-text" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
+            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)" }}>Outreach</span>
+            <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>
+          </span>
+        </button>
+      ) : (
+        <SidebarBrand icon={icon} accent={accent} name={name} flush />
+      )}
       <SidebarToggle collapsed={collapsed} onToggle={onToggle} />
     </div>
   );
@@ -62,8 +74,8 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-      <SidebarHead icon={Icon} accent={accent} name={name} collapsed={collapsed} onToggle={toggleCollapsed} />
-      {!embedded && <AppSwitcher current={appId} onHome={onHome} />}
+      <SidebarHead icon={Icon} accent={accent} name={name} collapsed={collapsed} onToggle={toggleCollapsed} onHome={onHome} />
+      {!embedded && <AppSwitcher current={appId} />}
       <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
         {groups.map((group) => {
           const items = group.items.filter(Boolean);
@@ -131,13 +143,16 @@ export function PhoneTabBar({ items, nav, accent }) {
   );
 }
 
+// The top bar takes a light wash of its app's colour, so you can tell at a glance which app you are in.
+export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb, ${accent} 9%, #fff)`, borderBottom: `1px solid color-mix(in srgb, ${accent} 22%, #fff)` } : { background: "#fff" });
+
 // The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
 // anything the page needs (children), your credits, notifications and profile (accountBar).
-export function PluginHeader({ nav, title, sub, children, accountBar, assistant = true, assistantPlugin = "leads" }) {
+export function PluginHeader({ nav, title, sub, children, accountBar, assistant = true, assistantPlugin = "leads", accent }) {
   const workflows = useWorkflowsOpen();
   if (workflows) [title, sub] = WORKFLOWS_HEADER;
   return (
-    <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
+    <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, ...headerTint(accent), display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
       <MobileNavButton nav={nav} />
       <h1 style={{ margin: 0, fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em", color: C.textInk, whiteSpace: "nowrap" }}>{title}</h1>
       <div className="hide-mobile" style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.slate, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>

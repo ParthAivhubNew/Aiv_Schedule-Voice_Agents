@@ -68,7 +68,7 @@ import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { BulkActions, CallListSummary, ContactPanel, DetailsBar } from "./CallListTools";
 import { bulkCallPrompt, filterCalls, rowAsAccount, rowDetails } from "./callListLogic";
-import { PhoneTabBar, SidebarHead, useSidebarCollapse } from "../../../hub/PluginShell";
+import { PhoneTabBar, SidebarHead, headerTint, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
 import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
@@ -2844,14 +2844,14 @@ export function CallingWorkspace({
       <AppChrome />
       <MobileNavBackdrop nav={nav} />
       <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
-        <SidebarHead icon={PhoneCall} accent={C.cobalt} name="Voice" collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-        {!embedded && <AppSwitcher current="voice" onHome={() => {
+        <SidebarHead icon={PhoneCall} accent={C.cobalt} name="Voice" collapsed={sidebarCollapsed} onToggle={toggleSidebar} onHome={() => {
           if (page === "company" && companyDirty) {
             setUnsavedLeaveTarget({ type: "hub" });
             return;
           }
           onBackToHub();
-        }} />}
+        }} />
+        {!embedded && <AppSwitcher current="voice" />}
         <nav className="app-sidebar-nav" aria-label="Voice" style={{ display: "flex", flexDirection: "column" }}>
           {NAV_GROUPS.map((group) => {
             const items = visiblePages.filter((p) => group.ids.includes(p.id));
@@ -2915,7 +2915,7 @@ export function CallingWorkspace({
           .calling-scroll::-webkit-scrollbar-thumb { background: #CBD1D9; border-radius: 99px; }
           .calling-scroll::-webkit-scrollbar-track { background: transparent; }
         `}</style>
-        <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
+        <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, ...headerTint(C.cobalt), display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
           <MobileNavButton nav={nav} />
           {page === "list" && !pluginLocked && !workflowsOn ? (
             <div style={{ position: "relative", flexShrink: 0 }}>

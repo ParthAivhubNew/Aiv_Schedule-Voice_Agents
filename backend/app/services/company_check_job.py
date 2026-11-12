@@ -27,9 +27,10 @@ _TASKS: Dict[str, "asyncio.Task"] = {}
 FLUSH_EVERY = 10
 CHECK_TIMEOUT_S = 120  # one company never holds the whole run up longer than this
 POLL_SECONDS = 2.0
+SOCIAL_PER_COMPANY = 4  # LinkedIn, Facebook, X, Instagram
 _STEPS = (("registry", "check_registry", "Registry check"), ("deep", "google_deep_search", "Deep web search"),
           ("email", "check_email", "Contact email check"), ("web", "lead_lookup", "Web research"),
-          ("phone", "lead_phone_check", "Phone check"))
+          ("phone", "lead_phone_check", "Phone check"), ("social", "lead_social", "Social pages"))
 
 
 def _key(org_id: str, job_id: str) -> str:
@@ -124,21 +125,22 @@ async def readiness() -> Dict[str, Any]:
             "phone": bool(platform_key())}
 
 
-async def estimate(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False) -> Dict[str, Any]:
+async def estimate(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False, include_social: bool = False) -> Dict[str, Any]:
     ready = await readiness()
     rates = await credit.rates(db)
     with_contact = sum(1 for a in accounts if len((a.contact_name or "").split()) >= 2)
     web_rows = sum(1 for a in accounts if not a.researched_at) if include_web else 0
     phone_rows = sum(1 for a in accounts if cc.phone_shape(a.phone or "") == "ok") if include_phone and ready.get("phone") else 0
+    social_pages = len(accounts) * SOCIAL_PER_COMPANY if include_social else 0
     parts = cc.price_parts(rates, len(accounts), with_contact, registry=ready["registry"], deep=ready["deep"],
-                           email=include_email and ready["email"], web_rows=web_rows, phone_rows=phone_rows)
-    return {"companies": len(accounts), "with_contact": with_contact, "web_rows": web_rows, "phone_rows": phone_rows,
+                           email=include_email and ready["email"], web_rows=web_rows, phone_rows=phone_rows, social_pages=social_pages)
+    return {"companies": len(accounts), "with_contact": with_contact, "web_rows": web_rows, "phone_rows": phone_rows, "social_pages": social_pages,
             "ready": {k: ready[k] for k in ("registry", "deep", "email", "phone") if k in ready},
             "max_credits": parts, "balance": await credit.wallet_balance(db, "leadgen"),
-            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email", "lead_lookup", "lead_phone_check")}}
+            "rates": {i: rates[i]["credits"] for i in ("check_registry", "google_deep_search", "check_email", "lead_lookup", "lead_phone_check", "lead_social") if i in rates}}
 
 
-async def start(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False) -> Dict[str, Any]:
+async def start(db, accounts: List[Any], include_email: bool, include_web: bool = False, include_phone: bool = False, include_social: bool = False) -> Dict[str, Any]:
     """Hold the credits and start the run. Returns {error} when it can't start."""
     org = current_org()
     pointer = await _read(_latest_key(org))
@@ -148,12 +150,12 @@ async def start(db, accounts: List[Any], include_email: bool, include_web: bool 
             return {"error": "A check is already running. Let it finish or cancel it first."}
     if not accounts:
         return {"error": "Pick at least one company to check."}
-    est = await estimate(db, accounts, include_email, include_web, include_phone)
+    est = await estimate(db, accounts, include_email, include_web, include_phone, include_social)
     job_id = f"chk_{uuid.uuid4().hex[:12]}"
     held = []
     for step, item, label in _STEPS:
         if est["max_credits"][step] > 0:
-            qty = {"email": est["with_contact"], "web": est["web_rows"], "phone": est["phone_rows"] / 5}.get(step, len(accounts))
+            qty = {"email": est["with_contact"], "web": est["web_rows"], "phone": est["phone_rows"] / 5, "social": est["social_pages"]}.get(step, len(accounts))
             held.append({"item": item, "quantity": qty, "ref": f"{job_id}:{step}", "note": f"{label} (held for a company check)"})
     ok, why = await credit.hold(db, held)
     if not ok:
@@ -162,7 +164,7 @@ async def start(db, accounts: List[Any], include_email: bool, include_web: bool 
     await db.commit()
     ready = await readiness()
     doc = {"job_id": job_id, "org_id": org, "status": "running", "total": len(accounts), "done": 0, "cancel": False,
-           "options": {"email": bool(include_email and ready["email"]), "web": bool(include_web), "phone": bool(include_phone and ready.get("phone"))}, "max_credits": est["max_credits"],
+           "options": {"email": bool(include_email and ready["email"]), "web": bool(include_web), "phone": bool(include_phone and ready.get("phone")), "social": bool(include_social)}, "max_credits": est["max_credits"],
            "counts": {v: 0 for v in cc.VERDICTS}, "used": {s: 0 for s, _, _ in _STEPS}, "charged": None,
            "ready": est["ready"], "started_at": datetime.utcnow().isoformat(), "updated_at": datetime.utcnow().isoformat()}
     await _write(_key(org, job_id), doc)
@@ -240,6 +242,9 @@ async def _run(org: str, job_id: str, rows: List[Dict[str, Any]], ready: Dict[st
                                   "checked_at": datetime.utcnow().isoformat() + "Z", "job_id": job_id, "pending_registry": False}
                     if doc["options"].get("web") and not row.get("researched"):
                         result.setdefault("spent", {})["web"] = await _web_research(row["id"], result)
+                    if doc["options"].get("social"):
+                        report(row, "Looking for social pages")
+                        result.setdefault("spent", {})["social"] = await _find_socials(row["id"], row.get("business_record_id") or result.get("record_id") or "")
                     now.pop(row["id"], None)
                     doc["now"] = list(now.values())
                     doc["recent"] = ([{"name": row["name"], "contact": row.get("contact_name", ""), "verdict": result["verdict"],
@@ -301,6 +306,47 @@ async def _web_research(account_id: str, result: Dict[str, Any]) -> int:
     except Exception as err:
         logger.warning(f"[company_check] web research failed for {account_id}: {err}")
         return 0
+
+
+async def _find_socials(account_id: str, record_id: str) -> int:
+    """Look for the company's LinkedIn, Facebook, X and Instagram pages, one search each, after reading its own website's links (free).
+    Returns how many pages were found by a new search: the only case that is charged. A failure never fails the company's check."""
+    from app.api import lead_accounts as LA
+    from app.database import AsyncSessionLocal
+    from app.models.models import BusinessRecord, LeadAccount
+    from app.services import linkedin_lookup as LI
+    from app.services import social_lookup as SL
+
+    found = 0
+    try:
+        async with AsyncSessionLocal() as db:
+            if not record_id:
+                acc = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
+                record_id = (acc.business_record_id if acc else "") or ""
+            biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == record_id))).scalars().first() if record_id else None
+            if not biz:
+                return 0
+            try:
+                await SL.read_own_site(biz)
+            except Exception as err:
+                logger.warning(f"[company_check] own-site links failed for {biz.name}: {err}")
+            for network in ("linkedin", *SL.NETWORKS):
+                try:
+                    r = await (LI.find(db, biz) if network == "linkedin" else SL.find(db, biz, network))
+                except Exception as err:
+                    logger.warning(f"[company_check] {network} lookup failed for {biz.name}: {err}")
+                    continue
+                if r.get("url") and r.get("searched"):
+                    found += 1
+            await db.commit()
+            try:
+                await LA.CP.sync_safely(db, biz)
+            except Exception:
+                pass
+            LA._PAGE_CACHE.clear()
+    except Exception as err:
+        logger.warning(f"[company_check] social pages failed for {account_id}: {err}")
+    return found
 
 
 _WATCHED = ("name", "website", "phone", "email", "contact_name")

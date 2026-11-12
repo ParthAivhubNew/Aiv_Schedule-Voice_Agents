@@ -343,7 +343,7 @@ export default function LeadGenerationPlugin({
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
-        <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
+        <PluginHeader assistant={false} accent="#8B5CF6" nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
           {view === "find_leads" && !isLocked && !embedViews ? (
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm phone-gone" title="Bring in your own spreadsheet of companies" onClick={goImport}><FileSpreadsheet size={14} /> Import</button>

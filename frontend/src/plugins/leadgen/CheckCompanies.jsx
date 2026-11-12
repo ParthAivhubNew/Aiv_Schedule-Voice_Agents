@@ -412,11 +412,11 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
   useEffect(() => {
     let alive = true;
     setEst(null);
-    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone })
+    api.estimateCompanyCheck({ ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone, include_social: mode === "contacts" })
       .then((r) => { if (alive) setEst(r); })
       .catch((e) => { if (alive) setError(e.message || "Couldn't work out the cost."); });
     return () => { alive = false; };
-  }, [ids, pendingOnly, email, web, phone]);
+  }, [ids, pendingOnly, email, web, phone, mode]);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -430,7 +430,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
     setBusy(true);
     setError("");
     try {
-      await onStart({ ids: fitOnly && affordable > 0 ? ids.slice(0, affordable) : ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone });
+      await onStart({ ids: fitOnly && affordable > 0 ? ids.slice(0, affordable) : ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone, include_social: mode === "contacts" });
       onClose();
     } catch (e) {
       setError(e.message || "Couldn't start the check.");
@@ -449,7 +449,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
         contacts ? (
           <>
             Up to <strong>{max.total.toLocaleString()} credits</strong>, only charged for verified finds
-            <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>{est.rates.check_email} credits per email found, {est.rates.lead_lookup} per web or deep search find. The rest is given back.</div>
+            <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>{est.rates.check_email} credits per email found, {est.rates.lead_lookup} per web or deep search find, {est.rates.lead_social} per social page found. The rest is given back.</div>
             <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>Your Leads balance: {est.balance.toLocaleString()} credits.</div>
           </>
         ) : (
@@ -479,6 +479,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
           <li style={li}><strong>Deep web search</strong>, only if nothing above knows the company: {est ? `${est.rates.google_deep_search} credits each` : "…"}{est && !est.ready.deep ? " (not set up yet, so skipped)" : ""}</li>
           <li style={li}><strong>Every phone number</strong>, asked of the phone network: {est ? (!est.ready.phone ? "not set up yet, so skipped" : `${est.rates.lead_phone_check} credit${est.rates.lead_phone_check === 1 ? "" : "s"} per 5 numbers, ${est.phone_rows.toLocaleString()} to check. Numbers checked in the last 30 days are free`) : "…"}</li>
           <li style={li}><strong>Every email</strong>, tested before you send, and the work email of each named contact found or confirmed: {est ? (!est.ready.email ? "not set up yet, so skipped" : `${est.rates.check_email} credits for each verified email found, ${est.with_contact.toLocaleString()} have a contact name to look up`) : "…"}</li>
+          {contacts ? <li style={li}><strong>Social pages</strong>: LinkedIn, Facebook, X and Instagram. The company's own website is read first, free, then a search for any it doesn't link to: {est ? `${est.rates.lead_social} credits for each page found` : "…"}</li> : null}
         </ul>
         {contacts ? null : <label title="A live search of the open web for the company's people, phone numbers and emails" style={{ ...li, display: "flex", gap: 8, alignItems: "flex-start" }}>
           <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} style={{ marginTop: 3 }} />

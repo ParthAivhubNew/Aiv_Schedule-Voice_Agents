@@ -843,7 +843,7 @@ async def live_sources() -> List[Any]:
     return out
 
 
-def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool, web_rows: int = 0, phone_rows: int = 0) -> Dict[str, int]:
+def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, *, registry: bool, deep: bool, email: bool, web_rows: int = 0, phone_rows: int = 0, social_pages: int = 0) -> Dict[str, int]:
     """The most a run could cost, in whole credits, per paid step (a run is charged once per step,
     rounded up). Used for the cost shown before the run and for the credits held while it runs."""
     import math
@@ -855,6 +855,7 @@ def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, 
            "deep": cost("google_deep_search", rows) if deep else 0,
            "email": cost("check_email", with_contact) if email else 0,
            "web": cost("lead_lookup", web_rows),
-           "phone": int(math.ceil(phone_rows / 5 * float(rates["lead_phone_check"]["credits"]))) if phone_rows > 0 and "lead_phone_check" in rates else 0}
-    out["total"] = out["registry"] + out["deep"] + out["email"] + out["web"] + out["phone"]
+           "phone": int(math.ceil(phone_rows / 5 * float(rates["lead_phone_check"]["credits"]))) if phone_rows > 0 and "lead_phone_check" in rates else 0,
+           "social": cost("lead_social", social_pages)}
+    out["total"] = out["registry"] + out["deep"] + out["email"] + out["web"] + out["phone"] + out["social"]
     return out

@@ -27,6 +27,7 @@ class CheckIn(BaseModel):
     pending_only: bool = False  # only companies whose register check is still pending
     include_email: bool = False
     include_web: bool = False  # also run the live web search for companies not researched yet
+    include_social: bool = False  # also look for the LinkedIn, Facebook, X and Instagram pages (2 credits for each page found)
     include_phone: bool = True  # ask the phone network whether each number is real (1 credit per 5 numbers)
 
 
@@ -47,12 +48,12 @@ async def _accounts(db: AsyncSession, body: CheckIn) -> List[LeadAccount]:
 @router.post("/estimate")
 async def estimate(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """What a check would cost at most, and which checks can run right now. Charges nothing."""
-    return await job.estimate(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone)
+    return await job.estimate(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone, body.include_social)
 
 
 @router.post("")
 async def start_check(body: CheckIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    started = await job.start(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone)
+    started = await job.start(db, await _accounts(db, body), body.include_email, body.include_web, body.include_phone, body.include_social)
     if started.get("error"):
         raise HTTPException(status_code=402 if "credits" in started["error"].lower() else 409, detail=started["error"])
     return started

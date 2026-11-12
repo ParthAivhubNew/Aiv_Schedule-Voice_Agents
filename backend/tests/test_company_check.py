@@ -84,12 +84,15 @@ def test_no_supplier_names_reach_the_reasons():
 def test_a_run_is_priced_per_step_and_rounded_up_once():
     rates = {"check_registry": {"credits": 1}, "google_deep_search": {"credits": 2}, "check_email": {"credits": 2.5}}
     p = cc.price_parts(rates, 1000, 3, registry=True, deep=True, email=True)
-    assert p == {"registry": 0, "deep": 2000, "email": 8, "web": 0, "phone": 0, "total": 2008}  # register free; 3 emails x 2.5 = 7.5 -> 8
+    assert p == {"registry": 0, "deep": 2000, "email": 8, "web": 0, "phone": 0, "social": 0, "total": 2008}  # register free; 3 emails x 2.5 = 7.5 -> 8
     rates["lead_lookup"] = {"credits": 5}
     assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, web_rows=4)["web"] == 20
     assert cc.price_parts(rates, 10, 10, registry=False, deep=False, email=False)["total"] == 0
     rates["lead_phone_check"] = {"credits": 1}
-    assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, phone_rows=11)["phone"] == 3  # 11 numbers, 5 to a credit
+    assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, phone_rows=11)["phone"] == 3
+    rates_social = {**rates, "lead_social": {"credits": 2}}
+    p = cc.price_parts(rates_social, 10, 0, registry=False, deep=False, email=False, social_pages=40)
+    assert p["social"] == 80 and p["total"] == 80  # 11 numbers, 5 to a credit
 
 
 def test_a_uk_number_saved_without_its_zero_is_tried_as_a_uk_number():

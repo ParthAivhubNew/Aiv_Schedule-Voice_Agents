@@ -2,10 +2,11 @@ import { searchKey, skipRepeat } from "./searchGuard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, BadgeCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf, ImportView } from "./AccountsViews";
+import { CheckDialog, CheckProgress, useCompanyCheck } from "./CheckCompanies";
 import { personEmail } from "./companyLogic";
 import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
@@ -900,6 +901,31 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (!row) return;
     call.open({ kind: "one", id: row.id, name: row.name });
   };
+  // Get contacts for many ticked companies at once: the ones not saved yet are saved to Unsorted, then the same cost box as in
+  // Lists opens, showing the most it can cost and what comes back. Nothing is charged until the person confirms there.
+  const contactCheck = useCompanyCheck({ onToast: store.toast, reload: store.reload });
+  const [checking, setChecking] = useState(null);
+  const [preparing, setPreparing] = useState(false);
+  const missingDetail = (c) => !c.website || !c.phone || !c.email;
+  const getContacts = async (list) => {
+    const savedOf = (c, pool) => pool.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
+    setPreparing(true);
+    try {
+      const missing = list.filter((c) => !savedOf(c, store.accounts));
+      let fresh = [];
+      if (missing.length) {
+        const r = await store.save(missing.map(asAccount), "Unsorted", { quiet: true });
+        if (!r) return;
+        fresh = r.accounts || [];
+      }
+      const pool = [...fresh, ...store.accounts];
+      const ids = [...new Set(list.map((c) => savedOf(c, pool)).filter(Boolean).map((a) => a.id))];
+      if (ids.length) setChecking({ ids });
+      else store.toast("Couldn't get these companies ready. Try again.");
+    } finally {
+      setPreparing(false);
+    }
+  };
   const callAll = async (list) => {
     const withPhone = list.filter((c) => c.phone);
     if (!withPhone.length) { store.toast("None of these companies has a phone number yet."); return; }
@@ -1340,12 +1366,21 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => bulkSave("Unsorted")}><Plus size={14} /> Save {sel.count.toLocaleString()}</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askList({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, confirm: "Add" }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => bulkSave(FAVOURITES)}><Star size={14} /> Favourite</button>
+                {pickedRows.some(missingDetail) ? (
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={preparing || contactCheck.job?.status === "running"}
+                    title="Look for the website, phone and email these companies are missing. You see the most it can cost, and what you get, before anything is charged"
+                    onClick={() => getContacts(pickedRows.filter(missingDetail))}>
+                    <ShieldCheck size={14} /> {preparing ? "Getting ready…" : `Get contacts (${pickedRows.filter(missingDetail).length.toLocaleString()})`}
+                  </button>
+                ) : null}
                 {pickedRows.some((c) => Object.keys(c.closed || {}).length) ? (
                   <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealMany(pickedRows)}>Reveal {pickedRows.filter((c) => Object.keys(c.closed || {}).length).length.toLocaleString()}</button>
                 ) : null}
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
               </SelectionBar>
+              <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
+              {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
               <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
               {companies.length ? (
                 <CompaniesTable busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}

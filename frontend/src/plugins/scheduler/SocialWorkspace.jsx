@@ -4494,7 +4494,7 @@ export function SocialWorkspace({
         onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "insights", "accounts"]} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <PluginHeader assistant={false} nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar}>
+        <PluginHeader assistant={false} accent={C.teal} nav={nav} title={topTitle[0]} sub={topTitle[1]} accountBar={socialBar}>
           {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
         </PluginHeader>
         <CreditsPaused count={pausedPosts.length} reason={pausedPosts[0] && pausedPosts[0].genError} busy={resumeBusy}
