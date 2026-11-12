@@ -136,6 +136,7 @@ async def _operator_json(db: AsyncSession, op: Operator) -> Dict[str, Any]:
         "is_active": op.is_active is not False,
         "must_change_password": bool(op.must_change_password),
         "last_login_at": op.last_login_at.isoformat() if op.last_login_at else None,
+        "first_visit": bool((op.profile or {}).get("first_visit")),
         "org_id": org_of(op),
         # Outreach's own organisation runs the AI/telephony provider settings; clients never see them.
         "is_platform_org": org_of(op) == __import__("app.core.platform", fromlist=["x"]).platform_org_id(),
@@ -280,6 +281,12 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[s
     if org and org.status == "suspended":
         raise HTTPException(status_code=403, detail="This organisation is suspended. Contact support.")
     await ensure_role_for(db, op)
+    # The very first sign-in is marked so the home screen can greet them as new; the next sign-in clears it.
+    stored = dict(op.profile or {})
+    if op.last_login_at is None:
+        op.profile = {**stored, "first_visit": True}
+    elif stored.pop("first_visit", None):
+        op.profile = stored
     op.last_login_at = datetime.utcnow()
     tokens = await _start_session(db, op, request)
     await db.commit()
@@ -414,7 +421,7 @@ async def update_me(body: MePatch, request: Request, db: AsyncSession = Depends(
             fresh = prof.clean(body.profile)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        merged = {**prof.details(op), **fresh}
+        merged = {**(op.profile or {}), **prof.details(op), **fresh}  # keeps first_visit while they fill in their details
         op.profile = merged
         if ("first_name" in fresh or "last_name" in fresh) and body.name is None:
             full = f"{merged['first_name']} {merged['last_name']}".strip()

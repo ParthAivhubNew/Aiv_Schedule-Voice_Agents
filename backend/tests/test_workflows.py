@@ -16,6 +16,17 @@ from tests.conftest import make_user
 pytestmark = pytest.mark.db
 
 
+@pytest.fixture(autouse=True)
+def _plan_check_off(request):
+    """These tests are about what workflows do, not billing; the plan check has its own test."""
+    from app.api.connected_home import need_any_plan
+
+    if "plan_check_on" not in request.keywords:
+        app.dependency_overrides[need_any_plan] = lambda: None
+    yield
+    app.dependency_overrides.pop(need_any_plan, None)
+
+
 def _client(token):
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"})
 
@@ -289,6 +300,26 @@ async def test_a_viewer_can_look_but_not_change_a_workflow(db):
     async with _client(token) as c:
         assert (await c.get("/api/together/workflows")).status_code == 200 and (await c.get("/api/together/workflow-runs")).status_code == 200
         assert (await c.put("/api/together/workflows", json={"workflows": [_rule()]})).status_code == 403
+
+
+@pytest.mark.plan_check_on
+async def test_workflows_stay_shut_until_the_company_has_a_plan_or_credits_somewhere(db):
+    from app.services import credits as K
+
+    org = "org_wf14"
+    _, token = await make_user(db, "wf14", "Admin", org_id=org)
+    with org_scope(org):
+        await K.set_org_settings(db, {"enforce": True}, org)
+        await db.commit()
+    async with _client(token) as c:
+        for r in ((await c.get("/api/together/workflows")), (await c.get("/api/together/workflow-runs")),
+                  (await c.put("/api/together/workflows", json={"workflows": [_rule()]}))):
+            assert r.status_code == 403 and "plan" in r.json()["detail"]
+    with org_scope(org):
+        await K.add_credits(db, "scheduler", 100, source="topup")
+        await db.commit()
+    async with _client(token) as c:
+        assert (await c.get("/api/together/workflows")).status_code == 200
 
 
 # ── The assistants ──────────────────────────────────────────────────────────

@@ -17,6 +17,13 @@ import { useBodyClass, usePhone } from "../components/usePhone";
 const LIVE_PLAN = ["active", "past_due", "trialing"];
 const line = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, fontVariantNumeric: "tabular-nums", margin: 0 };
 
+// A person's first visit is a hello, not a welcome back.
+const greeting = (firstName, needsName, firstVisit) => {
+  const named = firstName && !needsName;
+  if (firstVisit) return named ? `Hi, ${firstName}` : "Hi there";
+  return named ? `Welcome back, ${firstName}` : "Welcome back";
+};
+
 // One app of the suite. `state` (admins only) says whether the organisation has a plan for it,
 // what is left in its wallet and what a plan starts at.
 function AppCard({ app, state, unit, onOpen, onPlans }) {
@@ -70,7 +77,7 @@ function AppCard({ app, state, unit, onOpen, onPlans }) {
 // Phone Home: the three apps as large tiles, two on top and one centred below, on one screen with
 // nothing to scroll. The tiles keep one order (they do not shuffle once plans load under a finger about to tap).
 // Each tile opens its app; plans and credits are in the profile menu and inside the app.
-function PhoneHome({ operator, firstName, needsName, apps, statusOf, onPick, menuProps }) {
+function PhoneHome({ operator, firstName, needsName, firstVisit, apps, statusOf, onPick, menuProps }) {
   const [installOpen, setInstallOpen] = useState(false);
   const installable = useShowInstallSteps();
   useBodyClass("phone-home-on");
@@ -83,9 +90,9 @@ function PhoneHome({ operator, firstName, needsName, apps, statusOf, onPick, men
       </header>
       <main style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "20px 16px calc(16px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
         <h1 style={{ fontWeight: 600, fontSize: 22, color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
-          {firstName && !needsName ? `Welcome back, ${firstName}` : "Welcome back"}
+          {greeting(firstName, needsName, firstVisit)}
         </h1>
-        <p style={{ fontSize: 15, color: C.slate, margin: "4px 0 0" }}>Choose an app to open.</p>
+        <p style={{ fontSize: 15, color: C.slate, margin: "4px 0 0" }}>{firstVisit ? "Good to have you here. Pick an app to get started." : "Choose an app to open."}</p>
         <BillingReturnBanner />
         <div className="home-triangle">
           {apps.map((app, i) => {
@@ -142,6 +149,8 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
   // A name that is only the login (admin, the username) is not a real name: ask for one.
   const needsName = !firstName || [operator?.username, "admin", "administrator"].some((n) => n && firstName.toLowerCase() === String(n).toLowerCase());
 
+  const firstVisit = Boolean(operator?.first_visit);
+
   const menuProps = { onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections };
   const statusOf = (app) => {
     const st = stateOf(app);
@@ -152,7 +161,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
     return st.plan ? { text: st.plan.name, tone: C.green } : null;
   };
   if (phone) {
-    return <PhoneHome operator={operator} firstName={firstName} needsName={needsName} apps={APPS} statusOf={statusOf} onPick={onPick} menuProps={menuProps} />;
+    return <PhoneHome operator={operator} firstName={firstName} needsName={needsName} firstVisit={firstVisit} apps={APPS} statusOf={statusOf} onPick={onPick} menuProps={menuProps} />;
   }
 
   return (
@@ -175,10 +184,10 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
 
       <main style={{ width: "100%", maxWidth: 1080, boxSizing: "border-box", margin: "0 auto", padding: "clamp(24px, 5vw, 44px) clamp(16px, 4vw, 32px) 64px" }}>
         <h1 style={{ fontWeight: 600, fontSize: "clamp(22px, 3vw, 26px)", color: C.ink, letterSpacing: "-0.02em", margin: 0 }}>
-          {firstName && !needsName ? `Welcome back, ${firstName}` : "Welcome back"}
+          {greeting(firstName, needsName, firstVisit)}
         </h1>
         <p style={{ fontSize: 14, color: C.slate, margin: "6px 0 24px", lineHeight: 1.5 }}>
-          {mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
+          {firstVisit ? "Good to have you here. Pick an app to get started." : mine.length ? "Open an app to pick up where you left off." : "Pick an app to get started."}
           {needsName && onOpenProfileSettings ? (
             <> <button type="button" onClick={onOpenProfileSettings} style={{ all: "unset", cursor: "pointer", color: C.cobalt, fontWeight: 500 }}>Add your name</button> so we can greet you.</>
           ) : null}

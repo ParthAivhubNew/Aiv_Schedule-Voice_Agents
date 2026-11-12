@@ -447,7 +447,18 @@ async def merge(body: MergeIn, request: Request, db: AsyncSession = Depends(get_
 
 
 # ── Workflow rules (X-8) ────────────────────────────────────────────────────
-@router.get("/together/workflows")
+async def need_any_plan(request: Request, db: AsyncSession = Depends(get_db)) -> None:
+    """Workflows belong to the whole company, so any live plan or credit balance (Leads, Voice or Social) opens them; with none, they stay shut."""
+    from app.api.billing import _has_active_plan
+    from app.services import credits as K
+
+    ctx = current(request)
+    covered = await _has_active_plan(db, await K.wallets(db), ctx.get("org_id", ""))
+    if not any(covered.values()):
+        raise HTTPException(status_code=403, detail="Workflows need a plan. Choose a plan or buy a top-up to unlock them.")
+
+
+@router.get("/together/workflows", dependencies=[Depends(need_any_plan)])
 async def get_workflows(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     from sqlalchemy import func
 
@@ -477,7 +488,7 @@ class WorkflowsIn(BaseModel):
     workflows: List[Dict[str, Any]] = []
 
 
-@router.put("/together/workflows")
+@router.put("/together/workflows", dependencies=[Depends(need_any_plan)])
 async def put_workflows(body: WorkflowsIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     # Check everything before anything is written, so a workflow that fails the rules can never take the saved ones with it.
     if len(body.workflows) > W.MAX_RULES:
@@ -495,7 +506,7 @@ def _run_out(r: Any) -> Dict[str, Any]:
             "created_at": (r.created_at.isoformat() + "Z") if r.created_at else None}
 
 
-@router.get("/together/workflow-runs")
+@router.get("/together/workflow-runs", dependencies=[Depends(need_any_plan)])
 async def workflow_runs(workflow_id: str = "", status: str = "", limit: int = 50, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """The newest runs, optionally of one workflow or one status: what ran, what each block said, and why something was skipped."""
     from app.models.models import WorkflowRun
@@ -517,7 +528,7 @@ async def _run_or_404(db: AsyncSession, run_id: str) -> Any:
     return run
 
 
-@router.post("/together/workflow-runs/{run_id}/retry")
+@router.post("/together/workflow-runs/{run_id}/retry", dependencies=[Depends(need_any_plan)])
 async def retry_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     run = await _run_or_404(db, run_id)
     if run.status != "failed":
@@ -527,7 +538,7 @@ async def retry_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) ->
     return {"run": _run_out(run)}
 
 
-@router.post("/together/workflow-runs/{run_id}/cancel")
+@router.post("/together/workflow-runs/{run_id}/cancel", dependencies=[Depends(need_any_plan)])
 async def cancel_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     run = await _run_or_404(db, run_id)
     if run.status not in ("waiting", "failed"):
@@ -543,7 +554,7 @@ class WorkflowTestIn(BaseModel):
     lead_id: str = ""
 
 
-@router.post("/together/workflows/test")
+@router.post("/together/workflows/test", dependencies=[Depends(need_any_plan)])
 async def test_workflow(body: WorkflowTestIn, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """Try a workflow on one of your companies: says what each block would do. Nothing is changed or sent."""
     from app.core.tenancy import current_org

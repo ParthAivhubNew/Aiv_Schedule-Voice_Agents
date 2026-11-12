@@ -256,3 +256,12 @@ async def test_the_refresh_token_also_lives_in_a_cookie_that_every_tab_shares(an
     assert ok.status_code == 200 and ok.json()["access_token"] and ok.json()["operator"]["username"] == "cora"
     out = await anon.post("/api/auth/logout", headers={"Authorization": f"Bearer {ok.json()['access_token']}"})
     assert 'outreach_rt=""' in out.headers.get("set-cookie", "") or "Max-Age=0" in out.headers.get("set-cookie", "")
+
+
+async def test_the_first_sign_in_is_flagged_as_a_first_visit_and_the_next_one_is_not(anon, db):
+    await make_user(db, "newbie", "Admin", org_id="org_newbie", password="Correct-horse-9")
+    body = {"username": "newbie", "password": "Correct-horse-9"}
+    first = (await anon.post("/api/auth/login", json=body)).json()["operator"]
+    assert first["first_visit"] is True
+    second = (await anon.post("/api/auth/login", json=body)).json()["operator"]
+    assert second["first_visit"] is False

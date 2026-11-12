@@ -2875,7 +2875,7 @@ export function CallingWorkspace({
               </React.Fragment>
             );
           })}
-          <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: false, onClick: () => openWorkflows({ from: "voice", event: "call.completed" }) }} />
+          <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: pluginLocked, onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}

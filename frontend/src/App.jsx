@@ -234,11 +234,20 @@ function MainApp({ onSignedOut }) {
   // Refresh who I am and what I can see (roles may have changed since sign-in).
   const operatorId = operator && operator.id;
   // The Workflows page opens over whatever is on screen (from the hub, a plugin's sidebar or the assistant) and closes back to it.
-  const [workflowsCtx, setWorkflowsCtx] = useState(() => (window.location.pathname === "/workflows" ? {} : null));
+  // Workflows need a live plan or credits in at least one app; with none the page does not open (the server refuses it too).
+  const [workflowsCtx, setWorkflowsCtx] = useState(null);
+  const [workflowsLocked, setWorkflowsLocked] = useState(false);
   useEffect(() => {
-    const open = (e) => setWorkflowsCtx(e.detail || {});
+    const tryOpen = (detail) => {
+      api.getBillingAccess().then((res) => {
+        const covered = Object.values(res?.has_active_plan || {});
+        if (covered.length && !covered.some(Boolean)) setWorkflowsLocked(true);
+        else setWorkflowsCtx(detail);
+      }).catch(() => setWorkflowsCtx(detail));  // a failed check is not "no plan"; the server still refuses without one
+    };
+    const open = (e) => tryOpen(e.detail || {});
     window.addEventListener(OPEN_WORKFLOWS, open);
-    if (window.location.pathname === "/workflows") window.history.replaceState(null, "", "/");
+    if (window.location.pathname === "/workflows") { window.history.replaceState(null, "", "/"); tryOpen({}); }
     return () => window.removeEventListener(OPEN_WORKFLOWS, open);
   }, []);
   // Only Outreach's own organisation manages AI and carrier keys; clients never see those screens.
@@ -843,6 +852,16 @@ function MainApp({ onSignedOut }) {
       <DuplicatesNotice />
       <AgentWidget />
       {workflowsCtx ? <WorkflowsPage context={workflowsCtx} canEdit={Boolean(operator?.is_admin || (operator?.permissions || {}).company === "full")} onClose={() => setWorkflowsCtx(null)} /> : null}
+      {workflowsLocked ? (
+        <div role="dialog" aria-modal="true" aria-label="Workflows need a plan" onClick={() => setWorkflowsLocked(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(15,23,42,0.45)" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400, width: "100%", boxSizing: "border-box", padding: 22, borderRadius: 14, background: "#fff", boxShadow: "0 12px 40px rgba(15,23,42,0.25)", fontFamily: "inherit" }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#0F172A", marginBottom: 6 }}>Workflows need a plan</div>
+            <div style={{ fontSize: 13.5, color: "#475569", lineHeight: 1.5, marginBottom: 16 }}>Choose a plan or buy a top-up in Leads, Voice or Social, then Workflows unlock.</div>
+            <button type="button" className="ui-btn ui-btn--primary" onClick={() => setWorkflowsLocked(false)}>Got it</button>
+          </div>
+        </div>
+      ) : null}
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome
