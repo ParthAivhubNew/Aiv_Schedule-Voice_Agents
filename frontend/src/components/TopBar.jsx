@@ -12,6 +12,8 @@ import {
   callingPageFromTarget,
 } from "../tokens";
 
+import { openDock, useDock } from "../hub/jobDockStore";
+
 export function NotificationBell({ notifications = [], setNotifications, onNavigate }) {
   const [open, setOpen] = useState(false);
   const [panelPos, setPanelPos] = useState({ top: 56, right: 16 });
@@ -19,7 +21,10 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
 
   const items = useMemo(() => dedupeNotifications(notifications), [notifications]);
   const unreadCount = items.filter((n) => n.unread).length;
-  const hasUnread = unreadCount > 0;
+  const dock = useDock(); // the bulk check's line and what is waiting on you, shown here instead of a floating pill
+  const waiting = dock.count;
+  const badgeCount = unreadCount + waiting;
+  const hasUnread = badgeCount > 0;
 
   const closePanel = () => setOpen(false);
 
@@ -127,7 +132,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
           setOpen((o) => !o);
         }}
         className="nb-btn"
-        aria-label={hasUnread ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        aria-label={hasUnread ? `Notifications, ${badgeCount} need you` : "Notifications"}
         aria-expanded={open}
         style={{
           position: "relative",
@@ -168,12 +173,12 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {unreadCount > 9 ? "9+" : unreadCount}
+            {badgeCount > 9 ? "9+" : badgeCount}
           </span>
         )}
       </button>
 
-      {!open && <span className="nb-tip" role="tooltip">{hasUnread ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}` : "Notifications"}</span>}
+      {!open && <span className="nb-tip" role="tooltip">{hasUnread ? `${badgeCount} need${badgeCount === 1 ? "s" : ""} you` : "Notifications"}</span>}
 
       {open && (
         <>
@@ -208,6 +213,13 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               overflow: "hidden",
             }}
           >
+            {dock.line ? (
+              <button type="button" onClick={() => { closePanel(); openDock(); }} title="Open the check: progress, and the items waiting on you"
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", border: "none", borderBottom: `1px solid ${C.borderLight}`, background: `var(--ui-accent-soft, ${C.cobaltSoft})`, color: `var(--ui-accent, ${C.cobalt})`, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer", textAlign: "left", flexShrink: 0 }}>
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: waiting ? "#F59E0B" : `var(--ui-accent, ${C.cobalt})`, flexShrink: 0 }} />
+                {dock.line}
+              </button>
+            ) : null}
             <div
               style={{
                 display: "flex",

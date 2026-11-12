@@ -85,6 +85,12 @@ async def check(body: CheckIn, db: AsyncSession = Depends(get_db)):
     return {"counts": counts, "checked": len(rows)}
 
 
+@router.get("/register-search")
+async def register_search(q: str = "", db: AsyncSession = Depends(get_db)):
+    """Find a company on the register by name or number, for the quick choice when none of the suggestions fits. Free."""
+    return {"results": await EL.search_register(db, q)}
+
+
 @router.get("/eligibility/{lead_id}")
 async def one(lead_id: str, db: AsyncSession = Depends(get_db)):
     row = await _account(db, lead_id)
@@ -97,13 +103,14 @@ async def one(lead_id: str, db: AsyncSession = Depends(get_db)):
 class ChooseIn(BaseModel):
     business_record_id: str = ""
     sole_trader: bool = False
+    channel: str = ""  # with sole_trader: call_task | letter_task | linkedin_task
 
 
 @router.post("/eligibility/{lead_id}/choose")
 async def choose(lead_id: str, body: ChooseIn, db: AsyncSession = Depends(get_db)):
     row = await _account(db, lead_id)
     try:
-        out = await EL.choose(db, row, business_record_id=body.business_record_id, sole_trader=body.sole_trader)
+        out = await EL.choose(db, row, business_record_id=body.business_record_id, sole_trader=body.sole_trader, channel=body.channel)
     except EL.EligibilityError as err:
         raise _fail(err)
     await db.commit()

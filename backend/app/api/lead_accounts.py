@@ -1441,6 +1441,19 @@ async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_
     if retention:  # only the companies the 12-month retention sweep flagged
         q = q.where(LeadAccount.retention_flagged_at.isnot(None))
     rows = (await db.execute(q)).scalars().all()
+    # Companies saved before the automatic register check existed: read from our own register copy now (free), so they say Verified
+    # instead of "Not checked" without any click. Once done, nothing is left to do on later visits.
+    stale = [r for r in rows if r.business_record_id and (not r.verification or not r.eligibility)]
+    if stale:
+        from app.services import eligibility as _EL
+
+        try:
+            await _EL.classify(db, stale)
+            await db.commit()
+        except Exception as err:
+            await db.rollback()
+            logger.warning("back-fill of the register check failed: %s", err)
+            rows = (await db.execute(q)).scalars().all()
     biz_ids = [r.business_record_id for r in rows if r.business_record_id]
     registry_by_id: Dict[str, BusinessRecord] = {}
     if biz_ids:

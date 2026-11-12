@@ -2882,15 +2882,7 @@ export function CallingWorkspace({
           <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: pluginLocked, onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-        {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
-        {!embedded && (
-          <>
-            <button type="button" className="ui-nav-item" {...logoutTip("Log out", "Sign out of Outreach on this device")} onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-              <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
-            </button>
-            {logoutNode}
-          </>
-        )}
+        {/* Credits and Sign out live in the top bar (the credits chip and the profile menu), not here too. */}
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
         { id: "list", short: "Call list", icon: List },

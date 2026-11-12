@@ -365,6 +365,7 @@ export const api = {
   // Leads saved accounts (stored per company on the server)
   listLeadAccounts: () => apiRequest('/leads/accounts'),
   // A Voice call list enriched through Leads: rows saved as companies, then read back with the check's result
+  registerSearch: (q) => apiRequest(`/leads/register-search?q=${encodeURIComponent(q)}`),
   linkCallList: (rows, listName) => apiRequest('/leads/call-list/link', { method: 'POST', body: { rows, list_name: listName || '' }, timeoutMs: 120000 }),
   pullCallList: (ids) => apiRequest('/leads/call-list/pull', { method: 'POST', body: { ids }, timeoutMs: 60000 }),
   getContactPoints: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/contact-points?_=${Date.now()}`),

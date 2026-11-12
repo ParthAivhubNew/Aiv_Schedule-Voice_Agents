@@ -4,6 +4,7 @@ import { api } from "../api/apiClient";
 import { usePluginAccess } from "../components/PluginAccessGate";
 import { C, FONT_BODY } from "../tokens";
 import { FIELD_WORDS, dockText, orderCards, sureWord } from "./jobDockLogic";
+import { closeDock, setDock, useDock } from "./jobDockStore";
 
 // A small dock in the corner of every screen. It follows the latest bulk check, and holds the questions it could not
 // answer itself: companies where it found several phones or emails. Nothing is saved on a company until it is chosen here.
@@ -36,7 +37,7 @@ export default function JobDock() {
   const [job, setJob] = useState(null);
   const [cards, setCards] = useState([]);
   const [others, setOthers] = useState([]); // long jobs in Social and Voice
-  const [open, setOpen] = useState(false);
+  const { open } = useDock(); // opened from the bell in the top bar
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState([]);
   const [error, setError] = useState("");
@@ -60,6 +61,8 @@ export default function JobDock() {
   }, [load, running]);
 
   const line = dockText(job, cards.length, others);
+  useEffect(() => { setDock({ line, count: cards.length }); }, [line, cards.length]);
+  useEffect(() => () => setDock({ line: "", count: 0, open: false }), []);
   useEffect(() => { // one polite update for screen readers every 10 s at most
     if (Date.now() - lastSaid.current > 10000) { lastSaid.current = Date.now(); setSaid(line); }
   }, [line]);
@@ -74,12 +77,13 @@ export default function JobDock() {
   const counts = job?.counts || {};
 
   return (
-    <div style={{ position: "fixed", right: "max(16px, env(safe-area-inset-right, 0px))", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", zIndex: 900, maxWidth: "calc(100vw - 32px)", display: "grid", gap: 8, justifyItems: "end" }}>
+    <div style={{ position: "fixed", right: "max(16px, env(safe-area-inset-right, 0px))", top: 64, zIndex: 9990, maxWidth: "calc(100vw - 32px)", display: "grid", gap: 8, justifyItems: "end" }}>
       <span role="status" aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{said}</span>
-      {open ? (
-        <section className="ui-card" aria-label="Bulk check" style={{ width: 400, maxWidth: "100%", maxHeight: "min(70vh, 640px)", overflow: "auto", padding: 14, display: "grid", gap: 12, boxShadow: "0 12px 32px rgba(18,20,28,.22)" }}>
+      {open && line ? (
+        <section className="ui-card" aria-label="Bulk check" style={{ position: "relative", width: 400, maxWidth: "100%", maxHeight: "min(70vh, 640px)", overflow: "auto", padding: 14, display: "grid", gap: 12, boxShadow: "0 12px 32px rgba(18,20,28,.22)" }}>
+          <button type="button" className="ui-icon-btn ui-icon-btn--sm" aria-label="Close" title="Close" onClick={closeDock} style={{ position: "absolute", top: 8, right: 8 }}><ChevronUp size={15} /></button>
           {job ? (
-            <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ display: "grid", gap: 6, paddingRight: 28 }}>
               <div style={{ ...text, fontSize: 14, fontWeight: 600 }}>{running ? (job.pause ? "Check paused" : "Checking companies") : job.status === "done" ? "Check finished" : "Check stopped"}</div>
               <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 3, background: "var(--ui-accent-soft, #EEF2FE)", overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: "var(--ui-accent, #3457D5)", transition: "width .4s" }} />
@@ -125,12 +129,6 @@ export default function JobDock() {
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
         </section>
       ) : null}
-      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        style={{ ...text, display: "flex", gap: 8, alignItems: "center", border: "none", cursor: "pointer", background: "#171A21", color: "#fff", borderRadius: 999, padding: "10px 16px", minHeight: 44, fontSize: 13.5, fontWeight: 600, boxShadow: "0 6px 20px rgba(0,0,0,.25)" }}>
-        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: cards.length ? "#FFC857" : "#8B5CF6" }} />
-        {line}
-        {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
-      </button>
     </div>
   );
 }

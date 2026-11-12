@@ -36,6 +36,9 @@ async def _records(db: AsyncSession, accounts: Iterable[LeadAccount]) -> Dict[st
     return {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(ids)))).scalars().all()}
 
 
+OTHER_CHANNELS = ("call_task", "letter_task", "linkedin_task")
+
+
 def _stamp(account: LeadAccount, group: str, reason: str, by: str = "auto") -> None:
     account.eligibility = group
     account.eligibility_note = {"reason": reason, "by": by, "at": datetime.utcnow().isoformat() + "Z"}
@@ -106,11 +109,45 @@ async def candidates(db: AsyncSession, account: LeadAccount, limit: int = 3) -> 
              "place": b.region or ""} for _, b in scored[:limit]]
 
 
-async def choose(db: AsyncSession, account: LeadAccount, *, business_record_id: str = "", sole_trader: bool = False) -> Dict[str, Any]:
+async def search_register(db: AsyncSession, query: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """Register companies by name or company number, for the person to pick when no suggestion fits. Active companies only, from our own copy. Free."""
+    from app.services import company_check
+
+    q = " ".join(str(query or "").split())[:120]
+    if len(q) < 3:
+        return []
+    number = q.upper().replace(" ", "")
+    if _COMPANY_NUMBER_RE.fullmatch(number):
+        stmt = select(BusinessRecord).where(BusinessRecord.registration_number == number).limit(limit)
+    else:
+        words = [w for w in company_check.name_key(q).split() if len(w) > 1][:5]
+        if not words:
+            return []
+        stmt = select(BusinessRecord).where(BusinessRecord.name.ilike(_like(words)), BusinessRecord.registration_number != "").limit(60)
+    try:
+        async with db.begin_nested():
+            if db.get_bind().dialect.name == "postgresql":
+                await db.execute(text("SET LOCAL statement_timeout = '3s'"))
+            rows = (await db.execute(stmt)).scalars().all()
+    except Exception as err:
+        logger.warning("register search for %r failed: %s", q, err)
+        return []
+    live = [b for b in rows if not str(b.status or "").strip() or str(b.status).lower() in ("active", "registered", "open")]
+    live.sort(key=lambda b: -company_check.name_score(q, b.name))
+    return [{"id": b.id, "name": b.name, "number": b.registration_number or "", "postcode": b.postcode or "", "category": b.company_category or "",
+             "place": b.region or ""} for b in live[:limit]]
+
+
+_COMPANY_NUMBER_RE = re.compile(r"(\d{8}|(SC|NI|OC|SO|NC|R0|LP|SL|SE)\d{6})")
+
+
+async def choose(db: AsyncSession, account: LeadAccount, *, business_record_id: str = "", sole_trader: bool = False, channel: str = "") -> Dict[str, Any]:
     """The quick choice: "Is this X Ltd?" links the register record and the group follows from it; "It's a sole trader" moves it to
     reach another way. The caller commits."""
     if sole_trader:
         _stamp(account, SR.OTHER, "You said it's a sole trader", by="user")
+        if channel in OTHER_CHANNELS:  # how to reach them instead of email: a call, a letter or LinkedIn; blank lets the journey pick from what it has
+            account.eligibility_note = {**(account.eligibility_note or {}), "channel": channel}
         return out(account)
     biz = await db.get(BusinessRecord, business_record_id) if business_record_id else None
     if biz is None:

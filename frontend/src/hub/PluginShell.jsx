@@ -89,15 +89,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         })}
       </nav>
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
-      {!embedded && (
-        <>
-          <button type="button" className="ui-nav-item" {...logoutTip("Log out")} onClick={onLogout} style={{ color: "var(--ui-side-muted)" }}>
-            <LogOut size={16} strokeWidth={1.75} /> <span>Log out</span>
-          </button>
-          {logoutNode}
-        </>
-      )}
+      {/* Credits and Sign out live in the top bar (the credits chip and the profile menu), not here too. */}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
     </>

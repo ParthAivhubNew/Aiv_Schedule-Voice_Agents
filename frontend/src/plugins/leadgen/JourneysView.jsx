@@ -11,6 +11,7 @@ import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDe
 import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, priBtn, secBtn } from "../scheduler/ScheduleWindow";
 import { parseLeads } from "./OutreachViews";
 import { ConsentDeclaration } from "./ConsentDeclaration";
+import { niceName } from "./companyLogic";
 import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, FileText, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import {
   CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, opensNote, rateText, resultsBar, sortTasks, stepLine,
@@ -319,10 +320,40 @@ function NeedsYou({ tasks, replied, choices = 0, onDone, onSkip, onMail, busy })
   );
 }
 
+// "Search the register": for when none of the suggested companies is right. Type a name or a company number, pick the match.
+function RegisterSearch({ busy, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState(null);
+  const [looking, setLooking] = useState(false);
+  const go = async () => {
+    if (q.trim().length < 3) return;
+    setLooking(true);
+    try { setRows((await api.registerSearch(q.trim())).results || []); } catch (_) { setRows([]); } finally { setLooking(false); }
+  };
+  if (!open) return <button type="button" style={btn(false, busy)} disabled={busy} title="Look the company up on the register by name or company number" onClick={() => setOpen(true)}>Search the register</button>;
+  return (
+    <div style={{ display: "grid", gap: 6, flexBasis: "100%" }}>
+      <div style={row}>
+        <input style={{ ...input, maxWidth: 320 }} autoFocus aria-label="Company name or number" placeholder="Company name or number" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+        <button type="button" style={btn(true, looking)} disabled={looking || q.trim().length < 3} onClick={go}>{looking ? "Searching…" : "Search"}</button>
+        <button type="button" style={btn(false)} onClick={() => { setOpen(false); setRows(null); setQ(""); }}>Close</button>
+      </div>
+      {rows && !rows.length ? <div style={small}>Nothing on the register matches that. Try fewer words, or the company number.</div> : null}
+      {(rows || []).map((x) => (
+        <div key={x.id}><button type="button" style={btn(false, busy)} disabled={busy} onClick={() => onPick(x)}>
+          Is this {niceName(x.name)}{x.number ? ` (${x.number})` : ""}{x.place ? `, ${niceName(x.place)}` : ""}?
+        </button></div>
+      ))}
+    </div>
+  );
+}
+
 // ── Who gets email, and the one-click choices that are left ─────────────────
 function AudienceCard({ audience, busy, onChoose, onDeclared }) {
   const a = audience || {};
   const [consentFor, setConsentFor] = useState(null);
+  const [soleFor, setSoleFor] = useState(""); // the contact whose "how do we reach them instead?" choice is open
   if (!a.text) return null;
   const choices = a.choices || [];
   return (
@@ -334,18 +365,34 @@ function AudienceCard({ audience, busy, onChoose, onDeclared }) {
           <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{c.name} <span style={{ ...small, fontWeight: 400 }}>{c.email}</span></div>
           <div style={row}>
             {(c.candidates || []).map((x) => (
-              <button key={x.id} type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { business_record_id: x.id }, `Matched to ${x.name}.`)}>
-                Is this {x.name}{x.number ? ` (${x.number})` : ""}?
+              <button key={x.id} type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { business_record_id: x.id }, `Matched to ${niceName(x.name)}.`)}>
+                Is this {niceName(x.name)}{x.number ? ` (${x.number})` : ""}?
               </button>
             ))}
-            <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { sole_trader: true }, `${c.name} will be reached another way.`)}>It's a sole trader</button>
+            <RegisterSearch busy={busy} onPick={(x) => onChoose(c.lead_id, { business_record_id: x.id }, `Matched to ${niceName(x.name)}.`)} />
+            <button type="button" style={btn(soleFor === c.lead_id, busy)} disabled={busy} aria-expanded={soleFor === c.lead_id} onClick={() => setSoleFor(soleFor === c.lead_id ? "" : c.lead_id)}>It's a sole trader</button>
             <button type="button" style={btn(false, busy)} disabled={busy} title="Opened by you or already a customer. You say how and when they agreed, and they can be emailed" onClick={() => setConsentFor(c)}>They've opted in / existing contact</button>
           </div>
           {!(c.candidates || []).length ? <div style={small}>No close match in the company register.</div> : null}
+          {soleFor === c.lead_id ? (
+            <div role="group" aria-label="How to reach them instead of email" style={{ display: "grid", gap: 6 }}>
+              <div style={small}>Sole traders aren't emailed without consent. Their email steps are skipped and the journey carries on. How should we reach {c.name} instead?</div>
+              <div style={row}>
+                {[["call_task", "Call them", "After you check the number against the TPS register"], ["letter_task", "Send a letter", "A task with their address"], ["linkedin_task", "Reach them on LinkedIn", "A task with their profile"], ["", "Let the journey decide", "A call if there is a number, else a letter, else LinkedIn"]].map(([ch, label, tip]) => (
+                  <button key={ch || "auto"} type="button" style={btn(false, busy)} disabled={busy} title={tip}
+                    onClick={() => { setSoleFor(""); onChoose(c.lead_id, { sole_trader: true, ...(ch ? { channel: ch } : {}) }, `${c.name} will be reached another way${ch ? `: ${label.toLowerCase()}` : ""}.`); }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {consentFor && consentFor.lead_id === c.lead_id ? (
+            <div ref={(el) => { if (el && !el.dataset.seen) { el.dataset.seen = "1"; el.scrollIntoView({ block: "center", behavior: "smooth" }); } }} style={{ marginTop: 4 }}>
+              <ConsentDeclaration key={c.lead_id} leadIds={[c.lead_id]} scope="account" count={1} onClose={() => setConsentFor(null)} onDone={(_, msg) => { setConsentFor(null); onDeclared?.(msg); }} />
+            </div>
+          ) : null}
         </div>
       ))}
       {a.quick_choice > choices.length ? <div style={small}>Showing {choices.length} of {a.quick_choice}. More show here as you answer these.</div> : null}
-      {consentFor ? <ConsentDeclaration key={consentFor.lead_id} leadIds={[consentFor.lead_id]} scope="account" count={1} onClose={() => setConsentFor(null)} onDone={(_, msg) => { setConsentFor(null); onDeclared?.(msg); }} /> : null}
     </div>
   );
 }
@@ -669,7 +716,18 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{p.name || p.email || p.company}</div>
               <div style={small}>{[p.company, p.email].filter(Boolean).join(" · ")}</div>
               {p.timeline && p.timeline.length ? <div style={small}>{p.timeline[p.timeline.length - 1].text}</div> : null}
-              <div style={small}>{p.status === "active" && p.on_hold ? "Waiting for your choice; their emails are on hold" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && p.on_hold ? "" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? (new Date(p.next_at) < new Date() ? " · next goes in the next sending window" : ` · next ${when(p.next_at)}`) : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
+              {p.status === "active" && p.bad_address ? (
+                <div style={{ ...small, color: C.red }}>Won't be emailed: invalid address.{" "}
+                  <button type="button" style={{ all: "unset", cursor: "pointer", textDecoration: "underline", color: C.cobalt }}
+                    onClick={async () => {
+                      const fixed = await askText({ title: "Fix this email address", label: `${p.name || p.company || "This person"}: what is the right address?`, initial: String(p.email || "").replace(/[.\s]+$/, ""), confirm: "Save" });
+                      const addr = String(fixed || "").trim();
+                      if (!addr || addr === p.email) return;
+                      const [first = "", ...rest] = String(p.name || "").split(" ");
+                      run(async () => { await api.journeyRemovePerson(j.id, p.id); return api.journeyPeople(j.id, { people: [{ email: addr, first_name: first, last_name: rest.join(" "), company: p.company || "" }] }); }, `Address fixed for ${p.name || p.company || addr}.`);
+                    }}>Fix the address</button></div>
+              ) : null}
+              <div style={small}>{p.status === "active" && p.bad_address ? "" : p.status === "active" && p.on_hold ? "Waiting for your choice; their emails are on hold" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && p.on_hold ? "" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? (new Date(p.next_at) < new Date() ? " · next goes in the next sending window" : ` · next ${when(p.next_at)}`) : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
             <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
           </div>

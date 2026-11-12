@@ -489,6 +489,9 @@ def other_channel(lead: Optional[LeadAccount]) -> str:
     """How to reach someone who may not be emailed: by phone when there is a number, else by post, else LinkedIn, else a task to find a way."""
     from app.services.identity import lead_phone
 
+    chosen = ((getattr(lead, "eligibility_note", None) or {}).get("channel") or "") if lead is not None else ""
+    if chosen in ("call_task", "letter_task", "linkedin_task"):  # the person said how to reach them when they marked them a sole trader
+        return chosen
     if lead is not None and lead_phone(lead):
         return "call_task"
     if lead is not None and ((lead.address or "").strip() or (lead.postcode or "").strip()):
@@ -692,6 +695,17 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
         verdict = await email_decision(db, enr)
         if not verdict["ok"]:  # a closed company or a number that belongs to another: nothing is gained by any step
             await exit_enrollment(db, enr, "not_eligible", now=now)
+            return True
+        if not verdict["email"] and verdict.get("group") == "quick_choice":
+            # Waiting for the one-click choice: nothing is made for them yet. A task to reach them another way is made only once
+            # someone is marked a sole trader. They are looked at again later, so the choice takes effect without any restart.
+            note = "Waiting for your quick choice. Their emails are on hold."
+            if not any(t.get("text") == note for t in ((enr.vars or {}).get("timeline") or [])[-3:]):
+                note_timeline(enr, note, now)
+            for t in (await db.execute(select(JourneyTask).where(JourneyTask.enrollment_id == enr.id, JourneyTask.status == "open", JourneyTask.kind == "task",
+                                                               JourneyTask.step_key.like(f"{SWAP_PREFIX}%")))).scalars().all():
+                t.status, t.completed_at = "cancelled", now  # made before the choice was asked for: one item only, the quick choice
+            enr.next_action_at = now + timedelta(hours=6)
             return True
         if not verdict["email"]:
             await reach_other_way(db, camp, enr, step, steps, verdict, now)
@@ -1248,9 +1262,14 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
         d = eligible_person(accts.get(e.lead_id) if e.lead_id else None, recs, {"company": e.company, "email": e.email})
         return bool(d["ok"] and not d["email"] and d["group"] == "quick_choice")
 
+    def bad_address(e: EmailEnrollment) -> bool:  # an address that would bounce: it is never written to
+        if e.status != "active":
+            return False
+        return eligible_person(accts.get(e.lead_id) if e.lead_id else None, recs, {"company": e.company, "email": e.email}).get("code") == "email_bad"
+
     out["people"] = [{"id": e.id, "email": e.email, "name": f"{e.first_name} {e.last_name}".strip(), "company": e.company, "status": e.status, "step": e.current_step,
                       "finish_reason": e.finish_reason or "", "waiting": e.waiting_on or "", "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None,
-                      "on_hold": on_hold(e), "timeline": ((e.vars or {}).get("timeline") or [])[-5:]}
+                      "on_hold": on_hold(e), "bad_address": bad_address(e), "lead_id": e.lead_id or "", "timeline": ((e.vars or {}).get("timeline") or [])[-5:]}
                      for e in shown_enrs]
     return out
 

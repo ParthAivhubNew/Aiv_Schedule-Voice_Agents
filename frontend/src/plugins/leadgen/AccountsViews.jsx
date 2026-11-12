@@ -660,6 +660,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const buckets = { all: [], ready: [], needs: [], other: [], contacted: [] };
   base.forEach((a) => { buckets[bucket(a)].push(a); buckets.all.push(a); });
   const tabsShown = TABS; // every tab stays, even at 0, so nothing seems to have gone missing
+  // Companies that would have been ready to email but are held until their register match or consent is settled
+  const heldBack = buckets.needs.filter((a) => a.email && (a.email_route || {}).email === false && (a.email_route || {}).group === "quick_choice").length;
   const tab = tabPref && buckets[tabPref] ? tabPref : TABS.find(([k]) => k !== "all" && buckets[k].length)?.[0] || "all"; // opens on the first group with companies; All is one click away
   const pickRows = base.filter((a) => openPicks(a).length);
   const picks = picksOnly && pickRows.length > 0; // "Needs your choice" looks across every tab
@@ -673,7 +675,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     ["h_warm", "Warm", (a) => Boolean(extra[a.id]?.warm), "Opened your emails or engaged with your posts"],
   ];
   const allChips = [...MORE_CHIPS, ...historyChips, ...verdictChips];
-  const available = allChips.filter(([, , pred]) => inTab.some(pred));
+  const available = allChips.filter(([id, , pred]) => id === "retention" || inTab.some(pred)); // Due for deletion always shows, even at 0, so it can be found
   const activeChip = available.find(([id]) => id === moreFilter);
   const flags = duplicateFlags(base);
   const matching = inTab
@@ -769,6 +771,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {!icp.loading && !icp.isSet ? <IcpPrompt onSet={() => onGo("business")} /> : null}
+      {heldBack ? (
+        <div role="status" style={{ ...text, fontSize: 12.5, color: C.slate }}>
+          {heldBack.toLocaleString()} {heldBack === 1 ? "company with an email moved" : "companies with an email moved"} to Needs your choice after the register check. Settle each one to bring {heldBack === 1 ? "it" : "them"} back to Ready to email.
+        </div>
+      ) : null}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div role="tablist" aria-label="Companies by what to do next" style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%", flex: "0 1 auto" }}>
           {tabsShown.map(([k, label, tip]) => {
