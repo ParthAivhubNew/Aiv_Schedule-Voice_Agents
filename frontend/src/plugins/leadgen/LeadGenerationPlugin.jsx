@@ -54,6 +54,7 @@ import { NewCampaign } from "./CampaignSimple";
 import { JourneysView } from "./JourneysView";
 import { InboundFormsView } from "./InboundForms";
 import { RetentionReview } from "./RetentionReview";
+import { returnToList } from "./openList";
 import { CompanyPage } from "./CompanyPage";
 import { ProfileBox } from "./EmailWriter";
 import { SavedPeople, SavedTabs, peopleOf } from "./SavedPeople";
@@ -114,6 +115,8 @@ export default function LeadGenerationPlugin({
     setAccountPageId(id);
     setView("account");
   };
+  // Back from a company or its full profile: to where the person was, and if that was a list, to inside that list.
+  const goBack = (fallback) => { const v = cameFrom.current && cameFrom.current !== "account" ? cameFrom.current : fallback; if (v === "lists") returnToList(); setView(v); };
   const openCompany = (id) => { cameFrom.current = view === "company" ? cameFrom.current : view; setCompanyId(id); setView("company"); };
   const askAbout = (message) => { setAssistantSeed({ id: Date.now(), text: message }); setAssistantOpen(true); };
   const nav = useMobileNav(view);
@@ -155,6 +158,7 @@ export default function LeadGenerationPlugin({
           if (view !== "company") setView("company");
         } else if (parts[0] === "leadgen" && parts[1]) {
           const norm = normalizeLeadgenView(parts[1]);
+          if (norm === "lists" && (view === "company" || view === "account")) returnToList(); // back out of a company: into the list it was opened from
           if (norm !== view) setView(norm);
         } else if (parts[0] === "emailoutreach") {
           setView("outreach");
@@ -405,10 +409,10 @@ export default function LeadGenerationPlugin({
 
           {view === "account" && accountPageId && (store.accounts.find((a) => a.id === accountPageId)
             ? <AccountPanel key={accountPageId} page account={store.accounts.find((a) => a.id === accountPageId)} store={store}
-                onClose={() => setView(cameFrom.current && cameFrom.current !== "account" ? cameFrom.current : "saved_companies")} onOpenRegister={openCompany} />
+                onClose={() => goBack("saved_companies")} onOpenRegister={openCompany} />
             : <div style={{ padding: 24 }}>{store.loading ? "Loading…" : "That company is no longer in your account."}</div>)}
           {view === "company" && companyId && (
-            <CompanyPage key={companyId} id={companyId} store={store} onBack={() => setView(cameFrom.current || "find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
+            <CompanyPage key={companyId} id={companyId} store={store} onBack={() => goBack("find_leads")} onGo={goTo} onAskAi={askAbout} onOpenJourney={openJourney} />
           )}
 
           {view === "outreach" && (wizard

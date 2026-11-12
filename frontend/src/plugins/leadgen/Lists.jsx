@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { takePendingList } from "./openList";
+import { lastList, takePendingList } from "./openList";
 import { GridTools } from "../../components/GridTools";
 import { CardsSkeleton } from "../../app/Loader";
 import { Check, ListChecks, Megaphone, Pencil, Plus, X } from "lucide-react";
@@ -110,6 +110,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
   const [consentFor, setConsentFor] = useState(""); // id of the list whose consent question is open
   const open = lists.find((l) => l.id === openId);
+  useEffect(() => { lastList.id = openId; }, [openId]); // so Back from a company opened in this list comes back here, not to all lists
   const rename = async (id, name) => {
     setBusy(true);
     try {
