@@ -253,6 +253,24 @@ async def web_contacts(db: AsyncSession, biz: BusinessRecord, *, refresh: bool =
     taught = None if hint else await _taught(db, biz, want)
     if taught:
         return taught
+    if want in ("website", "phone") and not hint:  # Apollo first: its company record holds the phone and website of most companies
+        from app.services import apollo_first as AF
+
+        ap = await AF.record(db, biz)
+        phone = ap.get("phone") if is_uk_phone(ap.get("phone") or "") else ""
+        value = phone if want == "phone" else (ap.get("website") or "")
+        if value:
+            stamp = datetime.utcnow().isoformat() + "Z"
+            found = {"website": value if want == "website" else "", "phones": [value] if want == "phone" else [], "emails": [], "team": [],
+                     "sources": ["apollo"], "source": "apollo", "verified": False, "guardrail": True, "confidence": "apollo", "fetched_at": stamp}
+            keep = dict(biz.raw_data or {})
+            prior = cached if (cached and cached.get("guardrail")) else {}
+            keep["contacts_web"] = {**found, "website": found["website"] or prior.get("website") or "", "phones": found["phones"] or list(prior.get("phones") or [])[:1],
+                                    "emails": list(prior.get("emails") or [])[:1]}
+            biz.raw_data = keep
+            business_records.refresh_rank(biz)
+            await db.flush()
+            return {**found, "found": True, "cached": False, "options": {}, "listing": None}
     saved = (biz.raw_data or {}).get("contacts_web_all")
     if want in ("website", "phone", "email") and saved and saved.get("guardrail") and not refresh and not hint and _age_days(saved.get("fetched_at")) <= CACHE_DAYS:
         return await _reveal_saved(db, biz, saved, want, cached)  # the earlier search looked for all three: this button shows its own, no new search

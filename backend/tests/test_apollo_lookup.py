@@ -78,26 +78,30 @@ async def test_by_website_domain_is_taken_when_the_name_agrees(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_deeper_search_asks_apollo_only_for_what_google_lacks(monkeypatch):
-    google = {"name": "York Place Dental Practice", "website": "http://www.ypdp.co.uk/", "phone": "", "place_id": "g1", "postcode_match": True}
+async def test_with_apollo_first_switched_on_the_deeper_search_asks_apollo_then_google_for_what_is_missing(monkeypatch):
+    monkeypatch.setenv("APOLLO_FIRST_FOR", "company_by_name")
+    google_asked = []
 
     async def fake_google(query, **_):
-        return dict(google)
+        google_asked.append(query)
+        return {"name": "York Place Dental Practice", "website": "http://www.ypdp.co.uk/", "phone": "", "place_id": "g1", "postcode_match": True}
 
-    monkeypatch.setattr(E, "search_google_places", fake_google)
-    asked = []
+    apollo_has = {"phone": "+44 1937 000000"}
 
     async def fake_apollo(name, *, postcode="", domain=""):
-        asked.append(domain)
-        return {"name": "York Place Dental", "phone": "+44 1937 000000", "website": "http://www.ypdp.co.uk", "place_id": "apollo_1", "via": "apollo", "postcode_match": True}
+        if not apollo_has:
+            return None
+        return {"name": "York Place Dental", "phone": apollo_has["phone"], "website": "http://www.ypdp.co.uk", "place_id": "apollo_1", "via": "apollo", "postcode_match": True}
 
+    monkeypatch.setattr(E, "search_google_places", fake_google)
     monkeypatch.setattr(E, "search_apollo", fake_apollo)
-    # The website is wanted and Google has it: Apollo is never asked.
-    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="website")
-    assert got["place_id"] == "g1" and asked == []
-    # The phone is wanted and Google has none: Apollo is asked, about the site Google named.
+    # Apollo has the phone: Google is never asked.
     got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="phone")
-    assert got["via"] == "apollo" and got["phone"] and asked == ["ypdp.co.uk"]
+    assert got["via"] == "apollo" and got["phone"] and google_asked == []
+    # Apollo has nothing: Google's listing is used.
+    apollo_has.clear()
+    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="website")
+    assert got["place_id"] == "g1" and len(google_asked) == 1
 
 
 @pytest.mark.asyncio
@@ -112,3 +116,24 @@ async def test_when_neither_has_it_the_google_listing_is_returned_not_invented(m
     monkeypatch.setattr(E, "search_apollo", fake_apollo)
     got = await E.search_deeper("Be Sweet", name="Be Sweet", postcode="LE10 1DA", want="phone")
     assert got["place_id"] == "g2" and not got["phone"]
+
+
+@pytest.mark.asyncio
+async def test_by_default_google_is_asked_first_and_apollo_only_for_what_it_lacks(monkeypatch):
+    monkeypatch.delenv("APOLLO_FIRST_FOR", raising=False)
+    google = {"name": "York Place Dental Practice", "website": "http://www.ypdp.co.uk/", "phone": "", "place_id": "g1", "postcode_match": True}
+    asked = []
+
+    async def fake_google(query, **_):
+        return dict(google)
+
+    async def fake_apollo(name, *, postcode="", domain=""):
+        asked.append(domain)
+        return {"name": "York Place Dental", "phone": "+44 1937 000000", "website": "http://www.ypdp.co.uk", "place_id": "apollo_1", "via": "apollo", "postcode_match": True}
+
+    monkeypatch.setattr(E, "search_google_places", fake_google)
+    monkeypatch.setattr(E, "search_apollo", fake_apollo)
+    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="website")
+    assert got["place_id"] == "g1" and asked == []  # Google has the website: Apollo is never asked
+    got = await E.search_deeper("York Place Dental", name="York Place Dental Practice", postcode="LS22 6NZ", want="phone")
+    assert got["via"] == "apollo" and asked == ["ypdp.co.uk"]  # Google has no phone: Apollo is asked about the site Google named

@@ -13,7 +13,7 @@ const SocialWorkspaceGate = lazy(() => import("../plugins/scheduler/SocialWorksp
 const CallingWorkspace = lazy(() => import("../plugins/voice/calling/CallingWorkspace").then((m) => ({ default: m.CallingWorkspace })));
 const AccountScreen = lazy(() => import("./AccountScreen"));
 const WorkspaceScreen = lazy(() => import("./WorkspaceScreen"));
-const HumanCallHost = lazy(() => import("../hub/HumanCallHost")); // the browser phone: Call buttons and the Phone page open it
+const HumanCallHost = lazy(() => import("../hub/HumanCallHost")); // the browser phone: Call buttons open it
 
 // Where each screen opens inside its app (the app keeps its place in memory; see utils/route).
 const START = { leads: "/leadgen/find_leads", leadgen: "/leadgen/find_leads", campaigns: "/leadgen/outreach", mail: "/leadgen/mail", voice: "/voice/list", social: "/scheduler/plan", workspace: "/leadgen/find_leads", account: "/account" };

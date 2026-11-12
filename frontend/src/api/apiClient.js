@@ -407,7 +407,7 @@ export const api = {
   latestCompanyCheck: () => apiRequest('/leads/checks/latest'),
   checkPicks: () => apiRequest('/leads/checks/picks'),
   activeJobs: () => apiRequest('/jobs/active'),
-  // Calls a person makes from the browser (Voice > Phone)
+  // Calls a person makes from the browser (Voice > Call list > Call > Call myself)
   humanCallConfig: () => apiRequest('/human-calls/config'),
   humanCallsMine: () => apiRequest('/human-calls/mine'),
   startHumanCall: (body) => apiRequest('/human-calls/start', { method: 'POST', body, timeoutMs: 30000 }),

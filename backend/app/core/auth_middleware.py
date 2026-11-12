@@ -321,8 +321,8 @@ class AuthMiddleware:
                 return await _deny(scope, receive, send, 403, "API keys can only be used with the /v1 API.", code="key_not_allowed")
             scope.setdefault("state", {})["auth"] = key_ctx
             scope.setdefault("state", {})["api_key"] = key_ctx
-            from app.core.tenancy import actor_scope, org_scope
-            with org_scope(key_ctx["org_id"]), actor_scope(key_ctx.get("operator_id") or ""):
+            from app.core.tenancy import actor_scope, org_scope, route_scope
+            with org_scope(key_ctx["org_id"]), actor_scope(key_ctx.get("operator_id") or ""), route_scope(method, path):
                 return await self.app(scope, receive, send)
 
         if token and not websocket:
@@ -388,9 +388,9 @@ class AuthMiddleware:
 
         scope.setdefault("state", {})["auth"] = ctx
         # Every database session in this request runs inside the user's organisation.
-        from app.core.tenancy import actor_scope, org_scope
+        from app.core.tenancy import actor_scope, org_scope, route_scope
 
-        with org_scope(ctx["org_id"]), actor_scope(ctx["operator_id"]):
+        with org_scope(ctx["org_id"]), actor_scope(ctx["operator_id"]), route_scope(method, path):
             return await self.app(scope, receive, send)
 
 

@@ -179,6 +179,13 @@ async def find(db: Any, biz: Any, network: str, *, refresh: bool = False, hint: 
     if taught:
         _put(biz, network, {"url": taught, "options": [], "at": now, "by": "users"})
         return {"url": taught, "options": [], "cached": False, "searched": False}
+    if not hint:  # Apollo first: its company record usually holds the page
+        from app.services import apollo_first as AF
+
+        url = (await AF.record(db, biz)).get(network) or ""
+        if url:
+            _put(biz, network, {"url": url, "options": [], "at": now, "by": "apollo"})
+            return {"url": url, "options": [], "cached": False, "searched": True}
     from app.services import search_recipe as R
 
     plain = R.plain_name(biz.name) or biz.name

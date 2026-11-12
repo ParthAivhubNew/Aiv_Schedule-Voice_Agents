@@ -83,7 +83,8 @@ import { withToken } from "../../../api/authStore";
 import { AudioStreamPlayer } from "../../../api/audioStreamPlayer";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName, meetingTimeLabel, prependNotification, dedupeNotifications, callingPageFromTarget, resolveNotificationTarget } from "../../../tokens";
 import { AnalyticsTab } from "./AnalyticsTab";
-import { PhoneTab } from "./PhoneTab";
+import { RecentHumanCalls } from "./PhoneTab";
+import { CallChoice } from "./CallChoice";
 import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
 import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
@@ -107,8 +108,7 @@ import { openLead } from "../../../connections/ConnectedHome";
 // `section` = which permission section must be at least "view" to see the page.
 const PAGES = [
   { id: "assistant", label: "AI Assistant", icon: Bot, section: "calling", hint: "Ask about your calls, lists and schedule in plain words" },
-  { id: "list", label: "Call list", icon: List, section: "calling", hint: "Make calls: call one number, or upload a list and call many people" },
-  { id: "phone", label: "Phone", icon: PhoneCall, section: "calling", hint: "Call a number yourself from the browser, with an optional recording and transcript" },
+  { id: "list", label: "Call list", icon: List, section: "calling", hint: "Make calls: call one number or a whole list, with the AI or yourself from the browser" },
   { id: "logs", label: "Conversations", icon: FileText, section: "calling", hint: "Past calls with their summaries, and calls happening right now. WhatsApp chats too" },  // calls and WhatsApp
   { id: "schedule", label: "Meetings & callbacks", icon: PhoneCall, section: "calling", hint: "Meetings that were booked, and calls to try again later" },
   { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics", hint: "How many calls were made, answered and turned into meetings" },
@@ -119,7 +119,7 @@ const PAGES = [
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
-  { label: "Outreach", ids: ["assistant", "list", "phone", "logs", "schedule", "analytics"] },
+  { label: "Outreach", ids: ["assistant", "list", "logs", "schedule", "analytics"] },
   { label: "Settings", ids: ["ai", "company"] },
 ];
 
@@ -3312,9 +3312,8 @@ export function CallingWorkspace({
                           </button>
                         </>
                       ) : null}
-                      <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "direct" || needNumber || digitsInPhone(direct.phone).length < 7} onClick={directCall} title={needNumber ? "Get a phone number first, then you can call" : digitsInPhone(direct.phone).length < 7 ? "Type a phone number first" : "Start an AI call to this number now"}>
-                        <Phone size={15} /> {busy === "direct" ? "Calling…" : "Call"}
-                      </button>
+                      <CallChoice onAi={directCall} aiDisabled={busy === "direct" || needNumber} aiTitle={needNumber ? "Get a phone number first to use the AI caller" : ""}
+                        disabled={digitsInPhone(direct.phone).length < 7} number={resolveDirectPhone() || direct.phone} name={direct.name} busyLabel={busy === "direct" ? "Calling…" : ""} />
                     </div>
                   </div>
                   {(myNumbers.length > 1 || (telnyxAssistantConfigured && operator?.is_platform_org)) ? (
@@ -3362,7 +3361,7 @@ export function CallingWorkspace({
                               <div style={{ fontWeight: 500, fontSize: 13, color: C.ink }}>{c.name || c.company || "Contact"}</div>
                               <div style={{ fontSize: 12, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{c.phone}{c.company && c.name ? ` · ${c.company}` : ""}</div>
                             </button>
-                            <button type="button" className="ui-icon-btn ui-icon-btn--sm" disabled={needNumber} title={needNumber ? "Get a phone number first" : "Call"} onClick={() => callOneRow(c)}><Phone size={15} /></button>
+                            <CallChoice icon onAi={() => callOneRow(c)} aiDisabled={needNumber} aiTitle={needNumber ? "Get a phone number first to use the AI caller" : ""} number={c.phone} name={c.name || c.company || ""} />
                             <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Send this number a text message" onClick={() => openChannel("sms", c.phone, c.name, c.company || brandForMsg())}><MessageSquare size={15} /></button>
                             <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Open a WhatsApp chat with this number" onClick={() => openChannel("whatsapp", c.phone, c.name, c.company || brandForMsg())}><MessageCircle size={15} /></button>
                             <button type="button" className="ui-icon-btn ui-icon-btn--sm" title="Remove from saved numbers" onClick={() => removeSavedContact(c.id)}><X size={15} /></button>
@@ -3372,6 +3371,7 @@ export function CallingWorkspace({
                     </div>
                   ) : null}
                 </div>
+                <RecentHumanCalls />
 
                 <div className="ui-card list-card" style={{ flex: 1, minHeight: 320, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json" hidden onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
@@ -3607,9 +3607,8 @@ export function CallingWorkspace({
                           <div className="contact-card-actions">
                             {canDial ? (
                               <>
-                                <button type="button" className="ui-btn ui-btn--primary" disabled={busy === "direct" || needNumber} onClick={() => callOneRow({ ...r, phone })} title={needNumber ? "Get a phone number first" : "Call now"}>
-                                  <Phone size={15} /> Call
-                                </button>
+                                <CallChoice onAi={() => callOneRow({ ...r, phone })} aiDisabled={busy === "direct" || needNumber} aiTitle={needNumber ? "Get a phone number first to use the AI caller" : ""}
+                                  number={phone} name={r.contact || r.name || r.company || ""} leadId={r.lead_id || r.leadId || ""} />
                                 <button type="button" className="ui-icon-btn" onClick={() => openChannel("sms", phone, who, r.company || brandForMsg())} title="Send a text" aria-label="Send a text"><MessageSquare size={17} /></button>
                                 <button type="button" className="ui-icon-btn" onClick={() => openChannel("whatsapp", phone, who, r.company || brandForMsg())} title="WhatsApp" aria-label="WhatsApp"><MessageCircle size={17} /></button>
                               </>
@@ -3737,9 +3736,8 @@ export function CallingWorkspace({
                                 <span className="ui-row-actions">
                                   {canDial ? (
                                     <>
-                                      <button type="button" className="ui-icon-btn ui-icon-btn--sm" disabled={busy === "direct" || needNumber} onClick={() => callOneRow({ ...r, phone })} title={needNumber ? "Get a phone number first" : "Call now"}>
-                                        <Phone size={15} />
-                                      </button>
+                                      <CallChoice icon onAi={() => callOneRow({ ...r, phone })} aiDisabled={busy === "direct" || needNumber} aiTitle={needNumber ? "Get a phone number first to use the AI caller" : ""}
+                                        number={phone} name={r.contact || r.name || r.company || ""} leadId={r.lead_id || r.leadId || ""} />
                                       <button type="button" className="ui-icon-btn ui-icon-btn--sm" onClick={() => openChannel("sms", phone, r.contact || r.name, r.company || brandForMsg())} title="Send a text">
                                         <MessageSquare size={15} />
                                       </button>
@@ -4468,8 +4466,6 @@ export function CallingWorkspace({
               />
             </div>
           )}
-
-          {page === "phone" && canSee(operator, "calling") && <PhoneTab />}
 
           {page === "analytics" && canSee(operator, "analytics") && (
             <div>

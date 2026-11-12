@@ -2577,3 +2577,22 @@ class PhoneScreening(Base):
     ctps = Column(Boolean, default=False)
     screened_at = Column(DateTime, default=datetime.utcnow)
     provider = Column(String, default="")
+
+
+class ApolloCall(Base):
+    """One request we sent to Apollo: which key, what for, who asked, and how it went. Platform-level (no org_id):
+    staff read it in the admin portal to see when and why each Apollo key is used. Never holds a key."""
+    __tablename__ = "apollo_calls"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+    key_id = Column(String, default="")  # "main" or the backup id
+    key_label = Column(String, default="")
+    key_tail = Column(String, default="")  # last 4 characters, to tell keys apart
+    purpose = Column(String, default="")  # company_by_website, company_by_name, email_lookup
+    looked_for = Column(String, default="")  # the company or person asked about
+    for_org = Column(String, default="")  # the client organisation whose search caused it
+    actor = Column(String, default="")  # the person (operator id) whose action caused it; blank for a scheduled or system job
+    route = Column(String, default="")  # the request that caused it, e.g. "POST /api/leads/companies/x/find-website"
+    status = Column(Integer, nullable=True)  # HTTP status; None when the request got no answer
+    outcome = Column(String, default="")  # found, none, key_exhausted, rate_limited, refused, error

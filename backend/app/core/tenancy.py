@@ -103,6 +103,24 @@ def actor_scope(operator_id: str) -> Iterator[None]:
         _current_actor.reset(token)
 
 
+# The request being served ("POST /api/leads/companies/x/find-website"), so work that reaches a paid vendor can say which action caused it.
+# Background tasks started by the request inherit it; blank means a scheduled or system job.
+_current_route: contextvars.ContextVar[str] = contextvars.ContextVar("current_route", default="")
+
+
+def current_route() -> str:
+    return _current_route.get() or ""
+
+
+@contextmanager
+def route_scope(method: str, path: str) -> Iterator[None]:
+    token = _current_route.set(f"{method} {path}"[:200])
+    try:
+        yield
+    finally:
+        _current_route.reset(token)
+
+
 @contextmanager
 def system_scope() -> Iterator[None]:
     token = _current_org.set(SYSTEM)

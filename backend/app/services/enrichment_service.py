@@ -491,17 +491,17 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
     Returns the same shape as search_google_places, or None. Never raises."""
     from app.services import site_check
 
-    key = await apollo_key()
-    if not key or not (name or domain):
+    from app.services import apollo_pool
+
+    if not (name or domain) or not await apollo_pool.keys():
         return None
-    headers = {"x-api-key": key, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
             org: Dict[str, Any] = {}
             if domain:
-                r = await client.get("https://api.apollo.io/api/v1/organizations/enrich", params={"domain": domain}, headers=headers)
-                await _bump_vendor_call("apollo")
-                if r.status_code == 200:
+                r = await apollo_pool.call(client, "get", "https://api.apollo.io/api/v1/organizations/enrich", params={"domain": domain},
+                                           purpose="company_by_website", looked_for=domain, found=lambda j: bool((j or {}).get("organization")))
+                if r is not None and r.status_code == 200:
                     org = r.json().get("organization") or {}
             if not org and name and postcode:
                 # By name only a company at the postcode we hold is taken: the same name in another town is another business.
@@ -509,11 +509,11 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
                 for q in dict.fromkeys([name, " ".join(short.split())]):
                     if not q:
                         continue
-                    r = await client.post("https://api.apollo.io/api/v1/organizations/search", headers=headers,
-                                          json={"q_organization_name": q, "per_page": 10})
-                    await _bump_vendor_call("apollo")
-                    if r.status_code != 200:
-                        logger.warning(f"[apollo] lookup refused ({r.status_code}): {r.text[:160]}")
+                    r = await apollo_pool.call(client, "post", "https://api.apollo.io/api/v1/organizations/search", json={"q_organization_name": q, "per_page": 10},
+                                               purpose="company_by_name", looked_for=f"{q} ({postcode})",
+                                               found=lambda j: bool((j or {}).get("organizations") or (j or {}).get("accounts")))
+                    if r is None or r.status_code != 200:
+                        logger.warning(f"[apollo] lookup refused ({getattr(r, 'status_code', 'no key')}): {str(getattr(r, 'text', ''))[:160]}")
                         return None
                     found = r.json().get("organizations") or r.json().get("accounts") or []
                     pc = _squash_pc(postcode)
@@ -546,16 +546,33 @@ async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> O
 
 
 async def search_deeper(query: str, *, name: str = "", postcode: str = "", domain: str = "", want: str = "") -> Optional[Dict[str, Any]]:
-    """The deeper search: Google's listing first; when that does not have what is wanted ("phone" or "website"; either when not
-    said), Apollo's company data. Shown to the user only as "Deep web search"."""
-    place = await search_google_places(query, name=name, postcode=postcode)  # only a business with our company's name, never Google's first guess
+    """The deeper search: Google's listing first; when that does not have what is wanted ("phone" or "website"; either when not said),
+    Apollo's company data. With Apollo-first switched on (APOLLO_FIRST_FOR) the order is reversed. Shown to the user only as "Deep web search"."""
     needed = (want,) if want in ("phone", "website") else ("phone", "website")
     has = lambda p: bool(p) and any(p.get(k) for k in needed)  # noqa: E731
-    if has(place) and (place.get("postcode_match") or not postcode):
-        return place
-    if place and not domain and place.get("website"):
-        domain = _host_of(place["website"]) or ""  # Google knows the company's site: Apollo can be asked about that exact site
+    from app.services import apollo_first as AF
+
+    if not AF.company_first():  # the usual order: Google's listing first, Apollo only for what it lacks
+        place = await search_google_places(query, name=name, postcode=postcode)  # only a business with our company's name, never Google's first guess
+        if has(place) and (place.get("postcode_match") or not postcode):
+            return place
+        if place and not domain and place.get("website"):
+            domain = _host_of(place["website"]) or ""  # Google knows the company's site: Apollo can be asked about that exact site
+        found = await search_apollo(name or query, postcode=postcode, domain=domain)
+        if has(found) and (found.get("postcode_match") or not has(place)):
+            return found  # Google's answer is at another postcode: a same-postcode Apollo answer is better
+        return place or found
     found = await search_apollo(name or query, postcode=postcode, domain=domain)
+    if has(found) and (found.get("postcode_match") or not postcode):
+        return found
+    place = await search_google_places(query, name=name, postcode=postcode)
+    if has(place) and (place.get("postcode_match") or not postcode) and not has(found):
+        return place
+    if not found and place and not domain and place.get("website"):
+        # Google knows the company's site: Apollo can be asked about that exact site
+        found = await search_apollo(name or query, postcode=postcode, domain=_host_of(place["website"]) or "")
+        if has(found) and (found.get("postcode_match") or not has(place)):
+            return found
     if has(found) and (found.get("postcode_match") or not has(place)):
         return found  # Google's answer is at another postcode: a same-postcode Apollo answer is better
     return place or found

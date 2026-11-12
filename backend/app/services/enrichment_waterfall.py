@@ -113,13 +113,13 @@ async def finder_keys() -> Dict[str, str]:
                     found[prov] = key.strip()
     except Exception as err:
         logger.warning(f"Email Finder keys not read: {err}")
-    if "apollo" not in found:  # the key staff saved for Apollo's company data (Business Discovery) also opens its people search
+    if "apollo" not in found:  # the key staff saved for Apollo's company data (Business Discovery), or a backup key, also opens its people search
         try:
-            from app.services.enrichment_service import apollo_key
+            from app.services import apollo_pool
 
-            key = (await apollo_key() or "").strip()
-            if key:
-                found["apollo"] = key
+            pool = await apollo_pool.keys()
+            if pool:
+                found["apollo"] = pool[0][2]
         except Exception as err:
             logger.debug(f"Apollo key not read for email finding: {err}")
     return {p: found[p] for p in await finder_order() if p in found}
@@ -141,7 +141,12 @@ async def finder_order() -> List[str]:
     except Exception as err:
         logger.warning(f"Email Finder order not read: {err}")
         saved = []
-    return saved + [p for p in PROVIDERS if p not in saved]
+    order = saved + [p for p in PROVIDERS if p not in saved]
+    from app.services import apollo_first as AF
+
+    if "email_lookup" in AF.first_for():  # switched on (APOLLO_FIRST_FOR): Apollo is asked first, whatever order was saved
+        return ["apollo"] + [p for p in order if p != "apollo"]
+    return order
 
 
 def _check(res: httpx.Response, provider: str) -> Any:
@@ -247,7 +252,17 @@ async def _apollo(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tup
     body = {"first_name": p["first_name"], "last_name": p["last_name"], "organization_name": p["company"], "reveal_personal_emails": False}
     if p["domain"]:
         body["domain"] = p["domain"]
-    res = await client.post("https://api.apollo.io/api/v1/people/match", json=body, headers={"X-Api-Key": key, "Content-Type": "application/json", "Cache-Control": "no-cache"})
+    from app.services import apollo_pool
+
+    def _email(j: Any) -> str:
+        return str((((j or {}).get("person")) or {}).get("email") or "")
+
+    who = f"{p['first_name']} {p['last_name']}".strip()
+    res = await apollo_pool.call(client, "post", "https://api.apollo.io/api/v1/people/match", json=body, headers={"Cache-Control": "no-cache"}, lead=key,
+                                 purpose="email_lookup", looked_for=f"{who} at {p['company'] or p['domain']}".strip(),
+                                 found=lambda j: "@" in _email(j) and "not_unlocked" not in _email(j))
+    if res is None:
+        raise ProviderError("Apollo: no key set.")
     person = (_check(res, "apollo") or {}).get("person") or {}
     email_addr = str(person.get("email") or "")
     status = str(person.get("email_status") or "").lower()

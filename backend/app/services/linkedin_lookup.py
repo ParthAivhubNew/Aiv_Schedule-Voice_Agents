@@ -176,6 +176,13 @@ async def find(db: Any, biz: Any, person: Optional[Dict[str, str]] = None, *, re
         found = {"url": taught, "options": [], "at": datetime.utcnow().isoformat() + "Z", "by": "users"}
         _save(biz, raw, store, who, found, bool(person))
         return {"url": taught, "options": [], "cached": False, "searched": False, "taught": True}
+    if not person and not hint:  # Apollo first: its company record usually holds the page
+        from app.services import apollo_first as AF
+
+        url = (await AF.record(db, biz)).get("linkedin") or ""
+        if url:
+            _save(biz, raw, store, who, {"url": url, "options": [], "at": datetime.utcnow().isoformat() + "Z", "by": "apollo"}, False)
+            return {"url": url, "options": [], "cached": False, "searched": True}
     area = biz.region or ""
     if person:
         query = f'{who} {biz.name} LinkedIn'

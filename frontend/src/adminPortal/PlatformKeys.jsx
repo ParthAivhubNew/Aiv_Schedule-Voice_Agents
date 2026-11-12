@@ -6,6 +6,7 @@ import { Note, PageTitle, Pill, btn, card, heading, input, mono, useAction, useL
 import { PlatformAi } from "./PlatformAi";
 import { DataSourceFiles } from "./DataSourceFiles";
 import { DataCompliance } from "./DataCompliance";
+import { ApolloKeys } from "./ApolloKeys";
 import { ConsentDeclarations } from "./ConsentDeclarations";
 import { FitWeights } from "./FitWeights";
 
@@ -257,6 +258,9 @@ export function PlatformKeys({ canEdit }) {
             Pick which saved LLM key powers prospect research, waterfall enrichment, and company analysis.
           </div>
           <PlatformAi canEdit={canEdit} scope="leadgen" showCatalogue={false} />
+
+          <div style={heading}>Apollo</div>
+          <ApolloKeys canEdit={canEdit} />
 
           <div style={heading}>Email Finder & Discovery Keys</div>
           <WebSearchToggle canEdit={canEdit} />
