@@ -15,6 +15,7 @@ describe("which tab a company is on", () => {
     expect(bucket(ready("a"))).toBe("ready");
     expect(bucket(ready("b", { send_block: { code: "consent", reason: "x" } }))).toBe("needs");
     expect(bucket(row("c"))).toBe("needs");
+    expect(bucket(ready("e", { email_route: { group: "reach_other_way", email: false, reason: "sole trader" } }))).toBe("other");
     expect(bucket(row("d", { phone: "0113 496 0000" }))).toBe("needs");
   });
 });

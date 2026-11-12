@@ -126,7 +126,8 @@ export function legalTag(category, regNo = "") {
   if (/unlimited|\bpri\/ultd/.test(t)) return "Unlimited";
   if (/provident|society/.test(t)) return "Society";
   if (/oversea/.test(t)) return "Overseas";
-  if (/guarant|^pri\//.test(t) || /private limited|\bltd\b/.test(t)) return "Ltd";
+  if (/guarant|^pri\/l(bg|bs)/.test(t)) return "Guarantee";
+  if (/^pri\//.test(t) || /private limited|\bltd\b/.test(t)) return "Ltd";
   return "";
 }
 

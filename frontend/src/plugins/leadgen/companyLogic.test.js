@@ -117,17 +117,18 @@ describe("legal tag and short name", () => {
     expect(legalTag("Registered Society")).toBe("Society");
     expect(legalTag("Charitable Incorporated Organisation")).toBe("Charity");
     expect(legalTag("Overseas Company")).toBe("Overseas");
-    expect(legalTag("PRI/LBG/NSC (Private, Limited by guarantee, no share capital)")).toBe("Ltd");
+    expect(legalTag("PRI/LBG/NSC (Private, Limited by guarantee, no share capital)")).toBe("Guarantee");
+    expect(legalTag("Private Limited Company limited by guarantee")).toBe("Guarantee");
     expect(legalTag("Community Interest Company")).toBe("CIC");
     expect(legalTag("Anything", "CC-123456")).toBe("Charity");
     expect(legalTag("")).toBe("");
   });
 
   it("never returns a raw code for any type the register uses", () => {
-    [...keys, ...labels].forEach((c) => expect(legalTag(c)).toMatch(/^(Ltd|LLP|PLC|Charity|CIC|LP|Unlimited|Society|Overseas|)$/));
+    [...keys, ...labels].forEach((c) => expect(legalTag(c)).toMatch(/^(Ltd|Guarantee|LLP|PLC|Charity|CIC|LP|Unlimited|Society|Overseas|)$/));
     keys.forEach((k) => expect(legalTag(k)).not.toBe(k));
     expect(legalTag("ltd")).toBe("Ltd");
-    expect(legalTag("private-limited-guarant-nsc")).toBe("Ltd");
+    expect(legalTag("private-limited-guarant-nsc")).toBe("Guarantee");
     expect(legalTag("oversea-company")).toBe("Overseas");
   });
 

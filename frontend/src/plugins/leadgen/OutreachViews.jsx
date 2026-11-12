@@ -57,9 +57,9 @@ export function readiness(m) {
 }
 
 // A passing check is green. A missing one is red when sending depends on it, and a quiet grey "not set" when it is only recommended.
-function Check({ ok, children, tip, optional = false }) {
-  const color = ok ? C.green : optional ? C.slate : C.red;
-  return <span title={tip} style={{ fontSize: 12, color, fontWeight: 600, cursor: tip ? "help" : undefined }}>{ok ? "✓" : optional ? "–" : "✗"} {children}{!ok && optional ? " (not set)" : ""}</span>;
+function Check({ ok, children, tip, optional = false, warn = false }) {
+  const color = warn ? C.amber || "#B45309" : ok ? C.green : optional ? C.slate : C.red;
+  return <span title={tip} style={{ fontSize: 12, color, fontWeight: 600, cursor: tip ? "help" : undefined }}>{warn ? "⚠" : ok ? "✓" : optional ? "–" : "✗"} {children}{!ok && optional ? " (not set)" : ""}</span>;
 }
 
 function CopyBox({ text }) {
@@ -254,7 +254,7 @@ export function MailboxesView({ outreach, onViewSent }) {
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ ...row, gap: 14 }}>
                 <Check ok={m.spf_verified} tip="SPF: a DNS record listing which servers may send mail for your domain">SPF</Check>
-                <Check ok={m.dkim_verified || m.dkim_override} tip={m.dkim_override && !m.dkim_verified ? "DKIM is skipped: you chose to send without it" : "DKIM: a signature that proves your email wasn't changed on the way"}>{m.dkim_override && !m.dkim_verified ? "DKIM (skipped)" : "DKIM"}</Check>
+                <Check ok={m.dkim_verified || m.dkim_override} warn={Boolean(m.dkim_override && !m.dkim_verified)} tip={m.dkim_override && !m.dkim_verified ? "DKIM is skipped: you chose to send without it" : "DKIM: a signature that proves your email wasn't changed on the way"}>{m.dkim_override && !m.dkim_verified ? "DKIM (skipped)" : "DKIM"}</Check>
                 <Check ok={m.dmarc_verified} optional tip="DMARC: tells receiving servers what to do with mail that fails SPF or DKIM. Recommended, not required">DMARC</Check>
                 <Check ok={m.mx_verified} tip="MX: the domain can receive mail, so replies reach you">MX</Check>
                 <span style={small}>Bounce rate, last 7 days: {(m.bounce_rate_7d * 100).toFixed(1)}%</span>

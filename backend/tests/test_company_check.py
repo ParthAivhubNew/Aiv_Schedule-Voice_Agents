@@ -84,7 +84,7 @@ def test_no_supplier_names_reach_the_reasons():
 def test_a_run_is_priced_per_step_and_rounded_up_once():
     rates = {"check_registry": {"credits": 1}, "google_deep_search": {"credits": 2}, "check_email": {"credits": 2.5}}
     p = cc.price_parts(rates, 1000, 3, registry=True, deep=True, email=True)
-    assert p == {"registry": 1000, "deep": 2000, "email": 8, "web": 0, "phone": 0, "total": 3008}  # 3 emails x 2.5 = 7.5 -> 8
+    assert p == {"registry": 0, "deep": 2000, "email": 8, "web": 0, "phone": 0, "total": 2008}  # register free; 3 emails x 2.5 = 7.5 -> 8
     rates["lead_lookup"] = {"credits": 5}
     assert cc.price_parts(rates, 10, 0, registry=False, deep=False, email=False, web_rows=4)["web"] == 20
     assert cc.price_parts(rates, 10, 10, registry=False, deep=False, email=False)["total"] == 0

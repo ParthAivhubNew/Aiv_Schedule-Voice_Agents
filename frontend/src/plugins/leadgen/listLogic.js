@@ -7,7 +7,9 @@ const FIRST_SEEN = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead
 export function bucket(a) {
   const c = a.connection || {};
   if (c.last_contact_at || c.last_called_at || (c.stage && c.stage !== "new")) return "contacted";
-  if (emailFor(a)?.text && !a.send_block && !["fixes", "attention"].includes(readiness(a))) return "ready";
+  const route = a.email_route || {};
+  if (route.email === false && route.group === "reach_other_way") return "other"; // a sole trader or individual: a call, letter or LinkedIn instead of email
+  if (emailFor(a)?.text && !a.send_block && route.email !== false && !["fixes", "attention"].includes(readiness(a))) return "ready";
   return "needs";
 }
 

@@ -51,8 +51,20 @@ async def classify(db: AsyncSession, accounts: List[LeadAccount]) -> Dict[str, i
         note = a.eligibility_note or {}
         if note.get("by") != "user":
             _stamp(a, group, why)
+        _verify_from_copy(a, records.get(a.business_record_id))
         counts[group] += 1
     return counts
+
+
+def _verify_from_copy(account: LeadAccount, biz: Optional[BusinessRecord]) -> None:
+    """A company with no check yet, linked to an active register record, reads "Verified" at once instead of "Not checked". Free:
+    our own register copy. Any check that already ran (with its web, email and phone findings) is left exactly as it is."""
+    if account.verification or biz is None or not (biz.registration_number or "").strip():
+        return
+    if str(biz.status or "").lower() not in ("active", "registered", "open"):
+        return
+    account.verification = {"verdict": "verified", "reasons": [f"Company register: {biz.status} (our register copy)"],
+                            "checked_at": datetime.utcnow().isoformat() + "Z", "source": "register_copy", "pending_registry": False}
 
 
 def _like(words: List[str]) -> str:

@@ -819,7 +819,10 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
             "quick_choices": quick[:200], "other_way": other[:200], "plan_text": plan_text(plan) if needs_email else "", "queued": not running}
 
 
-def plan_text(plan: Dict[str, int], other_by: Optional[Dict[str, int]] = None) -> str:
+CANT_EMAIL_WORDS = {"email_bad": "invalid address", "problem": "closed or wrong company"}
+
+
+def plan_text(plan: Dict[str, int], other_by: Optional[Dict[str, int]] = None, cant_by: Optional[Dict[str, int]] = None) -> str:
     """"186 get email, 9 need a quick choice, 5 get a call instead": what happens to the people in a journey, never a refusal."""
     def n(k: int, one: str, many: str) -> str:
         return f"{k} {one if k == 1 else many}"
@@ -835,6 +838,9 @@ def plan_text(plan: Dict[str, int], other_by: Optional[Dict[str, int]] = None) -
                 parts.append(n(k, "gets", "get") + f" {OTHER_WAY_WORDS.get(kind, 'another way')} instead")
     elif plan.get("reach_other_way"):
         parts.append(n(plan["reach_other_way"], "is reached another way", "are reached another way"))
+    for code, k in sorted((cant_by or {}).items(), key=lambda x: -x[1]):
+        if k:
+            parts.append(f"{k} can't be emailed: {CANT_EMAIL_WORDS.get(code, 'not eligible')}")
     return ", ".join(parts)
 
 
@@ -851,10 +857,14 @@ async def _eligibility_inputs(db: AsyncSession, people: List[Dict[str, Any]]):
 
 def eligible_person(acc: Optional[LeadAccount], records: Dict[str, Any], person: Dict[str, Any]) -> Dict[str, Any]:
     """May this person be written to? A saved company is judged by its check; a pasted person by the company named beside them."""
+    from app.services import company_check as CC
     from app.services import send_readiness as SR
 
+    address = str(person.get("email") or "").strip()
+    if address and not CC.email_shape(address)[0]:  # for example a trailing dot: it would bounce
+        return {"ok": False, "email": False, "code": "email_bad", "reason": "Its email address can't receive mail", "group": ""}
     if acc is not None:
-        return SR.eligibility(acc, records.get(acc.business_record_id), address=str(person.get("email") or ""))
+        return SR.eligibility(acc, records.get(acc.business_record_id), address=address)
     return SR.pasted_person(person.get("company"))
 
 
@@ -1040,13 +1050,16 @@ async def audience(db: AsyncSession, camp: EmailCampaign, *, with_choices: bool 
 
     enrs = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active").limit(5000))).scalars().all()
     accounts, records = await _eligibility_inputs(db, [{"lead_id": e.lead_id} for e in enrs if e.lead_id])
-    plan = {"email": 0, "quick_choice": 0, "reach_other_way": 0}
+    plan = {"email": 0, "quick_choice": 0, "reach_other_way": 0, "cant_email": 0}
     other_by: Dict[str, int] = {}
+    cant_by: Dict[str, int] = {}
     choices: List[Dict[str, Any]] = []
     for e in enrs:
         acc = accounts.get(e.lead_id) if e.lead_id else None
         d = eligible_person(acc, records, {"company": e.company, "email": e.email})
         if not d["ok"]:
+            plan["cant_email"] += 1  # counted, so the summary adds up to everyone in the journey
+            cant_by[d["code"]] = cant_by.get(d["code"], 0) + 1
             continue
         if d["email"]:
             plan["email"] += 1
@@ -1059,7 +1072,7 @@ async def audience(db: AsyncSession, camp: EmailCampaign, *, with_choices: bool 
         plan["reach_other_way"] += 1
         kind = other_channel(acc)
         other_by[kind] = other_by.get(kind, 0) + 1
-    return {**plan, "other_by": other_by, "choices": choices, "text": plan_text(plan, other_by)}
+    return {**plan, "other_by": other_by, "cant_by": cant_by, "choices": choices, "text": plan_text(plan, other_by, cant_by)}
 
 
 async def preflight(db: AsyncSession, camp: EmailCampaign, org_id: str, aud: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -1226,10 +1239,19 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
     out["preflight"] = await preflight(db, camp, org_id, aud=out["audience"])
     out["schedule"] = await schedule(db, camp, out["steps"])
     out["tasks"] = await list_tasks(db, campaign_id=camp.id, limit=20)
+    shown_enrs = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id).order_by(EmailEnrollment.created_at.desc()).limit(200))).scalars().all()
+    accts, recs = await _eligibility_inputs(db, [{"lead_id": e.lead_id} for e in shown_enrs if e.lead_id])
+
+    def on_hold(e: EmailEnrollment) -> bool:  # still waiting for the one-click choice, so its emails are held
+        if e.status != "active":
+            return False
+        d = eligible_person(accts.get(e.lead_id) if e.lead_id else None, recs, {"company": e.company, "email": e.email})
+        return bool(d["ok"] and not d["email"] and d["group"] == "quick_choice")
+
     out["people"] = [{"id": e.id, "email": e.email, "name": f"{e.first_name} {e.last_name}".strip(), "company": e.company, "status": e.status, "step": e.current_step,
                       "finish_reason": e.finish_reason or "", "waiting": e.waiting_on or "", "next_at": e.next_action_at.isoformat() + "Z" if e.next_action_at else None,
-                      "timeline": ((e.vars or {}).get("timeline") or [])[-5:]}
-                     for e in (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id).order_by(EmailEnrollment.created_at.desc()).limit(200))).scalars().all()]
+                      "on_hold": on_hold(e), "timeline": ((e.vars or {}).get("timeline") or [])[-5:]}
+                     for e in shown_enrs]
     return out
 
 

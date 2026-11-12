@@ -288,7 +288,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
   let last = null; // a divider is drawn whenever the group changes, so no row ever sits under the wrong heading
   return (
     <>
-    <GridTools id="find-companies" pinned={COMPANY_PIN} />
+    <GridTools id="find-companies" pinned={COMPANY_PIN} into="fl-grid-tools" />
     <div className="ui-scroll fl-table" aria-busy={busy || undefined} style={{ opacity: busy ? 0.55 : 1, transition: "opacity .15s" }}>
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: showFit ? 1200 : 1020 }}>
         <thead>
@@ -371,7 +371,7 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
 export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
   return (
     <>
-    <GridTools id="find-people" pinned={NAME_PIN} />
+    <GridTools id="find-people" pinned={NAME_PIN} into="fl-grid-tools" />
     <div className="ui-scroll fl-table">
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 960 }}>
         <thead>

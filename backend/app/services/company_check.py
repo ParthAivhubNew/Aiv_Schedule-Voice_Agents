@@ -851,7 +851,7 @@ def price_parts(rates: Dict[str, Dict[str, Any]], rows: int, with_contact: int, 
     def cost(item: str, n: int) -> int:
         return int(math.ceil(n * float(rates[item]["credits"]))) if n > 0 and item in rates else 0
 
-    out = {"registry": cost("check_registry", rows) if registry else 0,
+    out = {"registry": 0,  # the register check is free: it reads our own copy first and the public register after
            "deep": cost("google_deep_search", rows) if deep else 0,
            "email": cost("check_email", with_contact) if email else 0,
            "web": cost("lead_lookup", web_rows),

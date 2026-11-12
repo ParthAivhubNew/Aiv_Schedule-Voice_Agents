@@ -1245,6 +1245,7 @@ button, input, select, textarea {
 /* GridTools (components/GridTools.jsx): pin, hide and resize a table's columns, and copy a cut-off cell. */
 .gt-bar { display: flex; justify-content: flex-end; align-items: center; padding: 6px 10px; flex-shrink: 0; }
 .gt-bar[data-empty] { display: none; }
+.gt-bar--slotted { display: contents; }
 .gt-btn {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
   border: 1px solid var(--ui-line); border-radius: var(--ui-r-sm); background: var(--ui-surface, #fff);

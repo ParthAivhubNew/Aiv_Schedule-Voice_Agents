@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Columns3, Copy, RotateCcw, Undo2, X } from "lucide-react";
 import { notice } from "../utils/notice";
 
@@ -128,8 +129,11 @@ function applyView(table, labels, sort, filters, force = true) {
 const NO_PINS = [];
 
 // `pinned`: header names this table pins until the person unpins them (their unpin is remembered).
-export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS }) {
+// `into`: id of an element in the page's own header row; the Columns button and friends then sit there instead of on a row of their own.
+export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS, into = "" }) {
   const bar = useRef(null);
+  const [slot, setSlot] = useState(null);
+  useLayoutEffect(() => { setSlot(into ? document.getElementById(into) : null); });
   const btn = useRef(null);
   const [table, setTable] = useState(null);
   const [labels, setLabels] = useState([]); // header text of each column; "" for a column with none (a tick box, say)
@@ -441,12 +445,9 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS })
     setPop(null);
   };
 
-  return (
-    <div ref={bar} className={`gt-bar ${className}`.trim()} data-empty={ready ? undefined : "true"}>
-      <style>{css}</style>
-      {ready ? (
-        <>
-          <span className="gt-hint">{filterCount ? `Showing ${view.shown.toLocaleString()} of ${view.total.toLocaleString()} rows on this page` : sort ? "Sorting the rows on this page" : "Hover a column name to sort, filter, rename, pin or hide it"}</span>
+  const controls = (
+    <>
+          {filterCount || sort ? <span className="gt-hint" style={slot ? { marginRight: 0 } : undefined}>{filterCount ? `Showing ${view.shown.toLocaleString()} of ${view.total.toLocaleString()} rows on this page` : "Sorting the rows on this page"}</span> : null}
           {histLen ? <button type="button" className="gt-btn" onClick={undo}><Undo2 size={14} strokeWidth={1.75} /> Undo</button> : null}
           {filterCount ? <button type="button" className="gt-btn" onClick={() => setFilters({})}><X size={14} strokeWidth={1.75} /> Clear {filterCount === 1 ? "filter" : "filters"}</button> : null}
           {customised ? (
@@ -459,7 +460,12 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS })
             <Columns3 size={14} strokeWidth={1.75} /> {hiddenCount ? `Hidden (${hiddenCount})` : "Columns"}
           </button>
         </>
-      ) : null}
+  );
+
+  return (
+    <div ref={bar} className={`gt-bar ${slot ? "gt-bar--slotted " : ""}${className}`.trim()} data-empty={ready ? undefined : "true"}>
+      <style>{css}</style>
+      {ready ? (slot ? createPortal(controls, slot) : controls) : null}
       {menu ? (
         <div className="gt-menu" role="dialog" aria-label="Choose columns" style={{ top: menu.top, right: menu.right }}>
           <div className="gt-menu-note">Tick a column to show it in the table. Pin one to keep it in view while you scroll sideways. Drag a header's right edge to change its width; double-click the edge to reset it.</div>

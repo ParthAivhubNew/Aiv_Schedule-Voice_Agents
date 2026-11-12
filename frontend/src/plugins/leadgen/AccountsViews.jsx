@@ -7,7 +7,7 @@ import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { openPhone } from "../../utils/humanCall";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, Download, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -15,6 +15,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
 import { applyMapping, quarantineCsv, withPeople } from "./importMapping";
+import { downloadCsv } from "../../utils/downloadCsv";
 import { pendingList } from "./openList";
 import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LOCK_TIP, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck, useLocked } from "./CheckCompanies";
 import { askConfirm, askText } from "./Dialogs";
@@ -591,11 +592,12 @@ export function readiness(a) {
   if (!emailFor(a)?.text && wasLookedUp(a)) return "noemail";
   return "other";
 }
-const TABS = [["ready", "Ready", "Has an email that passed the checks"], ["needs", "Needs contact", "No email we can send to yet"], ["contacted", "Contacted", "You have already been in touch"]];
+const TABS = [["ready", "Ready", "Has an email that passed the checks"], ["needs", "Needs contact", "No email we can send to yet"], ["other", "Reach another way", "Sole traders and individuals: a call, letter or LinkedIn task instead of email, until they agree to email"], ["contacted", "Contacted", "You have already been in touch"]];
 // The old filter cards, now behind one "More filters" menu. Each shows only while some company matches it.
 const MORE_CHIPS = [
   ["new", "New data found", (a) => foundCount(a) > 0, "Companies where we filled in a blank or found extra people, emails or phones"],
   ["fixes", "Fixes to review", (a) => readiness(a) === "fixes", "We found a better value than the one you had. Nothing changes until you accept it"],
+  ["retention", "Due for deletion", (a) => Boolean(a.retention_flagged), "Not contacted for 12 months (or never contacted and added over 12 months ago). Review and delete from Review old contacts"],
   ["flagged", "Import warnings", (a) => (a.import_flags || []).length > 0, "Problems noticed when the file was imported, such as a company number that belongs to another company"],
 ];
 const VERDICT_TIPS = {
@@ -656,7 +658,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const order = sortBy || (icp.isSet ? "fit" : "complete");
   const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
-  const buckets = { ready: [], needs: [], contacted: [] };
+  const buckets = { ready: [], needs: [], other: [], contacted: [] };
   base.forEach((a) => buckets[bucket(a)].push(a));
   const tabsShown = TABS.filter(([k]) => buckets[k].length);
   const tab = buckets[tabPref]?.length ? tabPref : tabsShown[0]?.[0] || "needs";
@@ -751,6 +753,16 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       store.toast(e.message || "Couldn't start it.");
     }
   };
+  // Everything shown in the list, or just the ticked companies, as a spreadsheet. Free, for any list.
+  const downloadRows = () => {
+    const rows = pickedIds.length ? base.filter((a) => sel.has(a.id)) : shown;
+    downloadCsv(`companies-${new Date().toISOString().slice(0, 10)}`, [
+      ["Company", "Company number", "Type", "Website", "Phone", "Email", "Contact", "Contact title", "Industry", "Town or region", "Postcode", "Address", "Email group", "Source", "Added"],
+      ...rows.map((a) => [a.name, a.registration_number, legalTag(a.registry?.company_category, a.registration_number), a.website, phoneFor(a)?.text, emailFor(a)?.text, a.contact_name, a.contact_title,
+        a.industry, a.region, a.postcode, a.address, a.email_route?.group || "", a.source, a.created_at ? a.created_at.slice(0, 10) : ""]),
+    ]);
+    store.toast?.(`Downloaded ${rows.length.toLocaleString()} ${rows.length === 1 ? "company" : "companies"}.`);
+  };
   const acceptFixes = async (ids, fields) => {
     try {
       const r = await api.acceptCheckFixes(ids, fields);
@@ -804,6 +816,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           {!moreInHeader && fixIds.length ? (
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
           ) : null}
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={downloadRows}
+            title={pickedIds.length ? "Download the ticked companies as a spreadsheet" : "Download every company shown here as a spreadsheet"}>
+            <Download size={14} /> {pickedIds.length ? `Download ${pickedIds.length.toLocaleString()}` : "Download"}
+          </button>
           <ViewsMenu current={{ hidden, tab: tabPref, filter: moreFilter }} onToast={store.toast}
             onApply={(v) => {
               saveHidden(v.hidden || []);
@@ -816,7 +832,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         <SelectionBar count={pickedIds.length} label={pickedWord} onClear={sel.clear}>
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={check.job?.status === "running"}
             title="Look for the emails and phone numbers these companies are missing. You see the most it can cost first"
-            onClick={() => setChecking({ ids: pickedIds, pendingOnly: false, mode: "contacts" })}>
+            onClick={() => setChecking({ ids: [...pickedIds].sort((x, y) => shownIds.indexOf(x) - shownIds.indexOf(y)), pendingOnly: false, mode: "contacts" })}>
             <ShieldCheck size={14} /> Get contacts
           </button>
           {pickedOnFile.length ? (

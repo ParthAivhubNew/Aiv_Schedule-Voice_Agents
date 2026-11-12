@@ -372,3 +372,26 @@ async def test_retention_counts_journey_emails_and_calls_as_contact_even_when_th
     assert (await client.post("/api/leads/retention/delete", json={})).json()["deleted"] == 0
     db.expire_all()
     assert await db.get(LeadAccount, "t_quiet") is not None
+
+
+def test_a_saved_company_on_the_active_register_reads_verified_without_a_click():
+    from app.services import eligibility as EL
+
+    live = BusinessRecord(registration_number="01234567", company_category="Private Limited Company", status="Active")
+    gone = BusinessRecord(registration_number="01234568", company_category="Private Limited Company", status="Dissolved")
+    fresh, dead, done = LeadAccount(name="A Ltd"), LeadAccount(name="B Ltd"), LeadAccount(name="C Ltd", verification={"verdict": "looks_ok"})
+    EL._verify_from_copy(fresh, live)
+    EL._verify_from_copy(dead, gone)
+    EL._verify_from_copy(done, live)
+    assert fresh.verification["verdict"] == "verified" and fresh.verification["source"] == "register_copy"
+    assert dead.verification is None
+    assert done.verification == {"verdict": "looks_ok"}  # a check that already ran is never replaced
+
+
+def test_the_journey_summary_counts_everyone_including_an_address_that_cannot_be_emailed():
+    from app.services import journeys as J
+
+    assert J.eligible_person(None, {}, {"company": "Acme Ltd", "email": "info@crosskeysbaltimore.com."})["code"] == "email_bad"
+    assert J.eligible_person(None, {}, {"company": "Acme Ltd", "email": "sam@acme.co.uk"})["ok"]
+    plan = {"email": 2, "quick_choice": 4, "reach_other_way": 0, "cant_email": 1}
+    assert J.plan_text(plan, {}, {"email_bad": 1}) == "2 get email, 4 need a quick choice, 1 can't be emailed: invalid address"

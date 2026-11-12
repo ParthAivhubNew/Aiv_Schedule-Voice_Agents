@@ -1212,6 +1212,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               ) : null}
             </div>
             {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
+            <span id="fl-grid-tools" style={{ display: "contents" }} />
             {!area ? (
               <ViewMenu busy={busy} sortValue={sort} sortOptions={sortOptions(icp.isSet)}
                 sortLabel={(sortOptions(icp.isSet).find(([v]) => v === sort) || sortOptions(icp.isSet)[0])[1]}

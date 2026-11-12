@@ -4,6 +4,7 @@ import { AlertTriangle, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { announceCreditsChanged } from "./CreditsChip";
+import { openPlans } from "../../hooks/useConnections";
 
 // "Check companies" on Saved Accounts: tick some companies (or all), see the most it could cost,
 // and follow the run. Each company gets a verdict with its reasons. Nothing the user saved is
@@ -423,11 +424,13 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Ids come best first, so a run that costs more than the balance can start on the best ones the balance covers.
+  const [fitOnly, setFitOnly] = useState(false);
   const go = async () => {
     setBusy(true);
     setError("");
     try {
-      await onStart({ ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone });
+      await onStart({ ids: fitOnly && affordable > 0 ? ids.slice(0, affordable) : ids, pending_only: pendingOnly, include_email: email, include_web: web, include_phone: phone });
       onClose();
     } catch (e) {
       setError(e.message || "Couldn't start the check.");
@@ -435,6 +438,8 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
     }
   };
   const max = est?.max_credits;
+  const short = Boolean(max && est && max.total > est.balance);
+  const affordable = short && est.companies ? Math.floor(est.balance / (max.total / est.companies)) : 0;
   const li = { ...text, fontSize: 13, color: C.textInk, lineHeight: 1.5 };
   const contacts = mode === "contacts"; // "Get contacts": web search is always part of it, and the most it can cost comes first
   const count = est ? est.companies : ids.length;
@@ -470,7 +475,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
         <div style={muted}>{contacts ? "Each company is looked up one step at a time, cheapest first. Blanks are filled in, and nothing you already have is overwritten." : "Each company is corrected and completed one step at a time, cheapest first. Blanks are filled in. A value you gave that looks wrong is never overwritten: it is offered as a fix you can accept, with your original kept beside it."}</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
           <li style={li}><strong>Our records</strong>, plus website and email format checks: free</li>
-          <li style={li}><strong>Company register</strong>, asked directly when our records can't settle it: {est ? `${est.rates.check_registry} credit${est.rates.check_registry === 1 ? "" : "s"} each` : "…"}{est && !est.ready.registry ? " (not set up yet, so skipped)" : ""}</li>
+          <li style={li}><strong>Company register</strong>, asked directly when our records can't settle it: free{est && !est.ready.registry ? " (not set up yet, so skipped)" : ""}</li>
           <li style={li}><strong>Deep web search</strong>, only if nothing above knows the company: {est ? `${est.rates.google_deep_search} credits each` : "…"}{est && !est.ready.deep ? " (not set up yet, so skipped)" : ""}</li>
           <li style={li}><strong>Every phone number</strong>, asked of the phone network: {est ? (!est.ready.phone ? "not set up yet, so skipped" : `${est.rates.lead_phone_check} credit${est.rates.lead_phone_check === 1 ? "" : "s"} per 5 numbers, ${est.phone_rows.toLocaleString()} to check. Numbers checked in the last 30 days are free`) : "…"}</li>
           <li style={li}><strong>Every email</strong>, tested before you send, and the work email of each named contact found or confirmed: {est ? (!est.ready.email ? "not set up yet, so skipped" : `${est.rates.check_email} credits for each verified email found, ${est.with_contact.toLocaleString()} have a contact name to look up`) : "…"}</li>
@@ -485,6 +490,17 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
           </span>
         </label>}
         {contacts ? null : costBox}
+        {short ? (
+          <div role="status" style={{ ...li, background: "#FEF3C7", borderRadius: 6, padding: "10px 12px", display: "grid", gap: 8 }}>
+            <span>The most this could cost is more than your {est.balance.toLocaleString()} credits. You only pay for what is found, so it may fit, but it can stop part-way.</span>
+            <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => { onClose(); openPlans("leads"); }}>Top up {(max.total - est.balance).toLocaleString()} credits</button>
+              {affordable > 0 && affordable < est.companies ? (
+                <button type="button" className={`ui-btn ui-btn--sm ${fitOnly ? "ui-btn--primary" : "ui-btn--secondary"}`} aria-pressed={fitOnly} onClick={() => setFitOnly((v) => !v)}>Run on the best {affordable.toLocaleString()} now</button>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" className="ui-btn ui-btn--ghost" title="Put the choices back to how they were" onClick={() => { setWeb(true); setError(""); }}>Reset</button>

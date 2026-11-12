@@ -347,7 +347,7 @@ async def _settle(job_id: str, refs: List[str], doc: Dict[str, Any]) -> None:
         await credit.release(db, refs)
         for step, item, label in _STEPS:
             used = int(doc["used"].get(step, 0))
-            if used > 0:
+            if used > 0 and step != "registry":  # the register check is free
                 try:
                     charged[step] = await credit.charge(db, item, used / 5 if step == "phone" else used, f"{job_id}:{step}", f"{label}: {used} {'company' if step != 'email' else 'email found'}")
                 except Exception as err:
