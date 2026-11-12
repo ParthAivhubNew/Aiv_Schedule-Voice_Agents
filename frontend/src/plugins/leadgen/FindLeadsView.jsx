@@ -906,7 +906,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const contactCheck = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   const [checking, setChecking] = useState(null);
   const [preparing, setPreparing] = useState(false);
-  const missingDetail = (c) => !c.website || !c.phone || !c.email;
+  // A detail the register holds but we haven't shown yet (c.closed) is not missing: Reveal shows it, free. Get contacts is only for what we have nowhere.
+  const missingDetail = (c) => ["website", "phone", "email"].some((k) => !c[k] && !(c.closed || {})[k]);
   const getContacts = async (list) => {
     const savedOf = (c, pool) => pool.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
     setPreparing(true);

@@ -711,6 +711,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const allShownPicked = pagePicked(sel.ids, pageIds);
   const pickedIds = base.filter((a) => sel.has(a.id)).map((a) => a.id); // companies removed since are dropped
   const pickedWord = sel.everything && pickedIds.length === shownIds.length ? `All ${pickedIds.length.toLocaleString()} selected` : `${pickedIds.length.toLocaleString()} selected`;
+  // Get contacts is for companies missing something we hold nowhere. A detail the register holds (on_file) is shown with Reveal, free.
+  const lacks = (a) => ["website", "phone", "email"].some((k) => !a[k] && !(a.on_file || []).includes(k));
+  const pickedLacking = pickedIds.filter((id) => { const a = base.find((x) => x.id === id); return !a || lacks(a); });
   const pickedOnFile = base.filter((a) => sel.has(a.id) && a.on_file?.length && a.business_record_id);
   const revealRows = async (rows) => {
     const ids = rows.map((a) => a.business_record_id).filter(Boolean);
@@ -812,11 +815,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             }} />
         </div>
         <SelectionBar count={pickedIds.length} label={pickedWord} onClear={sel.clear}>
-          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={check.job?.status === "running"}
+          {pickedLacking.length ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={check.job?.status === "running"}
             title="Look for the emails and phone numbers these companies are missing. You see the most it can cost first"
-            onClick={() => setChecking({ ids: [...pickedIds].sort((x, y) => shownIds.indexOf(x) - shownIds.indexOf(y)), pendingOnly: false, mode: "contacts" })}>
+            onClick={() => setChecking({ ids: [...pickedLacking].sort((x, y) => shownIds.indexOf(x) - shownIds.indexOf(y)), pendingOnly: false, mode: "contacts" })}>
             <ShieldCheck size={14} /> Get contacts
-          </button>
+          </button> : null}
           {pickedOnFile.length ? (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealRows(pickedOnFile)}>Reveal {pickedOnFile.length.toLocaleString()}</button>
           ) : null}

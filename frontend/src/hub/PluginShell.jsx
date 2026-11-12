@@ -144,7 +144,7 @@ export function PhoneTabBar({ items, nav, accent }) {
 }
 
 // The top bar takes a light wash of its app's colour, so you can tell at a glance which app you are in.
-export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb, ${accent} 9%, #fff)`, borderBottom: `1px solid color-mix(in srgb, ${accent} 22%, #fff)` } : { background: "#fff" });
+export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb, ${accent} 18%, #fff)`, borderBottom: `1px solid color-mix(in srgb, ${accent} 38%, #fff)`, "--bar-bell": `color-mix(in srgb, ${accent} 36%, #fff)`, "--bar-bell-line": `color-mix(in srgb, ${accent} 55%, #fff)` } : { background: "#fff" });
 
 // The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
 // anything the page needs (children), your credits, notifications and profile (accountBar).

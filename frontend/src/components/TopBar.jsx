@@ -139,8 +139,8 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
           justifyContent: "center",
           cursor: "pointer",
           padding: 0,
-          border: `1px solid ${open ? "var(--ui-accent, " + C.cobalt + ")" : C.border}`,
-          background: hasUnread || open ? `var(--ui-accent-soft, ${C.cobaltSoft})` : "#fff",
+          border: `1px solid ${open ? "var(--ui-accent, " + C.cobalt + ")" : "var(--bar-bell-line, " + C.border + ")"}`,
+          background: hasUnread || open ? `var(--bar-bell, var(--ui-accent-soft, ${C.cobaltSoft}))` : "var(--bar-bell, #fff)",
           color: hasUnread || open ? `var(--ui-accent, ${C.cobalt})` : C.slate,
           transition: "background 0.12s, border-color 0.12s",
         }}
