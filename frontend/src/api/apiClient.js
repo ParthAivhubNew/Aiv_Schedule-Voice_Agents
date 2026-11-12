@@ -364,6 +364,9 @@ export const api = {
   discoverAccounts: (payload) => apiRequest('/enrichment/discover-accounts', { method: 'POST', body: payload, timeoutMs: 90000 }),
   // Leads saved accounts (stored per company on the server)
   listLeadAccounts: () => apiRequest('/leads/accounts'),
+  // A Voice call list enriched through Leads: rows saved as companies, then read back with the check's result
+  linkCallList: (rows, listName) => apiRequest('/leads/call-list/link', { method: 'POST', body: { rows, list_name: listName || '' }, timeoutMs: 120000 }),
+  pullCallList: (ids) => apiRequest('/leads/call-list/pull', { method: 'POST', body: { ids }, timeoutMs: 60000 }),
   getContactPoints: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/contact-points?_=${Date.now()}`),
   saveLeadAccounts: (accounts, listName, onExisting) => apiRequest('/leads/accounts', { method: 'POST', body: { accounts, list_name: listName || '', ...(onExisting ? { on_existing: onExisting } : {}) } })
     .then((r) => { if (r && r.duplicates_total > 0) announceDuplicates({ kind: 'save', total: r.duplicates_total, pairs: r.duplicates || [] }); return r; }),

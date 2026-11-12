@@ -87,6 +87,8 @@ import { RecentHumanCalls } from "./PhoneTab";
 import { CallChoice } from "./CallChoice";
 import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
+import { GetContactsBar } from "./GetContactsBar";
+import { VerdictBadge } from "../../leadgen/CheckCompanies";
 import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
 import { WorkingHoursTab } from "./WorkingHoursTab";
 import { CallPermissions } from "./CallPermissions";
@@ -3501,6 +3503,9 @@ export function CallingWorkspace({
                       showToast={showToast}
                     />
                   ) : null}
+                  {rows.length ? (
+                    <GetContactsBar rows={rows} setRows={setRows} selectedIds={selectedIds} fileName={fileName} phoneOf={rowPhone} showToast={showToast} leadsOn={leadsLink.available} />
+                  ) : null}
                   {availableSheets.length > 1 && (
                     <div className="ui-scroll" style={{
                       display: "flex",
@@ -3660,6 +3665,7 @@ export function CallingWorkspace({
                               <th>Country</th>
                             </>
                           ) : null}
+                          {rows.some((r) => r.lead) ? <th title="What the company check found, the same check as in your Leads lists">Company check</th> : null}
                           <th title="How many of phone, contact name, company, email and website this contact has">Details</th>
                           <th style={{ textAlign: "right" }}>Calls</th>
                           <th>Last result</th>
@@ -3730,6 +3736,7 @@ export function CallingWorkspace({
                                   <td style={{ color: C.slate }}>{(r.check && r.check.country) || ""}</td>
                                 </>
                               ) : null}
+                              {rows.some((x) => x.lead) ? <td>{r.lead && r.lead.verdict ? <VerdictBadge verification={{ verdict: r.lead.verdict }} /> : <span style={{ color: C.slateLight }}>Not checked</span>}</td> : null}
                               <td><DetailsBar d={rowDetails(r, phone)} /></td>
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.callTimes || 0}</td>
                               <td style={{ color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "Not called"}</td>

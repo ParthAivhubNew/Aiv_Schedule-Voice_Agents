@@ -5,7 +5,6 @@ import { api } from "../../api/apiClient";
 import { Loader, Spinner } from "../../app/Loader";
 import { Note, Pill, btn as baseBtn, card, input, useAction, when } from "../../adminPortal/ui";
 import { askConfirm, askText } from "./Dialogs";
-import { downloadCsv } from "../../utils/downloadCsv";
 import { useConnection, openPlans } from "../../hooks/useConnections";
 import { Drawer } from "./FindLeadsParts";
 import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDesign";
@@ -645,7 +644,6 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         <div style={{ ...row, justifyContent: "space-between" }}>
           <strong style={{ fontSize: 14 }}>People <span style={{ ...small, fontWeight: 500 }}>{j.results.people}</span></strong>
           <button type="button" aria-expanded={adding} style={btn(false)} onClick={() => setAdding((a) => !a)}><Plus size={14} /> Add people</button>
-          <button type="button" style={btn(false)} title="Download everyone in this journey with where they are, as a spreadsheet" onClick={() => downloadCsv(`journey-${(j.name || "people").replace(/[^A-Za-z0-9]+/g, "-")}`, [["Name", "Email", "Company", "Status", "Step", "Next send", "Waiting for your choice"], ...(j.people || []).map((p) => [p.name, p.email, p.company, PERSON_WORDS[p.status] || p.status, p.step, p.next_at || "", p.on_hold ? "yes" : ""])])}>Download people</button>
         </div>
         {adding ? (
           <div style={{ display: "grid", gap: 8 }}>

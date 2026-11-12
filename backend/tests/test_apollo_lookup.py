@@ -34,6 +34,16 @@ def _client(search_orgs=None, enrich_org=None):
 
 @pytest.fixture(autouse=True)
 def _key(monkeypatch):
+    from app.services import apollo_pool as AP
+
+    async def no_kept(_):
+        return None
+
+    async def not_kept(*_):
+        return None
+
+    monkeypatch.setattr(AP, "lookup_get", no_kept)  # these tests ask the same company twice with different answers
+    monkeypatch.setattr(AP, "lookup_put", not_kept)
     async def key():
         return "test-key"
 

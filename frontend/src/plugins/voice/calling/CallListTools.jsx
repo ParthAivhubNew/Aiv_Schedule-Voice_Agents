@@ -5,7 +5,7 @@ import { Loader } from "../../../app/Loader";
 import { C, FONT_BODY } from "../../../tokens";
 import { navigateHash } from "../../../utils/route";
 import { OUTCOME_WORD, STAGES, StageBadge } from "../../leadgen/LeadActivity";
-import { CHIPS, countCalls, detailsTip, listDetails, readViews, rowAsAccount, withView, writeViews } from "./callListLogic";
+import { CHIPS, MORE, TABS, countCalls, detailsTip, listDetails, readViews, rowAsAccount, withView, writeViews } from "./callListLogic";
 
 // The extra tools on the Voice call list, the same kind the Leads list has: cards and chips for where each contact stands, a search box with
 // saved views, bulk actions on the ticked rows, and a side panel with one contact's calls, stage and notes.
@@ -84,33 +84,33 @@ export function DetailsBar({ d }) {
 export function CallListSummary({ rows, phoneOf, status, setStatus, q, setQ, onToast }) {
   const n = countCalls(rows, phoneOf);
   const held = listDetails(rows, phoneOf);
-  const card = (label, value) => (
-    <div className="ui-card" style={{ padding: "12px 16px" }}>
-      <div style={muted}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 600, color: C.textInk, fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>{value.toLocaleString()}</div>
-    </div>
-  );
+  const tab = (on) => ({ minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", color: on ? "#fff" : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" });
+  const more = MORE.filter((k) => n.chips[k] > 0 || status === k);
+  const chipLabel = (k) => (CHIPS.find(([id]) => id === k) || [])[1] || k;
   return (
-    <div style={{ display: "grid", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-        {card("Contacts", n.contacts)}{card("Ready to call", n.ready)}{card("Called", n.called)}{card("Interested", n.interested)}
+    <div style={{ display: "grid", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
+      <div style={{ ...muted, fontSize: 12.5 }} title="Phone, contact name, company, email and website, counted from what is on the list">
+        {n.contacts.toLocaleString()} contact{n.contacts === 1 ? "" : "s"}. {held.phones.toLocaleString()} with a working phone; {held.pct}% of the details filled in; {held.full.toLocaleString()} have all 5.
       </div>
-      <div style={{ ...muted, display: "flex", gap: 12, flexWrap: "wrap" }} title="Phone, contact name, company, email and website, counted from what is on the list">
-        <span>Details filled: <strong style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{held.pct}%</strong></span>
-        <span>{held.phones.toLocaleString()} with a working phone</span>
-        <span>{held.full.toLocaleString()} with all five details</span>
-      </div>
-      <div className="ui-scroll" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }} role="group" aria-label="Show contacts by how their last call went">
-        {CHIPS.filter(([k]) => k === "all" || n.chips[k] > 0 || status === k).map(([k, label]) => (
-          <button key={k} type="button" className={`ui-btn ui-btn--sm ${status === k ? "ui-btn--primary" : "ui-btn--ghost"}`} aria-pressed={status === k} style={{ whiteSpace: "nowrap" }} onClick={() => setStatus(k)}>
-            {label} <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.8 }}>{n.chips[k]}</span>
-          </button>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="Contacts by what to do next" className="ui-scroll" style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%", flex: "0 1 auto" }}>
+          {TABS.map(([k, label, tip]) => (
+            <button key={k} type="button" role="tab" aria-selected={status === k} title={tip} onClick={() => setStatus(k)} style={tab(status === k)}>
+              {label} {(k === "all" ? n.contacts : n.chips[k] || 0).toLocaleString()}
+            </button>
+          ))}
+        </div>
+        {more.length ? (
+          <select className="ui-input" aria-label="More filters" value={MORE.includes(status) ? status : ""} onChange={(e) => setStatus(e.target.value || "all")} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
+            <option value="">More filters</option>
+            {more.map((k) => <option key={k} value={k}>{chipLabel(k)} ({n.chips[k].toLocaleString()})</option>)}
+          </select>
+        ) : null}
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <label style={{ position: "relative", flex: "1 1 260px", maxWidth: 440 }}>
           <Search size={14} aria-hidden="true" style={{ position: "absolute", left: 10, top: 10, color: C.slate }} />
-          <input className="ui-input" style={{ width: "100%", paddingLeft: 30 }} placeholder="Filter by name, phone, email or place" aria-label="Filter the call list" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="ui-input" style={{ width: "100%", paddingLeft: 30 }} placeholder="Filter by name, website, contact or place" aria-label="Filter the call list" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <ViewsMenu status={status} q={q} onApply={(v) => { setStatus(v.status || "all"); setQ(v.q || ""); }} onToast={onToast} />
       </div>

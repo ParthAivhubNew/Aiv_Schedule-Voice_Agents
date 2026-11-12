@@ -67,7 +67,7 @@ async def test_an_exhausted_key_hands_the_task_to_the_backup_and_both_calls_are_
 
     # The main key is now set aside: the next task goes straight to the backup.
     client.seen.clear()
-    await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="f.co.uk")
+    await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="g.co.uk")  # another company
     assert client.seen == ["backup-key-bbbb2222"]
 
     data = (await staff.get("/api/admin-api/apollo")).json()
@@ -77,6 +77,7 @@ async def test_an_exhausted_key_hands_the_task_to_the_backup_and_both_calls_are_
     assert backup["label"] == "Backup 1" and backup["found"] == 2
     outcomes = [(c["tail"], c["outcome"], c["purpose"], c["lookedFor"]) for c in data["calls"]]
     assert ("1111", "key_exhausted", "company_by_website", "f.co.uk") in outcomes and ("2222", "found", "company_by_website", "f.co.uk") in outcomes
+    assert any(c["lookedFor"] == "g.co.uk" and c["tail"] == "2222" for c in data["calls"])
     assert "bbbb2222" not in str(data)  # the key itself is never returned
 
 
@@ -104,7 +105,7 @@ async def test_the_log_says_which_user_and_which_screen_action_caused_the_call(s
     monkeypatch.setattr(E.httpx, "AsyncClient", _client({"main-key-aaaa1111": 200}))
     with org_scope("org_log1"), actor_scope(op.id), route_scope("POST", "/api/leads/companies/c1/find-website"):
         await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="f.co.uk")
-    await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="f.co.uk")  # no user, no request: a system job
+    await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX", domain="s.co.uk")  # no user, no request: a system job
 
     calls = (await staff.get("/api/admin-api/apollo")).json()["calls"]
     mine = next(c for c in calls if c["user"] == "Anitha")
@@ -184,3 +185,40 @@ async def test_apollo_first_does_nothing_until_it_is_switched_on(db, monkeypatch
 
     monkeypatch.setattr(E, "search_apollo", never)
     assert await AF.record(db, BusinessRecord(id="br_af2", identity_hash="h_af2", name="X", raw_data={})) == {}
+
+
+async def test_a_company_costs_one_apollo_request_ever_and_a_miss_or_a_failure_is_handled_right(db, monkeypatch):
+    sent = []
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, headers=None, **k):
+            sent.append(k["params"]["domain"])
+            return _Resp(429) if k["params"]["domain"] == "busy.co.uk" else _Resp(200, {"organization": {}})  # Apollo has nothing for the others
+
+        async def post(self, url, headers=None, **k):
+            sent.append(k["json"]["q_organization_name"])
+            return _Resp(200, {"organizations": []})
+
+    monkeypatch.setattr(E.httpx, "AsyncClient", Client)
+    # A miss is one request, and asking again (from any button, any organisation) sends nothing.
+    assert await E.search_apollo("Nobody Ltd", postcode="LS1 1AA", domain="nobody.co.uk") is None
+    assert await E.search_apollo("Nobody Ltd", postcode="LS1 1AA", domain="nobody.co.uk") is None
+    assert sent == ["nobody.co.uk"]
+    # By name there is one request too (no second spelling), and a name with no postcode is never sent.
+    assert await E.search_apollo("Farsley Dental Practice", postcode="LS28 5HX") is None
+    assert await E.search_apollo("Farsley Dental Practice") is None
+    assert sent == ["nobody.co.uk", "Farsley Dental Practice"]
+    # A refused request is not an answer: it is asked again later.
+    await E.search_apollo("Busy Ltd", postcode="LS1 1AA", domain="busy.co.uk")
+    AP._COOL.clear()
+    await E.search_apollo("Busy Ltd", postcode="LS1 1AA", domain="busy.co.uk")
+    assert sent.count("busy.co.uk") == 2

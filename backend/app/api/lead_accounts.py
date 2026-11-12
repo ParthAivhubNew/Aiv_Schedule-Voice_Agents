@@ -1744,6 +1744,64 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
     return out
 
 
+class CallRowIn(BaseModel):
+    key: str
+    lead_id: str = ""
+    name: str = ""
+    website: str = ""
+    phone: str = ""
+    email: str = ""
+    contact_name: str = ""
+    region: str = ""
+    industry: str = ""
+
+
+class CallListLinkIn(BaseModel):
+    rows: List[CallRowIn]
+    list_name: str = ""
+
+
+@router.post("/call-list/link")
+async def link_call_list(body: CallListLinkIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Saves the rows of a Voice call list as companies (one by one, so each row learns its company) and returns {key: lead_id}. A row whose company
+    is already saved is matched to it and left as it was. Rows with nothing to save (no name or website) get no id. This is how a call list is
+    enriched: the same saved company, the same check, the same cost box as in Leads."""
+    from app.core.auth_middleware import current
+
+    if len(body.rows) > 300:
+        raise HTTPException(status_code=400, detail="Link at most 300 rows at a time.")
+    who = current(request)
+    owner = who.get("name") or who.get("username") or ""
+    links: Dict[str, str] = {}
+    for r in body.rows:
+        if r.lead_id and await db.get(LeadAccount, r.lead_id):
+            links[r.key] = r.lead_id
+            continue
+        item = AccountIn(name=r.name, website=r.website, phone=r.phone, email=r.email, contact_name=r.contact_name, region=r.region,
+                         industry=r.industry, source="import")
+        out = await save_accounts(db, AccountsIn(accounts=[item], list_name=body.list_name, on_existing="skip"), owner)
+        if out.get("accounts"):
+            links[r.key] = out["accounts"][0]["id"]
+        elif out.get("duplicates"):
+            links[r.key] = out["duplicates"][0]["original_id"]
+    return {"links": links, "linked": len(links), "skipped": len(body.rows) - len(links)}
+
+
+class CallListPullIn(BaseModel):
+    ids: List[str]
+
+
+@router.post("/call-list/pull")
+async def pull_call_list(body: CallListPullIn, db: AsyncSession = Depends(get_db)):
+    """What Leads now knows about these companies, for a call list to fill in: contact details and the check's verdict. Only the answer for the rows the person already has, never register facts to browse."""
+    ids = list(dict.fromkeys(i for i in body.ids if i))[:2000]
+    rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all() if ids else []
+    return {"companies": {a["id"]: {"phone": a["phone"], "email": a["email"], "website": a["website"], "contact_name": a["contact_name"],
+                                    "verdict": (a["verification"] or {}).get("verdict", ""), "group": (a.get("email_route") or {}).get("group", ""),
+                                    "closed": bool(a.get("send_block") and a["send_block"].get("code") == "problem")}
+                          for a in await _outs(db, list(rows))}}
+
+
 @router.patch("/accounts/{account_id}")
 async def update_account(account_id: str, body: AccountPatch, db: AsyncSession = Depends(get_db)):
     row = await _account(db, account_id)

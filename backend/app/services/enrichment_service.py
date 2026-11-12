@@ -486,44 +486,53 @@ def _squash_pc(value: Any) -> str:
 
 
 async def search_apollo(name: str, *, postcode: str = "", domain: str = "") -> Optional[Dict[str, Any]]:
-    """One company lookup on Apollo's company data (works on the free plan: no people, no emails). By website domain when we hold one,
-    otherwise by name, taking the result whose name matches ours and, where we know the postcode, whose address is in it.
-    Returns the same shape as search_google_places, or None. Never raises."""
-    from app.services import site_check
-
-    from app.services import apollo_pool
+    """One company lookup on Apollo's company data: exactly one request, by website domain when we hold one, otherwise by name (only
+    with a postcode: the same name in another town is another business). The answer, or the fact that Apollo had nothing, is kept
+    (apollo_pool.lookup_get/put), so a company is never asked about twice. Returns the same shape as search_google_places, or None. Never raises."""
+    from app.services import apollo_pool, site_check
 
     if not (name or domain) or not await apollo_pool.keys():
         return None
+    if not domain and not (name and postcode):
+        return None  # a name with no postcode is never guessed
+    kept_as = apollo_pool.lookup_key(name, postcode, domain)
+    kept = await apollo_pool.lookup_get(kept_as)
+    if kept is not None:
+        return kept or None
+    org: Dict[str, Any] = {}
+    answered = False
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
-            org: Dict[str, Any] = {}
             if domain:
                 r = await apollo_pool.call(client, "get", "https://api.apollo.io/api/v1/organizations/enrich", params={"domain": domain},
                                            purpose="company_by_website", looked_for=domain, found=lambda j: bool((j or {}).get("organization")))
-                if r is not None and r.status_code == 200:
-                    org = r.json().get("organization") or {}
-            if not org and name and postcode:
-                # By name only a company at the postcode we hold is taken: the same name in another town is another business.
-                short = re.sub(r"\b(practice|limited|ltd|plc|llp|the|group|services|uk)\b", " ", name, flags=re.I).strip()
-                for q in dict.fromkeys([name, " ".join(short.split())]):
-                    if not q:
-                        continue
-                    r = await apollo_pool.call(client, "post", "https://api.apollo.io/api/v1/organizations/search", json={"q_organization_name": q, "per_page": 10},
-                                               purpose="company_by_name", looked_for=f"{q} ({postcode})",
-                                               found=lambda j: bool((j or {}).get("organizations") or (j or {}).get("accounts")))
-                    if r is None or r.status_code != 200:
-                        logger.warning(f"[apollo] lookup refused ({getattr(r, 'status_code', 'no key')}): {str(getattr(r, 'text', ''))[:160]}")
-                        return None
-                    found = r.json().get("organizations") or r.json().get("accounts") or []
-                    pc = _squash_pc(postcode)
-                    org = next((o for o in found if _is_uk(o) and _squash_pc(o.get("postal_code")) == pc
-                                and site_check.same_business(name, o.get("name") or "")), None) or {}
-                    if org:
-                        break
+            else:
+                r = await apollo_pool.call(client, "post", "https://api.apollo.io/api/v1/organizations/search", json={"q_organization_name": name, "per_page": 10},
+                                           purpose="company_by_name", looked_for=f"{name} ({postcode})",
+                                           found=lambda j: bool((j or {}).get("organizations") or (j or {}).get("accounts")))
+            if r is None or r.status_code != 200:
+                logger.warning(f"[apollo] lookup refused ({getattr(r, 'status_code', 'no key')}): {str(getattr(r, 'text', ''))[:160]}")
+                return None
+            answered = True
+            body = r.json()
+            if domain:
+                org = body.get("organization") or {}
+            else:
+                pc = _squash_pc(postcode)
+                org = next((o for o in (body.get("organizations") or body.get("accounts") or []) if _is_uk(o) and _squash_pc(o.get("postal_code")) == pc
+                            and site_check.same_business(name, o.get("name") or "")), None) or {}
     except Exception as err:
         logger.debug(f"[apollo] search failed for '{name}': {err}")
         return None
+    result = await _apollo_company(org, name, postcode)
+    if answered:
+        await apollo_pool.lookup_put(kept_as, result or {})
+    return result
+
+
+async def _apollo_company(org: Dict[str, Any], name: str, postcode: str) -> Optional[Dict[str, Any]]:
+    from app.services import site_check
+
     if not org or not (org.get("name") or "").strip():
         return None
     if (name and not site_check.same_business(name, org.get("name") or "")) or not _is_uk(org):
@@ -568,11 +577,6 @@ async def search_deeper(query: str, *, name: str = "", postcode: str = "", domai
     place = await search_google_places(query, name=name, postcode=postcode)
     if has(place) and (place.get("postcode_match") or not postcode) and not has(found):
         return place
-    if not found and place and not domain and place.get("website"):
-        # Google knows the company's site: Apollo can be asked about that exact site
-        found = await search_apollo(name or query, postcode=postcode, domain=_host_of(place["website"]) or "")
-        if has(found) and (found.get("postcode_match") or not has(place)):
-            return found
     if has(found) and (found.get("postcode_match") or not has(place)):
         return found  # Google's answer is at another postcode: a same-postcode Apollo answer is better
     return place or found

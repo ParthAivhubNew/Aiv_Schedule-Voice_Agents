@@ -92,3 +92,24 @@ describe("bulkCallPrompt", () => {
     expect(bulkCallPrompt({ count: 2, perMinute: 0, balance: 10 })).toBe("Call 2 contacts, 1 at a time?\nYou have 10 Voice credits.");
   });
 });
+
+describe("the tabs match the Leads lists", () => {
+  const rows = [
+    { id: "a", company: "A", phone: "0113 496 0001" },
+    { id: "b", company: "B", phone: "0113 496 0002", lastOutcome: "No answer" },
+    { id: "c", company: "C", phone: "" },
+    { id: "d", company: "D", phone: "0113 496 0004", lastOutcome: "Do not call" },
+  ];
+  const ph = (r) => r.phone;
+  it("All shows everyone, and the other tabs split them", () => {
+    const ids = (status) => filterCalls(rows, { status }, ph).map((r) => r.id);
+    expect(ids("all")).toEqual(["a", "b", "c", "d"]);
+    expect(ids("ready")).toEqual(["a", "b"]);
+    expect(ids("no_phone")).toEqual(["c"]);
+    expect(ids("called")).toEqual(["b", "d"]);
+  });
+  it("counts each tab", () => {
+    const n = countCalls(rows, ph);
+    expect([n.contacts, n.chips.ready, n.chips.no_phone, n.chips.called]).toEqual([4, 2, 1, 2]);
+  });
+});

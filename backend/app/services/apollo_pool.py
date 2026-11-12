@@ -151,3 +151,56 @@ async def call(client: Any, method: str, url: str, *, purpose: str, looked_for: 
             await _log(entry, purpose, looked_for, status, "error")
         return r
     return last
+
+
+# One company is asked about once. The answer (or the fact that Apollo had nothing) is kept for everyone, so no other button, screen or
+# organisation sends the same question again. A failed or refused request is not kept: it was not an answer.
+LOOKUP_HIT_DAYS, LOOKUP_MISS_DAYS = 30, 7
+
+
+def lookup_key(name: str, postcode: str, domain: str) -> str:
+    import hashlib
+    import re
+
+    squash = lambda v: re.sub(r"[^a-z0-9]", "", str(v or "").lower())  # noqa: E731
+    return "apollo_lookup:" + hashlib.sha1(f"{(domain or '').strip().lower()}|{squash(name)}|{squash(postcode)}".encode()).hexdigest()[:24]
+
+
+async def lookup_get(key: str) -> Optional[Dict[str, Any]]:
+    """The kept answer: the company ({...}), {} when Apollo had nothing, None when there is no fresh answer."""
+    from datetime import datetime
+
+    from app.database import AsyncSessionLocal
+    from app.models.models import AppSetting
+
+    try:
+        async with AsyncSessionLocal() as s:
+            row = await s.get(AppSetting, key)
+        data = (row.data or {}) if row else {}
+        if not data:
+            return None
+        age = (datetime.utcnow() - datetime.fromisoformat(str(data.get("at", "")).rstrip("Z"))).days
+        result = data.get("result") or {}
+        return result if age <= (LOOKUP_HIT_DAYS if result else LOOKUP_MISS_DAYS) else None
+    except Exception as err:
+        logger.debug(f"[apollo] kept answer not read: {err}")
+        return None
+
+
+async def lookup_put(key: str, result: Dict[str, Any]) -> None:
+    from datetime import datetime
+
+    from app.database import AsyncSessionLocal
+    from app.models.models import AppSetting
+
+    try:
+        async with AsyncSessionLocal() as s:
+            row = await s.get(AppSetting, key)
+            data = {"at": datetime.utcnow().isoformat() + "Z", "result": result or {}}
+            if row:
+                row.data = data
+            else:
+                s.add(AppSetting(id=key, data=data))
+            await s.commit()
+    except Exception as err:
+        logger.debug(f"[apollo] answer not kept: {err}")

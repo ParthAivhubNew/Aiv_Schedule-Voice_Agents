@@ -4,7 +4,14 @@
 export const CHIPS = [
   ["all", "All"], ["not_called", "Not called"], ["no_answer", "No answer"], ["spoke", "Spoke with them"], ["interested", "Interested"],
   ["meeting", "Meeting booked"], ["not_interested", "Not interested"], ["dnc", "Do not call"], ["no_phone", "No phone"],
+  ["ready", "Ready to call"], ["called", "Called"],
 ];
+
+// The tabs, as Leads shows its lists: the whole list first, then where each contact stands. The rest sit under "More filters".
+export const TABS = [["all", "All", "Every contact in this list"], ["ready", "Ready to call", "Has a phone number and has not asked not to be called"],
+  ["no_phone", "Needs a number", "No phone number we can dial yet"], ["called", "Called", "You have already called them"]];
+export const MORE = ["not_called", "no_answer", "spoke", "interested", "meeting", "not_interested", "dnc"];
+
 
 // A row's last call result, from the text the call log gives ("Meeting booked", "no_answer", "Left a voicemail"...), as one of the chips.
 export function outcomeKey(row) {
@@ -27,7 +34,12 @@ export function filterCalls(rows, { status = "all", q = "" } = {}, phoneOf = (r)
   const digits = (s) => String(s || "").replace(/\D/g, "");
   return rows.filter((r) => {
     const phone = phoneOf(r) || "";
-    if (status === "no_phone" ? digits(phone).length >= 7 : status !== "all" && outcomeKey(r) !== status) return false;
+    const key = outcomeKey(r);
+    const dialable = digits(phone).length >= 7;
+    if (status === "no_phone") { if (dialable) return false; }
+    else if (status === "ready") { if (!dialable || ["dnc", "not_interested"].includes(key)) return false; }
+    else if (status === "called") { if (key === "not_called" && !(Number(r.callTimes) > 0)) return false; }
+    else if (status !== "all" && key !== status) return false;
     if (!words.length) return true;
     const text = blob(r, phone);
     const plain = digits(phone);
@@ -50,6 +62,8 @@ export function countCalls(rows, phoneOf = (r) => r.phone) {
     if (hasPhone && !["dnc", "not_interested"].includes(key)) ready += 1;
     if (key !== "not_called" || Number(r.callTimes) > 0) called += 1;
   });
+  chips.ready = ready;
+  chips.called = called;
   return { chips, contacts: rows.length, ready, called, interested: chips.interested + chips.meeting };
 }
 
