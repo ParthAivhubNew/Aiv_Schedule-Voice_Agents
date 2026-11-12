@@ -134,6 +134,32 @@ async def test_suspending_a_client_signs_everyone_out(staff, anon, db):
     assert (await staff.post("/api/admin-api/clients/nope/status", json={"status": "active"})).status_code == 404
 
 
+async def test_delete_permanently_clears_every_table_with_org_id(staff, db):
+    """Includes tables the hardcoded delete list does not name (do_not_contact), so newer
+    tables are not left behind, and another org's rows are untouched."""
+    from sqlalchemy import text
+    from app.core.tenancy import system_scope
+
+    await make_user(db, "gone_admin", "Admin", org_id="org_gone", password="Gone-pass-2026")
+    await make_user(db, "stay_admin", "Admin", org_id="org_stay", password="Stay-pass-2026")
+    with system_scope():
+        for org in ("org_gone", "org_stay"):
+            await db.execute(text("INSERT INTO do_not_contact (org_id, id, email) VALUES (:o, :i, 'x@example.com')"),
+                             {"o": org, "i": f"dnc_{org}"})
+        await db.commit()
+        name = (await db.execute(text("SELECT name FROM organizations WHERE id='org_gone'"))).scalar()
+
+    r = await staff.delete(f"/api/admin-api/clients/org_gone?confirm_name={name}")
+    assert r.status_code == 200, r.text
+
+    with system_scope():
+        left = (await db.execute(text("SELECT count(*) FROM do_not_contact WHERE org_id='org_gone'"))).scalar()
+        org_gone = (await db.execute(text("SELECT count(*) FROM organizations WHERE id='org_gone'"))).scalar()
+        ops = (await db.execute(text("SELECT count(*) FROM operators WHERE org_id='org_gone'"))).scalar()
+        kept = (await db.execute(text("SELECT count(*) FROM do_not_contact WHERE org_id='org_stay'"))).scalar()
+    assert (left, org_gone, ops, kept) == (0, 0, 0, 1)
+
+
 async def test_whatsapp_request_reaches_staff_and_is_switched_on(staff, db):
     from app.core.tenancy import org_scope
     from app.models.models import OrgPhoneNumber

@@ -360,9 +360,30 @@ async def delete_client(org_id: str, request: Request, confirm_name: str = ""):
                 for t in tables_to_delete:
                     await db.execute(text(f"DELETE FROM {t} WHERE org_id = :o"), {"o": org_id})
 
-                # Delete auth sessions and operators
-                await db.execute(text("DELETE FROM auth_sessions WHERE user_id IN (SELECT id FROM operators WHERE org_id = :o)"), {"o": org_id})
-                await db.execute(text("DELETE FROM operators WHERE org_id = :o"), {"o": org_id})
+                await db.execute(text("DELETE FROM auth_sessions WHERE operator_id IN (SELECT id FROM operators WHERE org_id = :o)"), {"o": org_id})
+
+                # Every other table carrying an org_id column, found from the live schema so tables
+                # added after the list above are still cleaned. Foreign-key order is unknown here, so
+                # sweep in passes (each delete in a savepoint) until none is blocked.
+                found = (await db.execute(text(
+                    "SELECT c.relname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid "
+                    "WHERE a.attname = 'org_id' AND NOT a.attisdropped AND c.relkind = 'r' "
+                    "AND c.relnamespace = current_schema()::regnamespace"
+                ))).scalars().all()
+                pending = [t for t in found if t not in tables_to_delete and t != "organizations"]
+                while pending:
+                    blocked, last_err = [], None
+                    for t in pending:
+                        try:
+                            async with db.begin_nested():
+                                await db.execute(text(f'DELETE FROM "{t}" WHERE org_id = :o'), {"o": org_id})
+                        except Exception as e:
+                            blocked.append(t)
+                            last_err = e
+                    if len(blocked) == len(pending):
+                        raise RuntimeError(f"could not clear {blocked}: {last_err}")
+                    pending = blocked
+
                 await db.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": org_id})
             await db.commit()
         except Exception as err:
