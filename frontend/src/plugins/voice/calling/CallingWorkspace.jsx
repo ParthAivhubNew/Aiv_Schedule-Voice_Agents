@@ -85,6 +85,8 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, logDisplayName, meetingTimeLabel
 import { AnalyticsTab } from "./AnalyticsTab";
 import { RecentHumanCalls } from "./PhoneTab";
 import { CallChoice } from "./CallChoice";
+import { AiCallPermission } from "./AiCallPermission";
+import { openPhone } from "../../../utils/humanCall";
 import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
 import { GetContactsBar } from "./GetContactsBar";
@@ -2125,11 +2127,11 @@ export function CallingWorkspace({
         swapPending(optimisticId, res && (res.call_id || res.callId));
       }
       pushNote(`Outbound to ${phone}`, "success");
-      goPage("live"); // only once the call was accepted: a refused call stays here, with its reason in front of you
       await refreshLive();
     } catch (e) {
       setLiveCalls((prev) => (prev || []).filter((c) => c.id !== optimisticId));
-      showToast(e.message || "Direct dial failed");
+      if (isNoPermission(e.message)) setAiAsk({ phone, name: (r.contact || r.name || "").trim(), row: r });
+      else showToast(e.message || "Direct dial failed");
     } finally {
       setBusy("");
     }
@@ -2628,6 +2630,7 @@ export function CallingWorkspace({
     }
   };
 
+  const [aiAsk, setAiAsk] = useState(null); // { phone, name }: an AI call refused for want of permission, asked about on the spot
   const directCall = async () => {
     if (noNumberYet()) return;
     let phone = resolveDirectPhone();
@@ -2638,7 +2641,6 @@ export function CallingWorkspace({
     const prospectLabel = direct.name.trim() || phone;
     const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
-    goPage("live");
     setLiveCalls((prev) => [
       {
         id: optimisticId,
@@ -2674,10 +2676,12 @@ export function CallingWorkspace({
         swapPending(optimisticId, res && (res.call_id || res.callId));
       }
       pushNote(`Outbound to ${phone}`, "success");
+      goPage("live"); // only once the call was accepted: a refused call stays here, with its reason in front of you
       await refreshLive();
     } catch (e) {
       setLiveCalls((prev) => (prev || []).filter((c) => c.id !== optimisticId));
-      showToast(e.message || "Direct dial failed");
+      if (isNoPermission(e.message)) setAiAsk({ phone, name: direct.name.trim() });
+      else showToast(e.message || "Direct dial failed");
     } finally {
       setBusy("");
     }
@@ -2978,6 +2982,13 @@ export function CallingWorkspace({
               <button type="button" className="ui-btn ui-btn--sm" style={{ display: "block", marginTop: 6, minHeight: 40 }} onClick={() => { setPermissionAsk({}); goPage("hours"); setToast(""); }}>Record permission</button>
             ) : null}
           </div>
+        ) : null}
+
+        {aiAsk ? (
+          <AiCallPermission number={aiAsk.phone} name={aiAsk.name} company={(profile && (profile.name || profile.company)) || ""}
+            onClose={() => setAiAsk(null)}
+            onCallMyself={() => { const a = aiAsk; setAiAsk(null); openPhone({ number: a.phone, name: a.name }); }}
+            onRecorded={async () => { const a = aiAsk; setAiAsk(null); if (a.row) await callOneRow(a.row); else await directCall(); }} />
         ) : null}
 
         <div className={(page === "list" || page === "assistant") && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates" || page === "assistant") ? "hidden" : "auto", padding: (page === "list" || page === "assistant") && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates" || page === "assistant") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates" || page === "assistant") ? "column" : undefined }}>
