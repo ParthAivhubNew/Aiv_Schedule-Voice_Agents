@@ -12,7 +12,7 @@ import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, pr
 import { parseLeads } from "./OutreachViews";
 import { ConsentDeclaration } from "./ConsentDeclaration";
 import { niceName } from "./companyLogic";
-import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronUp, FileText, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileText, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import {
   CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, opensNote, rateText, resultsBar, sortTasks, stepLine,
   stepTable, stepsForSave, typeOf, waitText, withTag,
@@ -788,6 +788,7 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const callOk = useConnection("call_step").available;
+  const [tpage, setTpage] = useState(0);
   useEffect(() => { api.journeyTemplates().then((r) => setTemplates(r.templates || [])).catch(() => {}); }, []);
 
   const finish = async (made) => {
@@ -839,7 +840,7 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
       </div>
       <div style={{ ...card, display: "grid", gap: 8, padding: 12 }}>
         <strong style={{ fontSize: 14 }}>Or start from a ready-made journey</strong>
-        {templates.map((t) => (
+        {templates.slice(tpage * 4, tpage * 4 + 4).map((t) => (
           <div key={t.key} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderTop: `1px solid ${C.borderLight}` }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 600 }}>{t.name} <span style={small}>· {t.steps} steps</span></div>
@@ -848,6 +849,13 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
             <button type="button" style={btn(false, Boolean(busy))} disabled={Boolean(busy)} onClick={go(t.key, () => api.journeyFromTemplate(t.key))}>{busy === t.key ? <Spinner size={13} /> : "Use"}</button>
           </div>
         ))}
+        {templates.length > 4 ? (
+          <div role="navigation" aria-label="More ready-made journeys" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, paddingTop: 8, borderTop: `1px solid ${C.borderLight}`, ...small }}>
+            <button type="button" style={{ ...btn(false), padding: "0 9px" }} aria-label="Previous ready-made journeys" title="Previous" disabled={tpage === 0} onClick={() => setTpage(tpage - 1)}><ChevronLeft size={14} /></button>
+            <span>{tpage * 4 + 1}–{Math.min(templates.length, tpage * 4 + 4)} of {templates.length}</span>
+            <button type="button" style={{ ...btn(false), padding: "0 9px" }} aria-label="Next ready-made journeys" title="Next" disabled={(tpage + 1) * 4 >= templates.length} onClick={() => setTpage(tpage + 1)}><ChevronRight size={14} /></button>
+          </div>
+        ) : null}
       </div>
       <div style={row}>
         <button type="button" style={btn(false, Boolean(busy))} disabled={Boolean(busy)} onClick={go("blank", () => api.journeyCreate({ name: "New journey", goal: "", steps: [{ channel: "email", subject: "Hello {{company}}", body: "Hi {{first_name}},\n\n" }] }))}>Start from a blank email</button>
@@ -914,6 +922,12 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
       ) : (
       <aside aria-label="Your journeys" style={{ flex: "0 0 270px", minWidth: 0, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
         <button type="button" style={{ ...btn(true), width: "100%", justifyContent: "center", textAlign: "center" }} onClick={() => { setCreating(true); }}><Plus size={14} /> New journey</button>
+        {journeys.length ? (
+          <div style={{ display: "grid", gap: 2, padding: "2px 4px 0" }}>
+            <strong style={{ fontSize: 13 }}>Your journeys · {journeys.length}</strong>
+            <span style={small}>{[["running", "running"], ["paused", "paused"], ["draft", "in draft"], ["completed", "finished"]].map(([k, w]) => [journeys.filter((j) => j.status === k).length, w]).filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(" · ")}</span>
+          </div>
+        ) : null}
         <Wheel label="Your journeys: scroll for more">
         {journeys.map((j) => {
           const on = !creating && j.id === selected;
