@@ -231,7 +231,8 @@ def voice_booking_instructions(policy: Optional[Dict[str, Any]]) -> str:
     steps.append(f"{n}. Agree day + time after format is clear.")
     n += 1
     steps.append(
-        f"{n}. EMAIL: Collect their email once they are ready to book. "
+        f"{n}. EMAIL: Always ask for their email once they are ready to book, even if you think you already have it. "
+        "Never book without hearing it from them, and never tell them an invite is coming unless you have asked. "
         "Then call book with email_confirmed=true. No need to read the email back for a separate yes."
     )
     n += 1

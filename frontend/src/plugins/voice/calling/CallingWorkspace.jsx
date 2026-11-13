@@ -4246,7 +4246,7 @@ export function CallingWorkspace({
                               color: isAi ? C.cobalt : C.textInk,
                               paddingTop: 2,
                             }}>
-                              {isAi ? "Sam" : "Them"}
+                              {isAi ? ((profile && profile.callerName) || "AI") : (l.prospect || l.prospect_name || l.contact || l.name || "Them")}
                             </span>
                             <span style={{ lineHeight: 1.45 }}>{text}</span>
                           </div>

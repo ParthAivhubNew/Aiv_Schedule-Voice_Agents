@@ -97,9 +97,10 @@ def tool(name: str, description: str, props: Optional[Dict[str, Any]] = None, re
 class Turn:
     """What one message has done so far, shared by the tool handlers and then turned into the reply."""
 
-    def __init__(self, db: AsyncSession, message: str, actor: Optional[Dict[str, Any]] = None):
+    def __init__(self, db: AsyncSession, message: str, actor: Optional[Dict[str, Any]] = None, workspace: Optional[Dict[str, Any]] = None):
         self.db = db
         self.message = message
+        self.workspace = workspace or {}  # what the screen beside the chat shows right now (pinned days, channels, the calendar)
         self.actor = actor or {}  # {operator_id, perms}
         self.steps: List[Dict[str, Any]] = []
         self.proposals: List[Dict[str, Any]] = []
@@ -140,12 +141,13 @@ def _prompt(spec: Spec, context: str, notes: List[str]) -> str:
 
 
 async def events(spec: Spec, db: AsyncSession, message: str, history: List[Dict[str, Any]], context: str,
-                 count_message: Callable[[], Awaitable[None]], actor: Optional[Dict[str, Any]] = None) -> AsyncIterator[Dict[str, Any]]:
+                 count_message: Callable[[], Awaitable[None]], actor: Optional[Dict[str, Any]] = None,
+                 workspace: Optional[Dict[str, Any]] = None) -> AsyncIterator[Dict[str, Any]]:
     started = time.time()
     msgs = [{"role": "assistant" if m.get("role") in ("assistant", "ai", "bot") else "user", "content": str(m.get("content") or "")[:1500]}
             for m in history[-8:] if str(m.get("content") or "").strip()]
     messages = [*msgs, {"role": "user", "content": message}]
-    turn = Turn(db, message, actor)
+    turn = Turn(db, message, actor, workspace)
     ran: set = set()
     reply = ""
     answered = False

@@ -135,3 +135,28 @@ async def test_voice_and_social_have_no_daily_cap(db, fakes):
         await db.commit()
     async with _client(token) as c:
         assert (await c.post("/api/assistant/voice/ask", json={"message": "hi"})).status_code == 200
+
+
+async def test_social_plans_on_the_open_calendar_and_returns_an_outline_card(db, fakes, monkeypatch):
+    seen = {}
+
+    async def fake_plan(payload, _db):
+        seen.update(payload)
+        return {"status": "ok", "reply": "Two LinkedIn posts, Monday and Thursday.", "error": None, "posts": [],
+                "plan": {"channels": ["linkedin"], "deleteIds": [], "posts": [
+                    {"date": "2026-11-16", "time": "09:00", "channel": "linkedin", "headline": "A"},
+                    {"date": "2026-11-19", "time": "09:00", "channel": "linkedin", "headline": "B"}]}}
+
+    monkeypatch.setattr("app.api.scheduler.chat_plan", fake_plan)
+    fakes["plan"] = {"success": True, "reply": "", "tool_calls": [_call("plan_posts", request="two LinkedIn posts next week")]}
+    _, token = await make_user(db, "wp1", "Admin", org_id="org_wp1")
+    ws = {"posts": [{"id": "v2_1", "date": "2026-11-14", "channel": "x", "headline": "Old"}], "pinnedDates": ["2026-11-16"], "channels": ["linkedin"], "focusPostId": ""}
+    async with _client(token) as c:
+        r = (await c.post("/api/assistant/social/ask", json={"message": "two LinkedIn posts next week", "workspace": ws})).json()
+    card = [p for p in r["proposals"] if p["kind"] == "plan_outline"]
+    assert len(card) == 1 and len(card[0]["params"]["plan"]["posts"]) == 2 and "2 new posts for Linkedin" in card[0]["detail"]
+    assert seen["currentPlan"]["posts"][0]["id"] == "v2_1" and seen["pinnedDates"] == ["2026-11-16"] and seen["targetDate"] == "2026-11-16"
+    assert seen["selectedChannels"] == ["linkedin"]
+    async with _client(token) as c:  # without an open calendar it still hands over to the planner
+        r = (await c.post("/api/assistant/social/ask", json={"message": "two LinkedIn posts next week"})).json()
+    assert [p["kind"] for p in r["proposals"]] == ["plan"]

@@ -334,8 +334,7 @@ async def _start_assistant(call_control_id: str, assistant_id: str, state: Dict[
         dynamic.update(date_variables(company.get("timezone")))
         if company.get("name"):
             dynamic["company_name"] = company.get("name")
-        if company.get("agent_name"):
-            dynamic["agent_name"] = company.get("agent_name")
+        dynamic["agent_name"] = company.get("agent_name") or "your assistant"
         prospect = ctx.get("prospect") or {}
         if not name and prospect.get("name"):
             dynamic["customer_name"] = dynamic["caller_name"] = prospect["name"]

@@ -39,10 +39,11 @@ SOCIAL_SCREENS = {"plan": "Post calendar", "listening": "Mentions", "media": "Li
 
 
 class PluginAskIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
+    message: str = Field(..., min_length=1, max_length=8000)
     history: List[Dict[str, Any]] = []
     memory: List[str] = []  # things the person asked the assistant to remember
     state: Dict[str, Any] = {}
+    workspace: Dict[str, Any] = {}  # the open screen: pinned days, chosen channels, the post being edited, the calendar
 
 
 # ── Shared pieces ───────────────────────────────────────────────────────────
@@ -350,15 +351,70 @@ async def _my_accounts(t: Turn, _args: Dict[str, Any]) -> None:
     t.step("Checked your accounts", f"{len(rows)} connected", t0)
 
 
+def _outline_line(plan: Dict[str, Any]) -> str:
+    """One plain sentence on what an outline would do, from its own numbers."""
+    posts = plan.get("posts") or []
+    fresh = [p for p in posts if not p.get("existing")]
+    changed = [p for p in posts if p.get("existing")]
+    gone = plan.get("deleteIds") or []
+    bits = []
+    if fresh:
+        chans = sorted({str(p.get("channel") or "").title() for p in fresh if p.get("channel")})
+        days = sorted({str(p.get("date")) for p in fresh if p.get("date")})
+        span = f" on {days[0]}" if len(days) == 1 else (f" from {days[0]} to {days[-1]}" if days else "")
+        bits.append(f"{len(fresh)} new post{'s' if len(fresh) != 1 else ''}" + (f" for {', '.join(chans)}" if chans else "") + span)
+    if changed:
+        bits.append(f"{len(changed)} post{'s' if len(changed) != 1 else ''} changed")
+    if gone:
+        bits.append(f"{len(gone)} removed")
+    return ", ".join(bits)
+
+
 async def _plan_posts(t: Turn, args: Dict[str, Any]) -> None:
+    """Plans, rewrites, moves or removes posts with the planning AI. It only returns an outline: nothing reaches the
+    calendar until the person presses the button on the card."""
     t0 = time.time()
-    ask = str(args.get("request") or "").strip()[:500]
+    ask = str(args.get("request") or "").strip()[:1500] or t.message
+    if len(t.message) > 600:  # pasted text or an article: the planner needs the person's own words, not a shortened request
+        ask = t.message.strip()[:4000]
     if not ask:
         t.notes.append("Ask the person what the posts should be about and when.")
         return
-    t.propose("plan", "Plan these posts", "Opens the post planner with your request. You review the plan before anything is scheduled.", {"prompt": ask, "hash": "#/scheduler/plan"})
-    t.step("Prepared a plan for you to confirm", ask[:80], t0)
-    t.notes.append(f"A button to plan posts for '{ask}' is on screen. The planner writes them and the person reviews before anything goes out.")
+    import re as _re
+
+    links = [u for u in _re.findall(r"https?://\S+", t.message) if u not in ask]
+    if links:  # a link the person gave is the source for the posts: keep it even if the request was shortened
+        ask = (ask + " " + " ".join(links))[:4000]
+    ws = t.workspace or {}
+    if "posts" not in ws:  # no open calendar to plan on: send them to the planner instead
+        t.propose("plan", "Plan these posts", "Opens the post planner with your request. You review the plan before anything is scheduled.", {"prompt": ask, "hash": "#/scheduler/plan"})
+        t.step("Prepared a plan for you to confirm", ask[:80], t0)
+        t.notes.append(f"A button to plan posts for '{ask}' is on screen. The planner writes them and the person reviews before anything goes out.")
+        return
+    from app.api.scheduler import chat_plan
+
+    pinned = [str(d) for d in (ws.get("pinnedDates") or []) if str(d).strip()][:20]
+    res = await chat_plan({
+        "text": ask, "messages": [{"role": "user", "content": ask}],
+        "currentPlan": {"posts": [p for p in (ws.get("posts") or []) if isinstance(p, dict)][:200]},
+        "pinnedDates": pinned, "targetDate": pinned[0] if len(pinned) == 1 else "",
+        "selectedChannels": [str(c) for c in (ws.get("channels") or [])][:8], "focusPostId": str(ws.get("focusPostId") or ""),
+    }, t.db)
+    reply = str((res or {}).get("reply") or "").strip()
+    plan = (res or {}).get("plan")
+    if (res or {}).get("status") == "error" or not (res or {}).get("reply") and not plan:
+        t.notes.append(reply or "The planning AI did not answer. Ask again in a moment.")
+        t.step("Asked the planning AI", "no answer", t0)
+        return
+    if plan and (plan.get("posts") or plan.get("deleteIds")):
+        line = _outline_line(plan)
+        t.propose("plan_outline", "Write these posts", line, {"plan": plan, "text": ask, "reply": reply})
+        t.step("Planned the posts", line[:80], t0)
+        t.notes.append(f"An outline is on screen as a card: {line}. Nothing is on the calendar until the person presses its button. Say so in one or two sentences, with the real numbers, and offer one change they could ask for. Do not list the posts.")
+        return
+    t.verbatim.append(reply)
+    t.step("Answered from the planning AI", "advice", t0)
+    t.notes.append("The planning AI's answer is shown under yours word for word. Introduce it in one sentence and do not repeat it.")
 
 
 async def _post_details(t: Turn, args: Dict[str, Any]) -> None:
@@ -406,8 +462,9 @@ SOCIAL = Spec(
     plugin="social", scope="scheduler",
     system=("You are the assistant inside the Social part of Outreach by Aivhub, where a UK business plans, writes and publishes social posts. "
             "You can read the person's own posts, results, connected accounts and credits through your tools. Never state a post, figure or account a tool did not return, "
-            "and say plainly when something is not known or a network did not report it. You cannot publish or edit posts yourself: when the person wants posts written or planned, "
-            "use plan_posts with their request so the planner opens ready for them; for anything else use open_screen. Keep answers short, plain and friendly. "
+            "and say plainly when something is not known or a network did not report it. You never publish. When the person wants posts planned, written, reworded, moved or removed, "
+            "use plan_posts with their request in their own words: it returns an outline card they confirm before anything is added or written. "
+            "Questions about what to post, which channel or how to word something also go through plan_posts. For anything else use open_screen. Keep answers short, plain and friendly. "
             "Pick ONE tool per need and do not repeat a call that already ran. If a request is missing something you need, ask ONE short question. "
             "If the message is general advice about social media, answer it directly without a tool."),
     tools=[
@@ -415,7 +472,7 @@ SOCIAL = Spec(
         tool("post_results", "USE for how published posts performed: best posts by reach, likes, comments and clicks. Free.", {"days": {"type": "integer", "description": "1 to 180, default 30"}}),
         tool("my_accounts", "USE for which social accounts are connected and whether any has an error. Free."),
         tool("show_credits", "USE when the person asks how many credits they have. Free."),
-        tool("plan_posts", "USE when the person wants posts planned or written: pass their request in their own words, including topic, channels and dates if given.",
+        tool("plan_posts", "USE to plan new posts, rewrite, move or remove existing ones, or get posting ideas: pass the person's request in their own words, including topic, channels, dates and any link or pasted text they gave.",
              {"request": {"type": "string"}}, ["request"]),
         tool("open_screen", "USE to take the person to a Social screen.", {"screen": {"type": "string", "enum": list(SOCIAL_SCREENS)}}, ["screen"]),
         tool("post_details", "USE to read one post: its text, status, channels, date and results. Free.", {"query": {"type": "string", "description": "a few words from the post"}}, ["query"]),
@@ -476,7 +533,7 @@ async def _stream(plugin: str, body: PluginAskIn, db: AsyncSession, actor: Dict[
     async def count() -> None:
         await _count(db, plugin)
 
-    async for ev in events(spec, db, body.message, body.history, context, count, actor):
+    async for ev in events(spec, db, body.message, body.history, context, count, actor, body.workspace):
         yield ev
 
 

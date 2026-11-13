@@ -342,13 +342,18 @@ async def execute_smart_booking_tool(
     elif tool_name == "book_appointment":
         start_time = str(args.get("start_time") or "").strip()
         attendee_name = str(args.get("attendee_name") or prospect.get("name") or "Valued Client").strip()
-        attendee_email = str(args.get("attendee_email") or prospect.get("email") or "").strip()
+        attendee_email = str(args.get("attendee_email") or "").strip()
+        stored_email = str(prospect.get("email") or "").strip()
         raw_meeting_type = str(args.get("meeting_type") or args.get("format_type") or args.get("format") or "").strip()
 
         if not start_time:
             return {"success": False, "error": "Missing start_time"}
         if not attendee_email:
-            return {"success": False, "error": "Missing attendee_email"}
+            # An email on file is never used silently: the person is asked, so the invite reaches an inbox they read.
+            ask = (f"Ask them for the best email to send the invite to (we hold {stored_email}; ask if that one is right). "
+                   if stored_email else "Ask them for the best email to send the invite to. ")
+            return {"success": False, "error": "Missing attendee_email",
+                    "message": ask + "Then call this tool again with attendee_email set. Do not say the meeting is booked yet."}
 
         from app.services.booking_policy import resolve_meeting_type
         policy = call_context.get("booking_policy")

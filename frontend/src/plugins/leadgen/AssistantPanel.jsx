@@ -128,6 +128,24 @@ const PLUGINS = {
   },
 };
 
+// The posts of an outline, one line each, so they can be read before anything is written.
+function OutlineRows({ plan }) {
+  const muted = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
+  const rows = (plan?.posts || []).filter((x) => !x.existing);
+  const changed = (plan?.posts || []).filter((x) => x.existing);
+  const cap = (v) => { const t = String(v || ""); return t ? t[0].toUpperCase() + t.slice(1) : ""; };
+  const line = (x) => [x.date, x.time, cap(x.channel)].filter(Boolean).join(" · ");
+  if (!rows.length && !changed.length && !(plan?.deleteIds || []).length) return null;
+  return (
+    <div style={{ margin: "0 0 8px", display: "grid", gap: 4 }}>
+      {rows.slice(0, 8).map((x, i) => <div key={i} style={muted}><b style={{ fontWeight: 600, color: C.ink }}>{x.headline || "Post"}</b>{line(x) ? ` · ${line(x)}` : ""}</div>)}
+      {rows.length > 8 ? <div style={muted}>and {rows.length - 8} more</div> : null}
+      {changed.map((x, i) => <div key={"c" + i} style={muted}>{x.revision ? "Reword" : "Change"}: {x.headline || x.id}{x.revision ? `. ${String(x.revision).slice(0, 120)}` : ""}</div>)}
+      {(plan?.deleteIds || []).length ? <div style={muted}>Remove {(plan.deleteIds || []).length} post{(plan.deleteIds || []).length === 1 ? "" : "s"}</div> : null}
+    </div>
+  );
+}
+
 // A button from the assistant that opens somewhere else in the app. Social's pages are inside one screen, so it is told by event.
 function goTo(hash, prompt) {
   if (hash.startsWith("#/scheduler/")) {
@@ -365,7 +383,7 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onOpenCompany, seed, onExpand, onImport, page = false, plugin = "leads" }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onOpenCompany, seed, onExpand, onImport, page = false, plugin = "leads", workspace, onPlanOutline }) {
   const cfg = PLUGINS[plugin] || PLUGINS.leads;
   const sh = storeFor(cfg.id);
   const [render, setRender] = useState(open);
@@ -487,7 +505,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     try {
       const body = cfg.leads
         ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current, listed: listed.current || null }
-        : { message: text, history: prior, memory: memory.map((m) => m.text), state: turn.current };
+        : { message: text, history: prior, memory: memory.map((m) => m.text), state: turn.current, ...(workspace ? { workspace: workspace() } : {}) };
       await cfg.ask(body, (ev) => {
         if (mine !== run.current) return;
         if (ev.type === "status" || ev.type === "tool") setLive((l) => ({ ...l, status: ev.text }));
@@ -584,6 +602,16 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
         setActs((a) => ({ ...a, [p.id]: { state: "done", text: `Made the call list “${r?.list?.name || p.params.name}” with ${p.params.rows.length} people. Open the Call list screen to check it and call.` } }));
       } catch (err) {
         setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "Couldn't make the list." } }));
+      }
+      return;
+    }
+    if (p.kind === "plan_outline") {
+      setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
+      try {
+        const said = await onPlanOutline?.(p.params.plan, p.params.text);
+        setActs((a) => ({ ...a, [p.id]: { state: "done", text: said || "Added to the calendar. The captions and images are being written." } }));
+      } catch (err) {
+        setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "Couldn't add them." } }));
       }
       return;
     }
@@ -816,12 +844,13 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                     return (
                       <div key={p.id} className="as-card">
                         <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
-                          {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : p.kind.startsWith("journey_") ? <Route size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
+                          {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" || p.kind === "plan_outline" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : p.kind.startsWith("journey_") ? <Route size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
                         </div>
                         <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
+                        {p.kind === "plan_outline" && a.state !== "done" ? <OutlineRows plan={p.params.plan} /> : null}
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>
-                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "switch" ? "Asking" : p.kind === "call_list" ? "Making the list" : p.kind.startsWith("journey_") ? "Working" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "call_list" ? (a.state === "error" ? "Try again" : "Make the list") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : p.kind === "journey_open" || p.kind === "company_open" ? "Open it" : p.kind === "journey_edit" ? (a.state === "error" ? "Try again" : "Make the change") : p.kind === "journey_people" ? (a.state === "error" ? "Try again" : "Add them") : p.kind === "journey_control" ? (a.state === "error" ? "Try again" : { start: "Start it", pause: "Pause it", stop: "Stop it" }[p.params.action]) : p.kind === "journey_tasks" ? (a.state === "error" ? "Try again" : "Mark them") : "Set up the campaign"}
+                            {a.state === "running" ? <><Spinner size={13} /> {p.kind === "web_search" ? "Searching the web" : p.kind === "plan_outline" ? "Adding them" : p.kind === "switch" ? "Asking" : p.kind === "call_list" ? "Making the list" : p.kind.startsWith("journey_") ? "Working" : "Saving"}</> : p.kind === "switch" ? (a.state === "error" ? "Try again" : "Switch and ask") : p.kind === "call_list" ? (a.state === "error" ? "Try again" : "Make the list") : p.kind === "go" ? "Open it" : p.kind === "plan" ? "Open the planner" : p.kind === "plan_outline" ? (a.state === "error" ? "Try again" : "Write these posts") : p.kind === "web_search" ? (a.state === "error" ? "Try again" : "Search the web") : p.kind === "add_to_list" ? (a.state === "error" ? "Try again" : "Save them") : p.kind === "check_list" ? "Open the check" : p.kind === "journey_open" || p.kind === "company_open" ? "Open it" : p.kind === "journey_edit" ? (a.state === "error" ? "Try again" : "Make the change") : p.kind === "journey_people" ? (a.state === "error" ? "Try again" : "Add them") : p.kind === "journey_control" ? (a.state === "error" ? "Try again" : { start: "Start it", pause: "Pause it", stop: "Stop it" }[p.params.action]) : p.kind === "journey_tasks" ? (a.state === "error" ? "Try again" : "Mark them") : "Set up the campaign"}
                           </button>
                         )}
                         {(a.results || []).map((r, i) => {

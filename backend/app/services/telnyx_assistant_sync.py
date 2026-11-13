@@ -104,6 +104,7 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
             inbound_ctx = await context_resolver.resolve_inbound(db, "unknown")
             for ctx in (outbound_ctx, inbound_ctx):
                 ctx["temporal_context"].update({"today": "{{today}}", "today_iso": "{{today_iso}}", "tomorrow": "tomorrow"})
+                ctx["company"]["agent_name"] = "{{agent_name}}"  # filled in per call, so renaming the agent needs no re-sync
 
             # Same booking-policy instructions the self-hosted voice pipeline already gets
             # (voice_modular.py) -- without this, the live Telnyx assistant never learns it

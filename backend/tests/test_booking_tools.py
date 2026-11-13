@@ -207,7 +207,7 @@ async def test_the_synced_telnyx_prompt_never_freezes_todays_date(monkeypatch):
         objection_responses, max_objection_attempts, custom_rules, demo_script = {}, 2, "", ""
 
     async def resolve(*a, **k):
-        return {"prospect": {}, "company": {}, "temporal_context": {"today": "Monday, October 12, 2026",
+        return {"prospect": {}, "company": {"agent_name": "Sam"}, "temporal_context": {"today": "Monday, October 12, 2026",
                                                                     "today_iso": "2026-10-12", "timezone": "Europe/London"}}
 
     async def found(_db):
@@ -256,5 +256,21 @@ async def test_the_synced_telnyx_prompt_never_freezes_todays_date(monkeypatch):
     assert (await TS.sync_active_prompt_to_telnyx())["synced"]
     assert "2026-10-12" not in sent["instructions"] and "October 12" not in sent["instructions"]
     assert "Today is {{today}}" in sent["instructions"] and "{{today_iso}}" in sent["instructions"]
+    assert "{{agent_name}}" in sent["instructions"] and "Sam" not in sent["instructions"]  # the agent's name is filled in on each call, never frozen into the saved instructions
     dated = TS.date_variables("Europe/London")
     assert len(dated["today_iso"]) == 10 and dated["today"]
+
+
+async def test_a_stored_email_is_asked_about_never_used_silently(london_account, monkeypatch):
+    from app.services import calendar_service as CS
+
+    made = []
+
+    async def create(self, db, **kw):
+        made.append(kw)
+        return {"success": True, "bookingId": "m1", "prospectDate": "2030-01-15", "prospectTime": "10:00"}
+
+    monkeypatch.setattr(CS.CalendarService, "create_booking", create)
+    out = await BT.execute_smart_booking_tool(None, "book_appointment", {"start_time": "2030-01-15T10:00:00+00:00"}, ctx())
+    assert not out["success"] and not made
+    assert "sam@example.com" in out["message"] and "Do not say the meeting is booked" in out["message"]

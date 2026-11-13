@@ -31,6 +31,7 @@ import { SearchField } from "../../components/SearchField";
 import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
+import { filterNarrowed } from "./filterNarrowed";
 
 // The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
 export const SELECT_ALL_LIMIT = 2000;
@@ -501,13 +502,18 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     return () => clearTimeout(timer);
   }, [error, busy, searched, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Once the last filter is removed, the list goes back to the whole register by itself: no need to press search on an empty form.
+  // Taking a filter away refreshes the list by itself, on both the Companies and People tabs: no need to press search again.
+  // With none left it is the whole register. Adding or editing a filter still waits for the search button.
+  const ranFor = useRef(null); // the filters the screen was last asked for, even if that search failed (so a failure is never retried in a loop)
   useEffect(() => {
-    if (!searched || area || busy || tab !== "companies") return undefined;
-    if (Object.keys(formToFilters(form)).length) return undefined;
-    const shownFilters = lastQuery.current?.filters;
-    if (!shownFilters || !Object.keys(shownFilters).length) return undefined;
-    const timer = setTimeout(() => search(null, EMPTY_FORM, 0, null, undefined, undefined, true), 400);
+    if (!searched || area || busy || !ranFor.current) return undefined;
+    const now = { ...formToFilters(form), ...(tab === "people" && String(form.title || "").trim() ? { title: String(form.title).trim() } : {}) };
+    if (!filterNarrowed(ranFor.current, now)) return undefined;
+    const none = !Object.keys(now).length;
+    const timer = setTimeout(() => {
+      if (tab === "people") searchPeople(null, none ? EMPTY_FORM : form, 0);
+      else search(null, none ? EMPTY_FORM : form, 0, null, undefined, undefined, true);
+    }, none ? 400 : 900);
     return () => clearTimeout(timer);
   }, [form, searched, area, busy, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -544,6 +550,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     const sig = searchKey(formToFilters(f), offset, shape);
     if (skipRepeat(busy, force, sig, runSig.current)) return;
     runSig.current = sig;
+    if (!shape) ranFor.current = formToFilters(f);
     // New words start with a fresh reading; removing a word from the reading keeps the others as they are.
     let drop = dropOverride;
     if (drop === undefined) {
@@ -686,6 +693,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const searchPeople = async (e, overrideForm, offset = 0, sortOverride) => {
     if (e) e.preventDefault();
     const f = overrideForm || form;
+    ranFor.current = { ...formToFilters(f), ...(String(f.title || "").trim() ? { title: String(f.title).trim() } : {}) };
     setBusy(true);  // a new search replaces one still running (the older answer is dropped by the run id)
     setError("");
     const myRun = ++runId.current;

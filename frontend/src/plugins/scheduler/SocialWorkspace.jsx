@@ -12,7 +12,6 @@ import {
   ChevronRight,
   BarChart3,
   Home,
-  Copy,
   CreditCard,
   History,
   Clock,
@@ -21,12 +20,10 @@ import {
   Lock,
   LogOut,
   Maximize2,
-  Pencil,
   Plus,
   Plug,
   Send,
   Settings2,
-  Share2,
   Sparkles,
   Trash2,
   BookOpen,
@@ -49,7 +46,6 @@ import { NAV_TEXT,
   FONT_DISPLAY,
   HUB_PAPER,
 } from "../../tokens";
-import { coerceChatText, humanizeAiReply, looksLikeJunkDump } from "./chatClean";
 import { ScheduleWindow } from "./ScheduleWindow";
 import { useEscapeLayer } from "./escapeLayers";
 import { announceOrgUpdated, formatOrgTime, orgDateTime, orgInstant, orgToday, tzLabel, useOrg } from "../../org/orgSettings";
@@ -76,16 +72,8 @@ import { NOTICE_EVENT, notice } from "../../utils/notice";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
-const LS_CHAT = "aivhub_social_v2_chat";
-const LS_THREADS = "aivhub_social_v2_threads";
 const LS_PINS = "aivhub_social_v2_pins";
-const LS_CHAT_W = "aivhub_social_v2_chat_w";
 
-const WELCOME = {
-  id: "c0",
-  who: "ai",
-  text: "Write the thought for the post (what it should be about). Pin the date. I draft from your company profile + that plan — not a stock angle.",
-};
 
 const CHANNELS = [
   { id: "linkedin", label: "LinkedIn", color: "#0A66C2", soft: "#E8F1FA", mark: "in" },
@@ -107,16 +95,6 @@ function useElementWidth() {
     return () => ro.disconnect();
   }, []);
   return [ref, width];
-}
-
-function companyPayload(profile) {
-  if (!profile) return {};
-  const bits = [profile.pitch, profile.industry, profile.website, profile.social].filter(Boolean);
-  return {
-    companyName: profile.name || "",
-    companyPitch: profile.pitch || "",
-    companyContext: bits.join("\n"),
-  };
 }
 
 // Progress shown for posts the server-side AI queue is working on.
@@ -244,7 +222,7 @@ function imageProgressLabel(pct) {
 }
 
 // How the company's posts should sound. Saved per company; Plan AI and the writer both use it.
-function BrandVoicePanel({ onClose, onSaved }) {
+function BrandVoicePanel({ onClose, onSaved, modal = false }) {
   const [v, setV] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -269,12 +247,12 @@ function BrandVoicePanel({ onClose, onSaved }) {
     }
   };
   return (
-    <div style={{ position: "absolute", top: 52, left: 10, right: 10, bottom: 10, zIndex: 9, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)", fontFamily: FONT_BODY }}>
+    <div style={{ position: "absolute", top: modal ? 0 : 52, left: modal ? 0 : 10, right: modal ? 0 : 10, bottom: modal ? 0 : 10, zIndex: 9, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)", fontFamily: FONT_BODY }}>
       <div style={{ display: "flex", alignItems: "center" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, flex: 1 }}>Brand voice</div>
         <button type="button" onClick={onClose} title="Close" style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}><X size={15} /></button>
       </div>
-      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>How your posts should sound. Plan AI and every new post use this.</div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>How your posts should sound. The assistant and every new post use this.</div>
       {err && <div style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{err}</div>}
       {!v ? err ? null : <Loader compact label="Loading" /> : (
         <>
@@ -2248,39 +2226,11 @@ function monthLabel(year, month) {
   return new Date(year, month, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-function channelsNamedInText(text) {
-  const t = String(text || "").toLowerCase();
-  const hits = [];
-  CHANNELS.forEach((c) => {
-    if (c.id === "x") {
-      if (/(^|[^a-z0-9])(x|twitter)([^a-z0-9]|$)/i.test(t)) hits.push(c.id);
-      return;
-    }
-    if (t.includes(c.id) || t.includes(c.label.toLowerCase())) hits.push(c.id);
-  });
-  return hits;
-}
 
 function normPlan(text) {
   return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 180);
 }
 
-function sameTaskDrafts(posts, dates, channels, topic) {
-  const fp = normPlan(topic);
-  const dateSet = new Set(dates || []);
-  const chSet = new Set(channels || []);
-  return (posts || []).filter((p) => {
-    if (!p || p.status === "posted") return false;
-    if (dateSet.size && !dateSet.has(p.date)) return false;
-    if (chSet.size && !chSet.has(p.channel)) return false;
-    const other = normPlan(p.plan);
-    if (!fp || !other) return false;
-    if (other === fp) return true;
-    const n = Math.min(fp.length, other.length);
-    if (n < 40) return false;
-    return fp.includes(other.slice(0, 80)) || other.includes(fp.slice(0, 80));
-  });
-}
 
 function keepEditableStatus(status) {
   if (isLocked(status)) return status;
@@ -2289,15 +2239,6 @@ function keepEditableStatus(status) {
 }
 
 
-function reuseAskText(existing, dates, channels) {
-  const day = [...new Set((dates || []).map(dayLabel))].join(", ");
-  const ch = (channels || []).map((id) => (CHANNELS.find((c) => c.id === id) || { label: id }).label).join(", ");
-  return (
-    "Already have " + existing.length + " draft" + (existing.length === 1 ? "" : "s")
-    + " for " + day + " on " + ch
-    + ". Open Post approve to edit those, or Generate / Send again only if you want a new set."
-  );
-}
 
 function wantsPerChannelDiff(text) {
   const t = String(text || "").toLowerCase();
@@ -2430,48 +2371,7 @@ function dayLabel(iso) {
 }
 
 // The outline shown to the user before anything is written: what, where, when, and the one thing they must press.
-function planSummary(plan) {
-  const all = plan.posts || [];
-  const fresh = all.filter((p) => !p.existing);
-  const rewrites = all.filter((p) => p.existing && p.revision);
-  const cap = (v) => { const t = String(v || ""); return t.length <= 2 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1); };
-  const first = (plan.channels || [])[0] || "linkedin";
-  const channels = [...new Set(fresh.map((p) => String(p.channel || first).toLowerCase()))].map(cap);
-  const dates = fresh.map((p) => p.date).filter(Boolean).sort();
-  const span = dates.length ? (dates[0] === dates[dates.length - 1] ? dayLabel(dates[0]) : `${dayLabel(dates[0])} to ${dayLabel(dates[dates.length - 1])}`) : "";
-  const lines = [];
-  if (fresh.length) lines.push(`${fresh.length} new post${fresh.length === 1 ? "" : "s"}${channels.length ? ` for ${channels.join(" and ")}` : ""}${span ? `, ${span}` : ""}.`);
-  if (rewrites.length) lines.push(`${rewrites.length} existing post${rewrites.length === 1 ? "" : "s"} to rewrite.`);
-  const angle = (p) => String(p.plan || p.angle || "").trim().slice(0, 140);
-  const row = (p) => `- ${[p.date ? dayLabel(p.date) : "", p.time || "", cap(p.channel || first)].filter(Boolean).join(" · ")}: ${p.headline || "Post"}${angle(p) ? `. ${angle(p)}` : ""}`;
-  const shown = fresh.slice(0, 12);
-  return [
-    "Here is the plan. Nothing is written yet.",
-    lines.join(" "),
-    shown.map(row).join("\n") + (fresh.length > shown.length ? `\n- …and ${fresh.length - shown.length} more` : ""),
-    rewrites.map((p) => `- Rewrite: ${p.headline || "post"}. ${String(p.revision).slice(0, 140)}`).join("\n"),
-    "Press Write these and the captions and images are written a few at a time. Each post then waits for your approval before it is posted.",
-  ].filter(Boolean).join("\n\n");
-}
 
-function cleanSavedChat(rows) {
-  if (!Array.isArray(rows)) return [];
-  const cleaned = rows
-    .map((m) => {
-      if (!m) return null;
-      if (looksLikeJunkDump(m.text)) return null;
-      if (m.kind === "pin") return null;
-      const text = m.who === "ai" ? humanizeAiReply(coerceChatText(m.text), false) : coerceChatText(m.text);
-      if (!text || looksLikeJunkDump(text)) return null;
-      if (/real scene|draft onto this date|file, meeting, or system/i.test(text)) return null;
-      if (m.who === "ai" && /Applied to your calendar|Post summary|Caption:\*\*|under your \d+ limit/i.test(text)) {
-        return { ...m, text: "Draft is on the calendar. Open it in Review to change image or copy, then approve." };
-      }
-      return { ...m, text };
-    })
-    .filter(Boolean);
-  return cleaned.length ? cleaned : null;
-}
 
 class SimpleBoundary extends React.Component {
   constructor(props) {
@@ -2936,19 +2836,7 @@ export function SocialWorkspace({
     return saved.filter((p) => p && (p.status === "posted" || !looksLikeSlopPost(p)));
   });
   const [plan, setPlan] = useState(() => readJson(LS_PLAN, { rangeLabel: "", channels: ["linkedin"] }));
-  const [chat, setChat] = useState(() => {
-    const saved = cleanSavedChat(readJson(LS_CHAT, null));
-    if (Array.isArray(saved) && saved.length) return saved;
-    return [WELCOME];
-  });
-  const [threads, setThreads] = useState(() => {
-    const saved = readJson(LS_THREADS, []);
-    return Array.isArray(saved) ? saved : [];
-  });
-  const [histOpen, setHistOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
-  const [editingId, setEditingId] = useState("");
-  const [editText, setEditText] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [scheduleNames, setScheduleNames] = useState({});
@@ -2970,21 +2858,13 @@ export function SocialWorkspace({
     const saved = readJson(LS_PINS, []);
     return Array.isArray(saved) ? saved.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
   });
-  const [draft, setDraft] = useState("");
-  const [topicDraft, setTopicDraft] = useState("");
   const [dateDraft, setDateDraft] = useState(todayIso());
-  const [channelDrafts, setChannelDrafts] = useState(["linkedin"]);
-  const [typing, setTyping] = useState(false);
-  // A plan the AI proposed that waits for the user's go-ahead; one at a time, keyed by its chat message.
-  const [pendingPlans, setPendingPlans] = useState({});
   const [toast, setToast] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
   const nav = useMobileNav(page);
-  const [planPane, setPlanPane] = useState("main"); // phones: the calendar or Plan AI, one at a time
-  const [planAiOpen, setPlanAiOpen] = useState(false); // Plan AI starts hidden, like the assistant in Leads; the header button opens it
   // Phones: a tap shows that day's posts under the month (no pinning, no double-tap).
   const phone = usePhone();
   const [phoneDay, setPhoneDay] = useState(() => todayIso());
@@ -3001,16 +2881,7 @@ export function SocialWorkspace({
     const [y, m] = todayIso().split("-").map(Number);
     return { year: y, month: m - 1 };
   });
-  const chatEnd = useRef(null);
-  const inputRef = useRef(null);
-  const datePickRef = useRef(null);
   const enriching = useRef(new Set());
-  const repeatGenerate = useRef("");
-  const chatDrag = useRef(null);
-  const [chatW, setChatW] = useState(() => {
-    const n = Number(readJson(LS_CHAT_W, 380));
-    return Number.isFinite(n) ? Math.min(720, Math.max(280, n)) : 380;
-  });
   const [focusDate, setFocusDate] = useState("");
   const [focusPostId, setFocusPostId] = useState("");
   const [imageBusy, setImageBusy] = useState("");
@@ -3091,7 +2962,6 @@ export function SocialWorkspace({
   useEffect(() => () => {
     Object.keys(genTimers.current).forEach((id) => clearGenTimer(id));
   }, []);
-  const [hoverMsg, setHoverMsg] = useState("");
 
   const toastTimer = useRef(null);
   const showToast = (msg) => {
@@ -3106,59 +2976,10 @@ export function SocialWorkspace({
     return () => { window.removeEventListener(NOTICE_EVENT, onNotice); window.clearTimeout(toastTimer.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startChatResize = (e) => {
-    if (e.button != null && e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    chatDrag.current = { startX: e.clientX, startW: chatW };
-    const move = (ev) => {
-      if (!chatDrag.current) return;
-      const max = Math.max(320, (window.innerWidth || 1200) - 280);
-      const next = chatDrag.current.startW + (chatDrag.current.startX - ev.clientX);
-      setChatW(Math.min(720, Math.min(max, Math.max(280, next))));
-    };
-    const up = () => {
-      chatDrag.current = null;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
 
   useEffect(() => { writeJson(LS_POSTS, posts); }, [posts]);
   useEffect(() => { writeJson(LS_PLAN, plan); }, [plan]);
-  useEffect(() => { writeJson(LS_CHAT, chat); }, [chat]);
-  useEffect(() => { writeJson(LS_THREADS, threads); }, [threads]);
-  // Saved chats live on the server (shared with the team); this browser's copy fills gaps.
-  useEffect(() => {
-    let live = true;
-    api.getChatThreads().then((list) => {
-      if (!live || !Array.isArray(list)) return;
-      setThreads((local) => {
-        const byId = new Map(local.map((t) => [t.id, t]));
-        list.forEach((t) => byId.set(t.id, t));
-        return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 40);
-      });
-    }).catch(() => {});
-    return () => { live = false; };
-  }, []);
   useEffect(() => { writeJson(LS_PINS, pinnedDates); }, [pinnedDates]);
-  useEffect(() => { writeJson(LS_CHAT_W, chatW); }, [chatW]);
-  useEffect(() => {
-    setChat((cs) => {
-      const next = cleanSavedChat(cs);
-      if (Array.isArray(next) && next.length) return next;
-      return [WELCOME];
-    });
-  }, []);
-  useEffect(() => {
-    if (chatEnd.current) chatEnd.current.scrollIntoView({ behavior: "smooth" });
-  }, [chat, typing]);
 
   const [extras, setExtras] = useState(null);
   useEffect(() => { api.getSocialExtras().then(setExtras).catch(() => {}); }, []);
@@ -3340,7 +3161,7 @@ export function SocialWorkspace({
         if (raw.revision) revisions.push({ post: next, note: raw.revision });
         return;
       }
-      const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || channelDrafts[0] || "linkedin").toLowerCase();
+      const channel = String(raw.channel || (incoming.channels && incoming.channels[0]) || "linkedin").toLowerCase();
       const day = raw.date || pinFallback;
       const key = share ? normPlan((raw.headline || "") + " " + (raw.plan || "")) + (sameDays ? "" : "_" + day) : raw.id;
       created.push({
@@ -3562,7 +3383,6 @@ export function SocialWorkspace({
       showToast("Pinned " + dayLabel(key) + ". Write the post plan, then Generate.");
       return [...prev, key];
     });
-    setChat((cs) => (cs || []).filter((m) => m && m.kind !== "pin" && !looksLikeJunkDump(m.text)));
   };
 
   const unpinDay = (key, e) => unpinDate(key, e);
@@ -3941,346 +3761,27 @@ export function SocialWorkspace({
   };
   const bulkReady = approvalBatch(posts, { isBlocked: blocked }).ready.length;
 
-  const activeChannels = () => (channelDrafts.length ? channelDrafts.slice() : ["linkedin"]);
-
-  const toggleChannel = (id) => {
-    setChannelDrafts((prev) => {
-      const has = prev.includes(id);
-      if (has) {
-        const next = prev.filter((x) => x !== id);
-        return next.length ? next : prev;
-      }
-      return [...prev, id];
-    });
+  // What the open screen shows, sent with every question to the assistant so it plans on the real calendar.
+  const workspaceNow = () => {
+    const live = (accounts || []).filter((a) => a && a.status === "connected").map((a) => String(a.platform || "").toLowerCase()).filter((c) => CHANNELS.some((x) => x.id === c));
+    return {
+      posts: posts.map((p) => ({ id: p.id, date: p.date, time: p.time, channel: p.channel, headline: p.headline, caption: p.id === focusPostId ? p.caption : "", status: p.status, editedByUser: !!p.editedByUser })),
+      pinnedDates,
+      channels: [...new Set(live)].length === 1 ? [...new Set(live)] : [], // with several networks connected the AI picks, and the card shows which
+      focusPostId: focusPostId || "",
+    };
   };
 
-  const addComposerDate = (iso) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
-    setDateDraft(iso);
-    setPinnedDates((prev) => (prev.includes(iso) ? prev : [...prev, iso]));
-    const d = new Date(parseIsoDate(iso));
-    setCal({ year: d.getFullYear(), month: d.getMonth() });
-  };
-
-  const openDatePicker = () => {
-    const el = datePickRef.current;
-    if (!el) return;
-    try {
-      el.focus();
-      if (typeof el.showPicker === "function") {
-        const p = el.showPicker();
-        if (p && typeof p.catch === "function") p.catch(() => { try { el.click(); } catch (_) {} });
-      } else {
-        el.click();
-      }
-    } catch (_) {
-      try { el.click(); } catch (__) {}
-    }
-  };
-
-  const shiftIso = (n) => {
-    const [y, m, d] = todayIso().split("-").map(Number);
-    const t = new Date(Date.UTC(y, m - 1, d + n));
-    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
-  };
-
-  const generateFromComposer = () => {
-    if (typing) return;
-    const typed = (topicDraft || draft).trim();
-    if (!typed) {
-      showToast("Write the plan for this post first.");
-      return;
-    }
-    const topic = typed;
-    const dates = pinnedDates.length ? pinnedDates.slice() : [dateDraft || todayIso()];
-    const named = channelsNamedInText(topic);
-    const channels = named.length ? named : activeChannels();
-    const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(topic);
-    const existing = sameTaskDrafts(posts, dates, channels, topic);
-    if (existing.length && repeatGenerate.current !== reuseKey) {
-      repeatGenerate.current = reuseKey;
-      setSelectedId(existing[0].id);
-      setApprovalOpen(true);
-      const chLabel = channels.map((id) => (CHANNELS.find((c) => c.id === id) || { label: id }).label).join(", ");
-      setChat((cs) => [
-        ...cs,
-        { id: "u_" + Date.now(), who: "user", text: topic + "\n" + dates.map(dayLabel).join(", ") + " · " + chLabel },
-        { id: "a_" + Date.now(), who: "ai", kind: "draft", postId: existing[0].id, text: reuseAskText(existing, dates, channels) },
-      ]);
-      return;
-    }
-    repeatGenerate.current = "";
-    const batchId = "b_" + Date.now();
-    const perChannel = wantsPerChannelDiff(topic);
-    const sameDays = wantsSameAcrossDays(topic);
-    const created = [];
-    dates.forEach((date) => {
-      channels.forEach((channel) => {
-        created.push({
-          id: newPostId() + String(created.length),
-          date,
-          time: "09:00",
-          channel,
-          channels: [channel],
-          headline: topic.slice(0, 140),
-          plan: topic,
-          caption: "",
-          imagePrompt: topic,
-          imageUrl: "",
-          batchId: sameDays ? batchId : batchId + "_" + date,  // one post per day; channels of a day share it
-          uniqueForChannel: perChannel,
-          status: "draft",
-          enriching: true,
-        });
-      });
-    });
-    setTopicDraft("");
-    setDraft("");
-    setFocusPostId(created[0].id);
-    setSelectedId(created[0].id);
-    setExpandedApprovalId(created[0].id);
-    setApprovalOpen(true);
-    setPosts((ps) => [...ps, ...created]);
-    created.forEach(persistPost);
-    fillPackages(created, { share: !perChannel, sameDays });
-    const d = new Date(parseIsoDate(created[0].date));
-    setCal({ year: d.getFullYear(), month: d.getMonth() });
-    setPlan({
-      rangeLabel: monthLabel(d.getFullYear(), d.getMonth()),
-      channels,
-    });
-    const chLabel = channels.map((id) => (CHANNELS.find((c) => c.id === id) || { label: id }).label).join(", ");
-    setChat((cs) => [
-      ...cs,
-      { id: "u_" + Date.now(), who: "user", text: topic + "\n" + [...new Set(created.map((p) => dayLabel(p.date)))].join(", ") + " · " + chLabel },
-      {
-        id: "a_" + Date.now(),
-        who: "ai",
-        kind: "draft",
-        postId: created[0].id,
-        text: created.length > 1
-          ? (perChannel
-            ? ("Drafting a different caption + image for each of " + created.length + " slots, because you asked for per-channel versions.")
-            : ("Drafting one caption + one image for " + created.length + " slots (" + dates.length + " day" + (dates.length === 1 ? "" : "s") + " × " + channels.length + " channel" + (channels.length === 1 ? "" : "s") + ")."))
-          : ("Drafting for " + dayLabel(created[0].date) + " on " + chLabel + ". Open Post approve to edit image or copy, then approve."),
-      },
-    ]);
-  };
-
-  // Put a plan on the calendar and start the writing, then tell the user what is happening.
-  const commitPlan = (incoming, share, sameDays, reply = "") => {
-    const result = applyPlan(incoming, share, sameDays);
+  // The person pressed "Write these posts" on the assistant's outline: put it on the calendar and start the writing.
+  const applyOutline = async (incoming, text = "") => {
+    const result = applyPlan(incoming, !wantsPerChannelDiff(text), wantsSameAcrossDays(text));
     const bits = [];
-    if (result.created.length) {
-      bits.push("Planned " + result.created.length + " post" + (result.created.length === 1 ? "" : "s")
-        + (incoming.cappedAt ? " (the first " + incoming.cappedAt + "; ask again for the rest)" : "")
-        + ". Writing captions and images now, a few at a time. Each card fills in when ready, then waits for approval.");
-    }
+    if (result.created.length) bits.push("Added " + result.created.length + " post" + (result.created.length === 1 ? "" : "s") + (incoming.cappedAt ? " (the first " + incoming.cappedAt + "; ask again for the rest)" : "") + ". The captions and images are being written a few at a time, and each post waits for your approval.");
     if (result.updated.length) bits.push("Updated " + result.updated.length + " post" + (result.updated.length === 1 ? "" : "s") + ".");
     if (result.deleted.length) bits.push("Removed " + result.deleted.length + " post" + (result.deleted.length === 1 ? "" : "s") + ".");
-    const touched = result.created[0] || result.updated[0];
-    const spoken = bits.length ? bits.join(" ") : humanizeAiReply(reply || "", false);
-    setChat((cs) => [
-      ...cs,
-      { id: "a_" + Date.now(), who: "ai", kind: touched ? "draft" : "ai", postId: touched && touched.id, text: spoken },
-    ]);
-  };
-  const startPlan = (id) => {
-    const p = pendingPlans[id];
-    if (!p) return;
-    setPendingPlans({});
-    commitPlan(p.incoming, p.share, p.sameDays);
-  };
-  const changePlan = () => { setPendingPlans({}); setDraft("Change the plan: "); };
-  const dropPlan = () => {
-    setPendingPlans({});
-    setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", text: "Cancelled. Nothing was written and nothing was added to the calendar." }]);
+    return bits.join(" ") || "Nothing needed changing.";
   };
 
-  const sendChat = (e, override) => {
-    if (e && e.preventDefault) e.preventDefault();
-    const text = ((override && override.text) || draft || topicDraft).trim();
-    if (!text || typing) return;
-    const waiting = Object.keys(pendingPlans)[0];
-    if (waiting && !override && /^\s*(yes|yep|yeah|go|go ahead|write (these|them)|start|looks good|do it|ok|okay|confirm)\W*$/i.test(text)) {
-      setDraft("");
-      setTopicDraft("");
-      setChat((cs) => [...cs, { id: "u_" + Date.now(), who: "user", text }]);
-      startPlan(waiting);
-      return;
-    }
-    setDraft("");
-    setTopicDraft("");
-    const namedSend = channelsNamedInText(text);
-    const selectedSend = namedSend.length ? namedSend : activeChannels();
-    const pinList = pinnedDates.length ? pinnedDates.join(", ") : "";
-    const chList = selectedSend.join(", ");
-    let sendText = text;
-    if (override && override.reshare) sendText = text;
-    else if (focusPostId) sendText = "Revise post " + focusPostId + ": " + text;
-    else if (pinList && !/\d{4}-\d{2}-\d{2}/.test(text)) sendText = "For " + pinList + " on " + chList + " only: " + text;
-    const userMsg = { id: "u_" + Date.now(), who: "user", text };
-    setChat((cs) => {
-      if (override && override.replaceFromId) {
-        const idx = cs.findIndex((m) => m.id === override.replaceFromId);
-        const head = idx >= 0 ? cs.slice(0, idx) : cs;
-        return [...head, userMsg];
-      }
-      return [...cs, userMsg];
-    });
-    setTyping(true);
-    setEditingId("");
-
-    const baseHistory = (override && override.replaceFromId)
-      ? chat.filter((_, i, arr) => {
-        const idx = arr.findIndex((x) => x.id === override.replaceFromId);
-        return idx < 0 || i < idx;
-      })
-      : chat;
-    // Earlier turns only: this message goes last, once, in the wording sent to the AI.
-    const history = baseHistory
-      .filter((m) => m && m.text && !looksLikeJunkDump(m.text) && m.kind !== "draft" && m.kind !== "pin" && m.kind !== "needsKey")
-      .slice(-29)
-      .map((m) => ({
-        role: m.who === "user" ? "user" : "assistant",
-        content: coerceChatText(m.text).slice(0, 4000),
-      }));
-    const currentPlan = {
-      rangeLabel: plan.rangeLabel,
-      channels: selectedSend,
-      pinnedDates,
-      posts: posts.map((p) => ({
-        id: p.id,
-        date: p.date,
-        time: p.time,
-        channel: p.channel,
-        headline: p.headline,
-        caption: p.caption,
-        imagePrompt: p.imagePrompt,
-        status: p.status,
-        editedByUser: !!p.editedByUser,
-      })),
-    };
-
-    api.chatPlan({
-      text: sendText,
-      messages: history.concat([{ role: "user", content: sendText }]),
-      returnPlan: true,
-      currentPlan,
-      targetDate: pinnedDates.length === 1 ? pinnedDates[0] : "",
-      pinnedDates,
-      selectedChannels: selectedSend,
-      focusPostId: focusPostId || "",
-      ...companyPayload(profile),
-    }).then((res) => {
-      setTyping(false);
-      if (res && res.needsKey) {
-        setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", kind: "needsKey", text: res.reply }]);
-        return;
-      }
-      let incoming = res && res.plan;
-      const newPosts = incoming && Array.isArray(incoming.posts) ? incoming.posts.filter((p) => !p.existing) : [];
-      if (incoming && newPosts.length && namedSend.length) {
-        const filtered = newPosts.filter((p) => namedSend.includes(String(p.channel || "").toLowerCase()));
-        incoming = {
-          ...incoming,
-          channels: namedSend,
-          posts: [
-            ...incoming.posts.filter((p) => p.existing),
-            ...(filtered.length ? filtered : namedSend.map((ch, i) => ({ ...newPosts[0], channel: ch, id: newPosts[0].id + "_" + i }))),
-          ],
-        };
-      }
-      const incomingNew = incoming && Array.isArray(incoming.posts) ? incoming.posts.filter((p) => !p.existing) : [];
-      if (incomingNew.length) {
-        const pinFallback = pinnedDates[pinnedDates.length - 1] || dateDraft || todayIso();
-        const dates = [...new Set(incomingNew.map((p) => p.date || pinFallback))];
-        const channels = namedSend.length ? namedSend : [...new Set(incomingNew.map((p) => String(p.channel || "linkedin").toLowerCase()))];
-        const reuseKey = dates.slice().sort().join(",") + "|" + channels.slice().sort().join(",") + "|" + normPlan(text);
-        const existing = sameTaskDrafts(posts, dates, channels, text);
-        if (existing.length && repeatGenerate.current !== reuseKey) {
-          repeatGenerate.current = reuseKey;
-          setSelectedId(existing[0].id);
-          setApprovalOpen(true);
-          setChat((cs) => [
-            ...cs,
-            { id: "a_" + Date.now(), who: "ai", kind: "draft", postId: existing[0].id, text: reuseAskText(existing, dates, channels) },
-          ]);
-          return;
-        }
-        repeatGenerate.current = "";
-      }
-      const share = !wantsPerChannelDiff(text);
-      const sameDays = wantsSameAcrossDays(text);
-      // New posts and rewrites use AI writing, so the user sees the outline first and starts it themselves.
-      const needsOk = incoming && (incomingNew.length > 0 || (incoming.posts || []).some((p) => p.existing && p.revision));
-      if (needsOk) {
-        const id = "a_" + Date.now();
-        setPendingPlans({ [id]: { incoming, share, sameDays } });
-        setChat((cs) => [...cs, { id, who: "ai", kind: "plan", text: planSummary(incoming) }]);
-        return;
-      }
-      commitPlan(incoming, share, sameDays, res && res.reply);
-    }).catch((err) => {
-      setTyping(false);
-      setChat((cs) => [...cs, { id: "a_" + Date.now(), who: "ai", text: "Could not reach Plan AI: " + (err.message || "error") }]);
-    });
-  };
-
-  const deleteMsg = (id) => {
-    setChat((cs) => cs.filter((m) => m.id !== id));
-    if (editingId === id) setEditingId("");
-  };
-
-  const saveEdit = (id) => {
-    const next = editText.trim();
-    if (!next) return;
-    setChat((cs) => cs.map((m) => (m.id === id ? { ...m, text: next } : m)));
-    setEditingId("");
-  };
-
-  const copyMsg = async (text) => {
-    try {
-      await navigator.clipboard.writeText(coerceChatText(text));
-      showToast("Copied.");
-    } catch (_) {
-      showToast("Could not copy.");
-    }
-  };
-
-  const reshareMsg = (m) => {
-    const text = coerceChatText(m.text);
-    if (!text) return;
-    sendChat(null, { text, reshare: true });
-  };
-
-  const archiveCurrent = () => {
-    const userBits = chat.filter((m) => m.who === "user" && m.text);
-    if (!userBits.length) return;
-    const title = coerceChatText(userBits[0].text).split("\n")[0].slice(0, 52) || "Chat";
-    const thread = { id: "t_" + Date.now(), title, updatedAt: Date.now(), messages: chat };
-    setThreads((ts) => [thread, ...ts].slice(0, 40));
-    api.saveChatThread(thread.id, { title, messages: chat }).catch(() => {}); // shared with the team
-  };
-
-  const newChat = () => {
-    archiveCurrent();
-    setChat([WELCOME]);
-    setHistOpen(false);
-    setEditingId("");
-  };
-
-  const loadThread = (t) => {
-    if (!t || !Array.isArray(t.messages)) return;
-    archiveCurrent();
-    setChat(t.messages);
-    setHistOpen(false);
-  };
-
-  const deleteThread = (id) => {
-    setThreads((ts) => ts.filter((t) => t.id !== id));
-    api.deleteChatThread(id).then(() => showToast("Chat deleted."), () => showToast("Removed here, but the server copy could not be deleted."));
-  };
 
   const closeApprovals = () => {
     setApprovalOpen(false);
@@ -4420,13 +3921,11 @@ export function SocialWorkspace({
     if (lastPage.current === "assistant" && page !== "assistant" && assistantHasChat("social") && window.innerWidth > 820) setAssistantOpen(true);
     lastPage.current = page;
   }, [page]);
-  // The Social assistant's buttons: open a page, and put its plan request in the planner's box for the person to send.
+  // The Social assistant's buttons: open a page.
   useEffect(() => {
     const on = (e) => {
       const d = e.detail || {};
       if (d.page) goPage(d.page);
-      if (d.prompt) setDraft(d.prompt);
-      if (page !== "assistant" && d.prompt) { setAssistantOpen(false); setPlanAiOpen(true); }
     };
     window.addEventListener("aivhub:social-goto", on);
     return () => window.removeEventListener("aivhub:social-goto", on);
@@ -4478,7 +3977,7 @@ export function SocialWorkspace({
     listening: ["Results & Ideas", "Public posts that mention your brand, products or competitors."],
     media: ["Library", "Pictures and videos to reuse in posts."],
     import: ["Library", "Add many posts at once from a CSV or Excel file."],
-    assistant: ["AI Assistant", "Ask in plain words. It reads your posts, results and accounts, and changes nothing: to plan or edit posts it opens the planner for you."],
+    assistant: ["AI Assistant", "Ask in plain words. It reads your posts, results and accounts, and plans, rewrites and moves posts for you to confirm, and nothing is added until you press the button."],
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
     approvals: ["Post approve", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts", "The social accounts your posts go to."],
@@ -4592,7 +4091,7 @@ export function SocialWorkspace({
           </div>
         ) : page === "assistant" && !pluginLocked ? (
           <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-            <AssistantPanel page plugin="social" open onClose={() => goPage("plan")} />
+            <AssistantPanel page plugin="social" workspace={workspaceNow} onPlanOutline={applyOutline} open onClose={() => goPage("plan")} />
           </div>
         ) : page === "accounts" ? (
           <SimpleAccountsPage
@@ -4681,7 +4180,7 @@ export function SocialWorkspace({
               : "Some changes are not saved to the server yet. Retrying automatically."}
           </div>
         ) : null}
-        <div className="split-view pane-root" data-active={planPane} style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+        <div className="split-view pane-root" data-active="main" style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div data-pane="main" className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -4693,6 +4192,9 @@ export function SocialWorkspace({
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>{plan.rangeLabel || monthLabel(cal.year, cal.month)}</div>
                   <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>{companyName(profile)} · Times in {tzLabel(org.timezone)}</div>
                 </div>
+                <button type="button" onClick={() => setVoiceOpen(true)} title="How your posts should sound" style={{ ...secBtn, height: 30, fontSize: 12 }}>
+                  <BookOpen size={14} /> Brand voice
+                </button>
                 <button type="button" onClick={() => setSchedulesOpen(true)} title="Post right now, once, or on a repeating schedule" style={{ ...secBtn, height: 30, fontSize: 12 }}>
                   <CalendarClock size={14} /> Schedule
                 </button>
@@ -4909,7 +4411,7 @@ export function SocialWorkspace({
                       </button>
                     );
                   }) : <div style={{ fontSize: 13, color: C.slate }}>Nothing planned for this day.</div>}
-                  <button type="button" onClick={() => { if (!pinnedDates.includes(phoneDay)) pinDay(phoneDay); setPlanPane("side"); }}
+                  <button type="button" onClick={() => { if (!pinnedDates.includes(phoneDay)) pinDay(phoneDay); setAssistantOpen(true); }}
                     style={{ ...secBtn, justifyContent: "center", width: "100%", minHeight: 44 }}>
                     <Sparkles size={14} /> Plan a post for this day
                   </button>
@@ -4933,306 +4435,19 @@ export function SocialWorkspace({
               </button>
             ) : null}
           </div>
-
-          <div
-            data-pane="side"
-            className="split-side"
-            style={{
-              width: chatW,
-              flex: `0 0 ${chatW}px`,
-              minWidth: 280,
-              borderLeft: `1px solid ${C.border}`,
-              background: "#fff",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              overflow: "hidden",
-              position: "relative",
-              ...(assistantOpen || !(planAiOpen || planPane === "side") ? { display: "none" } : {}),
-            }}
-          >
-            <div
-              className="split-resize"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize Plan AI"
-              title="Drag to resize chat"
-              onMouseDown={startChatResize}
-              onDoubleClick={() => setChatW(380)}
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 8,
-                cursor: "col-resize",
-                zIndex: 6,
-                background: "transparent",
-              }}
-            />
-            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
-              <Sparkles size={14} color={C.teal} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14 }}>Plan AI</div>
-                <div style={{ fontSize: 11, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {pinnedDates.length ? pinnedDates.map(dayLabel).join(" · ") : "Pin a day, write the plan, generate."}
-                </div>
-              </div>
-              <button type="button" onClick={() => { setVoiceOpen((v) => !v); setHistOpen(false); }} title="Brand voice: how your posts should sound" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
-                <BookOpen size={14} />
-              </button>
-              <button type="button" onClick={() => { setHistOpen((v) => !v); setVoiceOpen(false); }} title="Chat history" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
-                <History size={14} />
-              </button>
-              <button type="button" onClick={newChat} title="New chat" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
-                <Plus size={14} />
-              </button>
-              <button type="button" onClick={() => { setPlanAiOpen(false); setPlanPane("main"); }} title="Hide Plan AI" aria-label="Hide Plan AI" style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }}>
-                <X size={14} />
-              </button>
-            </div>
-            {voiceOpen ? <BrandVoicePanel onClose={() => setVoiceOpen(false)} onSaved={() => showToast("Brand voice saved. New posts and Plan AI use it.")} /> : null}
-            {histOpen ? (
-              <div style={{ position: "absolute", top: 52, left: 10, right: 10, zIndex: 8, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.slateLight, marginBottom: 6 }}>HISTORY</div>
-                {threads.length === 0 ? (
-                  <div style={{ fontSize: 12, color: C.slate }}>No saved chats yet.</div>
-                ) : threads.map((t) => (
-                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                    <button type="button" onClick={() => loadThread(t)} style={{ ...secBtn, flex: 1, height: 30, justifyContent: "flex-start", overflow: "hidden", minWidth: 0 }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                    </button>
-                    <button type="button" onClick={() => deleteThread(t.id)} style={{ ...secBtn, height: 30, width: 30, padding: 0, justifyContent: "center", flexShrink: 0 }} title="Delete chat">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "18px 12px 12px", background: HUB_PAPER }}>
-              {chat.filter((m) => m && m.text && m.kind !== "pin" && !looksLikeJunkDump(m.text)).map((m) => {
-                const body = m.who === "ai" ? humanizeAiReply(m.text, !!m.postId) : coerceChatText(m.text);
-                if (!body) return null;
-                const mine = m.who === "user";
-                const editing = editingId === m.id;
-                const showActs = hoverMsg === m.id || editing;
-                return (
-                  <div
-                    key={m.id}
-                    onMouseEnter={() => setHoverMsg(m.id)}
-                    onMouseLeave={() => setHoverMsg("")}
-                    style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", minWidth: 0, width: "100%" }}
-                  >
-                    <div style={{ position: "relative", maxWidth: "88%", minWidth: 0 }}>
-                      <div style={{
-                        minWidth: 0,
-                        boxSizing: "border-box",
-                        padding: "8px 12px",
-                        borderRadius: mine ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                        background: mine ? C.ink : "#fff",
-                        color: mine ? "#fff" : C.textInk,
-                        fontSize: 13,
-                        lineHeight: 1.45,
-                        whiteSpace: "pre-wrap",
-                        overflowWrap: "anywhere",
-                        wordBreak: "break-word",
-                        border: mine ? "none" : `1px solid ${C.border}`,
-                      }}>
-                        {editing ? (
-                          <div>
-                            <textarea
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              rows={3}
-                              style={{ width: "100%", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", color: C.ink, resize: "vertical" }}
-                            />
-                            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                              <button type="button" onClick={() => saveEdit(m.id)} style={{ ...secBtn, height: 28, fontSize: 11 }}>Save</button>
-                              {mine ? (
-                                <button type="button" onClick={() => sendChat(null, { text: editText, replaceFromId: m.id })} style={{ ...secBtn, height: 28, fontSize: 11 }}>Resend</button>
-                              ) : null}
-                              <button type="button" onClick={() => setEditingId("")} style={{ ...secBtn, height: 28, fontSize: 11 }}>Cancel</button>
-                            </div>
-                          </div>
-                        ) : body}
-                      </div>
-                      {showActs && !editing ? (
-                        <div style={{
-                          position: "absolute",
-                          top: -12,
-                          right: mine ? 4 : "auto",
-                          left: mine ? "auto" : 4,
-                          display: "flex",
-                          gap: 1,
-                          background: "#fff",
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          padding: 2,
-                          boxShadow: "0 4px 12px rgba(18,20,28,0.10)",
-                          zIndex: 3,
-                        }}>
-                          <button type="button" title="Edit" onClick={() => { setEditingId(m.id); setEditText(coerceChatText(m.text)); }} style={{ ...iconMini, color: C.slate }}>
-                            <Pencil size={12} />
-                          </button>
-                          <button type="button" title="Delete" onClick={() => deleteMsg(m.id)} style={{ ...iconMini, color: C.slate }}>
-                            <Trash2 size={12} />
-                          </button>
-                          <button type="button" title="Copy" onClick={() => copyMsg(m.text)} style={{ ...iconMini, color: C.slate }}>
-                            <Copy size={12} />
-                          </button>
-                          <button type="button" title="Reshare" onClick={() => reshareMsg(m)} style={{ ...iconMini, color: C.slate }}>
-                            <Share2 size={12} />
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    {m.postId && !editing ? (
-                      <button type="button" onClick={() => openApprovals(m.postId)} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
-                        Open in Approvals
-                      </button>
-                    ) : null}
-                    {m.kind === "plan" && pendingPlans[m.id] && !editing ? (
-                      <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => startPlan(m.id)} title="Add these posts to the calendar and start writing them" style={{ ...secBtn, height: 30, fontSize: 12, background: C.ink, color: "#fff", borderColor: C.ink }}>Write these</button>
-                        <button type="button" onClick={changePlan} title="Tell the AI what to change; nothing is written yet" style={{ ...secBtn, height: 30, fontSize: 12 }}>Change the plan</button>
-                        <button type="button" onClick={dropPlan} title="Throw this plan away" style={{ ...secBtn, height: 30, fontSize: 12 }}>Cancel</button>
-                      </div>
-                    ) : null}
-                    {m.kind === "needsKey" && !editing ? (
-                      <button type="button" onClick={() => { setApprovalOpen(false); setPage("accounts"); }} style={{ ...secBtn, marginTop: 6, height: 28, fontSize: 11 }}>
-                        Open Accounts
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {typing && (
-                <div style={{ fontSize: 12, color: C.slate, display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ width: 6, height: 6, borderRadius: 99, background: C.teal, animation: "pulseBar 1s infinite" }} />
-                  Writing…
-                </div>
-              )}
-              <div ref={chatEnd} />
-            </div>
-            <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, padding: 12, background: "#fff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, marginBottom: 6 }}>DATES</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 10 }}>
-                <button type="button" onClick={() => addComposerDate(shiftIso(0))} style={{ ...chipBtn, background: pinnedDates.includes(todayIso()) ? C.tealSoft : "#fff", borderColor: pinnedDates.includes(todayIso()) ? C.teal : C.border }}>
-                  Today
-                </button>
-                <button type="button" onClick={() => addComposerDate(shiftIso(1))} style={{ ...chipBtn, background: pinnedDates.includes(shiftIso(1)) ? C.tealSoft : "#fff", borderColor: pinnedDates.includes(shiftIso(1)) ? C.teal : C.border }}>
-                  Tomorrow
-                </button>
-                {pinnedDates.map((d) => (
-                  <span
-                    key={d}
-                    style={{ ...chipBtn, background: C.tealSoft, borderColor: C.teal, color: C.ink, cursor: "default" }}
-                  >
-                    {dayLabel(d)}
-                    <button
-                      type="button"
-                      title="Unpin"
-                      onClick={(e) => unpinDate(d, e)}
-                      style={{ border: "none", background: "transparent", padding: 0, marginLeft: 2, cursor: "pointer", display: "inline-flex", color: C.ink }}
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-                <span style={{ ...chipBtn, background: C.paperSoft, borderColor: C.border, color: C.slate, cursor: "default" }} title="Date used when nothing is pinned">
-                  {dayLabel(dateDraft)}
-                </span>
-                <span style={{ position: "relative", display: "inline-flex" }}>
-                  <button type="button" onClick={openDatePicker} style={{ ...chipBtn, position: "relative", zIndex: 1 }} title="Open calendar">
-                    <CalendarDays size={12} /> Pick date
-                  </button>
-                  <input
-                    ref={datePickRef}
-                    type="date"
-                    value={dateDraft}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v) addComposerDate(v);
-                    }}
-                    aria-label="Pick date"
-                    tabIndex={-1}
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      top: 0,
-                      width: 1,
-                      height: 1,
-                      opacity: 0,
-                      border: "none",
-                      padding: 0,
-                      margin: 0,
-                      pointerEvents: "none",
-                    }}
-                  />
-                </span>
-              </div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: C.slateLight, marginBottom: 6 }}>CHANNELS</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                {CHANNELS.map((ch) => {
-                  const on = channelDrafts.includes(ch.id);
-                  return (
-                    <button
-                      key={ch.id}
-                      type="button"
-                      onClick={() => toggleChannel(ch.id)}
-                      style={{
-                        ...chipBtn,
-                        background: on ? C.ink : "#fff",
-                        color: on ? "#fff" : C.ink,
-                        borderColor: on ? C.ink : C.border,
-                      }}
-                    >
-                      {ch.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <textarea
-                ref={inputRef}
-                value={topicDraft}
-                onChange={(e) => setTopicDraft(e.target.value)}
-                rows={2}
-                placeholder="Ask Plan AI, or write the thought for this post…"
-                style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.border}`, padding: "8px 10px", fontFamily: FONT_BODY, fontSize: 13, resize: "none", boxSizing: "border-box", marginBottom: 8, display: "block", minHeight: 56, maxHeight: 96 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    generateFromComposer();
-                  }
-                }}
-              />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={generateFromComposer}
-                  disabled={typing || !topicDraft.trim()}
-                  style={{ ...priBtn, flex: 1, justifyContent: "center", height: 36, background: C.teal }}
-                >
-                  <Sparkles size={14} /> Generate
-                </button>
-                <button
-                  type="button"
-                  disabled={typing || !topicDraft.trim()}
-                  onClick={() => sendChat(null, { text: topicDraft })}
-                  title="Send as chat"
-                  style={{ width: 40, height: 36, borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-                >
-                  <Send size={15} />
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
         </>
         )}
       </div>
 
-      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="social" open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
+      {voiceOpen ? (
+        <div role="dialog" aria-label="Brand voice" onClick={() => setVoiceOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(18,20,28,0.35)", display: "grid", placeItems: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "relative", width: "min(480px, 100%)", height: "min(640px, 88vh)" }}>
+            <BrandVoicePanel modal onClose={() => setVoiceOpen(false)} onSaved={() => showToast("Brand voice saved. New posts and the assistant use it.")} />
+          </div>
+        </div>
+      ) : null}
+      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="social" workspace={workspaceNow} onPlanOutline={applyOutline} open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
       <ScheduleWindow
         open={schedulesOpen}
         onClose={() => setSchedulesOpen(false)}
