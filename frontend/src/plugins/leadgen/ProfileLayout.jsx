@@ -4,7 +4,7 @@ import { api } from "../../api/apiClient";
 import { notice } from "../../utils/notice";
 import { C, FONT_BODY } from "../../tokens";
 import { Spinner } from "../../app/Loader";
-import { nextTabIndex, readOpen, readTab, writeOpen, writeTab } from "./profileState";
+import { nextTabIndex, readOpen, writeOpen, writeTab } from "./profileState";
 import { LatestNote } from "./Notes";
 import { openJourney } from "../../utils/openJourney";
 import { JOURNEY_AFTER, JOURNEY_NONE, JOURNEY_WHY, addedMessage, journeyLine, journeyOption } from "./activityLogic";
@@ -17,7 +17,7 @@ const muted = { ...text, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 
 // ---------------------------------------------------------------- tabs
 export function useProfileTab(screen, ids, fallback) {
-  const [tab, setTab] = useState(() => readTab(screen, ids, fallback));
+  const [tab, setTab] = useState(fallback); // a company always opens on its first tab (Summary), never on whichever tab was used last
   const choose = useCallback((t) => { setTab(t); writeTab(screen, t); }, [screen]);
   const shown = ids.includes(tab) ? tab : fallback;
   return [shown, choose];

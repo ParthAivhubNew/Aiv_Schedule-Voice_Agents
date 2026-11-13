@@ -80,6 +80,35 @@ const ICP_PROMPT_KEY = "aivhub_icp_prompt_dismissed";
 const promptDismissed = () => { try { return localStorage.getItem(ICP_PROMPT_KEY) === "1"; } catch (_) { return false; } };
 
 // The × hides it for good on this browser; setting the ideal customer removes it anyway.
+// First visit with no ideal customer saved: instead of a list of whatever the register opens on, ask who they sell to. The answer
+// runs a search on it; "Set it from my website" fills the full ideal customer from their site instead.
+export function SetupCard({ sizes = [], onShow, onSetFromSite }) {
+  const [trade, setTrade] = useState("");
+  const [town, setTown] = useState("");
+  const [size, setSize] = useState("");
+  const ready = trade.trim() || town.trim();
+  return (
+    <form className="ui-card" style={{ padding: 20, display: "grid", gap: 12, maxWidth: 560, margin: "16px auto" }}
+      onSubmit={(e) => { e.preventDefault(); if (ready) onShow({ sector: trade.trim(), town: town.trim(), sizes: size ? [size] : [] }); }}>
+      <div style={{ ...text, fontSize: 17, fontWeight: 700, color: C.ink }}>Who do you sell to?</div>
+      <div style={{ ...text, fontSize: 13, color: C.slate }}>Tell us the trade and the area. We show the companies that fit, best first.</div>
+      <label style={{ ...text, fontSize: 13, display: "grid", gap: 4 }}>Trade or industry
+        <input className="ui-input" value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="accountants, dentists, software" /></label>
+      <label style={{ ...text, fontSize: 13, display: "grid", gap: 4 }}>Where
+        <input className="ui-input" value={town} onChange={(e) => setTown(e.target.value)} placeholder="Reading, Leeds, High Wycombe" /></label>
+      <label style={{ ...text, fontSize: 13, display: "grid", gap: 4 }}>Size
+        <select className="ui-input" value={size} onChange={(e) => setSize(e.target.value)}>
+          <option value="">Any size</option>
+          {sizes.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select></label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button type="submit" className="ui-btn ui-btn--primary" disabled={!ready}>Show me companies</button>
+        {onSetFromSite ? <button type="button" className="ui-btn ui-btn--secondary" onClick={onSetFromSite}>Set it from my website</button> : null}
+      </div>
+    </form>
+  );
+}
+
 export function IcpPrompt({ onSet, inset = false }) {
   const [hidden, setHidden] = useState(promptDismissed);
   if (hidden) return null;

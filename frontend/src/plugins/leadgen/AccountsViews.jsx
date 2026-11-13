@@ -27,7 +27,7 @@ import { ConsentDeclaration } from "./ConsentDeclaration";
 import { inboxKind } from "./inboxes";
 import { FitBadge, ICP_EVENT, IcpPrompt, SignalTags, useIcp } from "./FitParts";
 import { byFit } from "./fitLogic";
-import { displayName, legalTag } from "./companyLogic";
+import { displayName, legalTag, niceName } from "./companyLogic";
 import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
 import { SelectionBar } from "./FindLeadsParts";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
@@ -615,7 +615,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const [filter, setFilter] = useState("");
   const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
   const [moreFilter, setMoreFilter] = useState("");
-  const [picksOnly, setPicksOnly] = useState(false);
+  const [picksOnly, setPicksOnly] = useState(() => { try { const go = sessionStorage.getItem("aivhub_open_picks") === "1"; if (go) sessionStorage.removeItem("aivhub_open_picks"); return go; } catch { return false; } }); // the bell's Review opens here
+  useEffect(() => { const open = () => setPicksOnly(true); window.addEventListener("aivhub:open-picks", open); return () => window.removeEventListener("aivhub:open-picks", open); }, []);
   const [pageSize, setPageSize] = useState(() => {
     try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
@@ -855,7 +856,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         </SelectionBar>
         <SelectAllNotice sel={sel} pageIds={pageIds} total={shownIds.length} onSelectAll={() => sel.selectAll(shownIds)} />
         <GridTools id="my-list" pinned={COMPANY_PIN} into="acc-grid-tools" />
-        <div className="ui-scroll" style={{ overflowX: "auto" }}>
+        {picks ? <NeedsChoiceTable rows={pickRows} store={store} /> : null}
+        <div className="ui-scroll" style={{ overflowX: "auto", display: picks ? "none" : undefined }}>
           <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
               <tr>
@@ -1256,13 +1258,13 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
 
   return (
     <div onClick={page ? undefined : onClose} style={page ? { display: "flex", justifyContent: "center" } : { position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
-      <div role={page ? undefined : "dialog"} aria-label={live.name} onClick={(e) => e.stopPropagation()} className="ui-scroll"
+      <div role={page ? undefined : "dialog"} aria-label={niceName(live.name)} onClick={(e) => e.stopPropagation()} className="ui-scroll"
         style={page ? { width: "min(100%, 980px)", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column" }
           : { width: "min(100%, 520px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
         <div style={{ position: "sticky", top: 0, background: "#fff", zIndex: 4, borderRadius: page ? "14px 14px 0 0" : 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 10px 20px", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-            <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{live.name}</div>
+            <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{niceName(live.name)}</div>
             <LatestNote note={notesApi.notes[0]} onOpen={openNotes} style={{ marginTop: 2, maxWidth: "100%" }} />
             <div style={{ ...muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <SiteLink account={live} /><span title="How this company got into your account">{sourceWords(live.source)}</span>
@@ -1283,7 +1285,7 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
         </div>
         <div style={{ padding: "4px 20px 20px", display: "flex", flexDirection: "column", gap: 0, flex: 1 }}>
           <TabPanel idBase={tabBase} id="summary" value={tab}>
-            <SummaryTab profile={summary.profile} account={live} loading={summary.loading} error={summary.error} onGoTab={setTab} />
+            <SummaryTab profile={summary.profile} account={live} loading={summary.loading} error={summary.error} onGoTab={setTab} companyId={live.business_record_id || ""} onPicked={summary.reload} />
           </TabPanel>
           <TabPanel idBase={tabBase} id="overview" value={tab}>
             <EndedBanner account={live} />
@@ -1438,6 +1440,51 @@ async function parseImportFile(file) {
 
 const IMPORT_BATCH = 500;
 
+// Every company that has more than one phone or email to choose from, one row each: the options in a dropdown (the best guess first),
+// "Use" to save the one shown, and one button to accept every best guess. Nothing is saved until a choice is made.
+function NeedsChoiceTable({ rows, store }) {
+  const items = rows.flatMap((a) => openPicks(a).map((f) => ({ a, f })));
+  const [chosen, setChosen] = useState({});
+  const [busy, setBusy] = useState("");
+  const key = (a, f) => `${a.id}:${f.field}`;
+  const act = async (id, fn, ok) => {
+    setBusy(id);
+    try { await fn(); await store.reload(); if (ok) store.toast?.(ok); } catch (e) { store.toast?.(e.message || "That didn't save. Try again."); } finally { setBusy(""); }
+  };
+  return (
+    <div style={{ borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ padding: "10px 12px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 14 }}>Needs your choice · {items.length.toLocaleString()}</strong>
+        <span style={{ ...muted, flex: 1 }}>Nothing is saved until you choose.</span>
+        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={Boolean(busy)}
+          onClick={() => act("all", () => api.acceptBestCheckPicks({ ids: [...new Set(items.map(({ a }) => a.id))] }), "Saved every best guess.")}>Accept all best guesses ({items.length.toLocaleString()})</button>
+      </div>
+      <div className="ui-scroll" style={{ overflowX: "auto" }}>
+        <table className="ui-table" style={{ minWidth: 520 }}>
+          <thead><tr><th>Company</th><th>Detail</th><th>Options</th><th aria-label="Action" /></tr></thead>
+          <tbody>
+            {items.map(({ a, f }) => {
+              const opts = f.options || [];
+              const value = chosen[key(a, f)] || (opts[0] || {}).value || "";
+              return (
+                <tr key={key(a, f)}>
+                  <td style={{ fontWeight: 600 }}>{niceName(a.name)}</td>
+                  <td>{f.field === "phone" ? "Phone" : "Email"}</td>
+                  <td><select className="ui-input" aria-label={`Options for ${a.name}`} value={value} onChange={(e) => setChosen((c) => ({ ...c, [key(a, f)]: e.target.value }))} style={{ maxWidth: 320 }}>
+                    {opts.map((o, i) => <option key={o.value} value={o.value}>{o.value}{i === 0 ? " (best guess)" : ""}</option>)}
+                  </select></td>
+                  <td style={{ textAlign: "right" }}><button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={Boolean(busy) || !value}
+                    onClick={() => act(key(a, f), () => api.answerCheckPick(a.id, { field: f.field, value }), "Saved.")}>Use</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // What an import did, in plain terms, and what to do next.
 function QuarantineBox({ rows }) {
   const download = () => {
@@ -1461,8 +1508,12 @@ function QuarantineBox({ rows }) {
   );
 }
 
-function ImportReport({ done, onGo, onClose, onToast }) {
+function ImportReport({ done, accounts = [], onGo, onClose, onToast }) {
   const call = useCallDialog(onToast);
+  // The opt-in question matters only when someone in the file could be a sole trader. When every new company is already a confirmed
+  // register company it would change nothing, so it is not asked. Not enough known yet: it is asked.
+  const fresh = (done.newIds || []).map((id) => accounts.find((a) => a.id === id)).filter(Boolean);
+  const askConsent = Boolean(done.newIds?.length) && !(fresh.length === done.newIds.length && fresh.every((a) => (a.email_route || {}).group === "ready"));
   const stat = (n, label, tip) => (n ? (
     <div title={tip} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff" }}>
       <div style={{ ...text, fontSize: 22, lineHeight: 1.15, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</div>
@@ -1490,7 +1541,7 @@ function ImportReport({ done, onGo, onClose, onToast }) {
         {stat(done.warned, "saved with a warning", "Saved, but worth a look: a personal mailbox, a shared inbox, a mobile, or no Ltd in the name")}
       </div>
       {(done.quarantined || []).length ? <QuarantineBox rows={done.quarantined} /> : null}
-      {done.newIds?.length ? <ConsentDeclaration leadIds={done.newIds} scope="import" count={done.newIds.length} onDone={(_, msg) => onToast?.(msg)} /> : null}
+      {askConsent ? <ConsentDeclaration leadIds={done.newIds} scope="import" count={done.newIds.length} onDone={(_, msg) => onToast?.(msg)} /> : null}
       {!done.added && !done.matched ? <div style={{ ...muted, fontSize: 13 }}>Nothing was added.</div> : null}
       {done.matching ? <div style={{ display: "flex", gap: 8, alignItems: "center", ...muted, fontSize: 12.5 }}><Spinner size={13} /> Filling in from our company records: {done.matching.done.toLocaleString()} of {done.matching.total.toLocaleString()}. Free. You can keep working.</div> : null}
       {gaps.length || done.custom?.length ? (
@@ -1627,7 +1678,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           onImport={onMapped}
         />
       ) : null}
-      {done && !fields.length ? <ImportReport done={done} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
+      {done && !fields.length ? <ImportReport done={done} accounts={store.accounts} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
       {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
           style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: done ? "24px 20px" : "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>

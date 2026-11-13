@@ -162,6 +162,14 @@ def _message_lines(messages: List[Dict[str, Any]]) -> List[str]:
     return [f"{'AI' if role == 'assistant' else 'Prospect'}: {text}" for _, role, text in rows]
 
 
+def _note_once(state: Dict[str, Any], why: str) -> None:
+    """Why the live transcript is not filling in, written once per reason so the log stays readable."""
+    seen = state.setdefault("_noted", set())
+    if why not in seen:
+        seen.add(why)
+        logger.warning(f"[TELNYX-ASSISTANT] Live transcript not updating for {state.get('call_id', '?')}: {why}")
+
+
 async def _fetch_conversation_lines(api_key: str, call_control_id: str, state: Dict[str, Any]) -> Optional[List[str]]:
     """Current transcript lines for this call from Telnyx AI Conversations, or None if unavailable."""
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -174,9 +182,11 @@ async def _fetch_conversation_lines(api_key: str, call_control_id: str, state: D
                 headers=headers,
             )
             if res.status_code != 200:
+                _note_once(state, f"conversation lookup answered HTTP {res.status_code}: {res.text[:160]}")
                 return None
             data = (res.json() or {}).get("data") or []
             if not data:
+                _note_once(state, "no conversation found yet for this call")
                 return None
             conv_id = data[0].get("id")
             state["conversation_id"] = conv_id
@@ -206,11 +216,12 @@ async def _sync_transcript(call_control_id: str) -> bool:
         return False
     api_key = await _api_key()
     if not api_key:
+        _note_once(state, "no Telnyx key found for this organisation")
         return False
     try:
         lines = await _fetch_conversation_lines(api_key, call_control_id, state)
     except Exception as err:
-        logger.debug(f"[TELNYX-ASSISTANT] Transcript fetch failed for {call_control_id}: {err}")
+        _note_once(state, f"fetch failed: {err}")
         return False
     if lines is None or lines == state.get("convo_lines"):
         return False
@@ -308,8 +319,10 @@ async def _start_assistant(call_control_id: str, assistant_id: str, state: Dict[
     if not api_key:
         return {"ok": False, "error": "No Telnyx API key configured."}
 
+    from app.services.telnyx_assistant_sync import date_variables
+
     name = _real_name(state.get("prospect", ""))
-    dynamic = {"call_direction": "outbound"}
+    dynamic = {"call_direction": "outbound", **date_variables()}
     if name:
         dynamic["customer_name"] = name
         dynamic["caller_name"] = name
@@ -318,6 +331,7 @@ async def _start_assistant(call_control_id: str, assistant_id: str, state: Dict[
         async with AsyncSessionLocal() as db:
             ctx = await context_resolver.resolve_inbound(db, state.get("to") or "unknown")
         company = ctx.get("company") or {}
+        dynamic.update(date_variables(company.get("timezone")))
         if company.get("name"):
             dynamic["company_name"] = company.get("name")
         if company.get("agent_name"):

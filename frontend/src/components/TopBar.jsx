@@ -12,7 +12,8 @@ import {
   callingPageFromTarget,
 } from "../tokens";
 
-import { openDock, useDock } from "../hub/jobDockStore";
+import { closeDock, openDock, useDock } from "../hub/jobDockStore";
+import { navigateHash } from "../utils/route";
 
 export function NotificationBell({ notifications = [], setNotifications, onNavigate }) {
   const [open, setOpen] = useState(false);
@@ -23,7 +24,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
   const unreadCount = items.filter((n) => n.unread).length;
   const dock = useDock(); // the bulk check's line and what is waiting on you, shown here instead of a floating pill
   const waiting = dock.count;
-  const badgeCount = unreadCount + waiting;
+  const badgeCount = unreadCount + (waiting > 0 ? 1 : 0); // the choices waiting on you are one item, not one per company
   const hasUnread = badgeCount > 0;
 
   const closePanel = () => setOpen(false);
@@ -135,6 +136,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          closeDock(); // the bell and the check panel are never open together
           setOpen((o) => !o);
         }}
         className="nb-btn"
@@ -179,7 +181,7 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {badgeCount > 9 ? "9+" : badgeCount}
+            {badgeCount > 99 ? "99+" : badgeCount}
           </span>
         )}
       </button>
@@ -307,7 +309,18 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {items.length === 0 ? (
+              {waiting > 0 ? (
+                <div style={{ borderRadius: 10, background: C.cobaltSoft, border: "1px solid rgba(52,87,213,0.25)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.textInk, lineHeight: 1.4 }}>
+                    {waiting.toLocaleString()} contact {waiting === 1 ? "detail needs" : "details need"} a choice
+                  </span>
+                  <button type="button" onClick={() => { closePanel(); try { sessionStorage.setItem("aivhub_open_picks", "1"); } catch (_) { /* the page still opens */ } navigateHash("#/leadgen/saved_companies"); window.dispatchEvent(new Event("aivhub:open-picks")); }}
+                    style={{ height: 28, padding: "0 10px", borderRadius: 7, border: "none", background: C.cobalt, color: "#fff", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                    Review
+                  </button>
+                </div>
+              ) : null}
+              {items.length === 0 && waiting === 0 ? (
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, textAlign: "center", padding: "24px 0" }}>
                   No notifications
                 </div>

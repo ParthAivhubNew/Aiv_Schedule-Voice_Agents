@@ -20,12 +20,12 @@ export function PluginCredits({ wallet, operator, onOpen, refreshKey }) {
   const balance = Number(w.balance || 0);
   const label = w.empty ? "Out of credits" : w.low ? "Credits running low" : "Credits";
   return (
-    <button type="button" onClick={onOpen} className="ui-credits" data-state={state} aria-label={`${label}: ${balance.toLocaleString()}. Open your plan to top up`}>
+    <button type="button" onClick={onOpen} className="ui-credits" data-state={state} aria-label={`${label}: ${balance.toLocaleString()}. Open your plan to ${w.low && !w.empty ? "upgrade" : "top up"}`}>
       <span className="ui-credits-full">
         <span className="ui-credits-label">{label}</span>
         <span className="ui-credits-num">{balance.toLocaleString()}</span>
       </span>
-      <span className="ui-credits-action ui-credits-full">Top up</span>
+      <span className="ui-credits-action ui-credits-full">{w.low && !w.empty ? "Upgrade plan" : "Top up"}</span>
       <span className="ui-credits-mini" aria-hidden="true"><Coins size={18} strokeWidth={1.75} /></span>
     </button>
   );

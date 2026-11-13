@@ -128,3 +128,18 @@ export function restoreChat(saved) {
   const listed = last ? { total: last.found.total, capped: last.found.capped, asked: last.found.asked, filters: last.found.filters, top: (last.found.top || []).slice(0, TOP_KEPT) } : null;
   return { messages, acts: saved?.acts || {}, state: saved?.state || {}, filters: saved?.filters || {}, listed };
 }
+
+// The saved chats as the sidebar shows them: chats with the same title are one entry (the newest, with how many there were), grouped as
+// Recent (the last 7 days) and Older. Each chat is titled by what it asked, so four "accountants in RG2" chats read as one.
+export function groupChats(chats, now = Date.now()) {
+  const seen = new Map();
+  [...(chats || [])].sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).forEach((c) => {
+    const key = String(c.title || "Chat").trim().toLowerCase().replace(/\s+/g, " ");
+    const hit = seen.get(key);
+    if (hit) hit.count += 1; else seen.set(key, { ...c, title: c.title || "Chat", count: 1 });
+  });
+  const week = 7 * 24 * 3600 * 1000;
+  const rows = [...seen.values()];
+  const recent = rows.filter((c) => !c.at || now - new Date(c.at).getTime() <= week);
+  return [["Recent", recent], ["Older", rows.filter((c) => !recent.includes(c))]].filter(([, r]) => r.length);
+}

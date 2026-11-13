@@ -10,6 +10,11 @@ export function todayTiles(t) {
   const out = [];
   if (t.replies_waiting != null) out.push({ key: "replies", label: plural(t.replies_waiting, "reply waiting", "replies waiting"), value: n(t.replies_waiting), href: t.links?.replies, hot: t.replies_waiting > 0 });
   if (t.approvals_waiting != null) out.push({ key: "approvals", label: plural(t.approvals_waiting, "email to approve", "emails to approve"), value: n(t.approvals_waiting), href: t.links?.approvals, hot: t.approvals_waiting > 0 });
+  if (t.tasks_overdue != null || t.tasks_today != null) {
+    const late = Number(t.tasks_overdue || 0);
+    const due = late + Number(t.tasks_today || 0);
+    out.push({ key: "tasks", label: late ? `${plural(due, "task", "tasks")} due · ${n(late)} overdue` : plural(due, "task due today", "tasks due today"), value: n(due), href: t.links?.tasks, hot: due > 0, warn: late > 0 });
+  }
   if (t.meetings_this_week != null) out.push({ key: "meetings", label: plural(t.meetings_this_week, "meeting this week", "meetings this week"), value: n(t.meetings_this_week), href: t.links?.meetings });
   if (t.bounce_rate_7d != null) {
     const warn = t.bounce_rate_7d >= BOUNCE_WARN;

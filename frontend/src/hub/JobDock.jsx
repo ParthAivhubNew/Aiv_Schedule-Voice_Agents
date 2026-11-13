@@ -43,6 +43,21 @@ export default function JobDock() {
   const [error, setError] = useState("");
   const [said, setSaid] = useState("");
   const lastSaid = useRef(0);
+  const panelRef = useRef(null);
+
+  // Escape and a click anywhere outside close the panel, as the bell's own panel does. A click on the bell itself is left to the bell.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") closeDock(); };
+    const onDown = (e) => {
+      if (panelRef.current && panelRef.current.contains(e.target)) return;
+      if (e.target.closest && e.target.closest(".nb-btn")) return;
+      closeDock();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
+  }, [open]);
 
   const load = useCallback(async () => {
     try {
@@ -80,7 +95,7 @@ export default function JobDock() {
     <div style={{ position: "fixed", right: "max(16px, env(safe-area-inset-right, 0px))", top: 64, zIndex: 9990, maxWidth: "calc(100vw - 32px)", display: "grid", gap: 8, justifyItems: "end" }}>
       <span role="status" aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{said}</span>
       {open && line ? (
-        <section className="ui-card" aria-label="Bulk check" style={{ position: "relative", width: 400, maxWidth: "100%", maxHeight: "min(70vh, 640px)", overflow: "auto", padding: 14, display: "grid", gap: 12, boxShadow: "0 12px 32px rgba(18,20,28,.22)" }}>
+        <section ref={panelRef} className="ui-card" aria-label="Bulk check" style={{ position: "relative", width: 400, maxWidth: "100%", maxHeight: "min(70vh, 640px)", overflow: "auto", padding: 14, display: "grid", gap: 12, boxShadow: "0 12px 32px rgba(18,20,28,.22)" }}>
           <button type="button" className="ui-icon-btn ui-icon-btn--sm" aria-label="Close" title="Close" onClick={closeDock} style={{ position: "absolute", top: 8, right: 8 }}><ChevronUp size={15} /></button>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Back to your notifications" onClick={backToNotifications} style={{ justifySelf: "start", marginBottom: -4 }}><ArrowLeft size={14} /> Notifications</button>
           {job ? (

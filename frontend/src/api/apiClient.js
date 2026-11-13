@@ -155,13 +155,15 @@ const confirmShortCall = (send) => async (payload) => {
 
 export const api = {
   // Auth & Team
-  login: async (username, password) => {
-    const res = await apiRequest('/auth/login', { method: 'POST', body: { username, password } });
+  login: async (username, password, remember = false) => {
+    const res = await apiRequest('/auth/login', { method: 'POST', body: { username, password, remember } });
+    try { if (res?.remember) localStorage.setItem('aivhub_remember', '1'); else localStorage.removeItem('aivhub_remember'); } catch (_) {}
     setSession(res);
     return res;
   },
   logout: async () => {
     try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (_) {}
+    try { localStorage.removeItem('aivhub_remember'); } catch (_) {}
     clearSession();
   },
   getMe: () => apiRequest('/auth/me'),

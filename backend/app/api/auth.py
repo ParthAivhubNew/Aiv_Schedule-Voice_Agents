@@ -65,6 +65,7 @@ def _locked(key: str) -> bool:
 class LoginBody(BaseModel):
     username: str
     password: str = ""
+    remember: bool = False  # "Keep me signed in" on a trusted device
 
 
 class RefreshBody(BaseModel):
@@ -143,7 +144,13 @@ async def _operator_json(db: AsyncSession, op: Operator) -> Dict[str, Any]:
     }
 
 
-async def _start_session(db: AsyncSession, op: Operator, request: Request) -> Dict[str, str]:
+async def _may_remember(db: AsyncSession, op: Operator) -> bool:
+    """A remembered sign-in is allowed unless the organisation's admin set a maximum of their own: that choice is never loosened."""
+    return not (await session_policy.org_choice(db, org_of(op))).get("max_hours")
+
+
+async def _start_session(db: AsyncSession, op: Operator, request: Request, remember: bool = False) -> Dict[str, Any]:
+    remember = bool(remember and await _may_remember(db, op))
     sid = f"ses_{uuid.uuid4().hex}"
     refresh = create_refresh_token(op.id, sid)
     claims = decode_token(refresh, "refresh")
@@ -153,11 +160,12 @@ async def _start_session(db: AsyncSession, op: Operator, request: Request) -> Di
         refresh_jti=claims["jti"],
         user_agent=(request.headers.get("user-agent") or "")[:300],
         ip=request.client.host if request.client else "",
-        expires_at=datetime.utcnow() + timedelta(seconds=min(REFRESH_TTL_S, (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600)),
+        expires_at=datetime.utcnow() + timedelta(seconds=REFRESH_TTL_S if remember else min(REFRESH_TTL_S, (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600)),
+        remember=remember,
     ))
     is_admin, _, roles = await effective_access(db, op)
     role = "Admin" if is_admin else (roles[0].name if roles else "Operator")
-    return {"access_token": create_access_token(op.id, org_of(op), role, sid), "refresh_token": refresh, "token_type": "bearer"}
+    return {"access_token": create_access_token(op.id, org_of(op), role, sid), "refresh_token": refresh, "token_type": "bearer", "remember": remember}
 
 
 async def _require_admin_or_team(request: Request) -> Dict[str, Any]:
@@ -264,12 +272,12 @@ async def assert_can_sign_in(db: AsyncSession, op: Operator) -> None:
 @router.post("/login")
 async def login(body: LoginBody, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     op = await check_credentials(db, body.username, body.password, request)
-    out = await sign_in_as(db, op, request)
+    out = await sign_in_as(db, op, request, remember=body.remember)
     set_refresh_cookie(response, out["refresh_token"])
     return out
 
 
-async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[str, Any]:
+async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember: bool = False) -> Dict[str, Any]:
     """Start a session for a user who proved who they are (password or Google)."""
     from app.models.models import Organization
 
@@ -288,7 +296,7 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request) -> Dict[s
     elif stored.pop("first_visit", None):
         op.profile = stored
     op.last_login_at = datetime.utcnow()
-    tokens = await _start_session(db, op, request)
+    tokens = await _start_session(db, op, request, remember)
     await db.commit()
     return {**tokens, "operator": await _operator_json(db, op)}
 
@@ -316,7 +324,7 @@ async def refresh(request: Request, response: Response, body: Optional[RefreshBo
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     # A shortened maximum applies to sign-ins already open, not only new ones.
     max_s = (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600
-    if ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:
+    if not ses.remember and ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     is_admin, _, roles = await effective_access(db, op)
     access = create_access_token(op.id, org_of(op), "Admin" if is_admin else (roles[0].name if roles else "Operator"), ses.id)

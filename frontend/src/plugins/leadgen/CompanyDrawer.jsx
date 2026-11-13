@@ -5,7 +5,7 @@ import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfi
 import { LatestNote, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
 import { filledSummary } from "./profileState";
-import { legalTag } from "./companyLogic";
+import { legalTag, niceName } from "./companyLogic";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
 
 // The Find Leads profile drawer: the same tabs, folding sections and bottom bar as the saved company panel.
@@ -31,7 +31,7 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
   const facts = openCo ? [openCo.registration_number, openCo.status, legalTag(openCo.company_category, openCo.registration_number), openCo.incorporation_date, size, openCo.address] : [];
   const sub = openCo ? [plainSector(openCo.industry), openCo.region].filter(Boolean).join(" · ") : "";
   return (
-    <Drawer open={Boolean(openCo)} onClose={onClose} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={openCo?.name || ""}
+    <Drawer open={Boolean(openCo)} onClose={onClose} avatar={openCo ? <CompanyAvatar c={openCo} size={40} /> : null} title={niceName(openCo?.name || "")}
       sub={openCo ? <>{sub ? <div>{sub}</div> : null}<LatestNote note={notesApi.notes[0]} onOpen={() => setTab("notes")} style={{ marginTop: 3, maxWidth: "100%" }} /></> : ""}
       actions={actions}
       footer={openCo ? <BottomBar note={notesApi.notes[0]} onOpenNotes={() => setTab("notes")} journey={<JourneyControl companyId={openCo.id} accountId={saved?.id || ""} companyName={openCo.name} />} actions={saveAction} /> : null}>
@@ -40,7 +40,7 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
           <ProfileTabs idBase={base} label={`${openCo.name} sections`} value={tab} onChange={setTab} style={{ margin: "0 -16px", padding: "0 8px" }}
             tabs={TABS.map((t) => (t.id === "notes" ? { ...t, count: notesApi.notes.length || 0 } : t))} />
           <TabPanel idBase={base} id="summary" value={tab}>
-            <SummaryTab profile={summary.profile} account={saved || null} loading={summary.loading} error={summary.error} onGoTab={setTab} companyId={openCo.id} />
+            <SummaryTab profile={summary.profile} account={saved || null} loading={summary.loading} error={summary.error} onGoTab={setTab} companyId={openCo.id} onPicked={summary.reload} />
           </TabPanel>
           <TabPanel idBase={base} id="overview" value={tab}>
             <Collapsible id="drawer:contacts" defaultOpen title="Contact details" summary={filledSummary([openCo.website || openCo.web_website, openCo.phone || openCo.web_phone, openCo.email || openCo.web_email])}>

@@ -36,13 +36,14 @@ export function InboundFormsView({ toast, onOpenLead }) {
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ ...muted, flex: "1 1 280px" }}>Build a form, put its link or iframe on your website, and every answer with a working email becomes a lead in the list you pick.</div>
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={create}><Plus size={14} /> New form</button>
-      </div>
+      {forms.length ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={create}><Plus size={14} /> New form</button>
+        </div>
+      ) : null}
       {!forms.length ? (
         <div className="ui-card" style={{ padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <FileText size={28} color="#8B5CF6" />
+          <FileText size={28} color="var(--ui-accent, #3457D5)" />
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No forms yet</div>
           <div style={{ ...muted, maxWidth: 420 }}>A form asks for a name and email, plus anything else you add. Visitors fill it in on a page we host, or in an iframe on your own site.</div>
           <button type="button" className="ui-btn ui-btn--primary" onClick={create}>Create your first form</button>
@@ -127,7 +128,7 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
         <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", alignItems: "start" }}>
           <div className="ui-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             {draft.fields.map((f, i) => (
-              <div key={f.id} style={{ border: `1px solid ${selected === f.id ? "#8B5CF6" : "#e5e7eb"}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div key={f.id} style={{ border: `1px solid ${selected === f.id ? "var(--ui-accent, #3457D5)" : "#e5e7eb"}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: 1, justifyContent: "flex-start", fontWeight: 600 }} aria-expanded={selected === f.id} onClick={() => setSelected(selected === f.id ? "" : f.id)}>
                     {f.label} <span style={{ ...muted, marginLeft: 6 }}>{fieldTypeLabel(f.type)}{f.required ? " · required" : ""}</span>

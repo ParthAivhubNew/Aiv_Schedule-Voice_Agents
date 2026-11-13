@@ -8,6 +8,7 @@ Provides:
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -182,6 +183,23 @@ def _parse_start_time(raw: str, today_iso: str):
     return None, None, None
 
 
+def _parse_day(raw: str, today: datetime) -> Optional[datetime]:
+    """A calendar day from what the model passed: '2026-11-16', a datetime string, or words
+    like 'Monday' / 'next week' (relative to `today`). None when nothing was passed."""
+    from app.services.calendar_service import parse_spoken_date
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        try:
+            return datetime.strptime(text[:10], "%Y-%m-%d")
+        except ValueError:
+            pass
+    day = parse_spoken_date(text, now=today)
+    return datetime(day.year, day.month, day.day)
+
+
 async def _slot_zones(db: AsyncSession, args: Dict[str, Any], call_context: Dict[str, Any]):
     """(account timezone, caller timezone). The caller's zone is what they said on the call, else
     the one worked out for the call (their number, campaign), else the account's."""
@@ -247,13 +265,24 @@ async def execute_smart_booking_tool(
     today_iso = temporal.get("today_iso", datetime.utcnow().strftime("%Y-%m-%d"))
 
     if tool_name == "check_availability":
-        start_date = str(args.get("start_date") or "").strip() or today_iso
-        end_date = str(args.get("end_date") or "").strip() or start_date
         try:
             host_tz, caller_tz = await _slot_zones(db, args, call_context)
-            first = datetime.strptime(start_date, "%Y-%m-%d")
-            last = datetime.strptime(end_date, "%Y-%m-%d")
-            span = max(0, min((last - first).days, MAX_SLOT_DAYS - 1))
+            today = datetime.strptime(today_iso, "%Y-%m-%d")
+            first = _parse_day(str(args.get("start_date") or ""), today) or today
+            last = _parse_day(str(args.get("end_date") or ""), first) or first
+            if last < first:
+                last = first
+            span = min((last - first).days, MAX_SLOT_DAYS - 1)
+            date_note = ""
+            if first < today:
+                # Usually the model's own idea of today (an old prompt, its training year): days that
+                # have passed have no free times, which it would otherwise report as "fully booked".
+                date_note = f"Today is {today.strftime('%A %d %B %Y')} ({today_iso}); dates before today were skipped. "
+                if last >= today:
+                    span = (last - today).days
+                first = today
+            last = first + timedelta(days=span)
+            start_date, end_date = first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d")
 
             offered: List[Dict[str, Any]] = []
             total = 0
@@ -270,7 +299,9 @@ async def execute_smart_booking_tool(
                     "spoken_slots": [o["spoken"] for o in offered],
                     "total_found": total,
                     "timezone": caller_tz,
-                    "message": (
+                    "today": today_iso,
+                    "searched": [start_date, end_date],
+                    "message": date_note + (
                         "Offer two or three of spoken_slots. Say only the spoken form. When booking, pass the matching "
                         "entry of available_slots unchanged as start_time."
                     ),
@@ -289,14 +320,24 @@ async def execute_smart_booking_tool(
                 "next_available_slots": [o["start"] for o in nxt],
                 "next_spoken_slots": [o["spoken"] for o in nxt],
                 "timezone": caller_tz,
-                "message": (
+                "today": today_iso,
+                "searched": [start_date, end_date],
+                "message": date_note + (
                     f"Nothing is free between {start_date} and {end_date}. "
                     + ("Offer the next_spoken_slots instead." if nxt else "Say the calendar is full for now and offer to have someone follow up.")
                 ),
             }
         except Exception as e:
-            logger.warning(f"[BOOKING-TOOL] Availability check error: {e}")
-            return {"success": False, "error": str(e), "available_slots": []}
+            # No empty available_slots here: the model reads an empty list as "the calendar is full".
+            logger.exception(f"[BOOKING-TOOL] Availability check error: {e}")
+            return {
+                "success": False,
+                "error": "The calendar could not be checked just now.",
+                "message": (
+                    "The calendar could not be checked. Do not say it is full or booked. Ask which day and time "
+                    "suit them, then offer to have someone confirm the time."
+                ),
+            }
 
     elif tool_name == "book_appointment":
         start_time = str(args.get("start_time") or "").strip()

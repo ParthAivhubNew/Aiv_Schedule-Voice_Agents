@@ -57,8 +57,8 @@ describe("list numbers", () => {
   });
   it("averages only scored rows, counts ready ones, and says Mixed without a clear majority", () => {
     const rows = [ready("a", { source: "import", fit: { score: 80 } }), row("b", { source: "scout", fit: { score: 40 } }), row("c", { source: "import" }), row("d", { source: "manual" })];
-    expect(listStats(rows)).toEqual({ ready: 1, avgFit: 60, source: "Mixed" });
-    expect(listStats([row("x", { source: "import" }), row("y", { source: "import" })])).toEqual({ ready: 0, avgFit: null, source: "Import" });
-    expect(listStats([])).toEqual({ ready: 0, avgFit: null, source: "" });
+    expect(listStats(rows)).toEqual({ ready: 1, avgFit: 60, source: "Mixed", held: 0 });
+    expect(listStats([row("x", { source: "import" }), row("y", { source: "import" })])).toEqual({ ready: 0, avgFit: null, source: "Import", held: 0 });
+    expect(listStats([])).toEqual({ ready: 0, avgFit: null, source: "", held: 0 });
   });
 });

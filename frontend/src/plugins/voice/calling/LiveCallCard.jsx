@@ -47,7 +47,7 @@ function StatePill({ state }) {
   );
 }
 
-function Transcript({ lines, live, tall }) {
+function Transcript({ lines, live, tall, them = "" }) {
   const boxRef = useRef(null);
   const stickRef = useRef(true);
   const parsed = (lines || []).map(parseTranscriptLine).filter((l) => l.text);
@@ -81,7 +81,7 @@ function Transcript({ lines, live, tall }) {
         return (
           <div key={i} style={{ alignSelf: mine ? "flex-start" : "flex-end", maxWidth: "82%" }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: mine ? C.cobaltDeep : C.teal, marginBottom: 2, textAlign: mine ? "left" : "right", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-              {l.who === "ai" ? "AI" : l.who === "human" ? "You" : "Them"}
+              {l.who === "ai" ? "AI" : l.who === "human" ? "You" : them || "Them"}
             </div>
             <div style={{ background: mine ? "#fff" : C.tealSoft, border: `1px solid ${mine ? C.border : "#BFE6DF"}`, borderRadius: 10, padding: "7px 10px", fontSize: 13, lineHeight: 1.45, color: C.textInk }}>
               {l.text}
@@ -190,7 +190,7 @@ export function LiveCallCard({
           onEmail={() => api.emailLiveCallSummary(id)}
         />
       ) : null}
-      <Transcript lines={lines} live tall={tall} />
+      <Transcript lines={lines} live tall={tall} them={name !== "Unknown" ? name : ""} />
       {lines.length > 6 ? (
         <button type="button" onClick={() => setTall((t) => !t)} style={{ marginTop: 6, background: "none", border: "none", color: C.slate, fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}>
           {tall ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {tall ? "Shrink" : "Expand transcript"}
@@ -283,7 +283,7 @@ export function RecentlyEndedList({ calls, onOpenHistory }) {
                 <span style={{ fontSize: 12, color: C.slate, fontVariantNumeric: "tabular-nums" }}>{c.duration}</span>
                 {open ? <ChevronUp size={14} color={C.slate} /> : <ChevronDown size={14} color={C.slate} />}
               </button>
-              {open ? <div style={{ padding: "0 14px 12px" }}><Transcript lines={c.transcript || []} live={false} /></div> : null}
+              {open ? <div style={{ padding: "0 14px 12px" }}><Transcript lines={c.transcript || []} live={false} them={c.prospect || c.prospect_name || c.contact || c.name || ""} /></div> : null}
             </div>
           );
         })}

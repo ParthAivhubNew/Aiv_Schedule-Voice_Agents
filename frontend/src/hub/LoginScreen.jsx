@@ -83,6 +83,7 @@ export function LoginScreen({ onLogin }) {
   const [mode, setModeRaw] = useState(initialMode);
   const [config, setConfig] = useState(null); // null until the server says what is on
   const [username, setUsername] = useState("");
+  const [keep, setKeep] = useState(false); // "Keep me signed in" on a trusted device
   const [password, setPassword] = useState("");
   const [company, setCompany] = useState("");
   const [name, setName] = useState("");
@@ -173,7 +174,7 @@ export function LoginScreen({ onLogin }) {
     setInfo("");
     run(async () => {
       try {
-        const res = await api.login(username.trim(), password);
+        const res = await api.login(username.trim(), password, keep);
         if (res?.operator) finish(res.operator);
       } catch (err) {
         if (err.code === "bad_credentials" && config?.allowSignup && username.includes("@")) {
@@ -315,7 +316,10 @@ export function LoginScreen({ onLogin }) {
                     placeholder={mode === "signin" ? "Your password" : "At least 8 characters"} autoFocus={mode === "reset"} />
                   {mode !== "signin" && password && <StrengthBar password={password} />}
                   {mode === "signin" && (
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }} title="Stay signed in for 30 days on this device. Use it only on a device you trust.">
+                        <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> Keep me signed in
+                      </label>
                       <button type="button" className="auth-link" onClick={() => setMode("forgot")}>Forgot password?</button>
                     </div>
                   )}

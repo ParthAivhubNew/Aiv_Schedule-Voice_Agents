@@ -374,3 +374,18 @@ def test_a_search_hit_is_only_taken_when_it_is_the_same_business():
     assert same("Puff&Dessert / Mysuru Special Cuisine", "Mysuru Special Cuisine")
     assert not same("Be Sweet", "Sweet Dreams Bakery")                        # one shared word is not enough
     assert not same("Teddy Bears Pre-School", "Tesco Express") and not same("Joe's Kitchen", "Marks and Spencer")
+
+
+@pytest.mark.db
+async def test_a_saved_company_shows_the_email_you_hold_so_search_never_offers_to_find_it_again(db):
+    """B3 from the 13 Nov test: Polo was saved with a phone and email, yet search offered a paid lookup for them."""
+    await _seed(db)
+    _, token = await make_user(db, "fl4", "Admin", org_id="org_acme")
+    async with _client(token) as c:
+        half = next(x for x in (await _search(c))["companies"] if x["name"] == "Half Cafe Ltd")
+        assert not half["email"]  # the register has no email for it
+        r = await c.post("/api/leads/accounts", json={"accounts": [{"name": half["name"], "email": "owner@halfcafe.co.uk", "phone": "0113 999 0000", "business_record_id": half["id"]}]})
+        assert r.status_code == 200 and r.json()["added"] == 1
+        again = next(x for x in (await _search(c))["companies"] if x["name"] == "Half Cafe Ltd")
+        assert again["saved"] and again["email"] == "owner@halfcafe.co.uk" and "email" in again["held"]
+        assert "email" not in (again.get("closed") or {})

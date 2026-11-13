@@ -428,6 +428,7 @@ async def _company_profile_postal_address(conn: AsyncConnection) -> None:
 async def _auth_session_rotation_grace(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS prev_refresh_jti VARCHAR"))
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMP"))
+    await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS remember BOOLEAN DEFAULT FALSE"))
 
 
 async def _clear_sample_company_profile(conn: AsyncConnection) -> None:

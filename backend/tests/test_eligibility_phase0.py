@@ -395,3 +395,45 @@ def test_the_journey_summary_counts_everyone_including_an_address_that_cannot_be
     assert J.eligible_person(None, {}, {"company": "Acme Ltd", "email": "sam@acme.co.uk"})["ok"]
     plan = {"email": 2, "quick_choice": 4, "reach_other_way": 0, "cant_email": 1}
     assert J.plan_text(plan, {}, {"email_bad": 1}) == "2 get email, 4 need a quick choice, 1 can't be emailed: invalid address"
+
+
+@pytest.mark.db
+async def test_a_follow_up_never_goes_to_someone_who_never_got_the_first_email_and_their_task_closes_once_they_can_be_emailed(client, db, mail):
+    """B1 and B2 from the 13 Nov test: step 1 was skipped for a sole trader, so step 2 (a reply in the same thread) must not go out. When they
+    later agree to email, the first email goes first, and the "reach another way" task closes by itself."""
+    from app.core.tenancy import org_scope
+
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL, FOLLOW])
+    sole = await _add(db, id="s_late", name="Late Cafe", email="jo@latecafe.co.uk", phone="0113 496 0002",
+                      eligibility="reach_other_way", eligibility_note={"by": "user", "reason": "You said it's a sole trader"})
+    await _enrol(client, j["id"], sole)
+    await _go(client, j["id"])
+    await _run(db, MONDAY_10)
+    assert mail.sent == []
+    assert len((await client.get("/api/journeys/tasks")).json()["tasks"]) == 1
+    with org_scope("org_default"):  # they agree to be emailed
+        acc = await db.get(LeadAccount, "s_late")
+        acc.consent_basis = "opted_in"
+        await db.commit()
+    assert (await client.get("/api/journeys/tasks")).json()["tasks"] == []  # the task closed itself: nothing to find another way for
+    await _run(db, MONDAY_10 + timedelta(days=2, minutes=5))  # step 2 is due: it goes back to step 1 rather than reply to nothing
+    enr = await _enr(db, j["id"], "jo@latecafe.co.uk")
+    assert mail.sent == [] and enr.current_step == 1
+    await _run(db, MONDAY_10 + timedelta(days=2, minutes=10))
+    assert len(mail.sent) == 1 and mail.sent[0][1]["Subject"] and not mail.sent[0][1].get("In-Reply-To")  # the first email, with its own subject, not a bare reply
+
+
+@pytest.mark.db
+async def test_a_follow_up_is_skipped_not_sent_when_the_person_still_cannot_be_emailed(client, db, mail):
+    mb = await _ready(client, db)
+    j = await _journey(client, mb, [EMAIL, FOLLOW])
+    sole = await _add(db, id="s_still", name="Still Cafe", email="jo@stillcafe.co.uk", phone="0113 496 0003",
+                      eligibility="reach_other_way", eligibility_note={"by": "user", "reason": "You said it's a sole trader"})
+    await _enrol(client, j["id"], sole)
+    await _go(client, j["id"])
+    await _run(db, MONDAY_10)
+    await _run(db, MONDAY_10 + timedelta(days=2, minutes=5))
+    enr = await _enr(db, j["id"], "jo@stillcafe.co.uk")
+    assert mail.sent == [] and enr.status == "completed"
+    assert any("skipped" in t["text"] for t in enr.vars["timeline"])

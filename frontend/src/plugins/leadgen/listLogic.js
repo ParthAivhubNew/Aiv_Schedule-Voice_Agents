@@ -61,5 +61,7 @@ export function listStats(members) {
   rows.forEach((a) => { const k = SOURCE_LABEL[a.source] || SOURCE_LABEL.manual; counts[k] = (counts[k] || 0) + 1; });
   const top = Object.entries(counts).sort((x, y) => y[1] - x[1])[0];
   const source = !top ? "" : top[1] > rows.length / 2 ? top[0] : "Mixed";
-  return { ready, avgFit, source };
+  // With an email, but held until the register match or consent is settled: why the Ready to email count can drop after a check.
+  const held = rows.filter((a) => a.email && (a.email_route || {}).email === false && (a.email_route || {}).group === "quick_choice").length;
+  return { ready, avgFit, source, held };
 }

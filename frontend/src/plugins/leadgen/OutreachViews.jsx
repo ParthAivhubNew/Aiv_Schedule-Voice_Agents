@@ -250,6 +250,7 @@ export function MailboxesView({ outreach, onViewSent }) {
               </span>
             </div>
             {m.last_error && <div style={{ fontSize: 12, color: C.red }}>{m.last_error}</div>}
+            {m.campaign_quota && m.today_campaign_sent >= m.campaign_quota ? <div role="status" style={{ fontSize: 12, color: "#92400E" }}>This mailbox has sent everything it is allowed today. Connect another mailbox to send more today; the rest waits for tomorrow.</div> : null}
 
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ ...row, gap: 14 }}>
@@ -548,8 +549,10 @@ export function RepliesList() {
             <select title="Label this reply so you can find it later" style={{ ...input, padding: "4px 8px" }} value={r.category} onChange={(e) => run(() => api.emailReplyCategory(r.id, e.target.value), "Label saved.")}>
               {Object.entries(CATEGORY).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
             </select>
-            <a href={`mailto:${r.email}?subject=${encodeURIComponent(r.subject.startsWith("Re:") ? r.subject : `Re: ${r.subject}`)}`} style={{ ...btn(false), textDecoration: "none" }}>Reply</a>
+            <a href={`mailto:${r.email}?subject=${encodeURIComponent(r.subject.startsWith("Re:") ? r.subject : `Re: ${r.subject}`)}`} style={{ ...btn(false), textDecoration: "none" }}>{r.category === "question" ? "Draft a reply" : "Reply"}</a>
             {["interested", "question"].includes(r.category) && <ReplyWithTimes r={r} />}
+            {r.category === "not_interested" ? <button type="button" style={btn(false)} title="Stop emailing this person and add them to your do-not-email list" onClick={() => run(() => api.emailAddSuppression(r.email), "Stopped, and added to your do-not-email list.")}>Stop and add to do-not-email</button> : null}
+            {r.category === "unsubscribe" ? <span style={small}>Already added to your do-not-email list</span> : null}
           </div>
         </div>
       ))}

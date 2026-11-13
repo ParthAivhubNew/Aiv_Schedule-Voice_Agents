@@ -292,6 +292,7 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
         else:
             enr.next_action_at = now + RETRY_AFTER
     await J.sweep_silent(db, camp, now)
+    await J.close_resolved_tasks(db, camp.id)
     return sent
 
 

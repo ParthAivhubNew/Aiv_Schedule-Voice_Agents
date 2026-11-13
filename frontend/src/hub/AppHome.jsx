@@ -10,6 +10,7 @@ import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
+import { planName } from "./planName";
 import { InstallStepsSheet } from "../components/InstallSteps";
 import { useShowInstallSteps } from "../components/installState";
 import { useBodyClass, usePhone } from "../components/usePhone";
@@ -42,7 +43,7 @@ function AppCard({ app, state, unit, onOpen, onPlans }) {
         </div>
         {plan ? (
           <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap", color: C.green, background: C.greenSoft }}>
-            {plan.name}
+            {planName(plan.name)}
           </span>
         ) : null}
       </div>
@@ -158,7 +159,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
     if (st.wallet.empty) return { text: "Out of credits", tone: C.red };
     const left = Math.max(st.wallet.balance, 0);
     if (left > 0) return { text: `${fmt(left)} ${unitOf(app) === "credits" ? "credits" : "minutes"} left`, tone: st.wallet.low ? C.amber : C.slate };
-    return st.plan ? { text: st.plan.name, tone: C.green } : null;
+    return st.plan ? { text: planName(st.plan.name), tone: C.green } : null;
   };
   if (phone) {
     return <PhoneHome operator={operator} firstName={firstName} needsName={needsName} firstVisit={firstVisit} apps={APPS} statusOf={statusOf} onPick={onPick} menuProps={menuProps} />;

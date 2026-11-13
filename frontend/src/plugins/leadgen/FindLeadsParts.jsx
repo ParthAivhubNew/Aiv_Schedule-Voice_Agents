@@ -81,13 +81,17 @@ export function Avatar({ name, size = 32, logo = "" }) {
 }
 
 // All / New to you / Saved as underlined tabs: pick one to show only those.
+// The first of website, phone and email this row has nothing for (and nothing held back behind Reveal), or "".
+const firstMissing = (c) => ["website", "phone", "email"].find((k) => !c[k] && !(c.closed || {})[k] && !c[`web_${k}`] && !c[`confirmed_${k}`] && !(k === "website" && c.listing_page?.url)) || "";
+
 export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
   const plus = capped ? "+" : "";
+  const known = saved != null; // the saved count arrives a moment after the page: until then a dash, never a wrong 0
   const net = Math.max(total - (saved || 0), 0);
   const tiles = [
     ["", "All", total, plus, "Every match"],
-    ["exclude", "New to you", net, plus, "Not in any of your lists yet"],
-    ["only", "Saved", saved || 0, "", "Already in one of your lists"],
+    ["exclude", "New to you", known ? net : null, plus, "Not in any of your lists yet"],
+    ["only", "Saved", known ? saved : null, "", "Already in one of your lists"],
   ];
   return (
     <div role="group" aria-label="Show" style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -97,7 +101,7 @@ export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
           <button key={label} type="button" title={tip} aria-pressed={on} disabled={busy} onClick={() => onPick(id)}
             style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", height: 46, display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", borderBottom: `2px solid ${on ? C.cobalt : "transparent"}`, ...text, fontSize: 13.5, opacity: busy ? 0.6 : 1 }}>
             <span style={{ color: on ? C.ink : C.slate, fontWeight: on ? 600 : 500 }}>{label}</span>
-            <span style={{ color: on ? C.ink : C.slate, fontVariantNumeric: "tabular-nums" }}>{Number(n).toLocaleString()}{extra}</span>
+            <span style={{ color: on ? C.ink : C.slate, fontVariantNumeric: "tabular-nums" }}>{n == null ? "…" : `${Number(n).toLocaleString()}${extra}`}</span>
           </button>
         );
       })}
@@ -188,7 +192,7 @@ function link(url) {
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
-export function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing }) {
+export function Reach({ value, kind, onFind, web, state, missed, closed, onOpen, confirmed, who, listing, quiet, first, onGet }) {
   const price = useLookupPrice();
   // No website of its own, but the company's exact page on a directory or social site: shown as that, with the site's name.
   if (!value && !web && kind === "website" && listing && listing.url) {
@@ -217,6 +221,11 @@ export function Reach({ value, kind, onFind, web, state, missed, closed, onOpen,
   }
   if (value) return kind === "phone" ? <><a href={`tel:${value.replace(/\s+/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{value}</a> <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${who || value} in the browser`} onClick={(e) => { e.stopPropagation(); openPhone({ number: value, name: who || "" }); }}><PhoneCall size={13} /></button></> : <a href={`mailto:${value}`} onClick={(e) => e.stopPropagation()} style={{ color: C.textInk }}>{value}</a>;
   const cost = price || "credits";
+  // One quiet "Get contacts" per row, in the first empty cell; the other empty cells stay plain. The most it can cost shows on hover.
+  if (quiet && onGet) {
+    if (!first) return <span style={{ color: C.slateLight }} aria-hidden="true">–</span>;
+    return <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title={`Look for the website, phone and email this company is missing. ${cost} at most, only charged for what is found. You see the price before anything is charged`} onClick={(e) => { e.stopPropagation(); onGet(); }}><Search size={13} /> Get contacts</button>;
+  }
   const tip = kind === "email" ? `Look for this company's email. ${cost} if found. Nothing is charged for a miss` : `Look for this company's ${kind}. ${cost} if found, the same whether the web search or the deep web search finds it. We search the web first, and run the deep web search only if that finds nothing. Nothing is charged for a miss`;
   const Icon = kind === "phone" ? Phone : kind === "website" ? Globe : Mail;
   return <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title={tip} onClick={(e) => { e.stopPropagation(); onFind(); }}><Icon size={13} /> {kind === "phone" ? "Find phone" : kind === "website" ? "Find website" : "Find email"}<span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>· {price ? `${price} if found` : "charged if found"}</span></button>;
@@ -281,7 +290,7 @@ function Divider({ profile, count, cols }) {
   );
 }
 
-export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, onRevealRow, lookups, busy, showFit = false, fitSorted = false, onSortFit }) {
+export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, onRevealRow, lookups, busy, showFit = false, fitSorted = false, onSortFit }) {
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
   const cols = showFit ? 11 : 10;
   const seen = new Set();
@@ -345,9 +354,9 @@ export function CompaniesTable({ rows, picked, onPick, onPickAll, onOpen, isSave
                   {showFit ? <Cell style={{ maxWidth: 240 }}><FitBadge fit={c.fit} /></Cell> : null}
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={plainSector(c.industry)}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" quiet first={firstMissing(c) === "website"} onGet={() => onGetContacts?.([c])} listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right", whiteSpace: "nowrap" }}>

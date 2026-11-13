@@ -10,7 +10,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { asAccount } from "./FindLeadsView";
 import { domainOf } from "./AccountsViews";
 import { ChoiceCard, CustomizeBanner, FeedbackBar, ViewCard, cardsCss } from "./AssistantCards";
-import { choiceAction, customizeText, isHashScreen, liveChoices, questionFor, restoreChat, savedActs, savedMessage, viewFromFound } from "./assistantUi";
+import { choiceAction, customizeText, groupChats, isHashScreen, liveChoices, questionFor, restoreChat, savedActs, savedMessage, viewFromFound } from "./assistantUi";
 import { profileGaps, profileIsThin } from "./profileThin";
 import { webResultText } from "./foundText";
 import { addedText } from "./journeyLogic";
@@ -693,12 +693,15 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
         {page ? (
           <nav className="as-side" aria-label="Assistant menu">
             <button type="button" className="as-nav" onClick={fresh}><Plus size={16} aria-hidden="true" /><span>Start new chat</span></button>
-            {cfg.leads ? <button type="button" className="as-nav" data-on={view === "context"} onClick={() => setView("context")}><BookOpen size={16} aria-hidden="true" /><span>Context center</span></button> : null}
-            <button type="button" className="as-nav" data-on={view === "memory"} onClick={() => setView("memory")}><Brain size={16} aria-hidden="true" /><span>Memory</span></button>
-            <div className="as-cap">Chats</div>
-            {history.length ? history.map((h) => (
-              <button key={h.id} type="button" className="as-nav" title={h.title} data-on={view === "chat" && h.id === chatId.current} onClick={() => openChat(h)}><span>{h.title || "Chat"}</span></button>
-            )) : <div style={{ ...muted, padding: "4px 10px" }}>No chats yet.</div>}
+            <button type="button" className="as-nav" data-on={view === "memory" || view === "context"} onClick={() => setView("memory")}><Brain size={16} aria-hidden="true" /><span>What I know</span></button>
+            {history.length ? groupChats(history).map(([group, rows]) => (
+              <React.Fragment key={group}>
+                <div className="as-cap">{group}</div>
+                {rows.map((h) => (
+                  <button key={h.id} type="button" className="as-nav" title={h.title} data-on={view === "chat" && h.id === chatId.current} onClick={() => openChat(h)}><span>{h.title || "Chat"}{h.count > 1 ? ` · ${h.count}` : ""}</span></button>
+                ))}
+              </React.Fragment>
+            )) : <><div className="as-cap">Chats</div><div style={{ ...muted, padding: "4px 10px" }}>No chats yet.</div></>}
           </nav>
         ) : null}
         <div className="as-col">
@@ -712,17 +715,16 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
         </div> : null}
 
         <div className="as-body">
-          {view === "context" ? (
+          {view === "memory" || view === "context" ? (
             <div style={{ display: "grid", gap: 10 }}>
               {!page ? <button type="button" className="ui-link" style={{ justifySelf: "start" }} onClick={() => setView("chat")}>← Back to chat</button> : null}
-              <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>Context center</h2>
-              <p style={{ ...muted, margin: 0 }}>What I know about your business. Every answer, email and search follows it. Give me your website and I will draft it; you check it before it is saved.</p>
-              <ProfileSetup editable onSaved={() => { setNeedsProfile(false); loadProfile(); }} />
-            </div>
-          ) : null}
-          {view === "memory" ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>Memory</h2>
+              <h2 style={{ ...text, fontSize: 18, fontWeight: 600, margin: 0 }}>What I know</h2>
+              {cfg.leads ? (
+                <div className="as-hit" style={{ alignItems: "center" }}>
+                  <span style={{ ...text, flex: 1, minWidth: 0 }}>About your business: what you sell, to whom, and where. Every answer, email and search follows it.</span>
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onGo?.("business")}>Open About your business</button>
+                </div>
+              ) : null}
               <p style={{ ...muted, margin: 0 }}>Things I should always do for you. I use these in every chat. You can also type /remember in any chat.</p>
               <div style={{ display: "flex", gap: 6 }}>
                 <input className="ui-input" aria-label="Something to remember" placeholder="For example: only suggest companies with a website" value={newMemory} maxLength={300}
@@ -772,6 +774,12 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                   {(cfg.presets.find((g) => g.id === preset)?.items || []).map((it) => (
                     <button key={it.title} type="button" className="as-row" onClick={() => (it.prompt ? send(it.prompt) : (setInput(it.prefill || ""), boxRef.current?.focus()))}>{it.title}</button>
                   ))}
+                  {history.length ? (
+                    <div className="as-hit" style={{ alignItems: "center" }}>
+                      <span style={{ ...text, flex: 1, minWidth: 0 }}>Pick up where you left off: <b>{groupChats(history)[0][1][0].title}</b></span>
+                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => openChat(groupChats(history)[0][1][0])}>Continue</button>
+                    </div>
+                  ) : null}
                   {needsProfile ? <ProfileSetup onSaved={() => { setNeedsProfile(false); loadProfile(); }} /> : null}
                 </>
               ) : null}

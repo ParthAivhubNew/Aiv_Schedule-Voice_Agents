@@ -149,6 +149,8 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     const scope = open ? new Set(open.ids) : null;
     const { members, withEmail } = open ? listReach(open, store.accounts) : listReach({ ids: store.accounts.map((a) => a.id) }, store.accounts);
     const fixIds = members.filter((a) => openFixes(a).length).map((a) => a.id);
+    // Asked only for a list that was imported, or that has someone who could be a sole trader; a list of confirmed register companies has nothing to declare.
+    const askHowTheyAgreed = members.some((m) => m.source === "import" || (m.email_route || {}).group !== "ready");
     const act = async (fn, done) => {
       setBusy(true);
       try {
@@ -179,7 +181,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
             { label: canCall ? "Call this list" : "Call this list · add Voice", disabled: busy || !members.length, title: "Have your AI caller phone them",
               onClick: () => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, !canCall) },
             canCall ? { label: "Review in Voice", disabled: busy || !members.length, title: "Open these companies on the Voice call list to look them over first", onClick: () => reviewInVoice(open ? open.name : "All companies", members) } : null,
-            open ? { label: "How they agreed", title: "Tell us how these contacts agreed to hear from you, so sole traders among them can be emailed", onClick: () => setConsentFor(consentFor === open.id ? "" : open.id) } : null,
+            open && askHowTheyAgreed ? { label: "How they agreed", title: "Tell us how these contacts agreed to hear from you, so sole traders among them can be emailed", onClick: () => setConsentFor(consentFor === open.id ? "" : open.id) } : null,
             { label: "Review old contacts", title: "See contacts you haven't touched in a long time and decide which to keep or delete", onClick: () => onGo("retention") },
             open ? { label: "Rename", disabled: busy, title: "Change the name of this list", onClick: () => setRenaming(open.id) } : null,
             open ? { label: "Delete list", danger: true, disabled: busy || open.ids.some((i) => locked.has(i)), title: open.ids.some((i) => locked.has(i)) ? LOCK_TIP : "Delete the list only. The companies stay in your account",
@@ -201,6 +203,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     );
   }
   const everyone = listReach({ ids: store.accounts.map((a) => a.id) }, store.accounts);
+  const rowsAll = [{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((full) => ({ ...full, stats: listStats(full.members) }));
+  const showFit = icp.isSet && rowsAll.some((r) => r.stats.avgFit != null); // a column appears only once it has something to show
+  const showOwner = rowsAll.some((r) => r.owner);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -222,7 +227,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
       </div>
       {!lists.length && !store.accounts.length ? (
         <div className="ui-card" style={{ padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <ListChecks size={28} color="#8B5CF6" />
+          <ListChecks size={28} color="var(--ui-accent, #3457D5)" />
           <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No lists yet</div>
           <div style={{ ...muted, maxWidth: 420 }}>Search for companies or import your own file in Find Leads. What you save lands here as a list.</div>
           <button title="Search for companies or import a file" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}>Go to Find Leads</button>
@@ -238,32 +243,33 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
                   <th style={{ textAlign: "right" }} title="Companies in the list">Companies</th>
                   <th style={{ textAlign: "right" }} title="Has an email that passed the checks and has not been contacted yet">Ready to email</th>
                   <th style={{ textAlign: "right" }} title="How many have an email we can send to">With an email</th>
-                  <th style={{ textAlign: "right" }} title="The average fit score of the companies that have one">Avg fit</th>
-                  <th>Owner</th>
+                  {showFit ? <th style={{ textAlign: "right" }} title="The average fit score of the companies that have one">Avg fit</th> : null}
+                  {showOwner ? <th>Owner</th> : null}
                   <th title="Where most of these companies came from">Source</th>
                   <th title="When companies were last added or taken out">Last changed</th>
                   <th style={{ textAlign: "right" }} aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {[{ id: "all", name: "All companies", ...everyone }, ...lists.map((l) => ({ ...l, ...listReach(l, store.accounts) }))].map((full) => { const l = { ...full, stats: listStats(full.members) }; return (
+                {rowsAll.map((l) => (
                   <tr key={l.id} title={`Open ${l.name}`} style={{ cursor: "pointer" }} onClick={() => { if (renaming !== l.id) setOpenId(l.id); }}>
                     <td>
                       <ListName list={l} editing={renaming === l.id} onEdit={() => setRenaming(l.id)} onStop={() => setRenaming("")} onSave={(n) => rename(l.id, n)} size={14} />
+                      {l.stats.held ? <div style={{ ...muted, fontSize: 12 }}>{l.stats.held.toLocaleString()} moved to Needs your choice after the register check</div> : null}
                       {progress(l.members.map((m) => m.id)) ? <div style={{ ...muted, fontSize: 12 }}>{progress(l.members.map((m) => m.id)).replace(/^ · /, "")}</div> : null}
                     </td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.members.length.toLocaleString()}</td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.stats.ready.toLocaleString()}</td>
                     <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.withEmail.length.toLocaleString()}</td>
-                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{icp.isSet && l.stats.avgFit != null ? l.stats.avgFit : "–"}</td>
-                    <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.owner || "–"}</td>
+                    {showFit ? <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{icp.isSet && l.stats.avgFit != null ? l.stats.avgFit : "–"}</td> : null}
+                    {showOwner ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.owner || "–"}</td> : null}
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.stats.source || "–"}</td>
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.updated_at || l.created_at)}</td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
                       <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
                     </td>
                   </tr>
-                ); })}
+                ))}
               </tbody>
             </table>
           </div>

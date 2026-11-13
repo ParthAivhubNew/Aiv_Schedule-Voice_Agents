@@ -48,7 +48,9 @@ export function SessionGuard({ onTimeout, busy = false }) {
       try { sessionStorage.setItem(SIGNOUT_REASON_KEY, reason); store.removeItem(SIGNED_IN_KEY); localStorage.removeItem(ACTIVE_KEY); } catch (_) {}
       cb.current();
     };
+    const remembered = () => { try { return localStorage.getItem("aivhub_remember") === "1"; } catch (_) { return false; } };
     const check = () => {
+      if (remembered()) return; // "Keep me signed in": the server's 30-day session decides, not the idle timer
       const t = now();
       if (t - readNum(store, SIGNED_IN_KEY) > limits.current.max) { end("max"); return; }
       if (busyRef.current) { try { localStorage.setItem(ACTIVE_KEY, String(t)); } catch (_) {} return; }

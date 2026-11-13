@@ -140,3 +140,13 @@ describe("a draft opened from another plugin waits for Leads", () => {
     expect(takePendingDraft()).toBeNull();
   });
 });
+
+describe("groupChats", () => {
+  it("merges chats with the same title and groups them as Recent and Older", async () => {
+    const { groupChats } = await import("./assistantUi");
+    const now = new Date("2026-11-13T12:00:00Z").getTime();
+    const chat = (id, title, at) => ({ id, title, at });
+    const g = groupChats([chat("1", "Accountants in RG2", "2026-11-12T10:00:00Z"), chat("2", "accountants in rg2", "2026-11-11T10:00:00Z"), chat("3", "Plumbers", "2026-10-01T10:00:00Z")], now);
+    expect(g.map(([k, rows]) => [k, rows.map((r) => [r.id, r.count])])).toEqual([["Recent", [["1", 2]]], ["Older", [["3", 1]]]]);
+  });
+});

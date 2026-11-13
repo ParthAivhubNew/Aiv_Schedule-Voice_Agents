@@ -13,7 +13,7 @@ POST   /journeys/approvals/{id}/approve, POST /journeys/approvals/approve-all
 GET    /journeys/{id}                 one journey: steps, settings, the check before starting, tasks, people
 PUT    /journeys/{id}/steps           replace the steps (people keep their place)
 PATCH  /journeys/{id}/settings        name, goal, sending days and hours, mailboxes, daily cap, exit rules
-POST   /journeys/{id}/status          running | paused | stopped
+POST   /journeys/{id}/status          running | paused | stopped | archived | unarchived
 POST   /journeys/{id}/people          add people (a list, or people given); dry_run only counts
 GET    /journeys/{id}/suggestions     plain advice from the journey's own numbers
 POST   /journeys/{id}/clone, DELETE /journeys/{id}
@@ -139,6 +139,9 @@ async def draft(body: DraftIn, request: Request, db: AsyncSession = Depends(get_
 async def tasks(request: Request, status: str = "open", journey: str = "", today: bool = False, db: AsyncSession = Depends(get_db)):
     current(request)
     due = (datetime.utcnow().replace(hour=23, minute=59, second=59) if today else None)
+    if status == "open":
+        await J.close_resolved_tasks(db, journey)
+        await db.commit()
     return {"tasks": await J.list_tasks(db, status=status, campaign_id=journey, due_before=due)}
 
 

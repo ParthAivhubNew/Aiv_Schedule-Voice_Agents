@@ -63,10 +63,10 @@ import { openWorkflows } from "../../workflows/openWorkflows";
 import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
 
 
-// Leads is purple: its buttons, selections and highlights follow this instead of Voice's blue.
-const ACCENT = { "--ui-accent": "#7C3AED", "--ui-accent-hover": "#6D28D9", "--ui-accent-soft": "#F3EEFF", "--ui-accent-ink": "#5B21B6", "--ui-ring": "rgba(124, 58, 237, 0.22)", "--ui-side-active-icon": "#B79DFB" };
 
 const SAVED_VIEWS = ["saved_people", "saved_companies", "lists"];
+// Every screen this plugin can show. Any other address under #/leadgen/ gets a "Page not found" instead of a blank page.
+const KNOWN_VIEWS = ["find_leads", "lists", "saved_people", "saved_companies", "account", "company", "outreach", "mail", "mailboxes", "inbound_forms", "retention", "business", "subscription", "assistant"];
 
 export default function LeadGenerationPlugin({
   operator,
@@ -82,6 +82,7 @@ export default function LeadGenerationPlugin({
     if (raw === "contacts") return "saved_people";
     if (raw === "dossiers" || raw === "accounts") return "saved_companies";
     if (raw === "suppression" || raw === "replies") return "mail";
+    if (raw === "forms" || raw === "inbound") return "inbound_forms";
     if (raw === "copilot" || raw === "scout" || raw === "import_export" || raw === "today") return "find_leads";
     return raw;
   };
@@ -140,7 +141,7 @@ export default function LeadGenerationPlugin({
 
   useEffect(() => {
     try {
-      if (view !== "company" && view !== "account") localStorage.setItem("aivhub_leadgen_view", view);
+      if (view !== "company" && view !== "account" && KNOWN_VIEWS.includes(view)) localStorage.setItem("aivhub_leadgen_view", view);
       const target = view === "company" && companyId ? `#/leadgen/company/${companyId}` : `#/leadgen/${view}`;
       if (routeHash() !== target) {
         replaceHash(target);
@@ -333,7 +334,7 @@ export default function LeadGenerationPlugin({
   };
 
   return (
-    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden", ...ACCENT }}>
+    <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, overflow: "hidden" }}>
       <MobileNavBackdrop nav={nav} />
       
       <AppChrome />
@@ -434,6 +435,13 @@ export default function LeadGenerationPlugin({
           {view === "retention" && !embedViews && <RetentionReview toast={showToast} onGo={goTo} />}
           {view === "business" && <ProfileBox page />}
 
+          {!KNOWN_VIEWS.includes(view) && (
+            <div role="alert" style={{ padding: "48px 16px", display: "grid", gap: 10, justifyItems: "start", maxWidth: 520 }}>
+              <h2 style={{ margin: 0, fontSize: 20 }}>Page not found</h2>
+              <p style={{ margin: 0, color: "#4B5260" }}>There is no page at this address. It may have moved, or the link may be mistyped.</p>
+              <button type="button" className="ui-btn ui-btn--primary" onClick={() => setView("find_leads")}>Back to Find Leads</button>
+            </div>
+          )}
           {view === "subscription" && operator?.is_admin && <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />}
             </>
           )}

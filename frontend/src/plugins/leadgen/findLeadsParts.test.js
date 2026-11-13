@@ -24,3 +24,12 @@ describe("a contact our registry holds but this organisation has not opened", ()
     expect(html).not.toMatch(/free/i);
   });
 });
+
+describe("nameAsKeywordTown", () => {
+  it("reads a trade and a town typed as a company name", async () => {
+    const { nameAsKeywordTown } = await import("./companyLogic");
+    expect(nameAsKeywordTown("accountants reading")).toEqual({ keyword: "accountants", town: "Reading" });
+    expect(nameAsKeywordTown("Plumbers in high wycombe")).toEqual({ keyword: "plumbers", town: "High Wycombe" });
+    expect(nameAsKeywordTown("Tesco")).toBe(null);
+  });
+});

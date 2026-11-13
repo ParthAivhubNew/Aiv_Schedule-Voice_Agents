@@ -12,9 +12,10 @@ import { Chips, Field, Note as InfoNote, Row as FieldRow, input as timeInput, pr
 import { parseLeads } from "./OutreachViews";
 import { ConsentDeclaration } from "./ConsentDeclaration";
 import { niceName } from "./companyLogic";
+import { openPhone } from "../../utils/humanCall";
 import { ArrowDown, ArrowUp, Bot, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileText, Lock, Mail, MoreHorizontal, Pause, PenLine, Phone, Play, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Users, X } from "lucide-react";
 import {
-  CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, opensNote, rateText, resultsBar, sortTasks, stepLine,
+  CALL_OUTCOMES, FINISH_WORDS, PERSON_WORDS, STAGES, STATUS_TONES, STATUS_WORDS, STEP_TYPES, WEEKDAYS, addedText, blankStep, blockers, headline, moveStep, opensNote, rateText, resultsBar, sortTasks, stepLine, taskGroups,
   stepTable, stepsForSave, typeOf, waitText, withTag,
 } from "./journeyLogic";
 
@@ -95,8 +96,8 @@ function FormPicker({ onPick }) {
   );
 }
 
-function ResultsBar({ results, onOpen }) {
-  if (!results || !results.sent) return null;
+function ResultsBar({ results, onOpen, finished = false }) {
+  if (!results || (!results.sent && !finished)) return null; // a finished journey always shows its results, even when they are all zero
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <button type="button" onClick={onOpen} aria-label="Open results by step" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(84px, 1fr))", gap: 8, padding: "10px 12px", border: `1px solid ${C.borderLight}`, borderRadius: 12, background: "#fff", minHeight: 44 }}>
@@ -279,6 +280,7 @@ function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove,
 // ── What needs the person today, on the same page ───────────────────────────
 function NeedsYou({ tasks, replied, choices = 0, onDone, onSkip, onMail, busy }) {
   const [outcome, setOutcome] = useState({});
+  const voiceOk = useConnection("call_step").available;
   const list = sortTasks(tasks);
   if (!list.length && !replied) return <div style={{ ...small, padding: "2px 2px" }}>{choices ? `${choices} ${choices === 1 ? "person is" : "people are"} waiting for your quick choice above. Nothing else needs you.` : "Nothing needs you right now."}</div>;
   return (
@@ -290,8 +292,12 @@ function NeedsYou({ tasks, replied, choices = 0, onDone, onSkip, onMail, busy })
           <button type="button" style={btn(false)} onClick={onMail}>Read replies</button>
         </div>
       ) : null}
-      {list.map((t) => {
+      {taskGroups(list).map(([gk, gw, rows]) => (
+        <div key={gk} style={{ display: "grid", gap: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".02em", color: gk === "overdue" ? C.red : C.slate }}>{gw} · {rows.length}</div>
+      {rows.map((t) => {
         const call = t.kind === "call_task";
+        const finder = t.kind === "task" && t.instead_of_email; // "find another way": three ways to do it
         return (
           <div key={t.id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -304,6 +310,16 @@ function NeedsYou({ tasks, replied, choices = 0, onDone, onSkip, onMail, busy })
               {!call ? <button type="button" style={btn(true, busy)} disabled={busy} onClick={() => onDone(t.id, "")}>Done</button> : null}
               <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => onSkip(t.id)}>Skip</button>
             </div>
+            {finder ? (
+              <div role="group" aria-label="Ways to reach them" style={row}>
+                <button type="button" style={btn(false, busy)} disabled={busy || !t.phone} title={t.phone ? "Open the phone here and call. Check the number against the TPS register first" : "No phone number on file"}
+                  onClick={() => { openPhone({ number: t.phone, name: t.contact || t.company }); onDone(t.id, "called"); }}>Call</button>
+                <button type="button" style={btn(false, busy)} disabled={busy} title="Record that a letter is being sent" onClick={() => onDone(t.id, "letter")}>Send a letter</button>
+                {!voiceOk ? <span style={{ ...small, color: TONES.amber.ink }}>Calling from here needs the Voice plan. <button type="button" style={{ all: "unset", color: C.cobalt, cursor: "pointer", fontWeight: 600 }} onClick={() => openPlans("voice")}>See plans</button></span> : null}
+                <a href={`https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent([t.contact, t.company].filter(Boolean).join(" "))}`} target="_blank" rel="noreferrer"
+                  style={{ ...btn(false, busy), textDecoration: "none", display: "inline-flex", alignItems: "center" }} onClick={() => onDone(t.id, "linkedin")}>Find on LinkedIn</a>
+              </div>
+            ) : null}
             {call ? (
               <div role="group" aria-label="How did the call go?" style={row}>
                 {CALL_OUTCOMES.map(([v, w]) => (
@@ -316,6 +332,8 @@ function NeedsYou({ tasks, replied, choices = 0, onDone, onSkip, onMail, busy })
           </div>
         );
       })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -362,7 +380,7 @@ function AudienceCard({ audience, busy, onChoose, onDeclared }) {
       {a.reach_other_way ? <div style={small}>Sole traders and individuals need their consent before a marketing email, so the journey makes a call, letter or LinkedIn task for them instead and carries on.</div> : null}
       {choices.map((c) => (
         <div key={c.lead_id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{c.name} <span style={{ ...small, fontWeight: 400 }}>{c.email}</span></div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, overflowWrap: "anywhere" }}>{niceName(c.name)} <span style={{ ...small, fontWeight: 400 }}>{c.email}</span></div>
           <div style={row}>
             {(c.candidates || []).map((x) => (
               <button key={x.id} type="button" style={btn(false, busy)} disabled={busy} onClick={() => onChoose(c.lead_id, { business_record_id: x.id }, `Matched to ${niceName(x.name)}.`)}>
@@ -602,6 +620,9 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
                   <div className="ui-menu" role="menu" style={{ zIndex: 100 }}>
                     <button type="button" role="menuitem" className="ui-menu-item" title="Make a draft copy with the same steps and rules, with nobody in it" onClick={() => { setMenu(false); run(async () => { const r = await api.journeyClone(j.id); onChanged?.(r.journey.id); }, "Copied as a draft."); }}>Make a copy</button>
                     <button type="button" role="menuitem" className="ui-menu-item" title="Sent, opened, replied and bounced counts for each step, with tips to improve them" onClick={async () => { setMenu(false); setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }}>Results and advice</button>
+                    {j.status === "completed" ? (
+                      <button type="button" role="menuitem" className="ui-menu-item" title={j.archived ? "Show it in the Finished list again" : "Tidy it out of the list. Its results are kept and you can bring it back"} onClick={() => { setMenu(false); run(() => api.journeyStatus(j.id, j.archived ? "unarchived" : "archived"), j.archived ? "Brought back." : "Archived. Find it under Archived."); }}>{j.archived ? "Unarchive" : "Archive"}</button>
+                    ) : null}
                     {j.status !== "completed" && j.status !== "draft" ? (
                       <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} title="End it for everyone still in it. It can't be started again" onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped"), "Stopped. Nobody else gets a step from it."); }}>Stop it</button>
                     ) : null}
@@ -615,7 +636,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         <Note error={msg.error}>{msg.text}</Note>
       </div>
 
-      {!live ? (
+      {j.status === "draft" ? ( // setup warnings are for drafts only; a running or finished journey shows results
         <div role="status" style={{ display: "grid", gap: 6 }}>
           {(j.preflight || []).filter((p) => !(j.audience?.text && p.text === `${j.audience.text}.`)).map((p, i) => ( // the who-gets-what line is already in its own card below
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12.5, lineHeight: 1.5, color: TONES[p.level]?.ink, background: TONES[p.level]?.bg, borderRadius: 8, padding: "7px 11px" }}>
@@ -626,7 +647,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         </div>
       ) : (j.results.waiting_on_a_task ? <div style={small}>{j.results.waiting_on_a_task} waiting on a task.</div> : null)}
 
-      <ResultsBar results={j.results} onOpen={() => { setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }} />
+      <ResultsBar results={j.results} finished={j.status === "completed"} onOpen={() => { setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }} />
       <PreviewBox journeyId={j.id} people={j.people || []} steps={steps} />
 
       <div id={`aud-${j.id}`}>
@@ -727,7 +748,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
                       run(async () => { await api.journeyRemovePerson(j.id, p.id); return api.journeyPeople(j.id, { people: [{ email: addr, first_name: first, last_name: rest.join(" "), company: p.company || "" }] }); }, `Address fixed for ${p.name || p.company || addr}.`);
                     }}>Fix the address</button></div>
               ) : null}
-              <div style={small}>{p.status === "active" && p.bad_address ? "" : p.status === "active" && p.on_hold ? "Waiting for your choice; their emails are on hold" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && p.on_hold ? "" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? (new Date(p.next_at) < new Date() ? " · next goes in the next sending window" : ` · next ${when(p.next_at)}`) : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
+              <div style={small}>{p.status === "active" && p.bad_address ? "" : p.status === "active" && p.on_hold ? "Waiting for your choice; their emails are on hold" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && (p.on_hold || p.bad_address) ? "" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? (new Date(p.next_at) < new Date() ? " · next goes in the next sending window" : ` · next ${when(p.next_at)}`) : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
             <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
           </div>
@@ -879,6 +900,10 @@ function useNarrow() {
   return narrow;
 }
 
+const FILTERS = [["running", "Running"], ["draft", "Drafts"], ["completed", "Finished"], ["archived", "Archived"]];
+const inFilter = (j, k) => (k === "archived" ? Boolean(j.archived)
+  : !j.archived && (k === "running" ? j.status === "running" || j.status === "paused" : j.status === k));
+
 // ── The page ────────────────────────────────────────────────────────────────
 export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGuided, onConsumed, initialId = "", initialListId = "" }) {
   const [prefill, setPrefill] = useState(initialListId); // a list chosen on another page: used once, here
@@ -886,6 +911,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(initialId);
   const [creating, setCreating] = useState(false);
+  const [filter, setFilter] = useState("running"); // running (with paused) | draft | completed | archived
   const lists = (listsStore && listsStore.lists) || [];
   const narrow = useNarrow();
 
@@ -895,16 +921,21 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (initialId) { setSelected(initialId); setCreating(false); } }, [initialId]);
   useEffect(() => { if (initialListId) { setPrefill(initialListId); setCreating(true); onConsumed?.(); } }, [initialListId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Opening the tab lands on the new-journey screen; a running journey opens only when someone picks it or arrives with its id.
+  // Opening the tab lands on the newest running journey (else the newest one still being set up, else any); the new-journey form
+  // shows only when someone presses New journey, or when there is nothing yet.
   const landed = useRef(false);
   useEffect(() => {
     if (!journeys || landed.current) return;
     landed.current = true;
-    if (!selected && !creating) setCreating(true);
+    if (selected || creating) return;
+    const live = (s) => journeys.find((j) => j.status === s && !j.archived);
+    const pick = live("running") || live("paused") || live("draft") || journeys.find((j) => !j.archived);
+    if (pick) { setSelected(pick.id); setFilter(pick.status === "completed" ? "completed" : pick.status === "draft" ? "draft" : "running"); } else setCreating(true);
   }, [journeys, selected, creating]);
 
   if (journeys === null) return <Loader compact label="Loading your journeys" />;
-  const open = (id) => { setCreating(false); setSelected(id); load(); };
+  const open = (id) => { setCreating(false); setSelected(id); const j = journeys.find((x) => x.id === id); if (j) setFilter(FILTERS.map(([k]) => k).find((k) => inFilter(j, k)) || "running"); load(); };
+  const shownJourneys = journeys.filter((j) => inFilter(j, filter));
   const empty = !journeys.length;
 
   return (
@@ -928,21 +959,31 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
             <span style={small}>{[["running", "running"], ["paused", "paused"], ["draft", "in draft"], ["completed", "finished"]].map(([k, w]) => [journeys.filter((j) => j.status === k).length, w]).filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(" · ")}</span>
           </div>
         ) : null}
+        {journeys.length ? (
+          <div role="tablist" aria-label="Show journeys" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {FILTERS.map(([k, w]) => {
+              const n = journeys.filter((j) => inFilter(j, k)).length;
+              if (k === "archived" && !n) return null;
+              return <button key={k} type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)}
+                style={{ ...btn(filter === k), padding: "3px 10px", minHeight: 30, fontSize: 12.5 }}>{w} {n}</button>;
+            })}
+          </div>
+        ) : null}
         <Wheel label="Your journeys: scroll for more">
-        {journeys.map((j) => {
+        {shownJourneys.map((j) => {
           const on = !creating && j.id === selected;
           return (
             <button key={j.id} type="button" aria-current={on ? "true" : undefined} onClick={() => open(j.id)}
               style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
               <span style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "space-between" }}>
-                <strong style={{ fontSize: 13.5, overflowWrap: "anywhere" }}>{j.name}</strong>
+                <strong title={j.name} style={{ fontSize: 13.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.name}</strong>
                 <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
               </span>
               <span style={small}>{headline(j.results, j.tasks_open, j.status)}</span>
             </button>
           );
         })}
-        {empty ? <div style={small}>No journeys yet.</div> : null}
+        {empty ? <div style={small}>No journeys yet.</div> : !shownJourneys.length ? <div style={small}>Nothing {filter === "running" ? "running" : filter === "draft" ? "in draft" : filter === "archived" ? "archived" : "finished"} right now.</div> : null}
         </Wheel>
       </aside>
       )}

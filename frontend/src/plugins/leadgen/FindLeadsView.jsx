@@ -17,7 +17,7 @@ import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar, ViewMenu } from "./FindLeadsParts";
-import { IcpPrompt, useIcp } from "./FitParts";
+import { IcpPrompt, SetupCard, useIcp } from "./FitParts";
 import { sortOptions } from "./fitLogic";
 import { CompanyDrawer } from "./CompanyDrawer";
 import { NotesButton, notesChanged } from "./Notes";
@@ -27,6 +27,7 @@ import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
 // Phase 4: SIC picker, radius, signals, saved searches
 import { SicPicker } from "./IcpEditor";
+import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
 
@@ -362,7 +363,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [page, setPage] = useState(1);
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
   const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
-  const [savedTotal, setSavedTotal] = useState(0);
+  const [started, setStarted] = useState(false); // false until the person runs a search of their own (or arrives with one)
+  const [savedTotal, setSavedTotal] = useState(null); // null until the count is known: a loading dash, never a wrong 0
   const [selKey, setSelKey] = useState(""); // the search the ticks belong to: a new search (not a new page) clears them
   const sel = useBulkSelect(selKey);
   const cardsById = useRef(new Map()); // every company card seen in this search, so ticks on other pages still have their row
@@ -520,6 +522,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride, force = false) => {
     if (e) e.preventDefault();
+    if (e || (overrideForm && overrideForm !== EMPTY_FORM)) setStarted(true); // the person has asked for something: the setup card gives way to results
     if (e || (overrideForm && overrideForm !== EMPTY_FORM)) openingActive.current = false; // the person's own search: no more automatic retries
     const f = overrideForm || form;
     const shape = areaOverride !== undefined ? areaOverride : area;
@@ -560,7 +563,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setSelKey(JSON.stringify([query.filters, query.sort, query.drop_terms]));
       setTiers(r.tiers || null);
       setRanked(r.ranked !== false);
-      setSavedTotal(r.saved_total || 0);
+      setSavedTotal(r.saved_total ?? null);
       setTotal(r.total_all ?? r.total);
       setCapped(r.total_all == null && r.total_capped);
       // The slower figures (real total, group counts, saved) arrive a moment after the page is already on screen.
@@ -1383,14 +1386,25 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
               {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
               <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
-              {companies.length ? (
-                <CompaniesTable busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
+              {!icp.loading && !icp.isSet && !started && !incoming && !inArea ? (
+                <SetupCard sizes={SIZE_OPTIONS.slice(0, 3)} onSetFromSite={onSetIcp} onShow={(f) => { const next = { ...EMPTY_FORM, ...f }; setForm(next); search(null, next, 0, null, undefined, undefined, true); }} />
+              ) : companies.length ? (
+                <CompaniesTable onGetContacts={getContacts} busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   showFit={icpSet} fitSorted={sort === "fit"} onSortFit={area ? undefined : () => changeSort("fit")}
                   onPick={sel.toggle}
                   onPickAll={() => sel.togglePage(companies.map((c) => c.id))}
                   onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} onRevealRow={revealRow} lookups={lookups} />
               ) : searched && !inArea && !busy ? (
-                <div style={{ ...muted, padding: 16 }}>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>
+                <div style={{ ...muted, padding: 16, display: "grid", gap: 8, justifyItems: "start" }}>
+                  {nameAsKeywordTown(form.name) ? (
+                    <>
+                      <div>No company is named "{form.name.trim()}".</div>
+                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => { const g = nameAsKeywordTown(form.name); const next = { ...form, name: "", sector: g.keyword, town: g.town }; setForm(next); search(null, next, 0, null, undefined, undefined, true); }}>
+                        Search {nameAsKeywordTown(form.name).keyword} in {nameAsKeywordTown(form.name).town} instead
+                      </button>
+                    </>
+                  ) : <div>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>}
+                </div>
               ) : null}
               {companies.length && !area && !(draft?.asked && draft.asked < total) ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
             </>

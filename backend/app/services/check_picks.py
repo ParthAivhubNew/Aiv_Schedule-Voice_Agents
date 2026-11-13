@@ -51,9 +51,12 @@ _TIER = {"person": 0, "general": 1, "role": 2}
 
 def rank(field: str, values: List[str]) -> List[str]:
     """Best first. Emails: a named person, then sales@/info@-style inboxes, then support@, ir@ and the like.
-    Phones keep the search's order. The sort is stable, so ties keep the search's order too."""
+    Phones: a UK number (+44 or 0) before any foreign one, as every company here is UK-registered; a foreign number is only ever "also found".
+    The sort is stable, so ties keep the search's order too."""
     if field != "email":
-        return list(values)
+        from app.services.company_contacts import is_uk_phone
+
+        return sorted(values, key=lambda v: 0 if is_uk_phone(v) else 1)
     return sorted(values, key=lambda v: _TIER[inbox_kind(v)])
 
 

@@ -46,4 +46,34 @@ export function deliverability(m) {
     warn: m.bounce_health?.state === "warning" || m.bounce_health?.state === "paused",
   };
 }
+// Which mail provider a mailbox is on, from its server names and address, so "how to fix" speaks to them. "" when unknown.
+export function providerOf(m) {
+  const s = `${m?.smtp_host || ""} ${m?.imap_host || ""} ${m?.email || ""}`.toLowerCase();
+  if (/one\.com/.test(s)) return "one.com";
+  if (/gmail|google/.test(s)) return "Google";
+  if (/outlook|office365|microsoft|hotmail|live\./.test(s)) return "Microsoft";
+  return "";
+}
+
+const HOW = {
+  dkim: { "one.com": "In one.com, open your domain's DNS settings and add the DKIM TXT record we show under Email accounts.",
+    Google: "In Google Workspace Admin, go to Apps > Gmail > Authenticate email, generate the DKIM key, and add the TXT record at your domain host.",
+    Microsoft: "In Microsoft 365 Defender, go to Email & collaboration > Policies > DKIM, turn it on, and add the two CNAME records at your domain host.",
+    "": "Add the DKIM record we show under Email accounts at the company that hosts your domain's DNS." },
+  spf: { "": "Add or update your domain's SPF TXT record so it includes your mail provider. The exact value is under Email accounts." },
+  dmarc: { "": "Add a DMARC TXT record at _dmarc.yourdomain, for example v=DMARC1; p=none. Start with p=none and tighten later." },
+};
+
+// Each check as green, amber or red, with the steps to fix it for this mailbox's provider. A check that passes has no steps.
+export function deliverabilityChecks(m) {
+  const d = deliverability(m || {});
+  const p = providerOf(m);
+  const row = (key, label, ok, word, bad = "bad") => ({ key, label, state: ok ? "ok" : bad, word, how: ok ? "" : (HOW[key][p] || HOW[key][""]) });
+  return [
+    row("spf", "SPF", m?.spf_verified, d.spf),
+    row("dkim", "DKIM", m?.dkim_verified || m?.dkim_override, m?.dkim_override && !m?.dkim_verified ? "Skipped" : d.dkim),
+    row("dmarc", "DMARC", m?.dmarc_verified, d.dmarc, "warn"),
+  ];
+}
+
 export const DMARC_NOTE = "DMARC pass rate is not measured yet.";

@@ -124,6 +124,18 @@ export function planWords(plan) {
 // Tasks overdue or due today come first.
 export const sortTasks = (tasks) => [...(tasks || [])].sort((a, b) => String(a.due_at || "").localeCompare(String(b.due_at || "")));
 
+// Tasks in three groups: Overdue (past their due time), Today, Later. Each group is oldest first; an empty group is left out.
+export function taskGroups(tasks, now = new Date()) {
+  const endOfDay = new Date(now); endOfDay.setHours(23, 59, 59, 999);
+  const groups = { overdue: [], today: [], later: [] };
+  sortTasks(tasks).forEach((t) => {
+    const due = t.due_at ? new Date(t.due_at) : null;
+    const k = !due || Number.isNaN(due.getTime()) ? "today" : due < now ? "overdue" : due <= endOfDay ? "today" : "later";
+    groups[k].push(t);
+  });
+  return [["overdue", "Overdue", groups.overdue], ["today", "Today", groups.today], ["later", "Later", groups.later]].filter(([, , rows]) => rows.length);
+}
+
 // Phase 5: the results bar and the per-step table.
 export const RESULT_BAR = [["sent", "Sent"], ["delivered", "Delivered"], ["opened", "Opened"], ["replied", "Replied"], ["booked", "Booked"], ["bounced", "Bounced"], ["opted_out", "Opted out"]];
 

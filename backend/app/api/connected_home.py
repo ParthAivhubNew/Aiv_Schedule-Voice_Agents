@@ -207,7 +207,12 @@ async def today(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
                                           .where(EmailSendLog.date >= since))).one()
         out["bounce_rate_7d"] = round(min(1.0, int(bounced) / int(sent)), 4) if int(sent) else 0.0
         out["sent_7d"] = int(sent)
-        out["links"].update(replies=TODAY_LINKS["replies"], approvals=TODAY_LINKS["approvals"], bounces=TODAY_LINKS["bounces"])
+        from app.models.models import JourneyTask
+
+        end_of_day = now.replace(hour=23, minute=59, second=59)
+        out["tasks_overdue"] = int((await db.execute(select(func.count(JourneyTask.id)).where(JourneyTask.status == "open", JourneyTask.due_at < now))).scalar() or 0)
+        out["tasks_today"] = int((await db.execute(select(func.count(JourneyTask.id)).where(JourneyTask.status == "open", JourneyTask.due_at >= now, JourneyTask.due_at <= end_of_day))).scalar() or 0)
+        out["links"].update(replies=TODAY_LINKS["replies"], approvals=TODAY_LINKS["approvals"], bounces=TODAY_LINKS["bounces"], tasks="#/leadgen/outreach")
     if ent.get("voice"):
         monday = datetime(now.year, now.month, now.day) - timedelta(days=now.weekday())
         out["meetings_this_week"] = int((await db.execute(select(func.count(Meeting.id)).where(Meeting.created_at >= monday, Meeting.created_at < monday + timedelta(days=7)))).scalar() or 0)

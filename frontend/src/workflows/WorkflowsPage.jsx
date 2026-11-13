@@ -218,7 +218,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
           <Workflow size={18} aria-hidden="true" />
           <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>{title}</h1>
           <span style={{ ...muted, flex: 1 }} className="hide-mobile">{inFlow ? "" : "When something happens in Leads, Voice or Social, do something automatically."}</span>
-          {!inFlow && canEdit && meta ? newButton : null}
+          {!inFlow && canEdit && meta && shown.length ? newButton : null /* an empty page has one create button, in its card */}
         </div>
       )}
       <div className="wf-main" ref={mainRef} tabIndex={-1} style={{ outline: "none" }}>
@@ -240,7 +240,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
               <div className="wf-tabs" role="tablist" style={{ flex: 1 }}>
                 {[["workflows", `Workflows${meta.workflows.length ? ` (${meta.workflows.length})` : ""}`], ["activity", "Activity"]].map(([k, label]) => <button key={k} type="button" role="tab" className="wf-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}
               </div>
-              {top && canEdit ? newButton : null}
+              {top && canEdit && meta.workflows.length ? newButton : null}
               {tab === "workflows" && meta.workflows.length ? (
                 <Select label="Show workflows from" value={plugin} onChange={setPlugin}>
                   <option value="">All plugins</option>{["voice", "leads", "social"].map((p) => <option key={p} value={p}>{PLUGIN_NAME[p]}</option>)}

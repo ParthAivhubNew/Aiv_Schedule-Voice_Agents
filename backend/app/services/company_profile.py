@@ -251,6 +251,9 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         "links": links_of(biz.raw_data),
         "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
         "missing": [k for k in ("website", "phone", "email") if contact[k]["source"] == "missing"],
+        # Matches a lookup found but nobody has chosen from yet. They are shown with a "Use this" button, never reported as "not found".
+        "pending": {k: [{"value": o.get("value"), "label": o.get("label") or "", "score": o.get("score") or 0} for o in v if o.get("value")][:3]
+                    for k, v in (((biz.raw_data or {}).get("lookup_options")) or {}).items() if k in ("email", "phone", "website") and v},
         "accounts": accounts, "confirmation": {"last": _human(_date(ch.get("ConfStmtLastMadeUpDate"))), "next_due": _human(_date(ch.get("ConfStmtNextDueDate")))},
         "charges": {"outstanding": _num(ch.get("Mortgages.NumMortOutstanding")), "satisfied": _num(ch.get("Mortgages.NumMortSatisfied")), "total": _num(ch.get("Mortgages.NumMortCharges"))},
         "previous_names": previous, "country": ch.get("CountryOfOrigin", ""),

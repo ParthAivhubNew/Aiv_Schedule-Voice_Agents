@@ -45,3 +45,15 @@ describe("reply chips in Mail", () => {
     expect(deliverability({}).bounce).toBe("No sends yet");
   });
 });
+
+describe("deliverabilityChecks", () => {
+  it("gives each check a colour and fix steps for the provider, and none for a passing check", async () => {
+    const { deliverabilityChecks, providerOf } = await import("./mailBulk");
+    const m = { email: "me@firm.co.uk", smtp_host: "send.one.com", spf_verified: true, dkim_verified: false, dmarc_verified: false };
+    expect(providerOf(m)).toBe("one.com");
+    const c = Object.fromEntries(deliverabilityChecks(m).map((x) => [x.key, x]));
+    expect([c.spf.state, c.dkim.state, c.dmarc.state]).toEqual(["ok", "bad", "warn"]);
+    expect(c.spf.how).toBe("");
+    expect(c.dkim.how).toMatch(/one\.com/);
+  });
+});

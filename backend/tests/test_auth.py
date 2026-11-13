@@ -265,3 +265,27 @@ async def test_the_first_sign_in_is_flagged_as_a_first_visit_and_the_next_one_is
     assert first["first_visit"] is True
     second = (await anon.post("/api/auth/login", json=body)).json()["operator"]
     assert second["first_visit"] is False
+
+
+async def test_keep_me_signed_in_lasts_thirty_days_and_skips_the_shorter_maximum(anon, db):
+    from datetime import datetime, timedelta
+
+    from sqlalchemy.future import select
+
+    from app.models.models import AuthSession
+    from app.services import session_policy
+
+    await make_user(db, "kim", "Operator", password="Correct-horse-9")
+    plain = (await anon.post("/api/auth/login", json={"username": "kim", "password": "Correct-horse-9"})).json()
+    kept = (await anon.post("/api/auth/login", json={"username": "kim", "password": "Correct-horse-9", "remember": True})).json()
+    assert plain["remember"] is False and kept["remember"] is True
+    rows = {s.remember: s for s in (await db.execute(select(AuthSession))).scalars().all()}
+    assert (rows[True].expires_at - datetime.utcnow()) > timedelta(days=29)
+    assert (rows[False].expires_at - datetime.utcnow()) <= timedelta(hours=session_policy.DEFAULT_IDLE_MINUTES + 24 * 7)  # the platform's own maximum
+    # A refresh long after the platform's maximum still works for the remembered sign-in, and not for the plain one.
+    for s in rows.values():
+        s.created_at = datetime.utcnow() - timedelta(days=3)
+    await db.commit()
+    ok = await anon.post("/api/auth/refresh", json={"refresh_token": kept["refresh_token"]})
+    no = await anon.post("/api/auth/refresh", json={"refresh_token": plain["refresh_token"]})
+    assert ok.status_code == 200 and no.status_code == 401

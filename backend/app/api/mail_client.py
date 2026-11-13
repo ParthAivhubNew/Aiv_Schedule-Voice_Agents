@@ -108,8 +108,12 @@ async def counts(request: Request, mailbox_id: str = "", db: AsyncSession = Depe
     ids = [m.id for m in await _boxes(db, ctx, mailbox_id)]
     out = {f: {"total": 0, "unread": 0} for f in S.FOLDERS}
     if ids:
+        own = await _own_addresses(db)
+        where = [MailMessage.mailbox_id.in_(ids)]
+        if own:  # warm-up mail is not counted in the Inbox
+            where.append(or_(MailMessage.folder != "inbox", MailMessage.from_email.is_(None), func.lower(MailMessage.from_email).notin_(own)))
         rows = (await db.execute(select(MailMessage.folder, func.count(), func.sum(func.cast(MailMessage.is_read.is_(False), Integer)))
-                                 .where(MailMessage.mailbox_id.in_(ids)).group_by(MailMessage.folder))).all()
+                                 .where(*where).group_by(MailMessage.folder))).all()
         for folder, total, unread in rows:
             if folder in out:
                 out[folder] = {"total": int(total), "unread": int(unread or 0)}
@@ -172,9 +176,18 @@ def same_folder_thread(picked: List[Any], candidates: List[Any]) -> List[Any]:
     return list(out.values())
 
 
+async def _own_addresses(db: AsyncSession) -> List[str]:
+    """Every mailbox this organisation owns. Warm-up traffic runs between these, so mail from one of them is not real mail."""
+    return [e.lower() for (e,) in (await db.execute(select(EmailMailbox.email))).all() if e]
+
+
 async def _matching_heads(db: AsyncSession, boxes: Dict[str, EmailMailbox], folder: str, q: str, unread: bool, starred: bool,
                           attachments: bool) -> tuple:
     cond = [MailMessage.mailbox_id.in_(list(boxes)), MailMessage.folder == folder]
+    if folder == "inbox":  # warm-up mail between our own mailboxes stays out of the Inbox, so it shows real mail only
+        own = await _own_addresses(db)
+        if own:
+            cond.append(or_(MailMessage.from_email.is_(None), func.lower(MailMessage.from_email).notin_(own)))
     if unread:
         cond.append(MailMessage.is_read.is_(False))
     if starred:

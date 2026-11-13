@@ -179,6 +179,9 @@ async def summarize_finished(call_id: str, delay: float = 0.0) -> None:
                 rec.summary = text
             await db.commit()
         await _broadcast(call_id)
+        from app.services.call_callback import add_callback_for_call
+
+        await add_callback_for_call(call_id)  # "call me between 12 and 4" lands on the calendar
     except Exception as err:
         logger.warning(f"[call-summary] final summary for {call_id} failed: {err}")
 

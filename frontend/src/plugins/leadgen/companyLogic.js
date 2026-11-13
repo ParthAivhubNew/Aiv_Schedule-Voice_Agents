@@ -137,3 +137,15 @@ export function displayName(name) {
   const short = nice.replace(/[\s,]+(limited|ltd\.?|llp|plc)$/i, "").trim();
   return short || nice;
 }
+
+// "accountants reading" or "plumbers in leeds" typed as a company name: the trade words and the town, or null when it doesn't read that way.
+export function nameAsKeywordTown(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return null;
+  const at = words.findIndex((w, i) => i > 0 && w.toLowerCase() === "in");
+  const keyword = at > 0 ? words.slice(0, at) : words.slice(0, -1);
+  const town = at > 0 ? words.slice(at + 1) : words.slice(-1);
+  if (!keyword.length || !town.length) return null;
+  const cap = (t) => t.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  return { keyword: keyword.join(" ").toLowerCase(), town: cap(town) };
+}

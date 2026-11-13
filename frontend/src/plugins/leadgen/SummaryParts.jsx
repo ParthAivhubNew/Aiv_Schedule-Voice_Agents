@@ -19,15 +19,16 @@ const asked = new Map(); // company id -> profile promise, so the tab asks the s
 // The company profile for one company, read once when the Summary tab is first shown for it.
 export function useCompanyProfile(id, active) {
   const [state, setState] = useState({ id: "", data: null, error: "" });
+  const [tick, setTick] = useState(0); // bumped after a pick, so the profile is read again
   useEffect(() => {
     if (!id || !active) return undefined;
     let live = true;
     if (!asked.has(id)) asked.set(id, api.companyProfile(id).then((r) => r.company || r));
     asked.get(id).then((data) => { if (live) setState({ id, data, error: "" }); }).catch((e) => { asked.delete(id); if (live) setState({ id, data: null, error: e.message || "Couldn't load the summary." }); });
     return () => { live = false; };
-  }, [id, active]);
+  }, [id, active, tick]);
   const mine = state.id === id;
-  return { profile: mine ? state.data : null, loading: Boolean(id && active && !(mine && (state.data || state.error))), error: mine ? state.error : "" };
+  return { profile: mine ? state.data : null, loading: Boolean(id && active && !(mine && (state.data || state.error))), error: mine ? state.error : "", reload: () => setTick((n) => n + 1) };
 }
 
 function NewsLine({ companyId }) {
@@ -73,6 +74,33 @@ function Contact({ c, none }) {
   );
 }
 
+// A lookup found matches nobody has chosen from yet: shown right here with a "Use this" button, never as "Not found yet".
+function PendingPick({ companyId, kind, options, onPicked }) {
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const use = async (o) => {
+    setBusy(o.value); setErr("");
+    try {
+      await api.chooseContact(companyId, { kind, value: o.value, person: "" });
+      asked.delete(companyId);
+      onPicked?.();
+    } catch (e) { setErr(e.message || "Couldn't save that. Try again."); } finally { setBusy(""); }
+  };
+  return (
+    <div style={{ display: "grid", gap: 6, width: "100%" }}>
+      <strong style={{ fontSize: 13 }}>{options.length} found · pick one</strong>
+      {options.map((o) => (
+        <div key={o.value} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ overflowWrap: "anywhere" }}>{o.value}</span>
+          {o.label ? <span style={{ ...muted, fontSize: 11.5 }}>{o.label}</span> : null}
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={Boolean(busy)} onClick={() => use(o)}>{busy === o.value ? <Spinner size={12} /> : null} Use this</button>
+        </div>
+      ))}
+      {err ? <div role="alert" style={{ ...muted, color: C.red }}>{err}</div> : null}
+    </div>
+  );
+}
+
 // One button for finding a missing contact: our records, then the web, then a deep web search, then the check.
 export function FindContactButton({ store, account }) {
   const credits = useLeadCredits();
@@ -97,7 +125,7 @@ export function FindContactButton({ store, account }) {
 }
 
 // profile: the server's company profile or null; account: the saved company or null; onGoTab switches the tab the next step points at.
-export function SummaryTab({ profile, account, loading, error, onGoTab, companyId }) {
+export function SummaryTab({ profile, account, loading, error, onGoTab, companyId, onPicked }) {
   const rows = summaryRows({ profile, account });
   const next = rows.next;
   const target = nextTarget(next);
@@ -118,8 +146,15 @@ export function SummaryTab({ profile, account, loading, error, onGoTab, companyI
         {rows.who ? <><strong>{rows.who.name}</strong>{rows.who.role ? <span style={{ color: C.slate }}>{rows.who.role}</span> : null}<Source word={rows.who.source} /></>
           : <span style={{ color: C.slateLight }}>{loading ? "Reading…" : "No named person yet"}</span>}
       </Row>
-      <Row label="Best email"><Contact c={rows.email} none={loading ? "Reading…" : "Not found yet"} /></Row>
-      <Row label="Best phone"><Contact c={rows.phone} none={loading ? "Reading…" : "Not found yet"} /></Row>
+      {["email", "phone"].map((k) => {
+        const waiting = !rows[k] && companyId ? profile?.pending?.[k] || [] : [];
+        return (
+          <Row key={k} label={k === "email" ? "Best email" : "Best phone"}>
+            {waiting.length ? <PendingPick companyId={companyId} kind={k} options={waiting} onPicked={onPicked} />
+              : <Contact c={rows[k]} none={loading ? "Reading…" : "Not found yet"} />}
+          </Row>
+        );
+      })}
       <Row label="Next step">
         {next && next.label ? (
           <>

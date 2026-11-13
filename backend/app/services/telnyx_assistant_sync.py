@@ -48,6 +48,15 @@ async def resolve_telnyx_public_key(db: AsyncSession) -> Optional[str]:
     return saved or (getattr(settings, "TELNYX_ASSISTANT_PUBLIC_KEY", None) or "").strip() or None
 
 
+def date_variables(tz_name: Optional[str] = None) -> dict:
+    """Today's date for one call, filled into the {{today}} / {{today_iso}} placeholders of the
+    synced instructions (those are pushed once, so a date written into them goes stale)."""
+    from app.services.timezone_service import now_in
+
+    now = now_in(tz_name)
+    return {"today": now.strftime("%A, %B %d, %Y"), "today_iso": now.strftime("%Y-%m-%d")}
+
+
 async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
     """
     Pushes a combined, direction-aware system prompt to the configured Telnyx AI
@@ -93,6 +102,8 @@ async def sync_active_prompt_to_telnyx(direction: Optional[str] = None) -> dict:
 
             outbound_ctx = await context_resolver.resolve_outbound(db)
             inbound_ctx = await context_resolver.resolve_inbound(db, "unknown")
+            for ctx in (outbound_ctx, inbound_ctx):
+                ctx["temporal_context"].update({"today": "{{today}}", "today_iso": "{{today_iso}}", "tomorrow": "tomorrow"})
 
             # Same booking-policy instructions the self-hosted voice pipeline already gets
             # (voice_modular.py) -- without this, the live Telnyx assistant never learns it

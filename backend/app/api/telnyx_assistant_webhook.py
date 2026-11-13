@@ -326,6 +326,7 @@ async def handle_telnyx_assistant_call_event(request: Request):
         # there is no dial-time "call_direction" field on the plain
         # POST /v2/calls flow this app uses, so this is the only reliable signal.
         call_direction = "inbound"
+        from app.services.telnyx_assistant_sync import date_variables
         from app.services.telnyx_assistant_calls import decode_client_state, is_tracked, call_control_id_from_assistant_payload
         if decode_client_state(payload.get("client_state")) or is_tracked(call_control_id_from_assistant_payload(payload)):
             call_direction = "outbound"
@@ -364,13 +365,14 @@ async def handle_telnyx_assistant_call_event(request: Request):
                     "agent_name": agent_name,
                     "call_direction": call_direction,
                     "greeting": greeting_text,
+                    **date_variables(company.get("timezone")),
                 }
             }
         except Exception as err:
             logger.warning(f"[TELNYX-ASSISTANT] Dynamic variable resolution failed: {err}")
             # Still resolve {{greeting}} to something spoken, even on total failure -- an unset
             # variable would otherwise leave Telnyx speaking the literal "{{greeting}}" text.
-            return {"dynamic_variables": {"call_direction": call_direction, "greeting": "Hi, thanks for your time."}}
+            return {"dynamic_variables": {"call_direction": call_direction, "greeting": "Hi, thanks for your time.", **date_variables()}}
 
     if any(kw in event_type.lower() for kw in _CALL_END_KEYWORDS):
         from app.services.telnyx_assistant_calls import call_control_id_from_assistant_payload, finish_call, is_tracked

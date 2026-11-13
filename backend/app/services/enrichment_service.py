@@ -1734,6 +1734,9 @@ async def enrich_prospect_intelligence(
     if host:
         ranked = [e for e in discovered_emails if host.split(":")[0] in e] + [e for e in discovered_emails if host.split(":")[0] not in e]
         discovered_emails = ranked
+    from app.services.company_contacts import is_uk_phone
+
+    discovered_phones.sort(key=lambda p: 0 if is_uk_phone(p) else 1)  # a UK company's own number leads; a foreign one is only "also found"
     discovered_phones, discovered_emails, other_offices = _split_by_office(
         discovered_phones, discovered_emails, place_bit, office.get("phones") or [], office.get("emails") or [])
     company_pitch = scraped_info.get("description", "") or office.get("description", "")

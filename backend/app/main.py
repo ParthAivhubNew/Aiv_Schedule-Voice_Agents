@@ -830,6 +830,10 @@ async def lifespan(app: FastAPI):
     except Exception as social_schema_err:
         logger.warning(f"[Social] Schema check failed: {social_schema_err}")
 
+    # Instructions pushed by an older version had the sync day written in as "today".
+    from app.services.telnyx_assistant_sync import sync_active_prompt_to_telnyx
+    asyncio.create_task(sync_active_prompt_to_telnyx())
+
     publish_due_task = asyncio.create_task(_social_publish_due_loop())
     credits_task = asyncio.create_task(_credits_settle_loop())
     from app.services.generation_queue import generation_loop

@@ -341,6 +341,33 @@ def _browse_chips(chips: List[str], default_on: bool, out: Dict[str, Any]) -> Li
     return chips
 
 
+async def _overlay_held(db: AsyncSession, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A company already in one of your lists shows the phone, email and website you hold for it, so search never offers a paid lookup
+    for a detail you have. `held` names which ones came from your own list."""
+    from app.models.models import LeadAccount
+    from app.services.identity import lead_phone
+
+    ids = [c["id"] for c in cards if c.get("id")]
+    if not ids:
+        return cards
+    rows = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id.in_(ids)))).scalars().all()
+    by = {}
+    for a in rows:
+        by.setdefault(a.business_record_id, a)
+    out = []
+    for c in cards:
+        a = by.get(c.get("id"))
+        if a is None:
+            out.append(c)
+            continue
+        r = a.research or {}
+        have = {"phone": lead_phone(a), "email": a.email or next((e for e in (r.get("emails") or []) if e), ""), "website": a.website or ""}
+        held = [k for k, v in have.items() if v and not c.get(k)]
+        closed = {k: v for k, v in (c.get("closed") or {}).items() if k not in held}
+        out.append({**c, **{k: have[k] for k in held}, "held": held, "closed": closed})
+    return out
+
+
 class SearchIn(BaseModel):
     filters: Dict[str, Any] = {}
     limit: int = 25
@@ -397,7 +424,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
             if hit and time.monotonic() - hit[0] < hit[2]:
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
-                shown = await ICP.attach_to_cards(db, await RV.mask(db, cached["companies"]), fit_ctx)
+                shown = await _overlay_held(db, await ICP.attach_to_cards(db, await RV.mask(db, cached["companies"]), fit_ctx))
                 return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown], "icp_set": bool(fit_ctx)}
             def run(f):
                 opening = bool(f.get("complete_first"))
@@ -435,7 +462,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
     cards = [lead_filters.card(r) for r in out["rows"]]
     mine = await business_records.saved_ids(db, [c["id"] for c in cards])
     shown = await RV.mask(db, cards)  # the page cache below keeps the unmasked cards: it is shared, each organisation is masked on the way out
-    shown = await ICP.attach_to_cards(db, shown, fit_ctx)
+    shown = await _overlay_held(db, await ICP.attach_to_cards(db, shown, fit_ctx))
     answer = {"companies": [{**c, "saved": c["id"] in mine} for c in shown], "total": out["total"], "icp_set": bool(fit_ctx),
               "sort_used": out.get("sort_used", body.sort),
               "total_capped": out.get("total_capped", False), "filters": out["filters"], "chips": chips, "points": out.get("points", {}),

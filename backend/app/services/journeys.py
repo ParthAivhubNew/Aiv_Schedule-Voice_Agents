@@ -265,7 +265,7 @@ def _task_out(t: JourneyTask, campaign_name: str = "") -> Dict[str, Any]:
     return {"id": t.id, "campaign_id": t.campaign_id, "journey": campaign_name, "enrollment_id": t.enrollment_id, "lead_id": t.lead_id or "",
             "kind": t.kind, "kind_label": TASK_KINDS.get(t.kind, "Task"), "title": t.title, "notes": t.notes, "contact": t.contact,
             "company": t.company, "email": t.email, "phone": t.phone, "due_at": t.due_at.isoformat() + "Z" if t.due_at else None,
-            "status": t.status, "outcome": t.outcome, "instead_of_email": instead, "needs_screening": instead and t.kind == "call_task"}
+            "status": t.status, "outcome": t.outcome, "overdue": bool(t.status == "open" and t.due_at and t.due_at < datetime.utcnow()), "instead_of_email": instead, "needs_screening": instead and t.kind == "call_task"}
 
 
 async def _lead(db: AsyncSession, enr: EmailEnrollment) -> Optional[LeadAccount]:
@@ -303,6 +303,35 @@ async def start_task_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrol
         notes = (f"Subject: {render(step.subject or '', enr)}\n\n{body}" + (f"\n\n{notes}" if notes else "")).strip()
     return await make_task(db, camp, enr, kind=kind, title=render(step.title or TASK_KINDS.get(kind, "Task"), enr), notes=notes,
                            step_key=step.step_key or step.id, now=now)
+
+
+async def close_resolved_tasks(db: AsyncSession, campaign_id: str = "") -> int:
+    """A "reach them another way" task made in place of an email stands only while its person can't be emailed. When a check or a choice
+    since made them emailable, the task closes by itself. Flushes; the caller commits."""
+    q = select(JourneyTask).where(JourneyTask.status == "open", JourneyTask.step_key.like(f"{SWAP_PREFIX}%"))
+    if campaign_id:
+        q = q.where(JourneyTask.campaign_id == campaign_id)
+    n, now = 0, datetime.utcnow()
+    channels: Dict[str, Dict[str, str]] = {}  # campaign -> step key -> channel
+    for t in (await db.execute(q.limit(500))).scalars().all():
+        enr = await db.get(EmailEnrollment, t.enrollment_id)
+        gone = enr is None  # a finished journey keeps its tasks: the person still has to be reached another way
+        if t.campaign_id not in channels:
+            channels[t.campaign_id] = {(s.step_key or s.id): s.channel for s in await steps_of(db, t.campaign_id)}
+        in_place_of_email = channels[t.campaign_id].get((t.step_key or "")[len(SWAP_PREFIX):]) in EMAIL_LIKE
+        if not gone and in_place_of_email and not enr.email_blocked:  # a task made in place of a call stands whether or not they can be emailed
+            try:
+                verdict = await email_decision(db, enr)
+            except Exception as err:
+                logger.debug("task check skipped: %s", err)
+                continue
+            gone = bool(verdict.get("ok") and verdict.get("email"))
+        if gone:
+            t.status, t.outcome, t.completed_at = "cancelled", "resolved", now
+            n += 1
+    if n:
+        await db.flush()
+    return n
 
 
 async def list_tasks(db: AsyncSession, *, status: str = "open", campaign_id: str = "", due_before: Optional[datetime] = None, limit: int = 100) -> List[Dict[str, Any]]:
@@ -690,6 +719,19 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
     lead = await _lead(db, enr) if rules["skip_stages"] else None
     if lead is not None and (lead.stage or "new") in rules["skip_stages"]:
         await exit_enrollment(db, enr, "stage", now=now)
+        return True
+    if ch == "email" and (enr.current_step or 1) > 1 and not (step.subject or "").strip() and not enr.last_message_id:
+        # A reply in the same thread, but nothing was ever sent to this person, so there is no thread to reply in.
+        first = min((n for n, s in steps.items() if s.channel == "email" and (s.subject or "").strip()), default=None)
+        verdict = await email_decision(db, enr) if not enr.email_blocked else {"ok": False, "email": False}
+        if first is not None and first < (enr.current_step or 1) and verdict.get("ok") and verdict.get("email"):
+            # They can be emailed now (a check or a choice settled it): the first email goes before any follow-up, then the normal waits.
+            enr.current_step, enr.current_step_key = first, steps[first].step_key or steps[first].id
+            enr.waiting_on, enr.next_action_at = "", now
+            note_timeline(enr, "Now able to be emailed: the first email goes out before any follow-up.", now)
+        else:
+            note_timeline(enr, f"Step {enr.current_step}: a reply in the same thread skipped, because the first email was never sent.", now)
+            await advance(db, enr, steps, now)
         return True
     if ch in EMAIL_LIKE and not enr.email_blocked:  # judged again at send time: a check, a choice or a revoked consent since they joined counts
         verdict = await email_decision(db, enr)
@@ -1234,7 +1276,8 @@ async def schedule(db: AsyncSession, camp: EmailCampaign, steps: List[Dict[str, 
 
 async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: bool = True) -> Dict[str, Any]:
     out = {"id": camp.id, "name": camp.name, "goal": camp.goal or "", "status": camp.status, "template_key": camp.template_key or "",
-           "created_at": camp.created_at.isoformat() + "Z" if camp.created_at else None}
+           "created_at": camp.created_at.isoformat() + "Z" if camp.created_at else None,
+           "archived": bool((camp.exit_rules or {}).get("archived"))}  # a finished journey tidied out of the list
     out["results"] = await results(db, camp)
     out["tasks_open"] = (await db.execute(select(func.count(JourneyTask.id)).where(JourneyTask.campaign_id == camp.id, JourneyTask.status == "open"))).scalar() or 0
     out["step_count"] = (await db.execute(select(func.count(EmailSequenceStep.id)).where(EmailSequenceStep.campaign_id == camp.id))).scalar() or 0
@@ -1252,6 +1295,7 @@ async def summary(db: AsyncSession, camp: EmailCampaign, org_id: str, *, full: b
     out["audience"] = await audience(db, camp)
     out["preflight"] = await preflight(db, camp, org_id, aud=out["audience"])
     out["schedule"] = await schedule(db, camp, out["steps"])
+    await close_resolved_tasks(db, camp.id)
     out["tasks"] = await list_tasks(db, campaign_id=camp.id, limit=20)
     shown_enrs = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id).order_by(EmailEnrollment.created_at.desc()).limit(200))).scalars().all()
     accts, recs = await _eligibility_inputs(db, [{"lead_id": e.lead_id} for e in shown_enrs if e.lead_id])
@@ -1299,12 +1343,16 @@ async def set_status(db: AsyncSession, camp: EmailCampaign, status: str, org_id:
             pass
     elif status == "paused":
         camp.status = "paused"
+    elif status in ("archived", "unarchived"):
+        if camp.status != "completed":
+            raise JourneyError("Only a finished journey can be archived.")
+        camp.exit_rules = {**(camp.exit_rules or {}), "archived": status == "archived"}  # a new dict, so the change is saved
     elif status == "stopped":
         camp.status = "completed"
         for e in (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active"))).scalars().all():
             await exit_enrollment(db, e, "stopped", status="finished")
     else:
-        raise JourneyError("Say running, paused or stopped.")
+        raise JourneyError("Say running, paused, stopped, archived or unarchived.")
 
 
 async def clone(db: AsyncSession, camp: EmailCampaign, name: str = "") -> EmailCampaign:

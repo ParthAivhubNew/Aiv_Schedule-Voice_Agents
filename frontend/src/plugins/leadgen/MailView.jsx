@@ -9,7 +9,7 @@ import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
 import { DoNotEmailView, RepliesList, ReplyWithTimes, SentList } from "./OutreachViews";
-import { bulkDoneText, conversations, deliverability, DMARC_NOTE, MAIL_SELECT_CAP, MORE_FOLDERS, REPLY_CHIP, replyNextStep } from "./mailBulk";
+import { bulkDoneText, conversations, deliverability, deliverabilityChecks, DMARC_NOTE, MAIL_SELECT_CAP, MORE_FOLDERS, REPLY_CHIP, replyNextStep } from "./mailBulk";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 
 const FOLDERS = [
@@ -441,9 +441,15 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink, fontWeight: 600 }} title={m.email}>{m.email}</div>
                     <div>Bounced: {d.bounce}</div>
                     <div>Complaints: {d.complaints}</div>
-                    <div>SPF: {d.spf}</div>
-                    <div>DKIM: {d.dkim}</div>
-                    <div>DMARC check: {d.dmarc}</div>
+                    {deliverabilityChecks(m).map((c) => {
+                      const tone = c.state === "ok" ? ["#166534", "#DCFCE7"] : c.state === "warn" ? ["#92400E", "#FEF3C7"] : ["#991B1B", "#FEE2E2"];
+                      return (
+                        <div key={c.key} style={{ margin: "3px 0" }}>
+                          <span>{c.label}: </span><span style={{ background: tone[1], color: tone[0], borderRadius: 999, padding: "1px 8px", fontWeight: 600, fontSize: 11.5 }}>{c.word}</span>
+                          {c.how ? <details style={{ marginTop: 2 }}><summary style={{ cursor: "pointer", color: C.cobalt, fontSize: 12 }}>How to fix</summary><div style={{ fontSize: 12, lineHeight: 1.45, marginTop: 2 }}>{c.how}</div></details> : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}

@@ -103,3 +103,14 @@ describe("results bar", () => {
     expect(stepTable({ by_step: [{ channel: "email", sent: 0 }, { channel: "call", sent: 0 }] })).toHaveLength(1);
   });
 });
+
+describe("taskGroups", () => {
+  it("splits tasks into Overdue, Today and Later and leaves empty groups out", async () => {
+    const { taskGroups } = await import("./journeyLogic");
+    const now = new Date("2026-11-13T12:00:00");
+    const t = (id, due) => ({ id, due_at: due });
+    const g = taskGroups([t("late", "2026-11-12T10:00:00"), t("later", "2026-11-20T09:00:00"), t("today", "2026-11-13T17:00:00")], now);
+    expect(g.map(([k, , rows]) => [k, rows.map((r) => r.id)])).toEqual([["overdue", ["late"]], ["today", ["today"]], ["later", ["later"]]]);
+    expect(taskGroups([t("a", "2026-11-13T13:00:00")], now).map(([k]) => k)).toEqual(["today"]);
+  });
+});
