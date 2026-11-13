@@ -17,7 +17,7 @@ import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
 import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar, ViewMenu } from "./FindLeadsParts";
-import { IcpPrompt, SetupCard, useIcp } from "./FitParts";
+import { IcpPrompt, useIcp } from "./FitParts";
 import { sortOptions } from "./fitLogic";
 import { CompanyDrawer } from "./CompanyDrawer";
 import { NotesButton, notesChanged } from "./Notes";
@@ -364,7 +364,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [page, setPage] = useState(1);
   const [ranked, setRanked] = useState(true); // false until the server has ranked the register: results are then newest first
   const [tiers, setTiers] = useState(null); // {full, partial, basic}: how many results are in each group
-  const [started, setStarted] = useState(false); // false until the person runs a search of their own (or arrives with one)
   const [savedTotal, setSavedTotal] = useState(null); // null until the count is known: a loading dash, never a wrong 0
   const [selKey, setSelKey] = useState(""); // the search the ticks belong to: a new search (not a new page) clears them
   const sel = useBulkSelect(selKey);
@@ -388,6 +387,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   const [view, setView] = useState("list");
   const [area, setArea] = useState(null); // a polygon drawn on the map: [[lat, lng], ...]
+  const [areaNote, setAreaNote] = useState(""); // said above the map when the area shows every company because none fit the filters
   const [points, setPoints] = useState({}); // company id -> [lat, lng]
   const asked = useRef(new Set());
   // A drawn area is counted first, the user picks how many to see, then the companies are placed in steps.
@@ -501,6 +501,16 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     return () => clearTimeout(timer);
   }, [error, busy, searched, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Once the last filter is removed, the list goes back to the whole register by itself: no need to press search on an empty form.
+  useEffect(() => {
+    if (!searched || area || busy || tab !== "companies") return undefined;
+    if (Object.keys(formToFilters(form)).length) return undefined;
+    const shownFilters = lastQuery.current?.filters;
+    if (!shownFilters || !Object.keys(shownFilters).length) return undefined;
+    const timer = setTimeout(() => search(null, EMPTY_FORM, 0, null, undefined, undefined, true), 400);
+    return () => clearTimeout(timer);
+  }, [form, searched, area, busy, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const searchHold = useHold();
   const countHold = useHold();
   // Phones: a search shows its progress, then its companies or its error, on the Results pane.
@@ -523,7 +533,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   const search = async (e, overrideForm, offset = 0, areaOverride, dropOverride, sortOverride, force = false) => {
     if (e) e.preventDefault();
-    if (e || (overrideForm && overrideForm !== EMPTY_FORM)) setStarted(true); // the person has asked for something: the setup card gives way to results
     if (e || (overrideForm && overrideForm !== EMPTY_FORM)) openingActive.current = false; // the person's own search: no more automatic retries
     const f = overrideForm || form;
     // An empty search from the search bar is "show everything": a map area left over from before, or companies hidden with Remove, must not narrow it.
@@ -752,7 +761,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         widenRef.current = Boolean(r.widened);
         setUnderstood(r.understood || []);
         if (r.candidates) {
+          setAreaNote("");
           showFromArea(shape, Math.min(AREA_FIRST, r.candidates), r.candidates, f, drop); // show a few at once, then offer more
+        } else if (Object.keys(formToFilters(f)).length) {
+          // Nothing here fits the filters: show every company in the area rather than an empty map.
+          api.areaCount({ filters: {}, area: shape, drop_terms: [] }).then((all) => {
+            if (myRun !== runId.current) return;
+            if (all.candidates) {
+              setAreaNote("No company in this area matches your filters, so this shows every company in it.");
+              setUnderstood([]);
+              widenRef.current = false;
+              showFromArea(shape, Math.min(AREA_FIRST, all.candidates), all.candidates, EMPTY_FORM, []);
+            } else setAreaStep({ phase: "choose", candidates: 0, capped: r.capped, inArea: 0 });
+          }).catch(() => { if (myRun === runId.current) setAreaStep({ phase: "choose", candidates: 0, capped: r.capped, inArea: r.in_area || 0 }); });
         } else {
           setAreaStep({ phase: "choose", candidates: 0, capped: r.capped, inArea: r.in_area || 0 });
         }
@@ -813,6 +834,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   const drawArea = (shape) => {
     setArea(shape);
+    setAreaNote("");
     setExcluded([]);
     setCompanies([]);
     setTotal(0);
@@ -824,6 +846,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     countHold.clear();
     setAreaStep(null);
     setArea(null);
+    setAreaNote("");
     setExcluded([]);
     setError("");
     setBusy(false);
@@ -1269,6 +1292,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           {view === "map" ? (
             <div ref={mapRef} style={{ padding: 12, scrollMarginTop: 8 }}>
               <LeadsMap onClose={() => setView("list")} companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
+              {area && areaNote ? <div role="status" style={{ ...muted, marginTop: 8 }}>{areaNote}</div> : null}
               {area && companies.some((c) => c.phone) ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <CallButton label={`Call the ${companies.filter((c) => c.phone).length} with a phone number in this area`} lockedLabel="Call these · add Voice" variant="secondary"
@@ -1404,9 +1428,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 </div>
               ) : null}
               <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
-              {!icp.loading && !icp.isSet && !started && !incoming && !inArea ? (
-                <SetupCard sizes={SIZE_OPTIONS.slice(0, 3)} onSetFromSite={onSetIcp} onShow={(f) => { const next = { ...EMPTY_FORM, ...f }; setForm(next); search(null, next, 0, null, undefined, undefined, true); }} />
-              ) : companies.length ? (
+              {companies.length ? (
                 <CompaniesTable onGetContacts={getContacts} busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
                   showFit={icpSet} fitSorted={sort === "fit"} onSortFit={area ? undefined : () => changeSort("fit")}
                   onPick={sel.toggle}
