@@ -172,7 +172,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           {open ? (
             <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!withEmail.length} onClick={() => onCampaign(open.id)}
               title={withEmail.length ? "" : "None of these companies has an email yet. Use Get contacts first."}>
-              <Megaphone size={14} /> Start campaign
+              <Megaphone size={14} /> Start journey
             </button>
           ) : null}
           <MoreMenu items={[
@@ -204,7 +204,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to check and improve it, fix what is wrong, then start a campaign on it.</div>
+        <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to check and improve it, fix what is wrong, then start a journey on it.</div>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {
           const name = await askText({ title: "Name your new list", label: "For example Leeds dentists", confirm: "Create list", maxLength: 80 });

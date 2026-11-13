@@ -55,7 +55,7 @@ export function summaryRows({ profile, account } = {}) {
 export function nextTarget(next) {
   switch (next?.key) {
     case "choose": return { tab: "research", note: "Open the choices" };
-    case "email": return { tab: "activity", note: "Add to a campaign" };
+    case "email": return { tab: "activity", note: "Add to a journey" };
     case "call": return { tab: "activity", note: "Call" };
     case "find": return { tab: "research", note: "Find a contact" };
     default: return null;

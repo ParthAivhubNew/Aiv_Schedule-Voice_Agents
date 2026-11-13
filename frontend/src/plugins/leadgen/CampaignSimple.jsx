@@ -7,9 +7,9 @@ import { listReach } from "./Lists";
 import { CheckNote, PersonalLines, ProfileBox, RefineBar, SequenceWriter, unknownFields } from "./EmailWriter";
 import { BrandDialog, DesignBox, DesignPreview, useEmailDesign } from "./EmailDesign";
 
-// New campaign, on one page, for someone who has never sent a campaign: pick who, let the AI write the emails, check
+// New journey, on one page, for someone who has never sent one: pick who, let the AI write the emails, check
 // the summary, press Launch. The exact timing, call steps and "send as" addresses are still there in the step-by-step
-// version, one click away. Same server calls as that version, so campaigns made here look the same everywhere.
+// version, one click away. Same server calls as that version, so journeys made here look the same everywhere.
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -133,7 +133,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
     let made = null;
     try {
       made = (await api.emailCreateCampaign({
-        name: name.trim() || `${list.name} campaign`, mailbox_ids: [sender.id], sending_window_start: sched.start, sending_window_end: sched.end,
+        name: name.trim() || `${list.name} journey`, mailbox_ids: [sender.id], sending_window_start: sched.start, sending_window_end: sched.end,
         days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120, aliases: {},
         steps: emails.map((e) => ({ subject: e.subject, body: e.body, delay_days: Number(e.delay_days) || 0 })),
       })).campaign;
@@ -142,7 +142,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
         try { await api.setEmailCampaignDesign(made.id, true); } catch (err) { store.toast(`The brand design wasn't switched on, so it will send as plain text: ${err.message}`); }
       }
       if (start) await api.emailCampaignStatus(made.id, "running");
-      store.toast(start ? `Campaign started: ${plural(out.added, "person", "people")} will be emailed.` : `Saved as a draft with ${plural(out.added, "person", "people")}.`);
+      store.toast(start ? `Journey started: ${plural(out.added, "person", "people")} will be emailed.` : `Saved as a draft with ${plural(out.added, "person", "people")}.`);
       onDone(made.id);
     } catch (e) {
       if (made) { // it exists but could not start (a mailbox that is not ready, for example): keep it as a draft
@@ -150,7 +150,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
         onDone(made.id);
         return;
       }
-      setError(e.message || "Couldn't create the campaign.");
+      setError(e.message || "Couldn't create the journey.");
       setBusy(false);
     }
   };
@@ -191,8 +191,8 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <h2 style={{ ...h2, fontSize: 17 }}>New campaign</h2>
-        <input className="ui-input" style={{ width: 260, height: 32 }} aria-label="Campaign name" value={name} onChange={(ev) => setName(ev.target.value)} placeholder={list ? `${list.name} campaign` : "Name this campaign"} />
+        <h2 style={{ ...h2, fontSize: 17 }}>New journey</h2>
+        <input className="ui-input" style={{ width: 260, height: 32 }} aria-label="Journey name" value={name} onChange={(ev) => setName(ev.target.value)} placeholder={list ? `${list.name} journey` : "Name this journey"} />
         <span style={{ flex: 1 }} />
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onAdvanced} title="Timing between emails, calls between emails, the address emails are sent as, and more">More options</button>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
@@ -239,7 +239,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
               </>
             ) : (
               <>
-                <div role="tablist" aria-label="Emails in this campaign" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <div role="tablist" aria-label="Emails in this journey" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   {emails.map((x, i) => (
                     <button key={i} type="button" role="tab" aria-selected={i === at} onClick={() => setActive(i)}
                       className={`ui-btn ui-btn--sm ${i === at ? "ui-btn--secondary" : "ui-btn--ghost"}`}>
@@ -302,7 +302,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
                 ) : null} />
             ) : (
               <Row ok={false} title={mailboxes.length ? "Your email account is not ready to send yet" : "Connect an email account to send from"}
-                detail={mailboxes.length ? mailboxes.map((m) => `${m.email}: ${blocked(m)}`).join(" · ") : "Campaigns are sent from your own email address."}
+                detail={mailboxes.length ? mailboxes.map((m) => `${m.email}: ${blocked(m)}`).join(" · ") : "Journeys are sent from your own email address."}
                 action={<button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onOpenMailboxes}>{mailboxes.length ? "Finish setting it up" : "Connect your email"}</button>} />
             )}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -353,7 +353,7 @@ export function SimpleCampaign({ store, listsStore, outreach, initialListId = ""
               <div style={{ ...muted, fontSize: 12.5 }}>Every email has an unsubscribe link, and anyone on your do-not-email list is skipped.</div>
             )}
             {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
-            <button type="button" className="ui-btn ui-btn--primary" disabled={busy || blockers.length > 0} onClick={() => launch(true)}>{busy ? "Working…" : "Launch campaign"}</button>
+            <button type="button" className="ui-btn ui-btn--primary" disabled={busy || blockers.length > 0} onClick={() => launch(true)}>{busy ? "Working…" : "Start journey"}</button>
             <button type="button" className="ui-btn ui-btn--ghost" disabled={busy || blockers.length > 0} onClick={() => launch(false)} title="Keep it without sending anything yet">Save as draft</button>
           </div>
         </div>

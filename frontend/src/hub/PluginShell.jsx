@@ -89,7 +89,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         })}
       </nav>
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {/* Credits and Sign out live in the top bar (the credits chip and the profile menu), not here too. */}
+      {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
     </>

@@ -75,7 +75,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
     let made = null;
     try {
       made = (await api.emailCreateCampaign({
-        name: name.trim() || `${list.name} campaign`, mailbox_ids: mailboxIds, sending_window_start: sched.start, sending_window_end: sched.end,
+        name: name.trim() || `${list.name} journey`, mailbox_ids: mailboxIds, sending_window_start: sched.start, sending_window_end: sched.end,
         days_of_week: sched.days, min_delay_seconds: Number(sched.gap) || 120, aliases: aliasMap,
         steps: emails.map((e) => (isCall(e)
           ? { channel: "call", condition: e.condition, delay_days: Number(e.delay_days) || 0 }
@@ -83,7 +83,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
       })).campaign;
       const out = await api.emailAddLeads(made.id, leads.map(({ account_id, ...lead }) => ({ ...lead, personal_line: (lines[account_id] || "").trim() })));
       if (start) await api.emailCampaignStatus(made.id, "running");
-      store.toast(start ? `Campaign started: ${out.added} leads added.` : `Campaign saved as a draft: ${out.added} leads added.`);
+      store.toast(start ? `Journey started: ${out.added} leads added.` : `Journey saved as a draft: ${out.added} leads added.`);
       onDone(made.id);
     } catch (e) {
       // The campaign exists but could not start (for example a mailbox is not ready): keep it as a draft.
@@ -92,7 +92,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         onDone(made.id);
         return;
       }
-      setError(e.message || "Couldn't create the campaign.");
+      setError(e.message || "Couldn't create the journey.");
       setBusy(false);
     }
   };
@@ -124,7 +124,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
       </div>
 
-      <div className="phone-only" role="progressbar" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1} aria-label="Campaign steps"
+      <div className="phone-only" role="progressbar" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1} aria-label="Journey steps"
         style={{ gap: 4, marginTop: -8 }}>
         {STEPS.map((s, i) => <span key={s} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--ui-accent)" : C.paperSoft }} />)}
       </div>
@@ -132,7 +132,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
       <div className="ui-card" style={{ padding: 18, display: "grid", gap: 14 }}>
         {step === 0 ? (
           <>
-            <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Who should get this campaign?</div>
+            <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Who should get this journey?</div>
             {listsStore.lists.length ? (
               <div style={{ display: "grid", gap: 8 }}>
                 {listsStore.lists.map((l) => {
@@ -147,8 +147,8 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
                 })}
               </div>
             ) : <div style={muted}>You have no lists yet. In Saved Accounts, tick companies and choose Add to list.</div>}
-            <label style={label}>Campaign name (optional)
-              <input className="ui-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={list ? `${list.name} campaign` : "For example Leeds dentists, March"} />
+            <label style={label}>Journey name (optional)
+              <input className="ui-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={list ? `${list.name} journey` : "For example Leeds dentists, March"} />
             </label>
           </>
         ) : null}
@@ -167,7 +167,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
                   <label style={{ ...muted, display: "inline-flex", gap: 6, alignItems: "center" }}>wait
                     <input className="ui-input" style={{ width: 64 }} type="number" min={1} value={e.delay_days} onChange={(ev) => setEmail(i, "delay_days", ev.target.value)} /> days after step {i}
                   </label>
-                  <button title="Remove this call step from the campaign" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button>
+                  <button title="Remove this call step from the journey" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button>
                 </div>
                 <label style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>When
                   <select className="ui-input" style={{ width: "auto" }} value={e.condition} onChange={(ev) => setEmail(i, "condition", ev.target.value)}>
@@ -185,7 +185,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
                       <input className="ui-input" style={{ width: 64 }} type="number" min={1} value={e.delay_days} onChange={(ev) => setEmail(i, "delay_days", ev.target.value)} /> days after step {i}
                     </label>
                   ) : null}
-                  {i > 0 ? <button title="Remove this follow-up from the campaign" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button> : null}
+                  {i > 0 ? <button title="Remove this follow-up from the journey" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remove</button> : null}
                 </div>
                 <input className="ui-input" placeholder={i === 0 ? "Subject" : "Subject (empty = reply in the same thread)"} value={e.subject} onChange={(ev) => setEmail(i, "subject", ev.target.value)} />
                 <textarea className="ui-input" style={{ minHeight: 110 }} value={e.body} onChange={(ev) => setEmail(i, "body", ev.target.value)} />
@@ -222,7 +222,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         {step === 2 ? (
           <>
             <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Which mailbox should send it?</div>
-            <div style={muted}>Every email in this campaign goes out from the one mailbox you pick. Only a mailbox that has passed its DNS checks and started warming up can send.</div>
+            <div style={muted}>Every email in this journey goes out from the one mailbox you pick. Only a mailbox that has passed its DNS checks and started warming up can send.</div>
             {!mailboxes.length ? <div style={muted}>You have no mailbox connected yet. Connect one under Mail, Email accounts first.</div> : null}
             {mailboxes.map((m) => (
               <div key={m.id} className="ui-card" style={{ padding: "10px 12px", display: "grid", gap: 8 }}>
@@ -299,8 +299,8 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         <span style={{ flex: 1 }} />
         {step < 4 ? <button title="Go to the next step" type="button" className="ui-btn ui-btn--primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button> : (
           <>
-            <button title="Keep this campaign without sending anything yet" type="button" className="ui-btn ui-btn--ghost" disabled={busy} onClick={() => launch(false)}>Save as draft</button>
-            <button title="Start sending this campaign" type="button" className="ui-btn ui-btn--primary" disabled={busy || notReady.length > 0} onClick={() => launch(true)}>{busy ? "Working…" : "Launch campaign"}</button>
+            <button title="Keep this journey without sending anything yet" type="button" className="ui-btn ui-btn--ghost" disabled={busy} onClick={() => launch(false)}>Save as draft</button>
+            <button title="Start sending this journey" type="button" className="ui-btn ui-btn--primary" disabled={busy || notReady.length > 0} onClick={() => launch(true)}>{busy ? "Working…" : "Launch campaign"}</button>
           </>
         )}
       </div>

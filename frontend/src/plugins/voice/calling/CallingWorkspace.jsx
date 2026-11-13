@@ -2882,7 +2882,7 @@ export function CallingWorkspace({
           <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: pluginLocked, onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-        {/* Credits and Sign out live in the top bar (the credits chip and the profile menu), not here too. */}
+        {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
         { id: "list", short: "Call list", icon: List },

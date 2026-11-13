@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Pause, Play, Square } from "lucide-react";
+import { ArrowLeft, Check, ChevronUp, Pause, Play, Square } from "lucide-react";
 import { api } from "../api/apiClient";
 import { usePluginAccess } from "../components/PluginAccessGate";
 import { C, FONT_BODY } from "../tokens";
 import { FIELD_WORDS, dockText, orderCards, sureWord } from "./jobDockLogic";
-import { closeDock, setDock, useDock } from "./jobDockStore";
+import { backToNotifications, closeDock, setDock, useDock } from "./jobDockStore";
 
 // A small dock in the corner of every screen. It follows the latest bulk check, and holds the questions it could not
 // answer itself: companies where it found several phones or emails. Nothing is saved on a company until it is chosen here.
@@ -82,6 +82,7 @@ export default function JobDock() {
       {open && line ? (
         <section className="ui-card" aria-label="Bulk check" style={{ position: "relative", width: 400, maxWidth: "100%", maxHeight: "min(70vh, 640px)", overflow: "auto", padding: 14, display: "grid", gap: 12, boxShadow: "0 12px 32px rgba(18,20,28,.22)" }}>
           <button type="button" className="ui-icon-btn ui-icon-btn--sm" aria-label="Close" title="Close" onClick={closeDock} style={{ position: "absolute", top: 8, right: 8 }}><ChevronUp size={15} /></button>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Back to your notifications" onClick={backToNotifications} style={{ justifySelf: "start", marginBottom: -4 }}><ArrowLeft size={14} /> Notifications</button>
           {job ? (
             <div style={{ display: "grid", gap: 6, paddingRight: 28 }}>
               <div style={{ ...text, fontSize: 14, fontWeight: 600 }}>{running ? (job.pause ? "Check paused" : "Checking companies") : job.status === "done" ? "Check finished" : "Check stopped"}</div>

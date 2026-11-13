@@ -4923,8 +4923,13 @@ export function SocialWorkspace({
             </section>
 
             {drafts.length ? (
-              <button type="button" onClick={() => openApprovals()} style={{ ...secBtn, justifyContent: "center", width: "100%" }}>
-                Open Post approve ({drafts.length} draft{drafts.length === 1 ? "" : "s"})
+              <button type="button" onClick={() => openApprovals()} title="Review, edit and approve the drafts waiting for you"
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 48, padding: "8px 14px", textAlign: "left", border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.teal}`, borderRadius: 10, background: "#fff", cursor: "pointer", fontFamily: FONT_BODY, flexShrink: 0 }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, color: C.ink }}>Post approve</span>
+                  <span style={{ display: "block", fontSize: 12, color: C.slate, marginTop: 1 }}>{drafts.length} draft{drafts.length === 1 ? "" : "s"} waiting for your approval</span>
+                </span>
+                <ChevronRight size={15} color={C.slate} style={{ flexShrink: 0 }} />
               </button>
             ) : null}
           </div>

@@ -589,23 +589,23 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
             <div style={small}>{headline(j.results, j.tasks_open, j.status)}{j.goal ? ` · ${j.goal}` : ""}</div>
           </div>
           <div style={row}>
-            {live ? <button type="button" style={btn(false)} onClick={() => run(() => api.journeyStatus(j.id, "paused"), "Paused. Nobody loses their place.")}><Pause size={14} /> Pause</button>
+            {live ? <button type="button" style={btn(false)} title="Stop sending for now. Nobody loses their place, and you can resume later" onClick={() => run(() => api.journeyStatus(j.id, "paused"), "Paused. Nobody loses their place.")}><Pause size={14} /> Pause</button>
               : <button type="button" style={btn(true, red.length > 0)} disabled={red.length > 0} title={red.length ? red[0].text : "Start it"} onClick={async () => { const n = j.results?.in_progress || 0; if (j.status !== "paused" && n && !(await askConfirm({ title: `Start sending to ${n} ${n === 1 ? "person" : "people"}?`, body: `${j.schedule?.lines?.slice(0, 2).join(" ") || "The first step goes out in the next sending window."}${j.schedule?.finish ? ` The first email to everyone should be out by ${j.schedule.finish}.` : ""} You can pause it at any time.`, confirm: "Start" }))) return; run(() => api.journeyStatus(j.id, "running"), "Running. The first step goes out in the next sending window."); }}><Play size={14} /> {j.status === "paused" ? "Resume" : "Start"}</button>}
-            <button type="button" style={btn(false)} onClick={() => setRules(true)}><SlidersHorizontal size={14} /> Rules</button>
+            <button type="button" style={btn(false)} title="Sending days and hours, daily limits, which mailbox sends, and when to stop" onClick={() => setRules(true)}><SlidersHorizontal size={14} /> Rules</button>
             <button type="button" style={btn(false)} title="Send these emails with your logo, colours and buttons" onClick={() => setLooks(true)}><PenLine size={14} /> Design</button>
-            <button type="button" style={btn(false)} title="Ask the AI about this journey" onClick={() => onAskAssistant?.()}><Bot size={14} /> Ask AI</button>
+            <button type="button" style={btn(false)} title="Ask the AI to explain, improve or change this journey" onClick={() => onAskAssistant?.()}><Bot size={14} /> Ask AI</button>
             <span style={{ position: "relative" }}>
-              <button type="button" aria-label="More" aria-haspopup="menu" aria-expanded={menu} style={{ ...btn(false), padding: "0 9px" }} onClick={() => setMenu((m) => !m)}><MoreHorizontal size={16} /></button>
+              <button type="button" aria-label="More" title="More: copy, results and advice, stop, delete" aria-haspopup="menu" aria-expanded={menu} style={{ ...btn(false), padding: "0 9px" }} onClick={() => setMenu((m) => !m)}><MoreHorizontal size={16} /></button>
               {menu ? (
                 <>
                   <div onClick={() => setMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 95 }} />
                   <div className="ui-menu" role="menu" style={{ zIndex: 100 }}>
-                    <button type="button" role="menuitem" className="ui-menu-item" onClick={() => { setMenu(false); run(async () => { const r = await api.journeyClone(j.id); onChanged?.(r.journey.id); }, "Copied as a draft."); }}>Make a copy</button>
-                    <button type="button" role="menuitem" className="ui-menu-item" onClick={async () => { setMenu(false); setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }}>Results and advice</button>
+                    <button type="button" role="menuitem" className="ui-menu-item" title="Make a draft copy with the same steps and rules, with nobody in it" onClick={() => { setMenu(false); run(async () => { const r = await api.journeyClone(j.id); onChanged?.(r.journey.id); }, "Copied as a draft."); }}>Make a copy</button>
+                    <button type="button" role="menuitem" className="ui-menu-item" title="Sent, opened, replied and bounced counts for each step, with tips to improve them" onClick={async () => { setMenu(false); setDetails(true); setAdvice(null); api.journeySuggestions(j.id).then((r) => setAdvice(r.suggestions)).catch(() => setAdvice([])); }}>Results and advice</button>
                     {j.status !== "completed" && j.status !== "draft" ? (
-                      <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped"), "Stopped. Nobody else gets a step from it."); }}>Stop it</button>
+                      <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} title="End it for everyone still in it. It can't be started again" onClick={async () => { setMenu(false); if (await askConfirm({ title: `Stop ${j.name}?`, body: "This ends it for everyone still in it. It can't be started again.", confirm: "Stop it", danger: true })) run(() => api.journeyStatus(j.id, "stopped"), "Stopped. Nobody else gets a step from it."); }}>Stop it</button>
                     ) : null}
-                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "This removes the journey, its tasks and everyone's place in it. Your saved companies and contacts are not deleted.", confirm: "Delete", danger: true })) { try { await api.journeyDelete(j.id); notice(`Deleted ${j.name}.`); onGone?.(); } catch (e) { notice(e.message || "Couldn't delete it. Try again."); } } }}><Trash2 size={14} /> Delete</button>
+                    <button type="button" role="menuitem" className="ui-menu-item" style={{ color: C.red }} title="Remove the journey and its tasks. Your saved companies and contacts stay" onClick={async () => { setMenu(false); if (await askConfirm({ title: `Delete ${j.name}?`, body: "This removes the journey, its tasks and everyone's place in it. Your saved companies and contacts are not deleted.", confirm: "Delete", danger: true })) { try { await api.journeyDelete(j.id); notice(`Deleted ${j.name}.`); onGone?.(); } catch (e) { notice(e.message || "Couldn't delete it. Try again."); } } }}><Trash2 size={14} /> Delete</button>
                   </div>
                 </>
               ) : null}
@@ -887,7 +887,13 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (initialId) { setSelected(initialId); setCreating(false); } }, [initialId]);
   useEffect(() => { if (initialListId) { setPrefill(initialListId); setCreating(true); onConsumed?.(); } }, [initialListId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (journeys && !selected && !creating && journeys.length) setSelected(journeys[0].id); }, [journeys, selected, creating]);
+  // Opening the tab lands on the new-journey screen; a running journey opens only when someone picks it or arrives with its id.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (!journeys || landed.current) return;
+    landed.current = true;
+    if (!selected && !creating) setCreating(true);
+  }, [journeys, selected, creating]);
 
   if (journeys === null) return <Loader compact label="Loading your journeys" />;
   const open = (id) => { setCreating(false); setSelected(id); load(); };
@@ -928,7 +934,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
       )}
       <main className="jw-quiet" style={{ flex: "1 1 0", minWidth: 0, minHeight: 0, overflowY: narrow ? "visible" : "auto", paddingBottom: 12 }}>
         {creating || empty ? (
-          <NewJourney lists={lists} initialListId={prefill} onGuided={onGuided} onCancel={() => setCreating(false)} onCreated={(id) => { open(id); }} />
+          <NewJourney lists={lists} initialListId={prefill} onGuided={onGuided} onCancel={() => { setCreating(false); if (!selected && journeys.length) setSelected(journeys[0].id); }} onCreated={(id) => { open(id); }} />
         ) : selected ? (
           <JourneyPage key={selected} id={selected} outreach={outreach} lists={lists} onGo={onGo} onAskAssistant={onAskAssistant}
             onChanged={(newId) => { load(); if (typeof newId === "string") open(newId); }} onGone={() => { setSelected(""); load(); }} />

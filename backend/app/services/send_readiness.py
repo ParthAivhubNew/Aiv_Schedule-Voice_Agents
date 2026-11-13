@@ -77,7 +77,10 @@ def group_of(account: Any, biz: Optional[Any] = None) -> Tuple[str, str]:
         return OTHER, f"On the register as a {category}, which is treated like a sole trader for email"
     if verdict == "verified":
         return READY, "Confirmed on the company register"
-    if stored in GROUPS:
+    email = str(getattr(account, "email", "") or "").strip()
+    if "@" in email and not is_webmail(email):
+        return READY, "A work email at a company's own domain, and not an individual"
+    if stored in GROUPS and stored != QUICK:
         return stored, str(note.get("reason") or "")
     return QUICK, "Not matched to the company register yet"
 

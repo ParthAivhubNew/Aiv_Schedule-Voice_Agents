@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Loader } from "../app/Loader";
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { navigateHash } from "../utils/route";
@@ -10,11 +10,13 @@ import { formatOrgTime, useOrg } from "../org/orgSettings";
 // `hideKinds` leaves out what the calling screen already shows itself (its own meetings, its own posts).
 const DOT = { leads: "#8B5CF6", voice: C.cobalt, social: C.teal };
 
-export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your apps", compact = false }) {
+export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your apps", compact = false, pageSize = 4 }) {
   const org = useOrg() || {};
   const [data, setData] = useState(null);
   const [state, setState] = useState("loading");
+  const [page, setPage] = useState(0);
 
+  useEffect(() => { setPage(0); }, [date, focus]);
   useEffect(() => {
     if (!date) return undefined;
     let live = true;
@@ -29,6 +31,16 @@ export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your 
     .map((g) => ({ ...g, items: g.items.filter((i) => !hideKinds.includes(i.kind)) }))
     .filter((g) => g.items.length);
   const total = groups.reduce((n, g) => n + g.items.length, 0);
+  // Four things at a time, then pages: the groups stay, only the items on this page show.
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const at = Math.min(page, pages - 1);
+  const from = at * pageSize;
+  let seen = 0;
+  const shown = groups.map((g) => {
+    const items = g.items.slice(Math.max(0, from - seen), Math.max(0, from + pageSize - seen));
+    seen += g.items.length;
+    return { ...g, items, all: g.items.length };
+  }).filter((g) => g.items.length);
 
   return (
     <section aria-label={heading} aria-busy={state === "loading" || state === "refreshing"} style={{ fontFamily: FONT_BODY }}>
@@ -40,12 +52,12 @@ export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your 
       {state === "error" ? <div style={{ fontSize: 13, color: C.slate }}>The day could not be loaded just now. Try again in a moment.</div> : null}
       {data && !total && state !== "error" ? <div style={{ fontSize: 13, color: C.slate }}>Nothing else is planned for this day.</div> : null}
       <div style={{ display: "grid", gap: 14, opacity: state === "refreshing" ? 0.6 : 1 }}>
-        {groups.map((g) => (
+        {shown.map((g) => (
           <div key={g.plugin}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: C.slate, letterSpacing: "0.04em", textTransform: "uppercase" }}>
               <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 99, background: DOT[g.plugin] || C.slate }} />
               {g.label}
-              <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {g.items.length}</span>
+              <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {g.all}</span>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               {g.items.map((it) => (
@@ -69,6 +81,13 @@ export function DayAgenda({ date, focus, hideKinds = [], heading = "Across your 
           </div>
         ))}
       </div>
+      {pages > 1 ? (
+        <nav aria-label="More of this day" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 10, fontSize: 12.5, color: C.slate }}>
+          <button type="button" className="ui-icon-btn ui-icon-btn--sm" aria-label="Previous things" title="Previous" disabled={at === 0} onClick={() => setPage(at - 1)}><ChevronLeft size={15} /></button>
+          <span>{from + 1}–{Math.min(total, from + pageSize)} of {total}</span>
+          <button type="button" className="ui-icon-btn ui-icon-btn--sm" aria-label="Next things" title="Next" disabled={at >= pages - 1} onClick={() => setPage(at + 1)}><ChevronRight size={15} /></button>
+        </nav>
+      ) : null}
     </section>
   );
 }

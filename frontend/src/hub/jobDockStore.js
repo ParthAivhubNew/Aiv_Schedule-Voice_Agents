@@ -15,4 +15,6 @@ export function setDock(patch) {
 }
 export const openDock = () => setDock({ open: true });
 export const closeDock = () => setDock({ open: false });
+// Back to the bell's notification list: close the check and ask the bell to open.
+export const backToNotifications = () => { closeDock(); window.dispatchEvent(new CustomEvent("aivhub:open-bell")); };
 export const useDock = () => useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => state, () => state);

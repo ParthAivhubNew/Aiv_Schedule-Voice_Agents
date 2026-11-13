@@ -1444,9 +1444,13 @@ async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_
     # Companies saved before the automatic register check existed: read from our own register copy now (free), so they say Verified
     # instead of "Not checked" without any click. Once done, nothing is left to do on later visits.
     stale = [r for r in rows if r.business_record_id and (not r.verification or not r.eligibility)]
-    if stale:
-        from app.services import eligibility as _EL
+    from app.services import eligibility as _EL
+    from app.services import send_readiness as _SR
 
+    # Held for a quick choice before work emails at a company domain counted as ready: say ready now.
+    stale += [r for r in rows if r.eligibility == _SR.QUICK and (r.eligibility_note or {}).get("by") != "user" and r not in stale
+              and "@" in (r.email or "") and not _SR.is_webmail(r.email)]
+    if stale:
         try:
             await _EL.classify(db, stale)
             await db.commit()

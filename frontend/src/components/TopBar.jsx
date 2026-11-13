@@ -109,6 +109,12 @@ export function NotificationBell({ notifications = [], setNotifications, onNavig
   }, [notifications.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("aivhub:open-bell", show);
+    return () => window.removeEventListener("aivhub:open-bell", show);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === "Escape") closePanel(); };
     document.addEventListener("keydown", onKey);

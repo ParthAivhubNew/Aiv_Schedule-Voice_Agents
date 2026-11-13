@@ -4,6 +4,7 @@ import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { missingNames, openPlans, useConnection } from "../../hooks/useConnections";
 import { navigateHash } from "../../utils/route";
+import { openPhone } from "../../utils/humanCall";
 
 // Calling Lead Gen companies with the Voice plan: a button that is locked (and says why) without it, and one
 // box that shows who can be called, who is held back and why, what it will use, and starts the calls.
@@ -171,8 +172,24 @@ export function CallDialog({ target, onClose, onToast, upsell = false }) {
                     </div>
                   </>
                 ) : (
-                  <div style={muted}>Nobody here can be called right now. Fix the numbers with Get contacts, or wait for the hold to pass.</div>
+                  <div style={muted}>
+                    {plan.by_hand?.length
+                      ? "The AI caller can only ring numbers with recorded permission for AI calls, and none of these has it. You can call them yourself instead: a call you make is allowed unless the number is on the TPS list."
+                      : "Nobody here can be called right now. Fix the numbers with Get contacts, or wait for the hold to pass."}
+                  </div>
                 )}
+                {plan.by_hand?.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                    {plan.by_hand.map((p) => (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 8px" }}>
+                        <div style={{ ...text, fontSize: 13, color: C.ink, flex: 1, minWidth: 0 }}><b>{p.name}</b> <span style={{ ...muted, fontSize: 12 }}>{p.phone}</span></div>
+                        <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Call from your browser. You talk, and can record it and get a transcript" onClick={() => { onClose(); openPhone({ number: p.phone, name: p.name, leadId: p.id }); }}>
+                          <Phone size={13} /> Call myself
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : null}
             {lowMinutes ? (

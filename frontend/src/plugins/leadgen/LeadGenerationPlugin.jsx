@@ -43,7 +43,7 @@ import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
-import { CampaignsView, MailboxesView, useOutreachData } from "./OutreachViews";
+import { MailboxesView, useOutreachData } from "./OutreachViews";
 import { Compose, MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
@@ -318,13 +318,13 @@ export default function LeadGenerationPlugin({
   }));
 
   const viewTitles = {
-    assistant: { title: "AI Assistant", desc: "Ask in plain words. It reads your companies, campaigns and mailboxes, and does nothing that costs credits until you confirm." },
+    assistant: { title: "AI Assistant", desc: "Ask in plain words. It reads your companies, journeys and mailboxes, and does nothing that costs credits until you confirm." },
     find_leads: { title: "Find Leads", desc: "Every company on the register, best profiles first. Filter them, or ask the AI Assistant." },
     saved_people: { title: "Lists · People", desc: "Every person at the companies you saved: who they are, how to reach them, and where each company stands." },
-    saved_companies: { title: "Lists · Companies", desc: "Every company you saved or imported, whichever list it is in. Check and improve them, then start a campaign." },
-    lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a campaign." },
+    saved_companies: { title: "Lists · Companies", desc: "Every company you saved or imported, whichever list it is in. Check and improve them, then start a journey." },
+    lists: { title: "Lists", desc: "Everything you save or import lands in a list. Get contact details, fix what is wrong, then start a journey." },
     outreach: { title: "Journeys", desc: "A path through emails, calls and tasks for each person: set it up once, and it stops when they reply, book or opt out." },
-    mail: { title: "Inbox and sent", desc: "Everything your campaigns sent and got back: replies, sent emails and the do-not-email list." },
+    mail: { title: "Inbox and sent", desc: "Everything your journeys sent and got back: replies, sent emails and the do-not-email list." },
     inbound_forms: { title: "Forms", desc: "Build a web form, share its link, and every answer with a working email becomes a lead in the list you choose." },
     retention: { title: "Review old contacts", desc: "Companies nobody has contacted for 12 months. Keep what you need and delete the rest." },
     mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },

@@ -17,7 +17,7 @@ const FOLDERS = [
   ["archive", "Archive", Archive], ["spam", "Spam", ShieldAlert], ["trash", "Trash", Trash2],
 ];
 
-const CAMPAIGN_VIEWS = [["c_replies", "Replies", MessageSquare], ["c_sent", "Sent by campaigns", Send], ["c_dnc", "Do not email", Ban]];
+const CAMPAIGN_VIEWS = [["c_replies", "Replies", MessageSquare], ["c_sent", "Sent by journeys", Send], ["c_dnc", "Do not email", Ban]];
 
 const CSS = `
 .ml{display:grid;grid-template-columns:200px 350px minmax(0,1fr);height:calc(100vh - 150px);min-height:460px;background:#fff;border:1px solid ${C.border};border-radius:12px;overflow:hidden}
@@ -418,7 +418,7 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
             {moreFolders || MORE_FOLDERS.includes(folder) ? <ChevronDown size={16} /> : <ChevronRight size={16} />} <span style={{ flex: 1 }}>More folders</span>
           </button>
           {moreFolders || MORE_FOLDERS.includes(folder) ? FOLDERS.filter(([id]) => MORE_FOLDERS.includes(id)).map(folderButton) : null}
-          <div className="ml-group">Campaigns</div>
+          <div className="ml-group">Journeys</div>
           {CAMPAIGN_VIEWS.map(([id, label, Icon]) => (
             <button key={id} type="button" className={`ml-folder${folder === id ? " on" : ""}`} aria-current={folder === id} onClick={() => { setFolder(id); setOpen(""); setThread(null); setPane("list"); }}>
               <Icon size={16} /> <span style={{ flex: 1 }}>{label}</span>

@@ -15,6 +15,7 @@ import { profileGaps, profileIsThin } from "./profileThin";
 import { webResultText } from "./foundText";
 import { addedText } from "./journeyLogic";
 import { creditWord, useLeadCredits } from "./CreditsChip";
+import { RichText } from "./RichText";
 
 // The AI assistant: a panel that sits to the right of any Leads page and pushes the page aside, opened from the dark button in the
 // header or the menu. The server picks tools and words the answer (see api/lead_assistant.py). Companies always come from the stored
@@ -23,9 +24,9 @@ import { creditWord, useLeadCredits } from "./CreditsChip";
 const GOALS = [
   { id: "prospects", Icon: Sparkles, title: "Find ideal prospects", note: "Companies that fit your business, and why", prompt: "Find the best companies for my business and explain why they fit." },
   { id: "list", Icon: ListPlus, title: "Build a company list", note: "Say who you want, for example software companies in Leeds", prefill: "Find " },
-  { id: "campaign", Icon: Send, title: "Write an email campaign", note: "Pick a list, write the emails, send", go: "outreach" },
+  { id: "campaign", Icon: Send, title: "Write an email journey", note: "Pick a list, write the emails, send", go: "outreach" },
   { id: "leads", Icon: BarChart3, title: "How are my leads doing?", note: "Your saved companies by stage", prompt: "How are my leads doing?" },
-  { id: "perf", Icon: Users, title: "Analyze campaign performance", note: "Sent, replied and bounced, per campaign", prompt: "How are my campaigns doing?" },
+  { id: "perf", Icon: Users, title: "Analyze journey performance", note: "Sent, replied and bounced, per journey", prompt: "How are my journeys doing?" },
   { id: "due", Icon: CalendarClock, title: "Who should I follow up with?", note: "Callbacks due in the next 7 days", prompt: "Who should I follow up with this week?" },
 ];
 // Typed after "/": the same shortcuts Apollo's assistant has. "run" sends the text; "fill" puts it in the box for the person to finish.
@@ -65,7 +66,7 @@ const PLUGINS = {
     id: "leads", short: "Leads", name: "AI Assistant", history: "leadgen_assistant", memory: "leadgen_assistant_memory", leads: true,
     ask: (body, on, signal) => api.assistantStream(body, on, signal), goals: GOALS,
     placeholder: "Ask about leads, or type / for commands",
-    starters: ["Find software companies in Leeds","Find accountants in Manchester with an email", "How are my leads doing?", "How are my campaigns doing?", "How many credits do I have left?", "What can you help me with?"],
+    starters: ["Find software companies in Leeds","Find accountants in Manchester with an email", "How are my leads doing?", "How are my journeys doing?", "How many credits do I have left?", "What can you help me with?"],
     foot: "Saving, checking and sending only happen when you press the button on a card.",
     get presets() { return PRESETS; },
   },
@@ -152,8 +153,8 @@ const PRESETS = [
     { title: "Write a follow-up after a call", prompt: "Write a short follow-up email to send after a first phone call." }] },
   { id: "analytics", label: "Analytics", Icon: BarChart3, items: [
     { title: "How are my leads doing?", prompt: "How are my leads doing?" },
-    { title: "Analyze campaign performance", prompt: "How are my campaigns doing?" },
-    { title: "How are replies sorted?", prompt: "How were the replies to my campaigns sorted in the last 30 days?" },
+    { title: "Analyze journey performance", prompt: "How are my journeys doing?" },
+    { title: "How are replies sorted?", prompt: "How were the replies to my journeys sorted in the last 30 days?" },
     { title: "Who should I follow up with?", prompt: "Who should I follow up with this week?" }] },
   { id: "deliverability", label: "Deliverability", Icon: Mail, items: [
     { title: "Check my mailbox health", prompt: "Check the health of my sending mailboxes." },
@@ -175,7 +176,7 @@ const css = `
 .as-goal:active{transform:scale(.99)}
 .as-goal:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .as-me{align-self:flex-end;max-width:88%;background:var(--ui-sunken,#F1F3F8);border-radius:14px 14px 4px 14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere;animation:mo-rise .26s var(--mo-ease,ease) both}
-.as-bot{align-self:flex-start;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;animation:mo-rise .3s var(--mo-ease,ease) both}
+.as-bot{align-self:flex-start;max-width:100%;overflow-wrap:anywhere;line-height:1.5;animation:mo-rise .3s var(--mo-ease,ease) both}
 .as-card{margin-top:10px;border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;padding:10px 12px;background:#fff;white-space:normal;animation:mo-rise .34s .08s var(--mo-ease,ease) both}
 .as-hit{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--ui-line-soft,#EEF0F5)}
 .as-steps{display:grid;grid-template-rows:0fr;transition:grid-template-rows .26s var(--mo-ease,ease);white-space:normal}
@@ -797,7 +798,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                 <div key={m.id} className="as-bot" style={{ ...text, color: m.error ? C.red : C.ink }}>
                   {m.from ? <div style={{ ...muted, fontSize: 11.5, fontWeight: 600, marginBottom: 2 }}>From the {m.from} assistant</div> : null}
                   <Steps steps={m.steps} tookMs={m.tookMs} />
-                  {m.text}
+                  {m.error ? m.text : <RichText text={m.text} />}
                   {m.error && m.retry ? <div><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setMessages((l) => l.filter((x) => x.id !== m.id)); send(m.retry); }}><RotateCcw size={13} aria-hidden="true" /> Try again</button></div> : null}
                   {m.view ? <ViewCard view={m.view} onOpen={() => openView(m)} /> : null}
                   {(m.proposals || []).map((p) => {

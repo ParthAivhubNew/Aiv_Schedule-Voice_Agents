@@ -341,6 +341,7 @@ async def _preview(db: AsyncSession, leads: List[LeadAccount], body: CallIn) -> 
     plan["people"] = [{"id": i, "name": by_id[i].name, "phone": lead_phone(by_id[i]), "contact": by_id[i].contact_name or "",
                        "email": by_id[i].email or "", "website": by_id[i].website or "",
                        "opening_line": LC.opening_line(by_id[i]), "warning": plan["warnings"].get(i, "")} for i in plan["callable"]]
+    plan["by_hand"] = [{"id": i, "name": by_id[i].name, "phone": lead_phone(by_id[i])} for i in plan["skipped"].get("no_call_permission", [])[:50]]
     plan["skipped_text"] = _skip_text(plan)
     plan["cost"] = await LC.cost_preview(db, len(plan["callable"]))
     await db.commit()  # the contact-record links found while planning

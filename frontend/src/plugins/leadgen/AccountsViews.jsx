@@ -270,7 +270,7 @@ function tipsFor(a) {
   else if (has("phone") && v.phone?.verified !== true) tips.push(["Number not confirmed", "Use Get contacts from the list. We check whether the number is real and live (1 credit per 5) and tag it when it matches the company's own website."]);
   if (v.email?.state === "invalid") tips.push(["This email will bounce", "The address failed our test. Correct it under Details, or use Find contact to look for another."]);
   else if (has("email") && !GOOD_EMAIL.has(v.email?.state)) tips.push(["Email not confirmed", "Use Get contacts from the list. We test the address before you send, so it doesn't bounce."]);
-  if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something. You can also leave this company out of a campaign."]);
+  if (gaps.length && searched) tips.push(["If it stays incomplete", "Small firms often publish no contact details. You are charged only when we find something. You can also leave this company out of a journey."]);
   return tips;
 }
 function TipsCard({ account }) {
@@ -746,7 +746,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const startCampaign = async () => {
     const withEmail = pickedIds.filter((id) => emailFor(base.find((a) => a.id === id) || {})?.text);
     if (!withEmail.length) { store.toast("None of the ticked companies has an email yet. Use Get contacts first."); return; }
-    const name = await askText({ title: `Start a campaign on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Campaign ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, confirm: "Continue", maxLength: 80 });
+    const name = await askText({ title: `Start a journey on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Journey ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, confirm: "Continue", maxLength: 80 });
     if (!name) return;
     try {
       const r = await api.createLeadList(name.trim(), withEmail);
@@ -831,7 +831,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealRows(pickedOnFile)}>Reveal {pickedOnFile.length.toLocaleString()}</button>
           ) : null}
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} onClick={() => setListing(true)}
-            title="Group these companies in a named list, ready for a campaign">
+            title="Group these companies in a named list, ready for a journey">
             Add to list
           </button>
           <CallButton label="Call" lockedLabel="Call · add Voice"
@@ -844,8 +844,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             </button>
           ) : null}
           {onCampaign && !listId ? (
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} title="Put the ticked companies in a list and start an email campaign on it" onClick={startCampaign}>
-              <Megaphone size={14} /> Email campaign
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} title="Put the ticked companies in a list and start an email journey on it" onClick={startCampaign}>
+              <Megaphone size={14} /> Start journey
             </button>
           ) : null}
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} onClick={deleteTicked}

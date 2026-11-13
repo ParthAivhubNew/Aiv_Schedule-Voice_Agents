@@ -57,14 +57,14 @@ export function explainCheck(v) {
     if (r === "Website isn't working" || r.startsWith("Website looks parked")) return "";
     return r;
   }).filter(Boolean);
-  const stop = "Leave it out of campaigns. If it now trades under another name, change the name and run Check & improve again.";
+  const stop = "Leave it out of journeys. If it now trades under another name, change the name and run Check & improve again.";
   const byVerdict = {
     problem: reasons.some((r) => /permanently closed/i.test(r))
       ? { headline: "Closed for good", means: "The business has shut down, so calls and emails are unlikely to reach anyone.", todo: stop }
       : { headline: `${cap(status) || "Ended"} on the company register`, means: "The company has legally ended or stopped trading, so calls and emails are unlikely to reach anyone.", todo: stop },
     verified: { headline: `${cap(status) || "Active"} on the company register`, means: "This is a real company that is still trading.", todo: "Nothing to do here. Check the phone and email below before you contact them." },
     looks_ok: { headline: "Exists, but not confirmed as trading", means: "We found signs that it exists, but no register told us it is active, so we can't promise it is.", todo: "Fine to contact. For a firm answer, add its registered name or company number and check again." },
-    mismatch: { headline: "The company number belongs to another company", means: "The number in your file is registered to a different company than the name in your file, so this row may describe the wrong business.", todo: "Correct the number or the name under Details, then run Check & improve again. Leave it out of campaigns until then." },
+    mismatch: { headline: "The company number belongs to another company", means: "The number in your file is registered to a different company than the name in your file, so this row may describe the wrong business.", todo: "Correct the number or the name under Details, then run Check & improve again. Leave it out of journeys until then." },
     not_found: { headline: "Not found on any register or search", means: "We couldn't confirm that this company exists. The name may be spelt differently, or it may be a sole trader or a trading name.", todo: "Check the spelling, or add the registered name or number under Details, then run Check & improve again." },
     person: { headline: "A person, not a company", means: "There is no company on this row, so only the phone number and email were checked.", todo: "Add the company name or website if you want it checked against the registers too." },
     unclear: { headline: "Couldn't confirm just now", means: "The sources we ask didn't answer, so this says nothing about the company itself.", todo: "Run Check & improve again in a few minutes. Nothing is charged for a source that didn't answer." },
@@ -133,7 +133,7 @@ export function detailChecks(a) {
 
   const em = v.email || {};
   rows.push({ label: "Email", value: a.email || "", ...(!has("email")
-    ? { tone: "missing", word: "Missing", why: "Without an email we can't include this company in an email campaign." }
+    ? { tone: "missing", word: "Missing", why: "Without an email we can't include this company in an email journey." }
     : em.state === "verified" ? { tone: "good", word: "Confirmed", why: "The address was found and confirmed for this contact." }
     : em.state === "found" ? { tone: "good", word: "Verified address found", why: "A verified address for this contact was found, shown under fixes." }
     : em.state === "ok" ? { tone: "good", word: "Looks right", why: em.note || "The format and the mail server look right, so it should not bounce." }
