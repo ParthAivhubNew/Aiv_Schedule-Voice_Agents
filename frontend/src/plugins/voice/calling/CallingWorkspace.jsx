@@ -2086,7 +2086,6 @@ export function CallingWorkspace({
     const prospectLabel = (r.contact || r.name || "").trim() || phone;
     const optimisticId = `pending_${Date.now()}`;
     setBusy("direct");
-    goPage("live");
     setLiveCalls((prev) => [
       {
         id: optimisticId,
@@ -2126,6 +2125,7 @@ export function CallingWorkspace({
         swapPending(optimisticId, res && (res.call_id || res.callId));
       }
       pushNote(`Outbound to ${phone}`, "success");
+      goPage("live"); // only once the call was accepted: a refused call stays here, with its reason in front of you
       await refreshLive();
     } catch (e) {
       setLiveCalls((prev) => (prev || []).filter((c) => c.id !== optimisticId));
