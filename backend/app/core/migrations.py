@@ -428,6 +428,9 @@ async def _company_profile_postal_address(conn: AsyncConnection) -> None:
 async def _auth_session_rotation_grace(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS prev_refresh_jti VARCHAR"))
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMP"))
+
+
+async def _auth_session_remember(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS remember BOOLEAN DEFAULT FALSE"))
 
 
@@ -1050,6 +1053,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_23_credit_user_and_caps", _credit_user_and_caps),
     ("2026_11_24_eligibility_and_consent", _eligibility_and_consent),
     ("2026_11_25_icp_and_register_dates", _icp_and_register_dates),
+    ("2026_11_26_auth_session_remember", _auth_session_remember),
 ]
 
 
