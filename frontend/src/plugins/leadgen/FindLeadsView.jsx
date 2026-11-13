@@ -525,7 +525,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (e || (overrideForm && overrideForm !== EMPTY_FORM)) setStarted(true); // the person has asked for something: the setup card gives way to results
     if (e || (overrideForm && overrideForm !== EMPTY_FORM)) openingActive.current = false; // the person's own search: no more automatic retries
     const f = overrideForm || form;
-    const shape = areaOverride !== undefined ? areaOverride : area;
+    // An empty search from the search bar is "show everything": a map area left over from before, or companies hidden with Remove, must not narrow it.
+    const wipe = Boolean(e) && !Object.keys(formToFilters(f)).length;
+    if (wipe) { setArea(null); setAreaStep(null); setExcluded([]); }
+    const fresh = Boolean(e); // a search the person just pressed starts without the companies they hid before
+    const shape = wipe ? null : areaOverride !== undefined ? areaOverride : area;
     // A different search pressed while one is running replaces it (the old answer is dropped); only an exact repeat is ignored.
     const sig = searchKey(formToFilters(f), offset, shape);
     if (skipRepeat(busy, force, sig, runSig.current)) return;
@@ -544,7 +548,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     // The last results stay (dimmed) while the next page loads, so the screen never goes empty; if the search fails, only the
     // error shows, not results that belong to something else.
     let r;
-    const query = { filters: formToFilters(f), exclude_ids: excluded, drop_terms: drop, sort: sortOverride || sort };
+    const query = { filters: formToFilters(f), exclude_ids: fresh ? [] : excluded, drop_terms: drop, sort: sortOverride || sort };
     try {
       r = await api.searchCompanies({ ...query, limit: pageRef.current, offset });
     } catch (err) {
@@ -749,7 +753,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         if (r.candidates) {
           showFromArea(shape, Math.min(AREA_FIRST, r.candidates), r.candidates, f, drop); // show a few at once, then offer more
         } else {
-          setAreaStep({ phase: "choose", candidates: 0, capped: r.capped });
+          setAreaStep({ phase: "choose", candidates: 0, capped: r.capped, inArea: r.in_area || 0 });
         }
       });
     } catch (err) {
@@ -1063,7 +1067,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
               <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
                 title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
-                onClick={() => { if (id === "list" && (area || areaStep)) clearArea(); setView(id); }}>
+                onClick={() => setView(id)}>
                 <Icon size={15} /> {name}
               </button>
             ))}
@@ -1256,7 +1260,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           {understood.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
               <span style={{ ...muted, fontSize: 12.5 }}>Also looking for:</span>
-              {understood.flatMap((u) => u.terms).map((t) => (
+              {[...new Set(understood.flatMap((u) => u.terms))].map((t) => (
                 <span key={t} className="ui-chip" style={{ cursor: "default", display: "inline-flex", alignItems: "center", gap: 4 }}>
                   {t}
                   <button type="button" aria-label={`Stop looking for ${t}`} disabled={busy} onClick={() => dropTerm(t)}
@@ -1267,7 +1271,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           ) : null}
           {view === "map" ? (
             <div ref={mapRef} style={{ padding: 12, scrollMarginTop: 8 }}>
-              <LeadsMap companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
+              <LeadsMap onClose={() => setView("list")} companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
               {area && companies.some((c) => c.phone) ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <CallButton label={`Call the ${companies.filter((c) => c.phone).length} with a phone number in this area`} lockedLabel="Call these · add Voice" variant="secondary"
@@ -1301,7 +1305,17 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!custom} onClick={() => setCustom("")} title="Clear the number">Reset</button>
                         </form>
                       </>
-                    ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area or fewer filters.</span>
+                    ) : areaStep.inArea ? (
+                      <>
+                        <span style={{ ...muted, marginRight: "auto" }}>{areaStep.inArea.toLocaleString()} {areaStep.inArea === 1 ? "company is" : "companies are"} in this area, but none match your filters.</span>
+                        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => { const next = { ...EMPTY_FORM }; setForm(next); countArea(area, next, []); }}>Show every company in this area</button>
+                      </>
+                    ) : Object.keys(formToFilters(form)).length ? (
+                      <>
+                        <span style={{ ...muted, marginRight: "auto" }}>No company in this area matches your filters.</span>
+                        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => { const next = { ...EMPTY_FORM }; setForm(next); setUnderstood([]); countArea(area, next, []); }}>Show every company in this area</button>
+                      </>
+                    ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area.</span>
                   ) : null}
                   {areaStep.phase === "running" ? (
                     <div style={{ width: "100%" }}>
@@ -1385,6 +1399,13 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               </SelectionBar>
               <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
               {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
+              {inArea ? (
+                <div role="status" style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.border}` }}>
+                  <MapIcon size={14} aria-hidden="true" /> <span>Showing the {companies.length.toLocaleString()} {companies.length === 1 ? "company" : "companies"} the map found.</span>
+                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={clearArea}>Show the whole list</button>
+                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setView("map")}>Back to the map</button>
+                </div>
+              ) : null}
               <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
               {!icp.loading && !icp.isSet && !started && !incoming && !inArea ? (
                 <SetupCard sizes={SIZE_OPTIONS.slice(0, 3)} onSetFromSite={onSetIcp} onShow={(f) => { const next = { ...EMPTY_FORM, ...f }; setForm(next); search(null, next, 0, null, undefined, undefined, true); }} />

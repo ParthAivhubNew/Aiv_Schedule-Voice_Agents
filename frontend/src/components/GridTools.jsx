@@ -126,6 +126,19 @@ function applyView(table, labels, sort, filters, force = true) {
   return { shown, total };
 }
 
+// The values this column holds in its rows, most common first, so a filter can be picked instead of typed. Long or empty cells are left out.
+function columnValues(table, index) {
+  const body = table && table.tBodies[0];
+  if (!body || index < 0) return [];
+  const count = new Map();
+  Array.from(body.rows).forEach((r) => {
+    if (isGroupRow(r) || !r.cells[index]) return;
+    const v = (r.cells[index].textContent || "").replace(/\s+/g, " ").trim();
+    if (v && v.length <= 60) count.set(v, (count.get(v) || 0) + 1);
+  });
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 60).map(([value, n]) => ({ value, n }));
+}
+
 const NO_PINS = [];
 
 // `pinned`: header names this table pins until the person unpins them (their unpin is remembered).
@@ -306,7 +319,8 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS, i
         const value = kind === "filter" ? (viewRef.current.filters[label] || "") : (layoutRef.current.names[label] || "");
         setMenu(null);
         setPeek(null);
-        setPop({ kind, label, value, x: Math.max(8, Math.min(r.left - 120, window.innerWidth - 288)), y: r.bottom + 6 });
+        const values = kind === "filter" ? columnValues(table, indexOf(act.closest("th"))) : [];
+        setPop({ kind, label, value, values, x: Math.max(8, Math.min(r.left - 120, window.innerWidth - 288)), y: r.bottom + 6 });
         return;
       }
       if (t.closest && t.closest(".gt-handle")) e.stopPropagation();
@@ -484,9 +498,19 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS, i
         </div>
       ) : null}
       {pop ? (
-        <form className="gt-pop" style={{ left: pop.x, top: Math.min(pop.y, window.innerHeight - 170) }} onSubmit={submitPop} aria-label={pop.kind === "filter" ? "Filter this column" : "Rename this column"}>
+        <form className="gt-pop" style={{ left: pop.x, top: Math.max(8, Math.min(pop.y, window.innerHeight - 420)) }} onSubmit={submitPop} aria-label={pop.kind === "filter" ? "Filter this column" : "Rename this column"}>
           <label htmlFor={`gt-pop-${id}`}>{pop.kind === "filter" ? `Show rows where ${shownName(pop.label)} contains` : `Name for the ${pop.label} column`}</label>
-          <input id={`gt-pop-${id}`} className="ui-input" autoFocus maxLength={60} value={pop.value} placeholder={pop.kind === "filter" ? "Type to filter" : pop.label} onChange={(e) => setPop((p) => ({ ...p, value: e.target.value }))} />
+          <input id={`gt-pop-${id}`} className="ui-input" autoFocus maxLength={60} value={pop.value} placeholder={pop.kind === "filter" ? "Type to filter, or pick a value" : pop.label} onChange={(e) => setPop((p) => ({ ...p, value: e.target.value }))} />
+          {pop.kind === "filter" && (pop.values || []).length ? (
+            <div className="gt-values" role="listbox" aria-label="Values in this column">
+              {pop.values.filter((v) => !pop.value || v.value.toLowerCase().includes(pop.value.toLowerCase())).map((v) => (
+                <button key={v.value} type="button" role="option" aria-selected={pop.value === v.value} className="gt-value" title={v.value}
+                  onClick={() => { setFilters((f) => ({ ...f, [pop.label]: v.value })); setPop(null); }}>
+                  <span className="gt-value-text">{v.value}</span><span className="gt-value-n">{v.n}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="gt-pop-foot">
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={clearPop}>{pop.kind === "filter" ? "Clear" : "Use original name"}</button>
             <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm">{pop.kind === "filter" ? "Filter" : "Rename"}</button>

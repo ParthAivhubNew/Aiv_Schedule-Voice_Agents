@@ -41,6 +41,20 @@ export function useLookupPrice() {
   return lookupPrice == null ? "" : creditWord(lookupPrice).toLowerCase();
 }
 
+// The price of any one lookup by its rate key ("lead_social" for a LinkedIn, Facebook, X or Instagram page), as "2 credits", from the same price list.
+let allRates = null;
+let allRatesPending = null;
+export function useRatePrice(key) {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (allRates != null) return;
+    if (!allRatesPending) allRatesPending = api.getLeadCredits().then((c) => { allRates = c?.rates || {}; }).catch(() => {});
+    allRatesPending.then(() => bump((n) => n + 1));
+  }, []);
+  const credits = allRates?.[key]?.credits;
+  return credits == null ? "" : creditWord(credits).toLowerCase();
+}
+
 // "5 credits if found", for a button label.
 export const LookupCost = () => <>{useLookupPrice() || "Charged"} if found</>;
 

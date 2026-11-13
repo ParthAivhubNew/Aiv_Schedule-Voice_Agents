@@ -5,7 +5,7 @@ import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, E
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
-import { useLookupPrice } from "./CreditsChip";
+import { useLookupPrice, useRatePrice } from "./CreditsChip";
 import { NotesButton } from "./Notes";
 import { FitBadge, SignalTags } from "./FitParts";
 import { displayName, legalTag } from "./companyLogic";
@@ -181,8 +181,8 @@ const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, backgrou
 const COMPANY_PIN = ["Company"];
 const NAME_PIN = ["Name"];
 
-function Cell({ children, style, title }) {
-  return <td style={{ ...td, ...style }} title={title || undefined}>{children}</td>;
+function Cell({ children, style, title, onClick }) {
+  return <td style={{ ...td, ...style }} title={title || undefined} onClick={onClick}>{children}</td>;
 }
 
 function link(url) {
@@ -247,6 +247,8 @@ const NETWORKS = [
 // Every public page we hold for the company, as icons: a link when we have it, a faint button that looks for just that page when we do not.
 // Each icon works on its own: the website never searches for LinkedIn, and LinkedIn never searches for Facebook.
 function LinksCell({ c, onFind, onReveal, lookups }) {
+  const socialPrice = useRatePrice("lead_social");
+  const siteLookup = useLookupPrice();
   return (
     <span style={{ display: "inline-flex", gap: 9, alignItems: "center" }}>
       {NETWORKS.map(({ k, label, Icon }) => {
@@ -258,7 +260,7 @@ function LinksCell({ c, onFind, onReveal, lookups }) {
         if (href) return <span key={k} {...anchor} style={wrap}><a href={href} target="_blank" rel="noreferrer" title={label} aria-label={label} onClick={(e) => e.stopPropagation()} style={{ color: C.ink, display: "inline-flex" }}><Icon size={17} /></a></span>;
         if (k === "website" && (c.closed || {}).website) return <span key={k} style={wrap} title="We hold this. Use Reveal on the row"><span style={{ color: C.slateLight, opacity: 0.5, display: "inline-flex" }}><Icon size={17} /></span></span>;
         const pending = state === "options";
-        const tip = state === "busy" ? "Looking…" : pending ? "Check the closest matches and choose the right one" : state === "none" || (c.missed || {})[k] ? `Not found right now. Try again later` : `Find the ${label.toLowerCase()}`;
+        const tip = state === "busy" ? "Looking…" : pending ? "Check the closest matches and choose the right one" : state === "none" || (c.missed || {})[k] ? `Not found right now. Try again later` : `Find the ${label.toLowerCase()}${(k === "website" ? siteLookup : socialPrice) ? ` · ${k === "website" ? siteLookup : socialPrice} if found` : ""}`;
         return (
           <span key={k} {...anchor} style={wrap}>
             <button type="button" title={tip} aria-label={pending ? `Check matches for the ${label}` : `Find the ${label}`} disabled={state === "busy"} onClick={(e) => { e.stopPropagation(); onFind(c, k); }}
@@ -302,7 +304,7 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: showFit ? 1200 : 1020 }}>
         <thead>
           <tr>
-            <th style={{ ...th, ...pinned(0, 4), width: 36, background: "#FAFBFC" }}><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></th>
+            <th style={{ ...th, ...pinned(0, 4), width: 48, padding: 0, background: "#FAFBFC" }}><label className="row-tick" title="Select every company shown"><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></label></th>
             <th style={{ ...th, background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
             {showFit ? (
               <th style={th} aria-sort={fitSorted ? "descending" : "none"}>
@@ -334,7 +336,9 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
               <React.Fragment key={c.id}>
                 {head ? <Divider profile={head} count={tier} cols={cols} /> : null}
                 <tr onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
-                  <Cell style={{ ...pinned(0), width: 36, background: bg }}><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onClick={(e) => e.stopPropagation()} onChange={() => onPick(c.id)} /></Cell>
+                  <Cell style={{ ...pinned(0), width: 48, padding: 0, background: bg }} onClick={(e) => e.stopPropagation()}>
+                    <label className="row-tick" title="Select this company"><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onChange={() => onPick(c.id)} /></label>
+                  </Cell>
                   <Cell style={{ background: bg, minWidth: 260, maxWidth: 320 }} title={c.name}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <CompanyAvatar c={c} />

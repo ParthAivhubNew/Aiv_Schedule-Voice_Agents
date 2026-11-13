@@ -11,7 +11,7 @@ import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personEmail, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
-import { LookupCost, announceCreditsChanged } from "./CreditsChip";
+import { LookupCost, announceCreditsChanged, useRatePrice } from "./CreditsChip";
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
@@ -139,6 +139,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState({ text: "", error: false });
   const [found, setFound] = useState({});
+  const socialPrice = useRatePrice("lead_social");
   const [pick, setPick] = useState(null); // {kind, person, options}: a lookup that was not sure, waiting for the person to choose
   const [waiting, setWaiting] = useState({}); // kind -> the matches the person has not chosen from yet
   const [person, setPerson] = useState(null); // the person whose own page is open
@@ -306,7 +307,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
             <div key={network} data-reach={network} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff" }}>
               <Link2 size={14} color={C.slate} aria-hidden="true" />
               {(c.links || {})[network] ? <a href={c.links[network]} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontSize: 13 }}>{label}</a>
-                : <button type="button" title={waiting[network] ? "Check the closest matches and choose the right one" : `Look for this company's ${label}`} style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>
+                : <button type="button" title={waiting[network] ? "Check the closest matches and choose the right one" : `Look for this company's ${label}${socialPrice ? `. ${socialPrice} if found` : ""}`} style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>
                   {li === network ? <Spinner size={12} /> : <Search size={12} />} {waiting[network] ? "Check matches" : `Find ${label}`}</button>}
             </div>
           ))}

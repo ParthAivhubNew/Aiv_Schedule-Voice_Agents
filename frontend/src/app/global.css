@@ -1323,7 +1323,15 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 .gt-seg button[aria-pressed="true"] { background: var(--ui-surface, #fff); color: var(--ui-ink); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12); }
 .gt-pop { position: fixed; z-index: 1200; width: 280px; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--ui-surface, #fff); border: 1px solid var(--ui-line); border-radius: 10px; box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16); font-family: 'Inter', sans-serif; }
 .gt-pop label { font-size: 12px; font-weight: 600; color: var(--ui-ink-2); }
+/* The whole tick cell is the checkbox: a click anywhere in it ticks the row and never opens the company. */
+.row-tick { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 48px; min-height: 48px; cursor: pointer; margin: 0; }
+.row-tick input { width: 18px; height: 18px; cursor: pointer; margin: 0; }
 .gt-pop-foot { display: flex; justify-content: space-between; }
+.gt-values { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; border: 1px solid var(--ui-line); border-radius: 8px; }
+.gt-value { all: unset; box-sizing: border-box; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; font-size: 13px; min-height: 34px; align-items: center; }
+.gt-value:hover, .gt-value:focus-visible, .gt-value[aria-selected="true"] { background: var(--ui-accent-soft, #EEF2FE); }
+.gt-value-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gt-value-n { color: var(--ui-ink-3, #667085); font-variant-numeric: tabular-nums; flex: none; }
 
 /* The name of an item in the icon rail, shown beside it (hub/RailTip.jsx). */
 .ui-nav-tip {

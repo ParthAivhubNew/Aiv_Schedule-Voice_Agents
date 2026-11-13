@@ -39,7 +39,7 @@ export function circleArea(lat, lng, miles, corners = 36) {
 // {onSave, onFavourite, onAddToList, onRemove}; `hint` is what the user searched for.
 // Drawing: press and drag to draw around the area, let go to finish (the end joins back to the start),
 // Esc cancels. Works with a mouse, a finger or a stylus.
-export function LeadsMap({ companies, points, area, busy, onArea, onClear, height = 460, statusOf, actions, hint = "" }) {
+export function LeadsMap({ onClose, companies, points, area, busy, onArea, onClear, height = 460, statusOf, actions, hint = "" }) {
   const el = useRef(null);
   const map = useRef(null);
   const markers = useRef(null);
@@ -75,6 +75,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     return alreadySolo ? new Set() : new Set(others);
   });
   const toggleKind = (kind) => setHidden((cur) => { const n = new Set(cur); if (n.has(kind)) n.delete(kind); else n.add(kind); return n; });
+  useEffect(() => { if (!area) setCentre(null); }, [area]);
   useEffect(() => { showAll(); }, [area]); // a new area starts from everything
   const statusKey = companies.map((c) => { const s = statusOf?.(c) || {}; return `${c.id}${s.saved ? "s" : ""}${s.favourite ? "f" : ""}`; }).join("|");
 
@@ -237,7 +238,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
       const done = shapeFromPath(draft.current.pts);
       resetDraft();
       setDrawing(false);
-      if (done) cbs.current.onArea(done);
+      if (done) { setCentre(null); cbs.current.onArea(done); } // a shape drawn by hand has no postcode ring behind it
     };
     const onKey = (e) => { if (e.key === "Escape") { down = false; resetDraft(); setDrawing(false); } };
     container.addEventListener("pointerdown", onDown);
@@ -260,7 +261,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
 
   const btn = { display: "inline-flex", alignItems: "center", gap: 6 };
   const around = (c, miles) => { cbs.current.onArea(circleArea(c.lat, c.lng, miles)); };
-  const goPostcode = async (e) => {
+  const goPostcode = async (e, miles = radius) => {
     if (e) e.preventDefault();
     const code = pc.trim();
     if (!code || pcBusy) return;
@@ -271,7 +272,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
       const c = { lat: r.lat, lng: r.lng, postcode: r.postcode };
       setCentre(c);
       setPc(r.postcode);
-      around(c, radius);
+      around(c, miles);
     } catch (err) {
       setPcError(err.message || "That postcode wasn't found.");
     } finally {
@@ -282,6 +283,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
   const resize = (miles) => {
     setRadius(miles);
     if (centre) around(centre, miles);
+    else if (pc.trim()) goPostcode(null, miles); // a postcode is typed but not gone to yet: the new size is used for it
   };
   const step = (dir) => {
     const i = MILES.indexOf(radius);
@@ -292,7 +294,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
     <div style={{ position: "relative" }}>
       <div ref={el} style={{ height, width: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, zIndex: 0 }} aria-label="Map of the companies found" />
       <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100% - 20px)" }}>
-        {!drawing ? (
+        {!drawing && (!area || centre) ? ( // the postcode ring and its miles show only for a ring, never beside a shape drawn by hand
           <form onSubmit={goPostcode} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,.96)", borderRadius: 8, padding: 3, boxShadow: "0 1px 4px rgba(0,0,0,.18)" }}>
             <MapPin size={14} color={C.slate} style={{ marginLeft: 6 }} />
             <input value={pc} onChange={(e) => { setPc(e.target.value); setPcError(""); }} aria-label="Search around a postcode" placeholder="Postcode, like LS1 4AP" className="ui-input"
@@ -311,6 +313,7 @@ export function LeadsMap({ companies, points, area, busy, onArea, onClear, heigh
         ) : (
           <button type="button" title="Draw a shape on the map and search only inside it" className="ui-btn ui-btn--primary ui-btn--sm" style={btn} disabled={busy} onClick={() => setDrawing(true)}><Pencil size={14} /> {area ? "Redraw area" : "Draw area"}</button>
         )}
+        {onClose && !drawing ? <button title="Close the map and go through the companies it found as a list" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={onClose}><X size={14} /> Close map</button> : null}
         {area && !drawing ? <button title="Remove the drawn shape" type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={btn} onClick={() => { setCentre(null); onClear(); }}><Eraser size={14} /> Clear area</button> : null}
       </div>
       {placed.length ? (

@@ -673,8 +673,15 @@ async def area_count(body: SearchIn, db: AsyncSession = Depends(get_db)):
         if "statement timeout" in str(err).lower():
             raise HTTPException(status_code=504, detail="That area is too busy to count. Draw a smaller one.")
         raise
-    return {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood,
-            "broadened": bool(out.get("broadened"))}
+    answer = {"candidates": out["candidates"], "capped": out["capped"], "widened": bool(understood), "understood": understood,
+              "broadened": bool(out.get("broadened"))}
+    if not out["candidates"] and business_records.normalize_filters(body.filters or {}) != business_records.normalize_filters({}):
+        # Nothing matches the filters here: say how many companies the area holds on its own, so the screen can offer them instead of a dead end.
+        try:
+            answer["in_area"] = int((await business_records.area_candidates(db, {}, body.area))["candidates"])
+        except Exception:
+            answer["in_area"] = 0
+    return answer
 
 
 @router.get("/districts")

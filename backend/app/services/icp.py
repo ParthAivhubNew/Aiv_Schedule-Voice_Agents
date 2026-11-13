@@ -5,6 +5,7 @@ The scoring rules themselves are in fit_score.py (pure).
 """
 from __future__ import annotations
 
+import math
 import logging
 import re
 import time
@@ -52,13 +53,20 @@ async def _districts_within(postcode: str, miles: float) -> List[str]:
         lat, lng = centre.get("latitude"), centre.get("longitude")
         if lat is None or lng is None:
             raise IcpError(f"{pc} wasn't found.")
-        res = await geocoding._get("/outcodes", {"lat": lat, "lon": lng, "radius": int(miles * 1609.34), "limit": 100})
+        # Every district the ring itself touches, not only those whose centre is inside it: the same lookup a drawn area uses.
+        # (The one-call "districts near a point" service stops at 100 results and about 15 miles, which lost districts at both ends.)
+        km = miles * 1.609344
+        d_lat = km / 111.32
+        d_lng = km / (111.32 * max(0.2, math.cos(math.radians(lat))))
+        ring = [(lat + d_lat * math.sin(2 * math.pi * i / 36), lng + d_lng * math.cos(2 * math.pi * i / 36)) for i in range(36)]
+        found = [str(c).upper() for c in await geocoding.outcodes_for_area(ring)]
     except IcpError:
         raise
+    except ValueError as err:
+        raise IcpError(str(err))
     except Exception as err:
         logger.warning("[icp] district lookup failed for %s: %s", pc, err)
         raise IcpError("The postcode lookup didn't answer just now. Try again in a moment, or add postcode areas instead.")
-    found = [str(h.get("outcode") or "").upper() for h in res.get("result") or [] if h.get("outcode")]
     own = pc.split(" ")[0]
     return list(dict.fromkeys([own] + found))
 

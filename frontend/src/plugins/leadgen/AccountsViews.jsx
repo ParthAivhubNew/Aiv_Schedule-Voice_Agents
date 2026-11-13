@@ -862,7 +862,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <thead>
               <tr>
                 <th style={{ width: 1 }}>
-                  <input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" />
+                  <label className="row-tick" title="Select every company on this page"><input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" /></label>
                 </th>
                 <th>Company</th>
                 {fitShown ? (
@@ -888,7 +888,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <tbody>
               {paged.map((a) => (
                 <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : "#fff" }}>
-                  <td><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></td>
+                  <td style={{ padding: 0, width: 48 }} onClick={(e) => e.stopPropagation()}><label className="row-tick" title="Select this company"><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></label></td>
                   <td>
                     <button type="button" title={a.name} onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{displayName(a.name)}</button>
                     {legalTag(a.registry?.company_category, a.registration_number) ? <span style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(a.registry?.company_category, a.registration_number)}</span> : null}
