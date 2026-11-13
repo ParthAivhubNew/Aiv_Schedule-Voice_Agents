@@ -27,6 +27,7 @@ import { ConsentDeclaration } from "./ConsentDeclaration";
 import { inboxKind } from "./inboxes";
 import { FitBadge, ICP_EVENT, IcpPrompt, SignalTags, useIcp } from "./FitParts";
 import { byFit } from "./fitLogic";
+import { SearchField } from "../../components/SearchField";
 import { displayName, legalTag, niceName } from "./companyLogic";
 import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
 import { SelectionBar } from "./FindLeadsParts";
@@ -807,7 +808,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
 
       <div className="ui-card" style={{ overflow: "hidden" }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input className="ui-input" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, website, contact or place" aria-label="Filter saved accounts" style={{ width: "100%", maxWidth: 360 }} />
+          <SearchField value={filter} onChange={setFilter} placeholder="Filter by name, website, contact or place" label="Filter saved accounts" height={42} style={{ flex: "1 1 320px" }} />
           <span style={{ flex: 1 }} />
           {!moreInHeader && fixIds.length ? (
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />

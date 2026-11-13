@@ -6,6 +6,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { phoneFor } from "./AccountsViews";
 import { StageBadge } from "./LeadActivity";
 import { NotesButton } from "./Notes";
+import { SearchField } from "../../components/SearchField";
 
 // Saved records > People: every named person across the companies you saved, in one table. A person is the contact you saved or
 // imported on a company, plus the team members a research run found there. Nothing is invented: a person with no email shows a dash.
@@ -51,7 +52,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <input className="ui-input" value={filter} onChange={(e) => { setFilter(e.target.value); setShown(PAGE); }} placeholder="Search people by name, title, company or email" aria-label="Search people" style={{ width: "100%", maxWidth: 360 }} />
+        <SearchField value={filter} onChange={(v) => { setFilter(v); setShown(PAGE); }} placeholder="Search people by name, title, company or email" label="Search people" height={42} style={{ flex: "1 1 320px" }} />
         <span style={muted} role="status">{q ? `${rows.length.toLocaleString()} of ` : ""}{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"}{q ? " match" : ""} · at {companies.toLocaleString()} {companies === 1 ? "company" : "companies"}</span>
       </div>
       <div className="ui-card" style={{ overflow: "hidden" }}>

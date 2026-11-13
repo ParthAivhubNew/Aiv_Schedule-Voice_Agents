@@ -27,6 +27,7 @@ import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
 // Phase 4: SIC picker, radius, signals, saved searches
 import { SicPicker } from "./IcpEditor";
+import { SearchField } from "../../components/SearchField";
 import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
@@ -1047,12 +1048,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         <button type="button" className="ui-btn ui-btn--secondary hide-mobile" style={{ height: 40 }} aria-pressed={filtersShown} title={filtersShown ? "Hide the filters" : "Show the filters"} onClick={toggleFilters}>
           {filtersShown ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />} Filters{filterCount ? ` · ${filterCount}` : ""}
         </button>
-        <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }} style={{ flex: "1 1 280px", minWidth: 0 }}>
-          <label title="Find a company by its name. Searches every registered company" style={{ position: "relative", display: "block" }}>
-            <Search size={15} color={C.slate} style={{ position: "absolute", left: 12, top: 12 }} />
-            <input className="ui-input" aria-label="Company name" value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" style={{ height: 40, paddingLeft: 36, paddingRight: form.name ? 34 : undefined }} />
-            {form.name ? <button type="button" aria-label="Clear the company name" onClick={() => setField("name", "")} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 11, top: 12, color: C.slate, display: "inline-flex" }}><X size={14} /></button> : null}
-          </label>
+        <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }} style={{ flex: "999 1 320px", minWidth: 0, display: "flex" }}>
+          <SearchField label="Company name" title="Find a company by its name. Searches every registered company" value={form.name} onChange={(v) => setField("name", v)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" />
         </form>
         {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
         <div role="tablist" aria-label="What to look for" className="fl-seg">

@@ -1326,6 +1326,13 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 /* The whole tick cell is the checkbox: a click anywhere in it ticks the row and never opens the company. */
 .row-tick { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 48px; min-height: 48px; cursor: pointer; margin: 0; }
 .row-tick input { width: 18px; height: 18px; cursor: pointer; margin: 0; }
+.search-field { position: relative; display: flex; align-items: center; flex: 1 1 100%; min-width: 0; width: 100%; box-sizing: border-box; margin: 0; padding: 0 6px 0 12px; gap: 8px; background: var(--ui-surface, #fff); border: 1px solid var(--ui-line); border-radius: 10px; cursor: text; }
+.search-field:focus-within { border-color: var(--ui-accent); box-shadow: 0 0 0 3px var(--ui-ring); }
+.search-field-icon { flex: none; color: var(--ui-ink-3, #667085); }
+.search-field-input { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; color: var(--ui-ink); padding: 0; text-overflow: ellipsis; }
+.search-field-input::placeholder { color: var(--ui-faint); }
+.search-field-clear { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ui-ink-3, #667085); cursor: pointer; }
+.search-field-clear:hover, .search-field-clear:focus-visible { background: var(--ui-sunken, #F2F4F7); color: var(--ui-ink); }
 .gt-pop-foot { display: flex; justify-content: space-between; }
 .gt-values { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; border: 1px solid var(--ui-line); border-radius: 8px; }
 .gt-value { all: unset; box-sizing: border-box; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; font-size: 13px; min-height: 34px; align-items: center; }
