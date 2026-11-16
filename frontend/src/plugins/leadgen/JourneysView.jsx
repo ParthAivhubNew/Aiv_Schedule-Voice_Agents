@@ -66,7 +66,7 @@ function Wheel({ label, children }) {
       <style>{WHEEL_CSS}</style>
       <div ref={ref} className="jw-scroll" role="region" aria-label={label} tabIndex={0} data-up={edge.up} data-down={edge.down} onScroll={measure}
         title={edge.up || edge.down ? "Scroll with your mouse wheel, your finger or the arrows to see more" : undefined}
-        style={{ height: "100%", overflowY: "auto", display: "grid", gap: 8, alignContent: "start", padding: "2px 2px 6px", scrollSnapType: "y proximity" }}>
+        style={{ height: "100%", overflowY: "auto", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 8, alignContent: "start", padding: "2px 2px 6px", scrollSnapType: "y proximity" }}>
         {children}
       </div>
       {edge.up ? <button type="button" className="jw-arrow" data-dir="up" aria-label="Scroll up for more" title="More above" onClick={() => by(-1)}><ChevronUp size={16} /></button> : null}
@@ -984,10 +984,10 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
           const on = !creating && j.id === selected;
           return (
             <button key={j.id} type="button" aria-current={on ? "true" : undefined} onClick={() => open(j.id)}
-              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
-              <span style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "space-between" }}>
-                <strong title={j.name} style={{ fontSize: 13.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.name}</strong>
-                <Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill>
+              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
+              <span style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
+                <strong title={j.name} style={{ fontSize: 13.5, flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.35 }}>{j.name}</strong>
+                <span style={{ flex: "none" }}><Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill></span>
               </span>
               <span style={small}>{headline(j.results, j.tasks_open, j.status)}</span>
             </button>
