@@ -415,6 +415,26 @@ function AudienceCard({ audience, busy, onChoose, onDeclared }) {
   );
 }
 
+// A card that starts closed. The title opens it; `action` (a button) stays visible beside the title, `hint` explains the card on hover.
+function Fold({ title, count, hint, action, defaultOpen = false, forceOpen = false, label: aria, children }) {
+  const [wanted, setOpen] = useState(defaultOpen);
+  const open = wanted || forceOpen;
+  return (
+    <div style={{ ...card, display: "grid", gap: open ? 10 : 0, padding: 12 }} aria-label={aria}>
+      <div style={{ ...row, justifyContent: "space-between", flexWrap: "nowrap" }}>
+        <button type="button" aria-expanded={open} title={hint ? `${hint} ${open ? "Click to close." : "Click to open."}` : open ? "Close" : "Open"} onClick={() => setOpen((o) => !o)}
+          style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1, minHeight: 36, fontSize: 14, fontWeight: 700 }}>
+          {open ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+          <span style={{ overflowWrap: "anywhere" }}>{title}</span>
+          {count != null ? <span style={{ ...small, fontWeight: 500 }}>{count}</span> : null}
+        </button>
+        {action}
+      </div>
+      {open ? children : null}
+    </div>
+  );
+}
+
 // ── Emails waiting for the person to read and approve ───────────────────────
 function ApprovalQueue({ items, reason, busy, onSave, onApprove, onApproveAll }) {
   const [open, setOpen] = useState("");
@@ -422,11 +442,9 @@ function ApprovalQueue({ items, reason, busy, onSave, onApprove, onApproveAll })
   if (!items.length) return reason ? <div style={small}>{reason}. Emails wait here for you before they go.</div> : null;
   const edit = (a) => { setOpen(a.id); setDraft({ subject: a.subject, body: a.body }); };
   return (
-    <div style={{ ...card, display: "grid", gap: 10, padding: 12 }} aria-label="Emails waiting for you">
-      <div style={{ ...row, justifyContent: "space-between" }}>
-        <strong style={{ fontSize: 14 }}>{items.length} {items.length === 1 ? "email is" : "emails are"} waiting for you</strong>
-        <button type="button" style={btn(true, busy)} disabled={busy} onClick={onApproveAll}>Approve all {items.length}</button>
-      </div>
+    <Fold label="Emails waiting for you" title={`${items.length} ${items.length === 1 ? "email is" : "emails are"} waiting for you`}
+      hint="Emails written for this journey that wait for your OK before they are sent. Open to read, edit or approve each one."
+      action={<button type="button" style={btn(true, busy)} disabled={busy} title="Approve every email in this list. They go out in the next sending window" onClick={onApproveAll}>Approve all {items.length}</button>}>
       {reason ? <div style={small}>{reason}.</div> : null}
       {items.map((a) => (
         <div key={a.id} style={{ display: "grid", gap: 6, padding: "9px 0", borderTop: `1px solid ${C.borderLight}` }}>
@@ -446,13 +464,13 @@ function ApprovalQueue({ items, reason, busy, onSave, onApprove, onApproveAll })
                 <div style={small}>To {[a.email, a.company].filter(Boolean).join(" · ")}</div>
                 <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", marginTop: 4, color: C.textInk, overflowWrap: "anywhere", maxHeight: 96, overflow: "hidden" }}>{a.body}</div>
               </div>
-              <button type="button" style={btn(false, busy)} disabled={busy} onClick={() => edit(a)}>Edit</button>
-              <button type="button" style={btn(true, busy)} disabled={busy} onClick={() => onApprove(a.id)}>Approve</button>
+              <button type="button" style={btn(false, busy)} disabled={busy} title="Change the subject or the wording before it goes" onClick={() => edit(a)}>Edit</button>
+              <button type="button" style={btn(true, busy)} disabled={busy} title="Send this one in the next sending window" onClick={() => onApprove(a.id)}>Approve</button>
             </div>
           )}
         </div>
       ))}
-    </div>
+    </Fold>
   );
 }
 
@@ -663,11 +681,11 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
 
       <div style={{ ...card, display: "grid", gap: 10, padding: 12 }}>
         <div style={{ ...row, justifyContent: "space-between" }}>
-          <strong style={{ fontSize: 14 }}>Steps</strong>
+          <strong style={{ fontSize: 14 }} title="What happens, in order: each step is an email, a call or a task, and how long to wait before it. Click a step to change it">Steps</strong>
           {dirty ? (
             <div style={row}>
-              <button type="button" style={btn(false)} onClick={() => { setSteps(j.steps); setDirty(false); notice("Changes undone."); }}>Undo</button>
-              <button type="button" style={btn(true)} onClick={() => run(async () => { await api.journeySteps(j.id, stepsForSave(steps)); setDirty(false); }, live ? "Saved. People part-way through keep their place." : "Saved.")}>Save changes</button>
+              <button type="button" style={btn(false)} title="Throw away the changes you haven't saved" onClick={() => { setSteps(j.steps); setDirty(false); notice("Changes undone."); }}>Undo</button>
+              <button type="button" style={btn(true)} title="Keep your changes to the steps" onClick={() => run(async () => { await api.journeySteps(j.id, stepsForSave(steps)); setDirty(false); }, live ? "Saved. People part-way through keep their place." : "Saved.")}>Save changes</button>
             </div>
           ) : null}
         </div>
@@ -680,7 +698,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
           ))}
         </ol>
         <div ref={addRef} style={{ position: "relative", justifySelf: "start", zIndex: 90 }}>
-          <button type="button" aria-expanded={addMenu} style={btn(false)} onClick={() => setAddMenu((m) => !m)}><Plus size={14} /> Add a step</button>
+          <button type="button" aria-expanded={addMenu} style={btn(false)} title="Add an email, a call or a task to the end of the journey" onClick={() => setAddMenu((m) => !m)}><Plus size={14} /> Add a step</button>
           {addMenu ? (
             <>
               <div onClick={() => setAddMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 95 }} />
@@ -701,18 +719,25 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         </div>
       </div>
 
-      {j.schedule?.lines?.length ? (
-        <div style={{ ...card, display: "grid", gap: 6, padding: 12 }} aria-label="When emails go out">
-          <strong style={{ fontSize: 14 }}>When emails go out</strong>
-          {j.schedule.lines.map((line, i) => <div key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>{line}</div>)}
+      {j.schedule?.facts?.length || j.schedule?.lines?.length ? (
+        <div style={{ ...card, display: "grid", gap: 8, padding: 12 }} aria-label="When emails go out">
+          <strong style={{ fontSize: 14 }} title="The sending days, hours and speed set under Rules, and what they mean for this journey">When emails go out</strong>
+          {j.schedule.facts?.length ? (
+            <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "minmax(0, 150px) minmax(0, 1fr)", gap: "6px 12px", fontSize: 13, lineHeight: 1.45 }}>
+              {j.schedule.facts.map((f) => (
+                <React.Fragment key={f.label}>
+                  <dt style={{ color: C.slate, fontWeight: 600 }}>{f.label}</dt>
+                  <dd style={{ margin: 0 }}>{f.text}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          ) : j.schedule.lines.map((line, i) => <div key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>{line}</div>)}
           <div style={small}>This is an estimate. Each person's exact next send shows under People once the journey is running.</div>
         </div>
       ) : null}
-      <div style={{ ...card, display: "grid", gap: 10, padding: 12 }}>
-        <div style={{ ...row, justifyContent: "space-between" }}>
-          <strong style={{ fontSize: 14 }}>People <span style={{ ...small, fontWeight: 500 }}>{j.results.people}</span></strong>
-          <button type="button" aria-expanded={adding} style={btn(false)} onClick={() => setAdding((a) => !a)}><Plus size={14} /> Add people</button>
-        </div>
+      <Fold label="People" title="People" count={j.results.people} forceOpen={adding}
+        hint="Everyone in this journey, with where they are and what happens next. Open to see them, add more or remove someone."
+        action={<button type="button" aria-expanded={adding} style={btn(false)} title="Add people from one of your lists, or paste their emails" onClick={() => setAdding((a) => !a)}><Plus size={14} /> Add people</button>}>
         {adding ? (
           <div style={{ display: "grid", gap: 8 }}>
             <label style={label}>From one of your lists
@@ -750,12 +775,12 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
               ) : null}
               <div style={small}>{p.status === "active" && p.bad_address ? "" : p.status === "active" && p.on_hold ? "Waiting for your choice; their emails are on hold" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? "Queued" : (PERSON_WORDS[p.status] || p.status)}{p.status === "active" && (p.on_hold || p.bad_address) ? "" : p.status === "active" && j.status !== "running" && j.status !== "paused" ? ` · starts when you press Start${j.schedule?.next_opens ? `, first window opens ${j.schedule.next_opens}` : ""}` : p.status === "active" ? ` · step ${p.step} of ${j.steps.length}${p.waiting ? " · waiting on a task or call" : p.next_at ? (new Date(p.next_at) < new Date() ? " · next goes in the next sending window" : ` · next ${when(p.next_at)}`) : ""}` : p.finish_reason ? ` · ${FINISH_WORDS[p.finish_reason] || p.finish_reason}` : ""}</div>
             </div>
-            <button type="button" aria-label={`Remove ${p.email || p.name}`} style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
+            <button type="button" aria-label={`Remove ${p.email || p.name}`} title="Take this person out of the journey. They get nothing more from it" style={{ ...btn(false), padding: "0 9px" }} onClick={() => run(() => api.journeyRemovePerson(j.id, p.id), `Removed ${p.name || p.email || "them"} from this journey.`)}><X size={14} /></button>
           </div>
         ))}
         {people.length > 5 ? <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={() => setShowAll((s) => !s)}>{showAll ? "Show fewer" : `Show all ${people.length}`}</button> : null}
         {!people.length && !adding ? <div style={small}>Nobody yet. Add a list, then start the journey.</div> : null}
-      </div>
+      </Fold>
 
       <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name} avatar={<span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.paperSoft || "#F4F6FA", display: "grid", placeItems: "center", color: C.slate }}><SlidersHorizontal size={18} /></span>}>
         <RulesPanel key={j.id + String(rules)} j={j} mailboxes={outreach.mailboxes} saving={busy} onSave={(body) => run(async () => { await api.journeySettings(j.id, body); setRules(false); }, "Saved.")} />

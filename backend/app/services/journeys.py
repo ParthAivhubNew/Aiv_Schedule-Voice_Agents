@@ -1255,6 +1255,28 @@ def plan_schedule(*, days: List[int], start: str, end: str, tz: str, local: date
     if waits:
         lines.append("Follow-ups: " + "; ".join(waits) + ". A follow-up is skipped for anyone who replies, and still waits for a sending window.")
     out["lines"] = lines
+    # The same facts as labelled rows, so the screen can say what each one means instead of a run of sentences.
+    facts = [{"label": "Sending days and hours", "text": f"{day_text}, {start} to {end} ({tz}). Nothing is sent outside these hours."},
+             {"label": "Sending now?", "text": "Yes, sending is open now." if open_now else (f"Not now. The next window opens {opens}." if opens else "No sending day is switched on. Turn one on under Rules.")}]
+    if not ready:
+        facts.append({"label": "Sender", "text": "No mailbox is ready to send yet, so nothing can go out. Pick a sender under Rules."})
+    elif cap_ok:
+        every = f"{gap // 60} minutes" if gap >= 120 else f"{gap} seconds"
+        facts.append({"label": "Speed", "text": f"One email about every {every}, at most {per_day} a day{' (your daily limit)' if daily_cap and per_day == daily_cap else ''}. "
+                      "That number comes from your sending hours, your daily limit and how many emails each mailbox may send. New mailboxes start small and send more each week."})
+    if out["finish"] and waiting:
+        facts.append({"label": "First emails done by", "text": f"{out['finish']}, for the {waiting} {'person' if waiting == 1 else 'people'} waiting."})
+    if waits:
+        def after(st: Dict[str, Any]) -> str:
+            parts = []
+            if st["delay_days"]:
+                parts.append(f"{st['delay_days']} day{'s' if st['delay_days'] != 1 else ''}")
+            if st["delay_hours"]:
+                parts.append(f"{st['delay_hours']} hour{'s' if st['delay_hours'] != 1 else ''}")
+            when = " ".join(parts)
+            return f"Step {st['step']}: {when} after step {st['step'] - 1}" if when else f"Step {st['step']}: right after step {st['step'] - 1}"
+        facts.append({"label": "Follow-ups", "text": "; ".join(after(st) for st in steps[1:]) + ". Anyone who replies gets no more follow-ups. A follow-up still waits for the next sending window."})
+    out["facts"] = facts
     return out
 
 

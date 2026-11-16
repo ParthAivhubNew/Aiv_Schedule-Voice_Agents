@@ -35,3 +35,12 @@ def test_follow_ups_are_listed_with_their_waits():
     steps = [{"step": 1, "delay_days": 0, "delay_hours": 0}, {"step": 2, "delay_days": 3, "delay_hours": 0}]
     out = plan_schedule(**BASE, local=MON_10, boxes=[BOX], waiting=1, daily_cap=0, steps=steps)
     assert any("step 2 3 days after" in l for l in out["lines"])
+
+
+def test_the_same_facts_come_as_labelled_rows():
+    steps = [{"step": 1, "delay_days": 0, "delay_hours": 0}, {"step": 2, "delay_days": 1, "delay_hours": 0}, {"step": 3, "delay_days": 0, "delay_hours": 4}]
+    facts = {f["label"]: f["text"] for f in plan_schedule(**BASE, local=MON_10, boxes=[BOX], waiting=1, daily_cap=0, steps=steps)["facts"]}
+    assert facts["Sending days and hours"].startswith("Mon to Fri, 09:00 to 17:00 (Europe/London)")
+    assert facts["Sending now?"].startswith("Yes")
+    assert "One email about every 2 minutes, at most 20 a day" in facts["Speed"]
+    assert facts["Follow-ups"].startswith("Step 2: 1 day after step 1; Step 3: 4 hours after step 2.")

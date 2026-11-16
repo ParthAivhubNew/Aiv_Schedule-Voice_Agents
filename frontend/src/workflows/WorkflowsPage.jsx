@@ -19,7 +19,7 @@ const css = `
 .wf{position:fixed;inset:0;z-index:120;background:var(--ui-bg,#F5F6F8);overflow-y:auto;font-family:${FONT_BODY};color:var(--ui-ink,#111827)}
 .wf-top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;min-height:56px;padding:8px clamp(12px,4vw,32px);background:var(--ui-surface,#fff);border-bottom:1px solid var(--ui-line,#E3E6EB)}
 .wf-top h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wf-main{width:100%;max-width:1120px;margin:0 auto;box-sizing:border-box;padding:20px 24px 72px;display:grid;gap:16px;align-content:start}
+.wf-main{width:100%;margin:0;box-sizing:border-box;padding:20px clamp(12px,4vw,32px) 72px;display:grid;gap:16px;align-content:start}
 .wf-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .wf-tabs{display:flex;gap:2px;border-bottom:1px solid var(--ui-line,#E3E6EB);flex:1 1 auto;min-width:0}
 .wf-tab{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;min-height:44px;padding:0 14px;font-size:14px;font-weight:600;color:var(--ui-muted,#6B7280);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}

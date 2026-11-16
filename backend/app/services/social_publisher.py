@@ -1290,8 +1290,15 @@ def _test_result(plat: str, text: str, outcome: str) -> Dict[str, Any]:
             "text": text[:4000]}
 
 
+def brand_off(post) -> bool:
+    """This one post opted out of the company's brand kit."""
+    opts = getattr(post, "channel_options", None)
+    mark = opts.get("_brand") if isinstance(opts, dict) else None
+    return isinstance(mark, dict) and mark.get("off") is True
+
+
 async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optional[str] = None,
-                                   rewrite=None, test: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                                   rewrite=None, test: Optional[Dict[str, Any]] = None, brand: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Send the post to each of its channels. rewrite(text, platform) -> text swaps links for tracked
     ones. test = {"outcome": "ok|login|busy|refused"} runs the whole flow without posting anything."""
     from app.services.media_store import persist_image_url
@@ -1303,6 +1310,19 @@ async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optio
         m["url"] = persist_image_url(m["url"], public_base)
     if items and items[0]["kind"] == "image" and (getattr(post, "image_url", None) or "") != items[0]["url"]:
         post.image_url = items[0]["url"]
+    send = items  # what goes out: the pictures with the company's brand kit on them, when it is on (the post's own pictures stay as they are)
+    if brand and brand.get("enabled") and test is None and not brand_off(post):
+        from app.services import brand_kit
+
+        send = []
+        for m in items:
+            url = None
+            if m["kind"] == "image":
+                try:
+                    url = await brand_kit.branded_copy(m["url"], brand, public_base)
+                except Exception as err:
+                    logger.info(f"[social_publisher] brand kit not put on a picture, sent as it is: {err}")
+            send.append({**m, "url": url} if url else m)
     results = []
     for ch in channels:
         plat = normalize_platform(ch)
@@ -1322,7 +1342,7 @@ async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optio
                 "error": f"No connected {TITLES.get(plat, plat)} account. Connect it under Accounts.",
             })
             continue
-        result = await publish_to_account(acc, text, media=[dict(m) for m in items],
+        result = await publish_to_account(acc, text, media=[dict(m) for m in send],
                                           alt_text=getattr(post, "alt_text", None) or "", first_comment=first_comment,
                                           title=getattr(post, "title", None) or "", options=channel_options(post, plat))
         result["accountId"] = acc.id

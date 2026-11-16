@@ -38,6 +38,12 @@ async def load(db) -> Dict[str, Any]:
     data = row.data if row and isinstance(row.data, dict) else {}
     voice = clean(data.get("brandVoice") or {})
     voice["learned"] = data.get("learnedStyle") or None
+    try:
+        from app.services import brand_kit
+
+        voice["business"] = brand_kit.business_block(data.get("brandKit") or {})  # what the business does, when its theme says to use it in posts
+    except Exception:
+        voice["business"] = ""
     if not voice["tone"]:
         prof = (await db.execute(select(CompanyProfile).where(CompanyProfile.id == "default"))).scalars().first()
         voice["tone"] = ((prof.tone if prof else "") or "").strip()
@@ -79,7 +85,9 @@ def prompt_block(voice: Dict[str, Any]) -> str:
     if samples:
         lines.append("Posts the company likes (match the voice and rhythm; never copy their topics or wording):")
         lines += [f"--- example {i + 1} ---\n{s}" for i, s in enumerate(samples)]
-    return ("Brand voice:\n" + "\n".join(lines)) if lines else ""
+    block = ("Brand voice:\n" + "\n".join(lines)) if lines else ""
+    about = voice.get("business") or ""
+    return (block + "\n\n" + about).strip() if about else block
 
 
 # ── Learned style ───────────────────────────────────────────────────────────

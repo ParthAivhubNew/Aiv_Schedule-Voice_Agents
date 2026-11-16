@@ -17,7 +17,6 @@ export const LOOKS = [
   ["custom", "My own look", "Describe it in your own words"],
 ];
 export const SHAPES = [["4:5", "Portrait", "Instagram, Facebook, LinkedIn"], ["1:1", "Square", "Every network"], ["9:16", "Tall", "Stories and Reels"], ["16:9", "Wide", "X and LinkedIn links"]];
-export const CORNERS = [["bottom_right", "Bottom right", ""], ["bottom_left", "Bottom left", ""], ["top_right", "Top right", ""], ["top_left", "Top left", ""], ["bottom_center", "Bottom centre", ""]];
 export const QUALITIES = [["standard", "Standard", "Faster"], ["high", "High", "Sharper detail, takes longer"]];
 
 const choiceBtn = (on) => ({
@@ -44,7 +43,7 @@ function Choices({ legend, items, value, onChange, columns = "repeat(auto-fill, 
 }
 
 // The company-wide picture settings (Accounts page).
-export function PictureSettings({ showToast }) {
+export function PictureSettings({ showToast, onOpenTheme }) {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -52,23 +51,11 @@ export function PictureSettings({ showToast }) {
   if (s === false) return null;
   if (!s) return <Loader compact label="Loading picture settings" />;
   const set = (k, v) => setS((o) => ({ ...o, [k]: v }));
-  const changed = saved && ["style", "styleCustom", "aspectRatio", "quality", "logoOn", "logoUrl", "logoCorner", "logoSize"].some((k) => (s[k] ?? "") !== (saved[k] ?? ""));
-  const pickLogo = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const r = await api.uploadBrandLogo(file);
-      setS((o) => ({ ...o, logoUrl: r.logoUrl }));
-      showToast("Logo uploaded. Save the picture settings to use it.");
-    } catch (err) {
-      showToast(err.message || "Could not upload the logo.");
-    }
-  };
+  const changed = saved && ["style", "styleCustom", "aspectRatio", "quality"].some((k) => (s[k] ?? "") !== (saved[k] ?? ""));
   const save = async () => {
     setBusy(true);
     try {
-      const d = await api.saveImageSettings({ style: s.style, styleCustom: s.styleCustom, aspectRatio: s.aspectRatio, quality: s.quality, logoOn: Boolean(s.logoOn), logoUrl: s.logoUrl || "", logoCorner: s.logoCorner, logoSize: s.logoSize });
+      const d = await api.saveImageSettings({ style: s.style, styleCustom: s.styleCustom, aspectRatio: s.aspectRatio, quality: s.quality });
       setS(d);
       setSaved(d);
       showToast("Picture settings saved. New pictures use them.");
@@ -97,30 +84,12 @@ export function PictureSettings({ showToast }) {
       ) : null}
       <Choices legend="Shape" items={SHAPES} value={s.aspectRatio} onChange={(v) => set("aspectRatio", v)} />
       <Choices legend="Quality" items={QUALITIES} value={s.quality} onChange={(v) => set("quality", v)} columns="repeat(auto-fill, minmax(180px, 1fr))" />
-      <fieldset style={{ border: "none", padding: 0, margin: "14px 0 0" }}>
-        <legend style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, marginBottom: 6 }}>Your logo</legend>
-        <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45, marginBottom: 8 }}>
-          The AI never draws your logo. If you switch this on, your real logo file is placed on each finished picture. You can still turn it off for a single picture in the post editor.
+      <div style={{ margin: "14px 0 0", padding: "10px 12px", background: C.paper, borderRadius: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px", fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
+          <strong style={{ color: C.ink }}>Your logo, colours and footer</strong> are set once under Theme, and go on every post picture.
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {s.logoUrl ? <img src={s.logoUrl} alt="Your logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", border: `1px solid ${C.border}`, borderRadius: 6, background: "#fff", padding: 4 }} /> : null}
-          <label style={{ ...choiceBtn(false), display: "inline-block", fontSize: 12.5, fontWeight: 700, color: C.ink }}>
-            {s.logoUrl ? "Replace logo" : "Upload logo"}
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickLogo} style={{ display: "none" }} />
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.ink, fontFamily: FONT_BODY }}>
-            <input type="checkbox" checked={Boolean(s.logoOn)} disabled={!s.logoUrl} onChange={(e) => set("logoOn", e.target.checked)} /> Put my logo on pictures
-          </label>
-        </div>
-        {s.logoOn && s.logoUrl ? (
-          <>
-            <Choices legend="Where" items={CORNERS} value={s.logoCorner || "bottom_right"} onChange={(v) => set("logoCorner", v)} columns="repeat(auto-fill, minmax(130px, 1fr))" />
-            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginTop: 10 }}>Size: {s.logoSize || 18}% of the picture's width
-              <input type="range" min={8} max={40} value={s.logoSize || 18} onChange={(e) => set("logoSize", Number(e.target.value))} style={{ display: "block", width: 220, marginTop: 4 }} />
-            </label>
-          </>
-        ) : null}
-      </fieldset>
+        {onOpenTheme ? <button type="button" onClick={onOpenTheme} style={{ ...choiceBtn(false), fontSize: 12.5, fontWeight: 700, color: C.ink, minHeight: 40 }}>Open Theme</button> : null}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
         <button type="button" disabled={busy || !changed || (s.style === "custom" && (s.styleCustom || "").trim().length < 5)} onClick={save}
           style={{ height: 34, padding: "0 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY, opacity: busy || !changed ? 0.6 : 1 }}>

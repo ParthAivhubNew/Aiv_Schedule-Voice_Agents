@@ -31,6 +31,7 @@ import {
   Users,
   X,
   Ear,
+  Palette,
   FileText,
   Film,
   FlaskConical,
@@ -67,6 +68,7 @@ import { PictureSettings } from "./SocialPictures";
 import { VideoPanel } from "./SocialVideoPanel";
 import { ReportsPage } from "./SocialReports";
 import { ListeningPage } from "./SocialListening";
+import { ThemePage } from "./SocialTheme";
 import { approvalBatch, approvalQuestion } from "./approveAll";
 import { NOTICE_EVENT, notice } from "../../utils/notice";
 
@@ -847,6 +849,42 @@ function PostExtras({ post, canEdit, onSave, trackDefault }) {
   );
 }
 
+// Whether the theme goes on this post's picture, and how it will look. The theme itself is set on the Theme page.
+function BrandOnPost({ post, canEdit, onSave, showToast }) {
+  const [kit, setKit] = useState(null);
+  const [shown, setShown] = useState({ key: "", image: "", busy: false });
+  useEffect(() => {
+    const read = () => api.getBrandKit().then((d) => setKit(d && d.kit && d.kit.enabled ? d.kit : null)).catch(() => {});
+    read();
+    window.addEventListener("aivhub:brand-kit", read);
+    return () => window.removeEventListener("aivhub:brand-kit", read);
+  }, []);
+  const first = (post.media && post.media.length ? post.media : (post.imageUrl ? [{ url: post.imageUrl, kind: "image" }] : [])).find((m) => m.kind !== "video");
+  if (!kit || !first) return null;
+  const on = !((post.channelOptions || {})._brand || {}).off;
+  const key = `${post.id}|${first.url}|${JSON.stringify(kit)}`;
+  const look = async () => {
+    setShown({ key, image: "", busy: true });
+    try { const r = await api.previewBrandKit({ kit, imageUrl: first.url }); setShown({ key, image: r.image, busy: false }); }
+    catch (err) { setShown({ key: "", image: "", busy: false }); showToast(err.message || "The preview could not be drawn."); }
+  };
+  return (
+    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "grid", gap: 8 }}>
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, fontWeight: 600, color: C.ink, cursor: canEdit ? "pointer" : "default" }}>
+        <input type="checkbox" style={{ marginTop: 2, accentColor: C.teal }} checked={on} disabled={!canEdit}
+          onChange={(e) => onSave({ channelOptions: { _brand: { off: !e.target.checked } } })} />
+        <span>Theme on this picture
+          <span style={{ display: "block", fontWeight: 400, fontSize: 12, color: C.slate, marginTop: 2 }}>
+            {on ? "Your logo, colour and footer line are added just before it goes out. Your picture itself stays as it is." : "This post goes out with its picture as it is."}
+          </span>
+        </span>
+      </label>
+      {on ? <button type="button" style={{ ...secBtn, height: 32, fontSize: 12, justifySelf: "start" }} disabled={shown.busy} onClick={look}><Palette size={13} /> {shown.busy ? "Drawing…" : "Preview with theme"}</button> : null}
+      {on && shown.image && shown.key === key ? <img src={shown.image} alt="This picture with your theme on it" style={{ width: "100%", maxWidth: 360, borderRadius: 8, border: `1px solid ${C.border}` }} /> : null}
+    </div>
+  );
+}
+
 // The post's pictures and videos in posting order: add from the media library, reorder, remove.
 function MediaStrip({ post, canEdit, onSave, showToast, onRefresh }) {
   const [picker, setPicker] = useState(false);
@@ -1040,10 +1078,6 @@ function ApprovalsBoard({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [versionsKey, setVersionsKey] = useState(0);
   const [promptDraft, setPromptDraft] = useState("");
-  // Logo on the next redraw: "" = the company setting, "on" / "off" = this picture only. Offered once a logo has been uploaded.
-  const [logoChoice, setLogoChoice] = useState("");
-  const [logoReady, setLogoReady] = useState(false);
-  useEffect(() => { api.getImageSettings().then((d) => setLogoReady(Boolean(d && d.logoUrl))).catch(() => {}); }, []);
   const handEditAt = useRef(0);
   const uploadRef = useRef(null);
   const [flash, setFlash] = useState({ caption: false, headline: false, image: false });
@@ -1844,6 +1878,7 @@ function ApprovalsBoard({
                   </div>
 
                   <MediaStrip post={expandedPost} canEdit={canType} onSave={saveField} showToast={showToast} onRefresh={onRefresh} />
+                  <BrandOnPost post={expandedPost} canEdit={canType} onSave={saveField} showToast={showToast} />
                   <PostExtras post={expandedPost} canEdit={canType} onSave={saveField} trackDefault={trackDefault} />
                   {expandedPost.status === "posted" ? <PostResults post={expandedPost} /> : null}
 
@@ -1996,15 +2031,6 @@ function ApprovalsBoard({
                             rows={4}
                             style={{ width: "100%", boxSizing: "border-box", borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, fontFamily: FONT_BODY, fontSize: 12, resize: "vertical" }}
                           />
-                          {logoReady ? (
-                            <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 8 }}>Logo on this picture
-                              <select value={logoChoice} onChange={(e) => setLogoChoice(e.target.value)} style={{ height: 30, borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12 }}>
-                                <option value="">As in my picture settings</option>
-                                <option value="on">With my logo</option>
-                                <option value="off">Without my logo</option>
-                              </select>
-                            </label>
-                          ) : null}
                           <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.4, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
                             Say the look, shape or quality in the prompt, for example "cinematic", "square" or "high quality". Otherwise your picture settings apply.
                           </div>
@@ -2013,7 +2039,7 @@ function ApprovalsBoard({
                             disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
                             onClick={async () => {
                               if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
-                              regenImage({ ...expandedPost, imagePrompt: promptDraft }, "", logoChoice ? { logo: logoChoice === "on" } : undefined);
+                              regenImage({ ...expandedPost, imagePrompt: promptDraft });
                             }}
                             style={{ ...secBtn, width: "100%", justifyContent: "center" }}
                           >
@@ -2022,7 +2048,7 @@ function ApprovalsBoard({
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
                           </button>
-                          <button type="button" onClick={() => regenImage(expandedPost, "", logoChoice ? { logo: logoChoice === "on" } : undefined)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
                               : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
@@ -2667,6 +2693,7 @@ function SimpleAccountsPage({
   operator,
   extras,
   onExtrasChange,
+  onOpenTheme,
 }) {
   // Whether each network's shared app (Client ID/Secret) is set up -- read-only here. Staff set
   // that up once for the whole platform from the owner portal's Social OAuth Apps screen;
@@ -2794,7 +2821,7 @@ function SimpleAccountsPage({
           })}
         </div>
 
-        <PictureSettings showToast={showToast} />
+        <PictureSettings showToast={showToast} onOpenTheme={onOpenTheme} />
 
         <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 10 }}>Testing and links</div>
         <SocialExtrasPanel extras={extras} onChange={onExtrasChange} showToast={showToast} />
@@ -3967,6 +3994,7 @@ export function SocialWorkspace({
     { label: "Setup", items: [
       { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", locked: pluginLocked,
         onClick: () => { if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; } openWorkflows({ from: "social", event: "post.published" }); } },
+      { id: "theme", label: "Theme", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
       { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
     ] },
   ];
@@ -3981,6 +4009,7 @@ export function SocialWorkspace({
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
     approvals: ["Post approve", "Posts waiting for your yes before they go out."],
     accounts: ["Accounts", "The social accounts your posts go to."],
+    theme: ["Theme", "Your logo, colours and what your business does, used in every post."],
     audience: ["Results & Ideas", "Who you are talking to, and what to post about."],
     subscription: ["Plan & credits", "Your Social plan, credits and top-ups."],
   };
@@ -4107,7 +4136,12 @@ export function SocialWorkspace({
             operator={operator}
             extras={extras}
             onExtrasChange={setExtras}
+            onOpenTheme={() => goPage("theme")}
           />
+        ) : page === "theme" ? (
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
+            <ThemePage showToast={showToast} onOpenVoice={() => setVoiceOpen(true)} />
+          </div>
         ) : page === "media" || page === "import" ? (
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: HUB_PAPER }}>
             {page === "media" ? (
@@ -4194,6 +4228,9 @@ export function SocialWorkspace({
                 </div>
                 <button type="button" onClick={() => setVoiceOpen(true)} title="How your posts should sound" style={{ ...secBtn, height: 30, fontSize: 12 }}>
                   <BookOpen size={14} /> Brand voice
+                </button>
+                <button type="button" onClick={() => goPage("theme")} title="Your logo, colours and what your business does, used in every post" style={{ ...secBtn, height: 30, fontSize: 12 }}>
+                  <Palette size={14} /> Theme
                 </button>
                 <button type="button" onClick={() => setSchedulesOpen(true)} title="Post right now, once, or on a repeating schedule" style={{ ...secBtn, height: 30, fontSize: 12 }}>
                   <CalendarClock size={14} /> Schedule

@@ -506,6 +506,14 @@ async def _image_with_backup(db: AsyncSession, payload: Dict[str, Any], prompt: 
     from app.services import platform_ai
 
     payload = _with_prompt_look(payload, prompt)
+    try:
+        from app.services import brand_kit
+
+        hint = brand_kit.palette_phrase(await brand_kit.load(db))  # the theme's colours, when the company switched that on
+        if hint and "Colour palette:" not in prompt:
+            prompt = prompt.rstrip() + " " + hint
+    except Exception as err:
+        logger.info(f"[scheduler] theme colours not added to the picture prompt: {err}")
 
     async def attempt(slot: str) -> Dict[str, Any]:
         p = await _resolve_image_prefs(db, payload, slot)
@@ -540,6 +548,10 @@ async def _with_logo(db: AsyncSession, payload: Dict[str, Any], img: Dict[str, A
     If the logo can't be placed the picture is returned as drawn: a picture is never lost over a logo."""
     from app.services import logo_overlay as LO
 
+    from app.services import brand_kit
+
+    if (await brand_kit.load(db)).get("enabled"):
+        return img  # the brand kit puts the logo on at publish time; doing it here too would show it twice
     s = await _logo_settings(db)
     wanted = payload.get("logo") if isinstance(payload.get("logo"), bool) else s["on"]
     if not wanted or not s["url"] or not img.get("imageUrl"):
@@ -1084,6 +1096,11 @@ def _clean_channel_options(raw: Any, current: Any) -> Dict[str, Any]:
         if sub and not re.match(r"^[A-Za-z0-9_]{2,21}$", sub):
             raise HTTPException(status_code=400, detail="That subreddit name is not valid. Use the name after r/, for example smallbusiness.")
         out["reddit"] = {"subreddit": sub, "flair": str(red.get("flair") or "").strip()[:64]}
+    if isinstance(raw.get("_brand"), dict):  # this post's choice about the company's brand kit: only "off" is ever stored
+        if raw["_brand"].get("off") is True:
+            out["_brand"] = {"off": True}
+        else:
+            out.pop("_brand", None)
     return out
 
 
@@ -1524,7 +1541,9 @@ async def _publish_claimed(db: AsyncSession, post: SocialPost, request: Optional
             if not test:
                 await _renew_expiring_logins(db, post, accounts)
             rewrite = await social_links.rewriter(db, post)
-            bundled = await publish_post_to_accounts(post, accounts, _public_base(request), rewrite=rewrite, test=test)
+            from app.services import brand_kit
+
+            bundled = await publish_post_to_accounts(post, accounts, _public_base(request), rewrite=rewrite, test=test, brand=await brand_kit.load(db))
         except Exception as e:
             logger.exception("Publishing %s crashed", post.id)
             bundled = {"ok": False, "allOk": False, "results": [{"ok": False, "platform": "", "error": str(e), "kind": "temporary"}]}

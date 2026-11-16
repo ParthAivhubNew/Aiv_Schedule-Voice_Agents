@@ -37,6 +37,64 @@ def _org(request: Request) -> str:
     return current_org()
 
 
+# ── Brand kit: one look for every post picture ─────────────────────────────
+@router.get("/brand-kit")
+async def brand_kit_get(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.services import brand_kit as BK
+
+    return {"kit": await BK.load(db), "templates": [{"id": i, "name": n, "note": t} for i, n, t in BK.TEMPLATES], "positions": list(BK.POSITIONS),
+            "presets": [{"id": i, "name": n, "colours": c} for i, n, c in BK.PRESETS]}
+
+
+@router.put("/brand-kit")
+async def brand_kit_put(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.services import brand_kit as BK
+
+    try:
+        return {"kit": await BK.save(db, payload)}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/brand-kit/website")
+async def brand_kit_from_website(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Reads the company's website for its name, colour, logo and a footer line. Nothing is saved: the person checks it and saves."""
+    from app.services import brand_kit as BK
+    from app.services.safe_fetch import FetchRefused
+
+    try:
+        return await BK.from_website(str(payload.get("url") or ""))
+    except FetchRefused as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:
+        logger.info(f"[brand kit] website not read: {err}")
+        raise HTTPException(status_code=422, detail="We could not read that website. Check the address, or fill the kit in by hand.")
+
+
+@router.post("/brand-kit/preview")
+async def brand_kit_preview(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """The kit as typed (not yet saved) on a post picture: the one given by `imageUrl`, else a plain backdrop."""
+    import base64
+
+    from app.services import brand_kit as BK
+    from app.services.media_store import local_media_bytes
+    from app.services.social_publisher import fetch_image_bytes
+
+    kit = BK.clean(payload.get("kit") or {})
+    pic = None
+    shown = str(payload.get("imageUrl") or "")
+    if shown.startswith("data:"):
+        pic, _ = await fetch_image_bytes(shown)
+    elif shown:
+        pic, _ = local_media_bytes(shown)  # only a picture already in our own store: this route never fetches an address it was given
+    pic = pic or BK.preview_backdrop(kit)
+    logo, _ = local_media_bytes(kit["logoUrl"]) if kit["logoUrl"] else (None, "")
+    done = BK.compose(pic, logo, kit)
+    if not done:
+        raise HTTPException(status_code=422, detail="That picture could not be read.")
+    return {"image": "data:image/jpeg;base64," + base64.b64encode(done).decode()}
+
+
 # ── Media library ───────────────────────────────────────────────────────────
 @router.get("/library")
 async def library_list(kind: str = "", q: str = "", tag: str = "", db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
