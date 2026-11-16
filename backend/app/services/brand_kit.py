@@ -108,6 +108,7 @@ def clean(raw: Any) -> Dict[str, Any]:
         "logoPosition": raw.get("logoPosition") if raw.get("logoPosition") in POSITIONS else "bottom_left",
         "logoSize": size,
         "logoBackdrop": bool(raw.get("logoBackdrop")),
+        "accentLine": bool(raw.get("accentLine")),  # a thin line of the accent colour on the bar's edge: off unless asked for
         "preset": preset,
         "colours": colours,
         "primary": colours["primary"],
@@ -173,6 +174,36 @@ def _readable_on(rgb: Tuple[int, int, int]) -> Tuple[int, int, int]:
     return (17, 20, 28) if lum > 0.4 else (255, 255, 255)
 
 
+def _gradient(colour: Tuple[int, int, int], w: int, h: int, side: str):
+    """A bar in the colour, a touch lighter on the side towards the picture and a touch deeper away from it."""
+    from PIL import Image
+
+    def shift(rgb, amount):
+        return tuple(min(max(int(v + (255 - v) * amount if amount > 0 else v * (1 + amount)), 0), 255) for v in rgb)
+
+    near, far = shift(colour, 0.07), shift(colour, -0.12)
+    top, bottom = (near, far) if side == "top" else (far, near)
+    col = Image.new("RGBA", (1, h))
+    for yy in range(h):
+        t = yy / max(h - 1, 1)
+        col.putpixel((0, yy), tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,))
+    return col.resize((w, h))
+
+
+def _lacks_contrast(mark, bar: Tuple[int, int, int]) -> bool:
+    """Whether the logo's visible pixels are about as light or dark as the bar behind them."""
+    small = mark.copy()
+    small.thumbnail((48, 48))
+    lums = []
+    for r, g, b, a in small.getdata():
+        if a > 128:
+            lums.append((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255)
+    if not lums:
+        return False
+    bar_lum = (0.2126 * bar[0] + 0.7152 * bar[1] + 0.0722 * bar[2]) / 255
+    return abs(sum(lums) / len(lums) - bar_lum) < 0.35
+
+
 def _font(size: int):
     from PIL import ImageFont
 
@@ -209,7 +240,7 @@ def compose(picture: bytes, logo: Optional[bytes], kit: Dict[str, Any]) -> Optio
     tpl = k["template"]
     primary = _rgb(k["primary"])
     ink = _rgb(k["textColour"]) if k["textColour"] else _readable_on(primary)
-    bar_h = max(int(h * 0.095), 40)
+    bar_h = max(int(h * 0.1), 44)
     bar_side = "bottom" if tpl in ("footer", "frame") else "top" if tpl == "banner" else ""
     layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -218,10 +249,11 @@ def compose(picture: bytes, logo: Optional[bytes], kit: Dict[str, Any]) -> Optio
         d.rectangle((0, 0, w - 1, h - 1), outline=primary + (255,), width=t)
     if bar_side:
         y0 = h - bar_h if bar_side == "bottom" else 0
-        d.rectangle((0, y0, w, y0 + bar_h), fill=primary + (255,))
-        line = max(int(h * 0.006), 3)  # a thin line of the accent colour on the bar's edge towards the picture
-        edge = y0 if bar_side == "bottom" else y0 + bar_h - line
-        d.rectangle((0, edge, w, edge + line), fill=_rgb(k["colours"]["accent"]) + (255,))
+        layer.paste(_gradient(primary, w, bar_h, bar_side), (0, y0))
+        if k["accentLine"]:
+            line = max(int(h * 0.006), 3)
+            edge = y0 if bar_side == "bottom" else y0 + bar_h - line
+            d.rectangle((0, edge, w, edge + line), fill=_rgb(k["colours"]["accent"]) + (255,))
     im.alpha_composite(layer)
     d = ImageDraw.Draw(im)
     margin = max(int(min(w, h) * 0.04), 8)
@@ -244,7 +276,8 @@ def compose(picture: bytes, logo: Optional[bytes], kit: Dict[str, Any]) -> Optio
                 th = max(cap, 1)
                 tw = max(int(mark.size[0] * th / max(mark.size[1], 1)), 1)
             mark = mark.resize((tw, th), Image.LANCZOS)
-            pad = max(int(th * 0.12), 4) if k["logoBackdrop"] else 0
+            backed = k["logoBackdrop"] or (in_bar and _lacks_contrast(mark, primary))  # a logo that would melt into the bar gets a light backing
+            pad = max(int(th * 0.14), 4) if backed else 0
             bw, bh = tw + 2 * pad, th + 2 * pad
             x = margin if col == "left" else (w - bw) // 2 if col == "center" else w - bw - margin
             if in_bar:
@@ -270,7 +303,7 @@ def compose(picture: bytes, logo: Optional[bytes], kit: Dict[str, Any]) -> Optio
             room_left, room_right = taken[0] - gap - margin, w - margin - (taken[1] + gap)
             left, right = (margin, taken[0] - gap) if room_left >= room_right else (taken[1] + gap, w - margin)
         if right - left >= w * 0.2:
-            t, font = _fit_text(d, text, right - left, int(bar_h * 0.4))
+            t, font = _fit_text(d, text, right - left, int(bar_h * 0.44))
             tw = d.textlength(t, font=font)
             tx = left if taken else left + max((right - left - tw) / 2, 0)
             bbox = d.textbbox((0, 0), t, font=font)
@@ -456,6 +489,28 @@ def dominant_colour(image: bytes) -> str:
         if s > score:
             best, score = (r, g, b), s
     return "#%02X%02X%02X" % best if best else ""
+
+
+def _variants(address: str) -> List[str]:
+    """The address as typed, then with and without www, then the home page: tried in turn when a site turns the first one away."""
+    u = urlparse(address)
+    host = u.hostname or ""
+    other = host.removeprefix("www.") if host.startswith("www.") else "www." + host
+    out = [address, address.replace(host, other, 1), f"{u.scheme}://{host}/", f"{u.scheme}://{other}/"]
+    return list(dict.fromkeys(out))
+
+
+_NEVER_FETCHED = ("That address is not a public website.", "That website could not be found.", "That link uses an unusual port.",
+                  "Links with a login in them are not read.", "Only http and https links can be read.")
+
+
+def business_from_text(text: str) -> Dict[str, Any]:
+    """The summary and products of a business from text its owner pasted (their About page, a brochure): the first sentences, and the short lines."""
+    lines = [" ".join(l.split()) for l in str(text or "").splitlines() if l.strip()]
+    paras = [l for l in lines if len(l) >= 60]
+    summary = " ".join(re.split(r"(?<=[.!?])\s+", paras[0])[:3])[:600] if paras else ""
+    short = [l.strip("-*\u2022 ").rstrip(":") for l in lines if 3 <= len(l.strip("-*\u2022 ")) <= 60 and not l.rstrip().endswith((".", "!", "?"))]
+    return {"summary": summary, "tagline": "", "products": list(dict.fromkeys(short))[:10], "howItWorks": [], "pages": []}
 
 
 async def _download(url: str, limit: int, want_html: bool = False) -> Tuple[bytes, str]:
@@ -663,7 +718,7 @@ def business_from(pages: List[_Page], host: str) -> Dict[str, Any]:
     return {"summary": summary[:600], "tagline": h1, "products": products[:10], "howItWorks": steps[:8], "pages": pages_seen}
 
 
-async def from_website(address: str) -> Dict[str, Any]:
+async def from_website(address: str, pasted: str = "") -> Dict[str, Any]:
     """What the company's website says about its brand: name, logos (kept in our media store), the colour theme, a footer line, and what the
     business does (summary, products, steps, menu). Nothing is saved: the person looks it over, changes anything, and saves.
     Raises FetchRefused with a plain reason."""
@@ -678,7 +733,19 @@ async def from_website(address: str) -> Dict[str, Any]:
     host = (urlparse(raw).hostname or "").lower()
     if not host or "." not in host:
         raise FetchRefused("That does not look like a website address.")
-    html_bytes, final = await _download(raw, 1_500_000, want_html=True)
+    html_bytes, final, blocked, unreachable = b"", raw, False, False
+    for attempt in _variants(raw):
+        try:
+            html_bytes, final = await _download(attempt, 1_500_000, want_html=True)
+            blocked = False
+            break
+        except FetchRefused as err:
+            blocked = True
+            if str(err) in _NEVER_FETCHED:  # a private or unknown address is never fetched at all
+                unreachable = True
+                break
+        except Exception:
+            blocked = True  # a slow or reset connection: carry on with what the address alone gives us
     page = _Page()
     try:
         page.feed(html_bytes.decode("utf-8", errors="ignore"))
@@ -699,7 +766,7 @@ async def from_website(address: str) -> Dict[str, Any]:
     candidates += [urljoin(final, path) for path in ("/apple-touch-icon.png", "/logo.png", "/favicon.png", "/favicon.ico")]
     logo_pngs: List[bytes] = []
     for url in dict.fromkeys(candidates):
-        if url.lower().split("?")[0].endswith(".svg") or len(logo_pngs) >= 4:
+        if unreachable or url.lower().split("?")[0].endswith(".svg") or len(logo_pngs) >= 4:
             continue
         try:
             blob, _ = await _download(url, 2_000_000)
@@ -713,6 +780,8 @@ async def from_website(address: str) -> Dict[str, Any]:
     # Colours: custom properties and colours in the page's own style rules and its first style sheets, the theme colour and the logo's colour.
     css = "\n".join(page.styles)
     for href in page.sheets[:3]:
+        if unreachable:
+            break
         try:
             body, _ = await _download(urljoin(final, href), 400_000)
             css += "\n" + body.decode("utf-8", errors="ignore")
@@ -742,11 +811,21 @@ async def from_website(address: str) -> Dict[str, Any]:
         except Exception:
             continue
     business = business_from(pages, host)
+    if str(pasted or "").strip():  # what the owner pasted fills in whatever the website did not give
+        said = business_from_text(pasted)
+        business = {**business, **{k: v for k, v in said.items() if v and not business.get(k)}}
 
     footer = f"{name} \u00b7 {host}" if name else host
     found = {"name": bool(name), "logo": bool(logos), "colour": seen_colour, "about": bool(business["summary"]), "products": bool(business["products"])}
+    if unreachable:
+        note = "We could not reach that website, so we used the name in its address. Add your logo and what you do by hand, or paste your About text below."
+    elif blocked:
+        note = ("That website does not let programs read it, so we filled in what we could from its address" + (" and its icon" if logos else "")
+                + ". Add your logo and what you do by hand, or paste your About text below.")
+    else:
+        note = ""
     return {"name": name, "website": host, "logoUrl": logos[0] if logos else "", "logos": logos, "primary": palette["primary"], "palette": palette,
-            "swatches": swatches, "footerText": footer[:120], "business": business, "found": found}
+            "swatches": swatches, "footerText": footer[:120], "business": business, "found": found, "note": note}
 
 
 # ── Using the theme in posts ────────────────────────────────────────────────

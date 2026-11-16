@@ -608,7 +608,7 @@ export const api = {
   // The brand kit: logo, colour and footer on every post picture
   getBrandKit: () => apiRequest('/scheduler/brand-kit'),
   saveBrandKit: (kit) => apiRequest('/scheduler/brand-kit', { method: 'PUT', body: kit }),
-  brandKitFromWebsite: (url) => apiRequest('/scheduler/brand-kit/website', { method: 'POST', body: { url }, timeoutMs: 60000 }),
+  brandKitFromWebsite: (url, text = '') => apiRequest('/scheduler/brand-kit/website', { method: 'POST', body: { url, text }, timeoutMs: 60000 }),
   previewBrandKit: (body) => apiRequest('/scheduler/brand-kit/preview', { method: 'POST', body, timeoutMs: 30000 }),
   uploadBrandLogo: (file) => {
     const form = new FormData();

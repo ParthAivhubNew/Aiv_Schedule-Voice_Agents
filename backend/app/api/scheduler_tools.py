@@ -62,13 +62,17 @@ async def brand_kit_from_website(payload: Dict[str, Any]) -> Dict[str, Any]:
     from app.services import brand_kit as BK
     from app.services.safe_fetch import FetchRefused
 
+    url, pasted = str(payload.get("url") or ""), str(payload.get("text") or "")[:20000]
     try:
-        return await BK.from_website(str(payload.get("url") or ""))
-    except FetchRefused as err:
+        return await BK.from_website(url, pasted)
+    except FetchRefused as err:  # only an empty or impossible address: everything else comes back as a result with a note
         raise HTTPException(status_code=422, detail=str(err))
     except Exception as err:
-        logger.info(f"[brand kit] website not read: {err}")
-        raise HTTPException(status_code=422, detail="We could not read that website. Check the address, or fill the kit in by hand.")
+        logger.info(f"[brand kit] website scan failed: {err}")
+        return {
+            "name": "", "website": url.strip()[:200], "logoUrl": "", "logos": [], "primary": BK.DEFAULT_COLOUR, "palette": {}, "swatches": [],
+            "footerText": "", "business": BK.business_from_text(pasted), "found": {"name": False, "logo": False, "colour": False, "about": bool(pasted.strip()), "products": False},
+            "note": "We could not read that website. Add your logo and what you do by hand, or paste your About text below."}
 
 
 @router.post("/brand-kit/preview")

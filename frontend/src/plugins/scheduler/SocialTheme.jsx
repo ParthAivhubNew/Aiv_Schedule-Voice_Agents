@@ -106,6 +106,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
   const [site, setSite] = useState("");
   const [reading, setReading] = useState(false);
   const [found, setFound] = useState(null);
+  const [pasted, setPasted] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
@@ -141,7 +142,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
     if (!site.trim()) return;
     setReading(true); setError(""); setFound(null);
     try {
-      const r = await api.brandKitFromWebsite(site.trim());
+      const r = await api.brandKitFromWebsite(site.trim(), pasted);
       setKit((o) => ({
         ...o,
         name: r.name || o.name, website: r.website || o.website, footerText: r.footerText || o.footerText,
@@ -197,6 +198,13 @@ export function ThemePage({ showToast, onOpenVoice }) {
                 Found on {found.website}: {[["name", "name"], ["logo", "logo"], ["colour", "colours"], ["about", "what you do"], ["products", "products or services"]].map(([k, w]) => `${w} ${found.found[k] ? "yes" : "no"}`).join(", ")}.
                 {found.found.logo && found.found.colour && found.found.about ? " It is filled in below. Check it." : " Fill in what is missing below. Websites built entirely with scripts show us little."}
               </div>
+              {found.note || !found.found.about ? (
+                <label className="bk-field">
+                  <span>Or paste your About text, a brochure or product list</span>
+                  <textarea value={pasted} rows={4} maxLength={20000} placeholder="Paste text from your website or documents. We pick out what you do and what you sell." onChange={(e) => setPasted(e.target.value)} />
+                  <span className="bk-row"><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pasted.trim() || reading} onClick={readSite}>Use this text</button></span>
+                </label>
+              ) : null}
               {found.business && found.business.pages && found.business.pages.length ? (
                 <div><div className="bk-note" style={{ marginBottom: 4 }}>How the site is laid out (its menu):</div>
                   <div className="bk-chips">{found.business.pages.map((p) => <span key={p} className="bk-chip">{p}</span>)}</div></div>
@@ -258,7 +266,12 @@ export function ThemePage({ showToast, onOpenVoice }) {
             <span>Footer line (shown on the bar)</span>
             <input type="text" value={kit.footerText} maxLength={120} placeholder="Your name · yourcompany.com · 0113 000 0000" onChange={(e) => set("footerText", e.target.value)} />
           </label>
-          {kit.template === "logo" ? <p className="bk-note">The Logo only template shows no footer line. Choose a bar or frame to show it.</p> : null}
+          {kit.template === "logo" ? <p className="bk-note">The Logo only template shows no footer line. Choose a bar or frame to show it.</p> : (
+            <label className="bk-switch" style={{ fontWeight: 500, fontSize: 13 }}>
+              <input type="checkbox" checked={kit.accentLine} onChange={(e) => set("accentLine", e.target.checked)} />
+              <span>Thin line of my accent colour on the bar</span>
+            </label>
+          )}
         </section>
 
         <section className="bk-card" aria-label="Logo">

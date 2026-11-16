@@ -284,8 +284,10 @@ def test_the_business_facts_reach_the_text_ai_only_when_the_company_says_so():
 
 def test_the_bar_carries_a_thin_line_of_the_accent_colour_and_the_logo_backing_uses_the_surface_colour():
     kit = {"template": "footer", "colours": {"primary": "#102040", "accent": "#F97316", "surface": "#FFF4E5"}}
-    out = BK.compose(_jpg(), None, kit)
-    r, g, b = _px(out, (500, 905 + 1))  # the bar starts at 905 (9.5% of 1000); its top edge is the accent line
+    plain = BK.compose(_jpg(), None, kit)
+    assert _px(plain, (500, 902))[0] < 90  # no accent line unless asked for: the bar's edge is just the bar
+    out = BK.compose(_jpg(), None, {**kit, "accentLine": True})
+    r, g, b = _px(out, (500, 900 + 1))  # the bar starts at 900 (10% of 1000); its top edge is then the accent line
     assert r > 200 and 90 < g < 140 and b < 60
     backed = BK.compose(_jpg(), _png(colour=(10, 10, 10, 255)), {**kit, "template": "logo", "logoUrl": "/x", "logoPosition": "top_left", "logoBackdrop": True, "logoSize": 12})
     assert _px(backed, (46, 41))[0] > 200 and _px(backed, (46, 41))[2] > 180  # the cream surface colour shows round the logo
@@ -350,3 +352,57 @@ async def test_a_logo_set_up_under_accounts_carries_over_and_stays_on(client, db
     # saving the picture look from the Accounts page no longer touches the logo
     kept = await client.put("/api/scheduler/image-settings", json={"style": "cinematic"})
     assert kept.status_code == 200 and kept.json()["logoUrl"] == logo
+
+
+
+async def test_a_site_that_blocks_us_still_gives_a_theme_and_a_plain_note(monkeypatch):
+    from app.services import media_store
+    from app.services.safe_fetch import FetchRefused
+
+    tried = []
+    icon = _png(size=(180, 180), colour=(10, 127, 111, 255))
+
+    async def fake(url, limit, want_html=False):
+        tried.append(url)
+        if url.endswith("/apple-touch-icon.png"):
+            return icon, url
+        raise FetchRefused("The page answered with error 403.")
+
+    monkeypatch.setattr(BK, "_download", fake)
+    monkeypatch.setattr(media_store, "store_image_bytes", lambda raw, mime="image/jpeg": "/api/scheduler/media/" + "b" * 16 + ".png")
+    got = await BK.from_website("https://www.brightside.test/about", "Brightside Dental\nCheck-ups\nTeeth whitening\nWe look after families in Leeds with gentle, modern dentistry. Book online today.")
+    assert got["name"] == "Brightside" and got["website"] == "brightside.test" and "does not let programs read it" in got["note"]
+    assert got["logoUrl"].endswith(".png") and int(got["primary"][3:5], 16) > int(got["primary"][1:3], 16)  # a green, taken from the icon
+    assert got["business"]["summary"].startswith("We look after families") and got["business"]["products"][:3] == ["Brightside Dental", "Check-ups", "Teeth whitening"]
+    assert "https://brightside.test/about" in tried and "https://www.brightside.test/" in tried  # the other forms were tried first
+
+
+async def test_an_address_we_never_fetch_still_returns_a_result_with_a_note_and_fetches_nothing(monkeypatch):
+    from app.services.safe_fetch import FetchRefused
+
+    calls = []
+
+    async def fake(url, limit, want_html=False):
+        calls.append(url)
+        raise FetchRefused("That address is not a public website.")
+
+    monkeypatch.setattr(BK, "_download", fake)
+    got = await BK.from_website("intranet.example")
+    assert got["name"] == "Intranet" and "could not reach that website" in got["note"] and got["palette"]["primary"] == BK.DEFAULT_COLOUR
+    assert calls == ["https://intranet.example"]  # one refused look, then nothing else
+
+
+def test_pasted_text_gives_a_summary_and_short_lines_as_products():
+    b = BK.business_from_text("About us\nWe build boats for people who love the sea. Every hull is made by hand. Visit the yard.\n- Day sailers\n- Racing dinghies\nCall us today.")
+    assert b["summary"].startswith("We build boats") and b["products"] == ["About us", "Day sailers", "Racing dinghies"]
+
+
+def test_the_bar_is_a_soft_gradient_and_a_dark_logo_on_a_dark_bar_gets_a_light_backing():
+    out = BK.compose(_jpg(), None, {"template": "footer", "primary": "#1A56C8"})
+    top, bottom = _px(out, (500, 905)), _px(out, (500, 995))
+    assert top != bottom and abs(top[2] - bottom[2]) > 8  # the bar shades from one edge to the other
+    dark_logo = _png(colour=(15, 25, 60, 255))
+    on_dark = BK.compose(_jpg(), dark_logo, {"template": "footer", "primary": "#102040", "logoUrl": "/x", "logoPosition": "bottom_right", "logoSize": 12})
+    assert max(_px(on_dark, (900, 922))) > 200  # a light backing appeared behind the logo without being asked
+    light_on_dark = BK.compose(_jpg(), _png(colour=(255, 255, 255, 255)), {"template": "footer", "primary": "#102040", "logoUrl": "/x", "logoPosition": "bottom_right", "logoSize": 12})
+    assert max(_px(light_on_dark, (935, 950))) > 200  # a light logo already shows, with no extra backing needed
