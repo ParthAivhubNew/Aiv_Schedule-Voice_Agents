@@ -70,6 +70,9 @@ const CSS = `
 .bk-chips{display:flex;gap:6px;flex-wrap:wrap}
 .bk-chip{border:1px solid ${C.border};background:${C.paper};border-radius:999px;padding:3px 10px;font-size:12px;color:${C.ink}}
 .bk-found{border:1px dashed ${C.border};border-radius:10px;padding:10px 12px;display:grid;gap:8px;background:#FBFCFD}
+.bk-help{border:1px solid ${C.border};border-radius:10px;padding:12px 14px;display:grid;gap:8px;background:#fff}
+.bk-check{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:13px}
+.bk-check li[data-ok="true"]{color:#14602F}.bk-check li[data-ok="false"]{color:${C.slate}}
 .bk-prev{border:1px solid ${C.border};border-radius:12px;background:#fff;padding:10px;display:grid;gap:8px}
 .bk-prev img{width:100%;border-radius:8px;display:block;background:#E9EDF5;aspect-ratio:4/5;object-fit:cover}
 .bk-switch{display:flex;align-items:flex-start;gap:10px;font-size:14px;font-weight:600;cursor:pointer}
@@ -110,6 +113,9 @@ export function ThemePage({ showToast, onOpenVoice }) {
   const [reading, setReading] = useState(false);
   const [found, setFound] = useState(null);
   const [pasted, setPasted] = useState("");
+  const [filed, setFiled] = useState(null); // what the person's own files gave us
+  const [reading2, setReading2] = useState(false);
+  const docsRef = useRef(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
@@ -168,6 +174,33 @@ export function ThemePage({ showToast, onOpenVoice }) {
     catch (err) { setError(err.message || "That logo could not be uploaded."); }
   };
 
+  const readFiles = async (e) => {
+    const picked = Array.from((e.target.files) || []);
+    e.target.value = "";
+    if (!picked.length) return;
+    setReading2(true); setError(""); setFiled(null);
+    try {
+      const r = await api.uploadBrandDocuments(picked);
+      const b = r.business || {};
+      setKit((o) => {
+        const merge = (a, extra) => [...a, ...extra.filter((x) => !a.some((y) => y.toLowerCase() === x.toLowerCase()))].slice(0, 10);
+        return {
+          ...o,
+          logoUrl: o.logoUrl || (r.logos && r.logos[0]) || "",
+          logoOptions: [...o.logoOptions, ...(r.logos || []).filter((u) => !o.logoOptions.includes(u))].slice(0, 6),
+          colours: found && found.found && found.found.colour ? o.colours : { ...o.colours, ...(r.palette || {}) },
+          preset: r.palette && r.palette.primary && !(found && found.found && found.found.colour) ? "custom" : o.preset,
+          primary: r.palette && r.palette.primary && !(found && found.found && found.found.colour) ? r.palette.primary : o.primary,
+          footerText: o.footerText && o.footerText.includes("·") && r.phone && !o.footerText.includes(r.phone) ? `${o.footerText} · ${r.phone}`.slice(0, 120) : o.footerText,
+          business: { ...o.business, summary: o.business.summary || b.summary || "", products: merge(o.business.products, b.products || []), howItWorks: merge(o.business.howItWorks, b.howItWorks || []) },
+          useInPosts: Boolean(b.summary || (b.products && b.products.length)) || o.useInPosts,
+        };
+      });
+      setFiled(r);
+    } catch (err) { setError(err.message || "We could not read those files."); }
+    setReading2(false);
+  };
+
   const save = async () => {
     setBusy(true); setError("");
     try {
@@ -201,12 +234,36 @@ export function ThemePage({ showToast, onOpenVoice }) {
                 {found.crawled > 1 ? `Read ${found.crawled} pages of ${found.website}. ` : ""}Found on {found.website}: {[["name", "name"], ["logo", "logo"], ["colour", "colours"], ["about", "what you do"], ["products", "products or services"]].map(([k, w]) => `${w} ${found.found[k] ? "yes" : "no"}`).join(", ")}.
                 {found.found.logo && found.found.colour && found.found.about ? " It is filled in below. Check it." : " Fill in what is missing below. Websites built entirely with scripts show us little."}
               </div>
-              {found.note || !found.found.about ? (
-                <label className="bk-field">
-                  <span>Or paste your About text, a brochure or product list</span>
-                  <textarea value={pasted} rows={4} maxLength={20000} placeholder="Paste text from your website or documents. We pick out what you do and what you sell." onChange={(e) => setPasted(e.target.value)} />
-                  <span className="bk-row"><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pasted.trim() || reading} onClick={readSite}>Use this text</button></span>
-                </label>
+              {!(found.found.about && found.found.products && found.found.logo) ? (
+                <div className="bk-help" role="group" aria-label="Help us finish your theme">
+                  <strong>We could only find part of your business.</strong>
+                  <p className="bk-note" style={{ color: C.ink }}>
+                    {found.note || "Your website did not give us everything."} That is no problem: some websites keep their words and pictures out of reach of programs, and that is the website's setting, not a fault on your side. Here is what we have and what is missing:
+                  </p>
+                  <ul className="bk-check">
+                    {[["name", "Business name"], ["logo", "Logo"], ["colour", "Colours"], ["about", "What you do"], ["products", "Products or services"]].map(([k, w]) => (
+                      <li key={k} data-ok={Boolean(found.found[k])}><span aria-hidden="true">{found.found[k] ? "\u2713" : "\u2022"}</span> {w}: {found.found[k] ? "found" : "still needed"}</li>
+                    ))}
+                  </ul>
+                  <p className="bk-note" style={{ color: C.ink, fontWeight: 600 }}>To finish it, send us any of these:</p>
+                  <div className="bk-row">
+                    {!found.found.logo ? <button type="button" className="ui-btn ui-btn--secondary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} aria-hidden="true" /> Upload your logo</button> : null}
+                    <button type="button" className="ui-btn ui-btn--secondary" disabled={reading2} onClick={() => docsRef.current && docsRef.current.click()}><Upload size={15} aria-hidden="true" /> {reading2 ? "Reading…" : "Upload documents or pictures"}</button>
+                    <input ref={docsRef} type="file" multiple accept=".pdf,.docx,.txt,.md,.csv,image/png,image/jpeg,image/webp" onChange={readFiles} style={{ display: "none" }} aria-label="Documents or pictures" />
+                  </div>
+                  <p className="bk-note">Good things to send: a brochure, an About page or company profile (PDF, Word or text), a product or price list, a logo or a screenshot of your brand colours. We read the words and pick out what you do and sell. Your files are read here and not kept.</p>
+                  <label className="bk-field">
+                    <span>Or just paste the words</span>
+                    <textarea value={pasted} rows={4} maxLength={20000} placeholder="Paste your About text, a brochure or a product list. We pick out what you do and what you sell." onChange={(e) => setPasted(e.target.value)} />
+                    <span className="bk-row"><button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pasted.trim() || reading} onClick={readSite}>Use this text</button></span>
+                  </label>
+                  {filed ? (
+                    <div className="bk-note" role="status" style={{ color: C.ink }}>
+                      {filed.read.length ? `Read ${filed.read.length} file${filed.read.length === 1 ? "" : "s"}${filed.business && filed.business.summary ? " and filled in what you do" : ""}${filed.business && filed.business.products && filed.business.products.length ? `, with ${filed.business.products.length} product or service line${filed.business.products.length === 1 ? "" : "s"}` : ""}${filed.logos && filed.logos.length ? `, and ${filed.logos.length} logo choice${filed.logos.length === 1 ? "" : "s"}` : ""}. Check the fields below.` : "We could not use those files."}
+                      {filed.skipped.map((s) => <div key={s.name} style={{ color: C.red }}>{s.name}: {s.reason}</div>)}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
               {found.business && found.business.pages && found.business.pages.length ? (
                 <div><div className="bk-note" style={{ marginBottom: 4 }}>How the site is laid out (its menu):</div>

@@ -494,3 +494,20 @@ def test_the_logo_can_be_see_through_and_lose_its_white_block():
     clear = BK.compose(on_photo, buf.getvalue(), {**base, "logoSize": 40, "logoPosition": "middle_center", "logoKnockout": True})
     assert _px(boxed, (330, 500))[1] > 230 and _px(clear, (330, 500))[1] < 140  # the white block is gone and the photo shows round the mark
     assert _px(clear, (500, 500))[2] > 120  # the mark itself stays
+
+
+def test_a_companys_own_files_fill_in_what_its_website_would_not():
+    text = (b"Federation Example\nWe represent small firms across the UK and give them legal, tax and money advice by phone and online.\n"
+            b"Legal advice\nTax help\nBusiness banking\nCall us on 0808 202 0888 or write to help@example.org.\n")
+    got = BK.from_files([("profile.txt", text), ("logo.png", _png(size=(400, 200), colour=(0, 150, 150, 255))), ("notes.exe", b"nope"), ("empty.txt", b"hi")])
+    assert got["business"]["summary"].startswith("We represent small firms across the UK") and "Legal advice" in got["business"]["products"]
+    assert got["phone"] == "0808 202 0888" and got["email"] == "help@example.org"
+    assert len(got["logos"]) == 1 and got["palette"]["primary"].startswith("#") and set(got["read"]) == {"profile.txt", "logo.png"}
+    assert {x["name"] for x in got["skipped"]} == {"notes.exe", "empty.txt"} and all(x["reason"] for x in got["skipped"])
+
+
+@pytest.mark.db
+async def test_the_documents_route_reads_files_and_keeps_nothing(client):
+    r = await client.post("/api/scheduler/brand-kit/documents", files=[("files", ("about.txt", b"We bake bread for the whole street every morning, fresh and warm.\nSourdough\nRolls\n", "text/plain"))])
+    assert r.status_code == 200 and r.json()["business"]["products"] == ["Sourdough", "Rolls"] and r.json()["read"] == ["about.txt"]
+    assert (await client.get("/api/scheduler/brand-kit")).json()["kit"]["business"]["products"] == []  # nothing was saved

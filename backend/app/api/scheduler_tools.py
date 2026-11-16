@@ -75,6 +75,19 @@ async def brand_kit_from_website(payload: Dict[str, Any]) -> Dict[str, Any]:
             "note": "We could not read that website. Add your logo and what you do by hand, or paste your About text below."}
 
 
+@router.post("/brand-kit/documents")
+async def brand_kit_documents(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
+    """Reads the company's own documents (PDF, Word, text) and pictures for its theme, when its website said little. Nothing is saved."""
+    from app.services import brand_kit as BK
+
+    blobs = []
+    for f in files[:10]:
+        blobs.append((f.filename or "", (await f.read())[: 10 * 1024 * 1024 + 1]))
+    if not blobs:
+        raise HTTPException(status_code=422, detail="Choose at least one file.")
+    return BK.from_files(blobs)
+
+
 @router.post("/brand-kit/preview")
 async def brand_kit_preview(payload: Dict[str, Any], db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """The kit as typed (not yet saved) on a post picture: the one given by `imageUrl`, else a plain backdrop."""

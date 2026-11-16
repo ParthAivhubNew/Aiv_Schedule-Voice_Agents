@@ -609,6 +609,11 @@ export const api = {
   getBrandKit: () => apiRequest('/scheduler/brand-kit'),
   saveBrandKit: (kit) => apiRequest('/scheduler/brand-kit', { method: 'PUT', body: kit }),
   brandKitFromWebsite: (url, text = '') => apiRequest('/scheduler/brand-kit/website', { method: 'POST', body: { url, text }, timeoutMs: 90000 }),
+  uploadBrandDocuments: (files) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return apiRequest('/scheduler/brand-kit/documents', { method: 'POST', body: form, timeoutMs: 120000 });
+  },
   previewBrandKit: (body) => apiRequest('/scheduler/brand-kit/preview', { method: 'POST', body, timeoutMs: 30000 }),
   uploadBrandLogo: (file) => {
     const form = new FormData();

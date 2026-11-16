@@ -63,6 +63,45 @@ def hex_colour(value: object, default: str = "") -> str:
     return default
 
 
+IMAGE_KINDS = (".png", ".jpg", ".jpeg", ".webp")
+_PHONE = re.compile(r"(?<![\d])(\+?\d[\d\s().-]{8,16}\d)(?![\d])")
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def from_files(files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+    """What a company's own files say about it, for when its website says little: documents (PDF, Word, text) are read for what the business does
+    and sells, pictures are kept as logo choices with their main colour. Nothing is saved: the person checks it and saves."""
+    from app.services.document_text import extract_text
+    from app.services.media_store import store_image_bytes
+
+    texts: List[str] = []
+    logos: List[str] = []
+    read: List[str] = []
+    skipped: List[Dict[str, str]] = []
+    colour = ""
+    for name, data in files[:10]:
+        if (name or "").lower().endswith(IMAGE_KINDS):
+            png = _usable_logo(data, 24)
+            url = store_image_bytes(png, "image/png") if png else ""
+            if not url:
+                skipped.append({"name": name, "reason": "That picture could not be read. Use a PNG, JPG or WebP."})
+                continue
+            logos.append(url)
+            read.append(name)
+            colour = colour or dominant_colour(png)
+        else:
+            try:
+                texts.append(extract_text(name, data))
+                read.append(name)
+            except ValueError as err:
+                skipped.append({"name": name, "reason": str(err)})
+    text = "\n".join(texts)
+    business = business_from_text(text) if text else clean_business({})
+    palette, _ = palette_from({}, {}, "", colour) if colour else ({}, [])
+    return {"business": business, "logos": logos, "palette": palette, "phone": (_PHONE.search(text) or [None, ""])[1] if text else "",
+            "email": (_EMAIL.search(text) or [""])[0] if text else "", "read": read, "skipped": skipped}
+
+
 def _opacity(value: Any) -> int:
     try:
         return min(max(int(value), 10), 100)
@@ -590,7 +629,12 @@ def business_from_text(text: str) -> Dict[str, Any]:
     lines = [" ".join(l.split()) for l in str(text or "").splitlines() if l.strip()]
     paras = [l for l in lines if len(l) >= 60]
     summary = " ".join(re.split(r"(?<=[.!?])\s+", paras[0])[:3])[:600] if paras else ""
-    short = [l.strip("-*\u2022 ").rstrip(":") for l in lines if 3 <= len(l.strip("-*\u2022 ")) <= 60 and not l.rstrip().endswith((".", "!", "?"))]
+    def listy(l: str) -> bool:  # a short line that names something: not a sentence, a contact line or a web address
+        t = l.strip("-*\u2022 ").rstrip(":")
+        return 3 <= len(t) <= 60 and len(t.split()) <= 7 and not t.endswith((".", "!", "?")) and not re.search(r"@|https?://|www\.|\d{4}", t) \
+            and not _GENERIC_HEADS.search(t) and not re.match(r"^(call|phone|email|e-mail|tel|write|visit|contact)\b", t, re.I)
+
+    short = [l.strip("-*\u2022 ").rstrip(":") for l in lines if listy(l)]
     return {"summary": summary, "tagline": "", "products": list(dict.fromkeys(short))[:10], "howItWorks": [], "pages": []}
 
 
