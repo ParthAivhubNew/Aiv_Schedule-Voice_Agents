@@ -620,6 +620,94 @@ async def company_contacts_get(company_id: str, body: CompanyContactsIn, request
     return await _app_call(company_contacts(company_id, ContactsIn(include_web=body.include_web), db))
 
 
+def site_domain(value: str) -> str:
+    """example.com from a web address of any shape (scheme, www, path, port)."""
+    v = re.sub(r"^[a-z][a-z0-9+.-]*://", "", (value or "").strip().lower())
+    v = re.split(r"[/?#:]", v, maxsplit=1)[0]
+    return v[4:] if v.startswith("www.") else v
+
+
+def _company_card(b: BusinessRecord, saved: Optional[LeadAccount]) -> Dict[str, Any]:
+    people = [{"name": str(o.get("name") or "")[:120], "role": str(o.get("role") or "")[:80]}
+              for o in (b.officers or []) if isinstance(o, dict) and o.get("name")][:5]
+    return {
+        "id": b.id, "name": b.name, "registration_number": b.registration_number or "", "domain": b.domain or "", "website": b.website or "",
+        "phone": b.phone or "", "email": b.email or "", "address": b.address or "", "industry": b.industry or "", "status": b.status or "",
+        "category": b.company_category or "", "size": b.size_band or "", "founded": b.incorporation_date or "",
+        "about": (b.description or "")[:280], "people": people,
+        "saved": {"id": saved.id, "stage": getattr(saved, "stage", "") or ""} if saved else None,
+    }
+
+
+@router.get("/lookup")
+async def company_lookup(request: Request, domain: str = "", name: str = "", db: AsyncSession = Depends(get_db)):
+    """The company behind a web page: by its web address first, then by name. Free, from what the platform already holds
+    (nothing is searched on the web and no credits are used). `saved` says whether it is already one of your leads."""
+    from app.services import business_records as BR
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    d, n = site_domain(domain), " ".join((name or "").split())[:120]
+    if not d and len(n) < 2:
+        fail(422, "invalid_request", "Send `domain` (the page's web address) or `name` (at least two letters).")
+    if is_test(ctx):
+        return {"matches": [], "matched_by": "", "simulated": True}
+    rows: List[BusinessRecord] = []
+    matched_by = ""
+    if d:
+        rows = list((await db.execute(select(BusinessRecord).where(BusinessRecord.domain.in_([d, "www." + d]))
+                                      .order_by(BusinessRecord.rank_score.desc().nullslast()).limit(3))).scalars().all())
+        matched_by = "domain" if rows else ""
+    if not rows and len(n) >= 2:
+        try:
+            found = await BR.search_filtered(db, {"name_contains": n}, limit=3, stats=False, broaden=False)
+            rows = list(found["rows"])
+            matched_by = "name" if rows else ""
+        except ValueError:
+            rows = []
+    ids = [b.id for b in rows]
+    mine = {a.business_record_id: a for a in (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id.in_(ids)))).scalars().all()} if ids else {}
+    return {"matches": [_company_card(b, mine.get(b.id)) for b in rows], "matched_by": matched_by}
+
+
+class JourneyPeopleIn(BaseModel):
+    people: List[Dict[str, Any]] = Field(..., min_length=1, max_length=200, description="Who to add: {email, company, lead_id}. lead_id is a saved lead's id.")
+    dry_run: bool = Field(False, description="Show who would be added or kept out, without adding anyone")
+
+
+@router.get("/journeys")
+async def journeys_get(request: Request, db: AsyncSession = Depends(get_db)):
+    """Your journeys (email and call sequences) that are not archived, newest first."""
+    from app.services import journeys as J
+
+    ctx = await authorize(request, db, "leads:search", "leads")
+    if is_test(ctx):
+        return {"journeys": [], "simulated": True}
+    rows = await J.list_journeys(db, ctx["org_id"])
+    return {"journeys": [{"id": j["id"], "name": j["name"], "status": j["status"], "steps": j["step_count"]} for j in rows if not j.get("archived")]}
+
+
+@router.post("/journeys/{journey_id}/people")
+async def journey_add_people(journey_id: str, body: JourneyPeopleIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Add people to a journey. The journey's own rules apply: bad addresses, people already in it, the do-not-email list and people
+    in another running journey are kept out, and each is counted in `skipped`."""
+    from app.models.models import EmailCampaign
+    from app.services import journeys as J
+
+    ctx = await authorize(request, db, "email:write", "leads")
+    if is_test(ctx):
+        return {"added": 0, "skipped": {}, "simulated": True, "dry_run": body.dry_run}
+    camp = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == journey_id))).scalars().first()
+    if camp is None:
+        fail(404, "not_found", "That journey is not there any more.")
+    try:
+        out = await J.enrol(db, camp, body.people, ctx["org_id"], dry_run=body.dry_run)
+    except J.JourneyError as err:
+        fail(422, "invalid_request", str(err))
+    if not body.dry_run:
+        await db.commit()
+    return {**out, "dry_run": body.dry_run}
+
+
 @router.post("/email-find")
 async def email_find(body: EmailFindIn, request: Request, db: AsyncSession = Depends(get_db)):
     """Find one named person's work email at a company. 1 Leads credit when one is found, nothing when not."""

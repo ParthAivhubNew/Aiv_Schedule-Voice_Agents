@@ -73,6 +73,10 @@ const CHAT_CSS = `
 .fl-seg-btn{border:none;cursor:pointer;border-radius:7px;padding:0 12px;font:600 13px Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--ui-muted)}
 .fl-seg-btn[data-on="true"]{background:#fff;color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .fl-seg-btn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
+@media (max-width:820px){
+  .fl-toolbar .fl-seg{height:auto;flex:1 1 calc(50% - 6px)}
+  .fl-seg-btn{flex:1;justify-content:center;min-height:40px;padding:0 10px}
+}
 `;
 
 const splitList = (v) => String(v || "").split(",").map((s) => s.trim()).filter(Boolean);

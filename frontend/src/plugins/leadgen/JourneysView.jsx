@@ -943,7 +943,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
       <style>{WHEEL_CSS}</style>
       <Note error>{error}</Note>
       {narrow ? (
-        <div style={{ ...row, flex: "1 1 100%", flexWrap: "nowrap" }}>
+        <div style={{ ...row, flex: "0 0 auto", flexWrap: "nowrap" }}>
           <select aria-label="Choose a journey" style={{ ...input, flex: 1, minWidth: 0 }} value={creating ? "" : selected} onChange={(e) => open(e.target.value)}>
             {creating || !selected ? <option value="">New journey</option> : null}
             {journeys.map((j) => <option key={j.id} value={j.id}>{j.name} · {STATUS_WORDS[j.status] || j.status}</option>)}

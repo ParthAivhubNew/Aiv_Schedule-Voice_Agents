@@ -142,6 +142,7 @@ export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb
 // anything the page needs (children), your credits, notifications and profile (accountBar).
 export function PluginHeader({ nav, title, sub, children, accountBar, assistant = true, assistantPlugin = "leads", accent }) {
   const workflows = useWorkflowsOpen();
+  useEffect(() => { if (workflows) nav?.close?.(); }, [workflows]); // eslint-disable-line react-hooks/exhaustive-deps -- the phone menu closes when Workflows opens over the page
   if (workflows) [title, sub] = WORKFLOWS_HEADER;
   return (
     <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, ...headerTint(accent), display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>

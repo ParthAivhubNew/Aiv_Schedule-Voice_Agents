@@ -289,3 +289,55 @@ async def test_test_keys_get_sample_companies_free(db, admin_token, monkeypatch)
         free = await c.post("/v1/leads/searches", json={"sector": "plumbing", "estimate_only": True})
         assert free.json()["estimate"]["credits_at_most"] == 0
     assert sent == [("leads.ready", True)]
+
+
+async def test_a_web_page_finds_its_company_by_address_then_by_name(db, admin_token):
+    from app.models.models import BusinessRecord
+
+    await _companies(db)
+    db.add(BusinessRecord(id="biz_4", identity_hash="h4", name="Brightside Dental Practice", domain="brightside-dental.co.uk", status="Active",
+                          confidence_tier="verified_registry", phone="+441132000002", officers=[{"name": "Ann Bright", "role": "director"}]))
+    await db.commit()
+    key = await _key(admin_token)
+    async with _http(key) as c:
+        by_site = (await c.get("/v1/leads/lookup", params={"domain": "https://www.Brightside-Dental.co.uk/about?x=1"})).json()
+        assert by_site["matched_by"] == "domain" and [m["id"] for m in by_site["matches"]] == ["biz_4"]
+        card = by_site["matches"][0]
+        assert card["phone"] == "+441132000002" and card["people"] == [{"name": "Ann Bright", "role": "director"}] and card["saved"] is None
+        by_name = (await c.get("/v1/leads/lookup", params={"name": "Corner Cafe"})).json()
+        assert by_name["matched_by"] == "name" and by_name["matches"][0]["id"] == "biz_3"
+        none = (await c.get("/v1/leads/lookup", params={"domain": "nobody-here.example"})).json()
+        assert none["matches"] == []
+        assert (await c.get("/v1/leads/lookup")).status_code == 422
+        same_by_run = (await c.post("/v1/run", json={"plugin": "leads", "action": "company.lookup", "data": {"domain": "brightside-dental.co.uk"}})).json()
+        assert same_by_run["matches"][0]["id"] == "biz_4"
+
+
+async def test_a_test_key_looks_up_nothing_real(db, admin_token):
+    await _companies(db)
+    key = await _key(admin_token, live=False)
+    async with _http(key) as c:
+        body = (await c.get("/v1/leads/lookup", params={"name": "Smile Dental"})).json()
+    assert body["matches"] == [] and body["simulated"] is True
+
+
+async def test_a_person_can_be_added_to_a_journey_through_the_api(db, admin_token):
+    from app.services import journeys as J
+
+    camp = await J.create(db, name="Dentists in Leeds", goal="Book a call", steps=[{"channel": "email", "subject": "Hello {{company}}", "body": "Hi {{first_name}}, one question."}],
+                          mailbox_ids=[], settings={}, owner_id="")
+    await db.commit()
+    key = await _key(admin_token)
+    person = {"email": "ann@brightside-dental.co.uk", "company": "Brightside Dental"}
+    async with _http(key) as c:
+        listed = (await c.get("/v1/leads/journeys")).json()["journeys"]
+        assert [j["name"] for j in listed] == ["Dentists in Leeds"] and listed[0]["steps"] == 1
+        dry = (await c.post(f"/v1/leads/journeys/{camp.id}/people", json={"people": [person], "dry_run": True})).json()
+        assert dry["dry_run"] is True
+        first = (await c.post(f"/v1/leads/journeys/{camp.id}/people", json={"people": [person]})).json()
+        assert first["added"] == 1
+        again = (await c.post(f"/v1/leads/journeys/{camp.id}/people", json={"people": [person]})).json()
+        assert again["added"] == 0 and again["skipped"]["duplicate"] == 1
+        assert (await c.post("/v1/leads/journeys/jrn_missing/people", json={"people": [person]})).status_code == 404
+        via_run = (await c.post("/v1/run", json={"plugin": "leads", "action": "journey.list"})).json()
+        assert len(via_run["journeys"]) == 1

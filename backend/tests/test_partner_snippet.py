@@ -349,3 +349,15 @@ async def test_the_api_pass_asks_for_what_it_will_do_in_words_the_person_sees(an
     state = (await _run(anon, "connect", {"client_id": started["clientId"], "component": "api"})).json()["state"]
     info = await anon.get("/api/embed/connect/info", headers=_as(state))
     assert info.status_code == 200 and info.json()["component"] == "api"
+
+
+async def test_the_extension_card_does_lookup_journeys_and_calls_with_one_api_pass(anon, db, started):
+    from app.services import partners as PT
+
+    ext = f"chrome-extension://{PT.EXTENSION_ID}"
+    token, _ = await _pass(anon, db, started, "api", user="vic", org="org_vic")
+    for plugin, action, data in (("leads", "company.lookup", {"domain": "nobody.example"}), ("leads", "journey.list", None), ("voice", "call.list", None)):
+        r = await _api(anon, token, plugin, action, data, origin=ext)
+        assert r.status_code == 200, (plugin, action, r.text)
+    started_call = await _api(anon, token, "voice", "call.start", {"to": "+441135500002", "lead_name": "Brightside Dental"}, origin=ext)
+    assert started_call.status_code in (200, 201, 202), started_call.text

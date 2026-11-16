@@ -27,6 +27,7 @@ import { ConsentDeclaration } from "./ConsentDeclaration";
 import { inboxKind } from "./inboxes";
 import { FitBadge, ICP_EVENT, IcpPrompt, SignalTags, useIcp } from "./FitParts";
 import { byFit } from "./fitLogic";
+import { CARDS_CSS, useNarrow } from "./cardsLayout";
 import { SearchField } from "../../components/SearchField";
 import { displayName, legalTag, niceName } from "./companyLogic";
 import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
@@ -613,6 +614,7 @@ const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
 const COMPANY_PIN = ["Company"];
 
 export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "", moreInHeader = false }) {
+  const narrow = useNarrow();
   const [filter, setFilter] = useState("");
   const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
   const [moreFilter, setMoreFilter] = useState("");
@@ -858,7 +860,55 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         <SelectAllNotice sel={sel} pageIds={pageIds} total={shownIds.length} onSelectAll={() => sel.selectAll(shownIds)} />
         <GridTools id="my-list" pinned={COMPANY_PIN} into="acc-grid-tools" />
         {picks ? <NeedsChoiceTable rows={pickRows} store={store} /> : null}
-        <div className="ui-scroll" style={{ overflowX: "auto", display: picks ? "none" : undefined }}>
+        {narrow && !picks ? (
+          <div className="fl-cards">
+            <style>{CARDS_CSS}</style>
+            {paged.map((a) => {
+              const ph = phoneFor(a);
+              const em = emailFor(a);
+              const ct = contactFor(a);
+              const stop = (e) => e.stopPropagation();
+              return (
+                <article key={a.id} className="fl-co" data-on={sel.has(a.id)} style={a.verification?.verdict === "problem" ? { background: C.redSoft } : undefined} onClick={() => onOpen(a)}>
+                  <label className="row-tick" title="Select this company" onClick={stop}><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></label>
+                  <div className="fl-co-body">
+                    <div style={{ minWidth: 0 }}>
+                      <button type="button" className="fl-co-name" onClick={(e) => { stop(e); onOpen(a); }}>{displayName(a.name)}</button>
+                      {legalTag(a.registry?.company_category, a.registration_number) ? <div className="fl-co-sub">{legalTag(a.registry?.company_category, a.registration_number)}</div> : null}
+                    </div>
+                    {a.signals?.length ? <SignalTags signals={a.signals} /> : null}
+                    {fitShown ? <FitBadge fit={a.fit} /> : null}
+                    <div className="fl-co-reach" onClick={stop}>
+                      {ph ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>{ph.text}
+                          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Call ${a.name} in the browser`} onClick={() => openPhone({ number: ph.text, leadId: a.id, name: a.name })}><PhoneCall size={14} /></button>
+                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}>✓</span> : null}
+                        </span>
+                      ) : <Empty a={a} field="phone" />}
+                      {em ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 2, minWidth: 0, overflowWrap: "anywhere" }}>{em.text}
+                          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Write an email to ${a.name}`} onClick={() => writeEmail(em.text)}><Mail size={14} /></button>
+                        </span>
+                      ) : <Empty a={a} field="email" />}
+                    </div>
+                    {ct ? <div className="fl-co-meta">{ct.text}{ct.title ? ` · ${ct.title}` : ""}</div> : null}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }} onClick={stop}>
+                      <StageBadge stage={a.connection?.stage || "new"} />
+                      <VerdictBadge verification={a.verification} />
+                    </div>
+                    <div className="fl-co-reach" onClick={stop}>
+                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => onOpen(a)}>{store.researching[a.id] ? <><Spinner size={13} /> Working…</> : "Open"}</button>
+                      {listId ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={locked.has(a.id)} onClick={() => removeFromList([a.id])} title={locked.has(a.id) ? LOCK_TIP : "Remove from this list"}>Remove</button> : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {!shown.length ? <div style={{ color: C.slate, padding: 8 }}>{filter ? `Nothing matches “${filter}”.` : "Nothing here."}</div> : null}
+            <button type="button" className="ui-btn ui-btn--secondary" onClick={onAdd}><Plus size={14} /> Add a row</button>
+          </div>
+        ) : null}
+        <div className="ui-scroll" style={{ overflowX: "auto", display: picks || narrow ? "none" : undefined }}>
           <table className="ui-table acc-stick" style={{ minWidth: 520 + 120 * (columnCount - 3) }}>
             <thead>
               <tr>

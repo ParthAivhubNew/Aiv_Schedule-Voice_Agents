@@ -4184,7 +4184,7 @@ export function SocialWorkspace({
           <div data-pane="main" className="split-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18, background: HUB_PAPER, display: "flex", flexDirection: "column", gap: 14 }}>
             <div id="cal-anchor" style={{ flexShrink: 0, scrollMarginTop: 12 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn}>
+              <button type="button" onClick={() => setCal((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))} style={navBtn} className="cal-nav" aria-label="Previous month">
                 <ChevronLeft size={16} />
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
@@ -4199,7 +4199,7 @@ export function SocialWorkspace({
                   <CalendarClock size={14} /> Schedule
                 </button>
               </div>
-              <button type="button" onClick={() => setCal((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))} style={navBtn}>
+              <button type="button" onClick={() => setCal((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))} style={navBtn} className="cal-nav" aria-label="Next month">
                 <ChevronRight size={16} />
               </button>
             </div>

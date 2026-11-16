@@ -9,6 +9,7 @@ import { useLookupPrice, useRatePrice } from "./CreditsChip";
 import { NotesButton } from "./Notes";
 import { FitBadge, SignalTags } from "./FitParts";
 import { displayName, legalTag } from "./companyLogic";
+import { CARDS_CSS, useNarrow } from "./cardsLayout";
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -292,7 +293,58 @@ function Divider({ profile, count, cols }) {
   );
 }
 
+function CompanyCards({ rows, picked, onPick, onOpen, isSaved, onSave, tiers, grouped, activeId, showFit, onFindSite, onReveal, onGetContacts, lookups, busy }) {
+  let last = null;
+  const seen = new Set();
+  return (
+    <div className="fl-cards" aria-busy={busy || undefined} style={{ opacity: busy ? 0.55 : 1 }}>
+      <style>{CARDS_CSS}</style>
+      {rows.map((c) => {
+        const head = grouped && c.profile !== last ? c.profile : null;
+        last = c.profile;
+        const first = head && !seen.has(head);
+        if (head) seen.add(head);
+        const count = first && tiers && tiers[head] != null ? ` · ${Number(tiers[head]).toLocaleString()}${tiers.capped && tiers[head] >= 10000 ? "+" : ""}` : "";
+        const p = head ? PROFILE[head] || PROFILE.basic : null;
+        const on = picked.has(c.id);
+        const where = [c.region, c.postcode].filter(Boolean).join(" ");
+        const meta = [plainSector(c.industry), where].filter(Boolean).join(" · ");
+        return (
+          <React.Fragment key={c.id}>
+            {head ? <div className="fl-cards-group" style={{ background: p.bg, color: p.fg }}>{p.label}{count}</div> : null}
+            <article className="fl-co" data-on={on} data-active={activeId === c.id} data-company-row={c.id} onClick={() => onOpen(c)}>
+              <label className="row-tick" title="Select this company" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onChange={() => onPick(c.id)} />
+              </label>
+              <div className="fl-co-body">
+                <div className="fl-co-top">
+                  <CompanyAvatar c={c} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <button type="button" className="fl-co-name" onClick={(e) => { e.stopPropagation(); onOpen(c); }}>{displayName(c.name)}</button>
+                    {c.registration_number || legalTag(c.company_category, c.registration_number) ? <div className="fl-co-sub">{[legalTag(c.company_category, c.registration_number), c.registration_number ? `No. ${c.registration_number}` : ""].filter(Boolean).join(" · ")}</div> : null}
+                  </div>
+                  <SaveCell saved={isSaved(c)} onSave={() => onSave(c)} />
+                </div>
+                {meta ? <div className="fl-co-meta">{meta}</div> : null}
+                {showFit ? <FitBadge fit={c.fit} /> : null}
+                {c.signals?.length ? <SignalTags signals={c.signals} /> : null}
+                <div className="fl-co-reach" onClick={(e) => e.stopPropagation()}>
+                  <span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span>
+                  <span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span>
+                  {c.website ? <span>{link(c.website)}</span> : null}
+                </div>
+              </div>
+            </article>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll, onOpen, isSaved, onSave, tiers, capped, grouped, activeId, onFindSite, onReveal, onRevealRow, lookups, busy, showFit = false, fitSorted = false, onSortFit }) {
+  const narrow = useNarrow();
+  if (narrow) return <CompanyCards rows={rows} picked={picked} onPick={onPick} onOpen={onOpen} isSaved={isSaved} onSave={onSave} tiers={tiers} grouped={grouped} activeId={activeId} showFit={showFit} onFindSite={onFindSite} onReveal={onReveal} onGetContacts={onGetContacts} lookups={lookups} busy={busy} />;
   const allOn = rows.length > 0 && rows.every((c) => picked.has(c.id));
   const cols = showFit ? 11 : 10;
   const seen = new Set();
@@ -381,7 +433,41 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
   );
 }
 
+function PersonCards({ rows, onOpen, isSaved, onSave }) {
+  return (
+    <div className="fl-cards">
+      <style>{CARDS_CSS}</style>
+      {rows.map((p) => {
+        const c = p.company;
+        const name = p.first_name || p.last_name ? `${p.first_name} ${p.last_name}`.trim() : p.name;
+        const where = [c.region, c.postcode].filter(Boolean).join(" ");
+        return (
+          <article key={p.id} className="fl-co fl-co--person" onClick={() => onOpen(c)} data-person-row={p.id}>
+            <div className="fl-co-body" style={{ gridColumn: "1 / -1", padding: "10px 12px 12px" }}>
+              <div className="fl-co-top">
+                <Avatar name={name} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <button type="button" className="fl-co-name" onClick={(e) => { e.stopPropagation(); onOpen(c); }}>{name}</button>
+                  <div className="fl-co-sub">{p.role || "Officer"}{p.appointed_on ? ` · on the register since ${p.appointed_on}` : ""}</div>
+                </div>
+                <SaveCell saved={isSaved(c)} onSave={() => onSave(c)} />
+              </div>
+              <div className="fl-co-meta" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{c.name} <ProfileBadge profile={c.profile} /></div>
+              {where ? <div className="fl-co-sub">{where}</div> : null}
+              <div className="fl-co-reach" onClick={(e) => e.stopPropagation()}>
+                <Reach value="" kind="email" onFind={() => onOpen(c)} />
+                {c.phone ? <Reach value={c.phone} who={c.name} kind="phone" onFind={() => onOpen(c)} /> : null}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
+  if (useNarrow()) return <PersonCards rows={rows} onOpen={onOpen} isSaved={isSaved} onSave={onSave} />;
   return (
     <>
     <GridTools id="find-people" pinned={NAME_PIN} into="fl-grid-tools" />

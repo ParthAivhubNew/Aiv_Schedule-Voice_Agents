@@ -1367,3 +1367,19 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
   .app-page > *, .ui-table tbody tr, .app-toast { animation: none; }
   .ui-btn:active:not(:disabled) { transform: none; }
 }
+
+/* Month arrows on the Social calendar: a thumb-sized target on phones (their size is set inline). */
+@media (max-width: 820px) {
+  .cal-nav { width: 44px !important; height: 44px !important; }
+}
+
+/* The map's postcode and draw controls sit above the map on phones: laid over it they run off the edge (components/../LeadsMap.jsx). */
+@media (max-width: 820px) {
+  .lm-wrap { display: flex; flex-direction: column; }
+  .lm-bar { position: static !important; order: -1; max-width: none !important; justify-content: flex-start !important; margin-bottom: 8px; }
+  .lm-bar form { flex-wrap: wrap; width: 100%; box-shadow: none !important; border: 1px solid var(--ui-line); }
+  .lm-bar form > svg { display: none; }
+  .lm-bar form input { flex: 1 1 100%; width: auto !important; height: 40px !important; padding: 0 8px; }
+  .lm-bar form select { flex: 1 1 auto; height: 40px !important; }
+  .lm-bar .ui-btn { min-height: 40px; }
+}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api/apiClient";
 import { Spinner } from "../app/Loader";
@@ -8,23 +8,43 @@ import { PLUGIN_NAME, blankAction, opLabel, problem } from "./workflowModel";
 // The editor draws a workflow the way it runs: the trigger at the top, then each step in order, with the two paths of an "if" side by side.
 
 export const editorCss = `
-.wfe{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start;width:100%;font-family:${FONT_BODY};color:#12141C}
+.wfe{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px 24px;align-items:start;width:100%;font-family:${FONT_BODY};color:var(--ui-ink,#111827)}
 .wfe-main{min-width:0}
 .wfe-side{position:sticky;top:16px;display:grid;gap:12px;min-width:0}
-@media (max-width:1000px){.wfe{grid-template-columns:minmax(0,1fr)}.wfe-side{position:static}}
-.wfe-node{background:#fff;border:1px solid #D5D9E0;border-radius:10px;padding:16px 18px;display:grid;gap:12px}
-.wfe-node--trigger{border-color:#3457D5;background:#F7F9FF}
-.wfe-tag{font-size:13px;font-weight:700;color:#6B7280;display:flex;align-items:center;gap:8px}
-.wfe-tag b{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:6px;background:#EEF0F4;color:#12141C;font-size:11.5px}
-.wfe-line{width:2px;height:16px;background:#C5CAD3;margin:0 auto}
+.wfe-node{background:var(--ui-surface,#fff);border:1px solid var(--ui-line-strong,#CBD1D9);border-radius:10px;padding:14px 16px;display:grid;gap:12px}
+.wfe-node--trigger{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#EEF2FE)}
+.wfe-node--trigger .ui-input{background:var(--ui-surface,#fff)}
+.wfe-tag{font-size:13px;font-weight:700;color:var(--ui-muted,#6B7280);display:flex;align-items:center;gap:8px}
+.wfe-tag b{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:6px;background:var(--ui-hover,#F0F2F5);color:var(--ui-ink,#111827);font-size:12px}
+.wfe-line{width:2px;height:16px;background:var(--ui-line-strong,#CBD1D9);margin:0 auto}
 .wfe-add{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:2px 0}
 .wfe-branches{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media (max-width:640px){.wfe-branches{grid-template-columns:1fr}}
-.wfe-branch{background:#FBFCFD;border:1px dashed #C5CAD3;border-radius:10px;padding:10px;display:grid;gap:0;align-content:start}
-.wfe-branch h4{margin:0 0 8px;font-size:12px;font-weight:700;color:#12141C}
+.wfe-branch{background:var(--ui-sunken,#F8F9FB);border:1px dashed var(--ui-line-strong,#CBD1D9);border-radius:10px;padding:10px;display:grid;gap:0;align-content:start;min-width:0}
+.wfe-branch h4{margin:0 0 8px;font-size:12.5px;font-weight:700;color:var(--ui-ink,#111827)}
 .wfe-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.wfe-label{display:grid;gap:6px;font-size:13px;font-weight:600;color:#6B7280}
-.wfe-bar{padding-top:4px}
+.wfe-row select.ui-input{flex:1 1 150px}
+.wfe-iflabel{font-size:13px;font-weight:700;color:var(--ui-muted,#6B7280);min-width:44px}
+.wfe-label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--ui-ink-2,#374151)}
+.wfe-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:4px}
+.wfe-hint{font-size:13px;color:var(--ui-muted,#6B7280)}
+@media (max-width:1000px){
+  .wfe{grid-template-columns:minmax(0,1fr)}
+  .wfe-side{display:contents}
+  .wfe-label{order:-2}
+  .wfe-main{order:-1}
+  .wfe-limits{order:1}
+  .wfe-result{order:2}
+  .wfe-bar{order:3;position:sticky;bottom:0;z-index:2;margin:0 -12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--ui-surface,#fff);border-top:1px solid var(--ui-line,#E3E6EB);box-shadow:0 -4px 12px rgba(16,24,40,.06)}
+  .wfe-bar .wfe-hint{flex:1 1 100%;order:-1}
+  .wfe-bar .ui-btn--primary{flex:1 1 auto}
+}
+@media (max-width:820px){
+  .wfe .ui-btn--sm{min-height:44px;padding:0 14px}
+  .wfe-tag .ui-btn--ghost{width:44px;padding:0}
+  .wfe-node{padding:12px}
+  .wfe-iflabel{flex-basis:100%}
+}
+@media (max-width:640px){.wfe-branches{grid-template-columns:1fr}}
 `;
 
 const text = { fontFamily: FONT_BODY, fontSize: 14, color: C.ink };
@@ -71,7 +91,7 @@ function Step({ block, onChange, onRemove, onMove, first, last, meta, depth, ind
       <div className="wfe-node">{head}
         <div className="wfe-row">
           <input className="ui-input" type="number" min={1} aria-label="How long to wait" value={days ? block.hours / 24 : block.hours} onChange={(e) => set({ hours: Math.max(1, Number(e.target.value) || 1) * (days ? 24 : 1) })} style={{ width: 90 }} />
-          <Select label="Unit" value={days ? "days" : "hours"} onChange={(u) => set({ hours: u === "days" ? Math.max(1, Math.round(block.hours / 24)) * 24 : Math.max(1, block.hours % 24 === 0 ? block.hours / 24 : block.hours) })}>
+          <Select label="Unit" style={{ flex: "0 0 auto" }} value={days ? "days" : "hours"} onChange={(u) => set({ hours: u === "days" ? Math.max(1, Math.round(block.hours / 24)) * 24 : Math.max(1, block.hours % 24 === 0 ? block.hours / 24 : block.hours) })}>
             <option value="hours">hours</option><option value="days">days</option>
           </Select>
           <span style={muted}>then carry on (up to 30 days)</span>
@@ -143,6 +163,8 @@ export function WorkflowEditor({ meta, initial, onSave, onCancel, canEdit }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [trial, setTrial] = useState(null);
+  const resultRef = useRef(null);
+  useEffect(() => { if (trial) resultRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [trial]);
   const info = meta.event_info[w.event];
   const set = (patch) => { setError(""); setTrial(null); setW((x) => ({ ...x, ...patch })); };
   // A blank name falls back to what starts the workflow, so saving never needs typing.
@@ -178,7 +200,7 @@ export function WorkflowEditor({ meta, initial, onSave, onCancel, canEdit }) {
         {!info?.lead ? <div style={muted}>No company is behind this event, so only steps that do not need one will run (a notification or a web address).</div> : null}
         {(w.conditions || []).map((c, i) => (
           <div key={i} className="wfe-row">
-            <span style={{ ...muted, fontWeight: 700, width: 34 }}>{i === 0 ? "Only if" : "and"}</span>
+            <span className="wfe-iflabel">{i === 0 ? "Only if" : "and"}</span>
             <div style={{ flex: 1, minWidth: 0 }}><ConditionEditor cond={c} meta={meta} label={`Filter ${i + 1}`} onChange={(nc) => set({ conditions: w.conditions.map((x, j) => (j === i ? nc : x)) })} /></div>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Remove filter ${i + 1}`} onClick={() => set({ conditions: w.conditions.filter((_, j) => j !== i) })}><X size={13} /></button>
           </div>
@@ -196,7 +218,7 @@ export function WorkflowEditor({ meta, initial, onSave, onCancel, canEdit }) {
       <label className="wfe-label">Name
         <input className="ui-input" aria-label="Workflow name" value={w.name} maxLength={80} placeholder={info?.label || "Name this workflow"} onChange={(e) => set({ name: e.target.value })} />
       </label>
-      <section className="wfe-node" aria-label="How often">
+      <section className="wfe-node wfe-limits" aria-label="How often">
         <div className="wfe-tag"><span>How often it can run</span></div>
         <div className="wfe-row">
           <Select label="Run for the same company" value={lim.reenroll} onChange={(reenroll) => set({ limits: { ...lim, reenroll } })}>
@@ -210,18 +232,18 @@ export function WorkflowEditor({ meta, initial, onSave, onCancel, canEdit }) {
       </section>
 
       {trial ? (
-        <div className="wfe-node" role="status" aria-label="What would happen" style={{ background: "#F4F7FF" }}>
+        <div ref={resultRef} className="wfe-node wfe-result" role="status" aria-label="What would happen" style={{ background: "var(--ui-accent-soft)" }}>
           <div style={{ ...text, fontWeight: 700 }}>What would happen for {trial.lead.name} <span style={muted}>(nothing was changed or sent)</span></div>
           <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 3, ...text, fontSize: 12.5 }}>{trial.log.map((l, i) => <li key={i}><strong>{l.label}:</strong> {l.result}</li>)}</ol>
         </div>
       ) : null}
-      {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
-      <div className="wfe-row wfe-bar">
+      {error ? <div role="alert" className="wfe-result" style={{ ...muted, color: C.red }}>{error}</div> : null}
+      <div className="wfe-bar">
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!!busy || !canEdit} onClick={save}>{busy === "save" ? <Spinner size={13} /> : "Save workflow"}</button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!!busy || !!why} onClick={tryIt} title={why || "See what it would do for your latest saved company, without changing anything"}>{busy === "try" ? <Spinner size={13} /> : "Try it on a company"}</button>
         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onCancel}>Cancel</button>
-        {!canEdit ? <span style={muted}>Only people who can edit company settings can save.</span> : null}
-        {why && canEdit ? <span style={muted} role="status">To try or save: {why.charAt(0).toLowerCase() + why.slice(1)}</span> : null}
+        {!canEdit ? <span className="wfe-hint">Only people who can edit company settings can save.</span> : null}
+        {why && canEdit ? <span className="wfe-hint" role="status">To try or save: {why.charAt(0).toLowerCase() + why.slice(1)}</span> : null}
       </div>
       </aside>
     </div>

@@ -50,7 +50,9 @@ export function Tooltips() {
       if (title) { el.dataset.tip = title; el.removeAttribute("title"); } // our bubble replaces the native one
       return el.dataset.tip ? el : null;
     };
+    const touchOnly = () => typeof window.matchMedia === "function" && window.matchMedia("(hover: none)").matches;
     const enter = (e) => {
+      if (touchOnly()) return; // a tap would leave the bubble stuck over the page: with no pointer to hover there is nothing to point at
       const el = source(e.target);
       if (!el || el === current) return;
       window.clearTimeout(timer);

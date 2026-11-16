@@ -291,9 +291,9 @@ export function LeadsMap({ onClose, companies, points, area, busy, onArea, onCle
     resize(next);
   };
   return (
-    <div style={{ position: "relative" }}>
+    <div className="lm-wrap" style={{ position: "relative" }}>
       <div ref={el} style={{ height, width: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, zIndex: 0 }} aria-label="Map of the companies found" />
-      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100% - 20px)" }}>
+      <div className="lm-bar" style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "calc(100% - 20px)" }}>
         {!drawing && (!area || centre) ? ( // the postcode ring and its miles show only for a ring, never beside a shape drawn by hand
           <form onSubmit={goPostcode} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,.96)", borderRadius: 8, padding: 3, boxShadow: "0 1px 4px rgba(0,0,0,.18)" }}>
             <MapPin size={14} color={C.slate} style={{ marginLeft: 6 }} />

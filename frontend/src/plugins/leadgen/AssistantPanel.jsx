@@ -262,6 +262,7 @@ const css = `
 .as-chips{display:flex;gap:6px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none}
 .as-chips::-webkit-scrollbar{display:none}
 .as-chip{all:unset;cursor:pointer;flex:none;box-sizing:border-box;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 11px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;font:12.5px Inter,sans-serif;color:var(--ui-ink,#111827);background:#fff;transition:border-color .15s,background-color .15s}
+@media (max-width:820px){.as-chip{display:inline-flex;align-items:center;min-height:40px;padding:0 14px}}
 .as-chip:hover,.as-chip:focus-visible{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#F5F7FF)}
 .as-chip:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:1px}
 .as-menu{border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;background:#fff;margin-bottom:8px;overflow:hidden}
