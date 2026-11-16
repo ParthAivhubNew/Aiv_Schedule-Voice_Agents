@@ -26,7 +26,9 @@ const ROLES = [
 ];
 
 const CSS = `
-.bk{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start;padding:20px 24px 48px;max-width:1120px;margin:0 auto;font-family:${FONT_BODY};color:${C.ink}}
+.bk{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;align-items:start;padding:20px clamp(16px,2.5vw,40px) 48px;width:100%;box-sizing:border-box;font-family:${FONT_BODY};color:${C.ink}}
+.bk-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:14px;align-items:start;min-width:0}
+.bk-main>.bk-wide{grid-column:1/-1}
 .bk-side{position:sticky;top:12px;display:grid;gap:10px}
 .bk-card{background:#fff;border:1px solid ${C.border};border-radius:12px;padding:16px 18px;display:grid;gap:12px}
 .bk-card h2{margin:0;font:700 14px ${FONT_DISPLAY}}
@@ -76,6 +78,7 @@ const CSS = `
 @media (max-width:900px){
   .bk{grid-template-columns:minmax(0,1fr);padding:12px 12px 88px}
   .bk-side{position:static;order:-1}
+  .bk-main{grid-template-columns:minmax(0,1fr)}
   .bk-prev img{max-height:250px;aspect-ratio:auto;object-fit:contain}
   .bk-pos{grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px)}
   .bk-colours{grid-template-columns:minmax(0,1fr)}
@@ -181,8 +184,8 @@ export function ThemePage({ showToast, onOpenVoice }) {
   return (
     <div className="bk">
       <style>{CSS}</style>
-      <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
-        <section className="bk-card" aria-label="Start from your website">
+      <div className="bk-main">
+        <section className="bk-card bk-wide" aria-label="Start from your website">
           <h2>Start from your website or product</h2>
           <p className="bk-note">Give us the address of your company, brand or software. We read it for your name, logos, colours, what you sell and how it works. You check everything below and change what you like. Nothing is saved until you press Save.</p>
           <form className="bk-row" onSubmit={readSite}>
@@ -195,7 +198,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
           {found ? (
             <div className="bk-found" role="status">
               <div className="bk-note" style={{ color: C.ink }}>
-                Found on {found.website}: {[["name", "name"], ["logo", "logo"], ["colour", "colours"], ["about", "what you do"], ["products", "products or services"]].map(([k, w]) => `${w} ${found.found[k] ? "yes" : "no"}`).join(", ")}.
+                {found.crawled > 1 ? `Read ${found.crawled} pages of ${found.website}. ` : ""}Found on {found.website}: {[["name", "name"], ["logo", "logo"], ["colour", "colours"], ["about", "what you do"], ["products", "products or services"]].map(([k, w]) => `${w} ${found.found[k] ? "yes" : "no"}`).join(", ")}.
                 {found.found.logo && found.found.colour && found.found.about ? " It is filled in below. Check it." : " Fill in what is missing below. Websites built entirely with scripts show us little."}
               </div>
               {found.note || !found.found.about ? (
@@ -213,7 +216,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
           ) : null}
         </section>
 
-        <section className="bk-card" aria-label="Colours">
+        <section className="bk-card bk-wide" aria-label="Colours">
           <h2>Colours</h2>
           <div>
             <div className="bk-note" style={{ marginBottom: 4 }}>Your theme at a glance</div>
@@ -303,6 +306,14 @@ export function ThemePage({ showToast, onOpenVoice }) {
                 <span>Size: {kit.logoSize}% of the picture's width</span>
                 <input type="range" min={8} max={40} value={kit.logoSize} onChange={(e) => set("logoSize", Number(e.target.value))} style={{ width: "100%", maxWidth: 320, accentColor: C.teal }} />
               </label>
+              <label className="bk-field">
+                <span>Opacity: {kit.logoOpacity}% {kit.logoOpacity < 100 ? "(see-through)" : "(solid)"}</span>
+                <input type="range" min={10} max={100} step={5} value={kit.logoOpacity} onChange={(e) => set("logoOpacity", Number(e.target.value))} style={{ width: "100%", maxWidth: 320, accentColor: C.teal }} />
+              </label>
+              <label className="bk-switch" style={{ fontWeight: 500, fontSize: 13 }}>
+                <input type="checkbox" checked={kit.logoKnockout} onChange={(e) => set("logoKnockout", e.target.checked)} />
+                <span>Make the logo's white background see-through<small>For a logo saved on a white block.</small></span>
+              </label>
               <label className="bk-switch" style={{ fontWeight: 500, fontSize: 13 }}>
                 <input type="checkbox" checked={kit.logoBackdrop} onChange={(e) => set("logoBackdrop", e.target.checked)} />
                 <span>Backing in your surface colour behind the logo, for logos that are hard to see on a coloured bar or a busy picture</span>
@@ -311,7 +322,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
           ) : null}
         </section>
 
-        <section className="bk-card" aria-label="About your business">
+        <section className="bk-card bk-wide" aria-label="About your business">
           <h2>About your business</h2>
           <p className="bk-note">What we read from your website, in your own words to edit. The AI uses it when it writes your posts, so it knows what you sell and never has to guess.</p>
           <label className="bk-field"><span>Business name</span><input type="text" value={kit.name} maxLength={80} onChange={(e) => set("name", e.target.value)} /></label>

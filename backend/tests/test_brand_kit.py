@@ -109,7 +109,7 @@ async def test_a_website_fills_the_kit_and_a_private_address_is_refused(monkeypa
     logo = _png(size=(300, 120), colour=(10, 127, 111, 255))
     seen = []
 
-    async def fake(url, limit, want_html=False):
+    async def fake(url, limit, want_html=False, timeout=0.0):
         seen.append(url)
         if want_html:
             return html, "https://www.brightside.test/"
@@ -125,7 +125,7 @@ async def test_a_website_fills_the_kit_and_a_private_address_is_refused(monkeypa
     assert got["logoUrl"].endswith(".png") and got["footerText"] == "Brightside Dental · brightside.test"
     assert got["found"] == {"name": True, "logo": True, "colour": True, "about": False, "products": False}
     assert got["palette"]["primary"] == "#0A7F6F" and set(got["palette"]) == set(BK.ROLES) and got["logos"] == [got["logoUrl"]]
-    assert seen[1] == "https://www.brightside.test/img/logo.png"  # the logo in the page header is tried first
+    assert "https://www.brightside.test/img/logo.png" in seen  # the logo in the page header is among those tried
     with pytest.raises(FetchRefused):
         await BK.from_website("")
     with pytest.raises(FetchRefused):
@@ -362,7 +362,7 @@ async def test_a_site_that_blocks_us_still_gives_a_theme_and_a_plain_note(monkey
     tried = []
     icon = _png(size=(180, 180), colour=(10, 127, 111, 255))
 
-    async def fake(url, limit, want_html=False):
+    async def fake(url, limit, want_html=False, timeout=0.0):
         tried.append(url)
         if url.endswith("/apple-touch-icon.png"):
             return icon, url
@@ -382,7 +382,7 @@ async def test_an_address_we_never_fetch_still_returns_a_result_with_a_note_and_
 
     calls = []
 
-    async def fake(url, limit, want_html=False):
+    async def fake(url, limit, want_html=False, timeout=0.0):
         calls.append(url)
         raise FetchRefused("That address is not a public website.")
 
@@ -406,3 +406,91 @@ def test_the_bar_is_a_soft_gradient_and_a_dark_logo_on_a_dark_bar_gets_a_light_b
     assert max(_px(on_dark, (900, 922))) > 200  # a light backing appeared behind the logo without being asked
     light_on_dark = BK.compose(_jpg(), _png(colour=(255, 255, 255, 255)), {"template": "footer", "primary": "#102040", "logoUrl": "/x", "logoPosition": "bottom_right", "logoSize": 12})
     assert max(_px(light_on_dark, (935, 950))) > 200  # a light logo already shows, with no extra backing needed
+
+
+async def test_a_script_built_site_is_named_from_its_structured_data_and_a_favicon_sized_icon_is_kept(monkeypatch):
+    from app.services import media_store
+
+    shell = (b"<html><head><link rel='icon' href='/media/i.png?w=180'>"
+             b"<script type='application/ld+json'>{\"@context\":\"https://schema.org\",\"@type\":\"Organization\",\"name\":\"Federation of Small Businesses\"}</script></head><body><div id='app'></div></body></html>")
+    icon = _png(size=(32, 32), colour=(0, 206, 206, 255))
+
+    async def fake(url, limit, want_html=False, timeout=0.0):
+        if want_html:
+            return shell, "https://www.fsb.test/"
+        if "/media/i.png" in url:
+            return icon, url
+        raise __import__("app.services.safe_fetch", fromlist=["FetchRefused"]).FetchRefused("nope")
+
+    monkeypatch.setattr(BK, "_download", fake)
+    monkeypatch.setattr(media_store, "store_image_bytes", lambda raw, mime="image/jpeg": "/api/scheduler/media/" + "c" * 16 + ".png")
+    got = await BK.from_website("https://www.fsb.test/")
+    assert got["name"] == "Federation of Small Businesses" and got["logoUrl"].endswith(".png")
+    assert got["business"]["summary"] == "" and "builds its pages with scripts" in got["note"]  # nothing to read, and it says so plainly
+
+
+async def test_a_script_built_site_gets_its_sections_from_the_sitemap(monkeypatch):
+
+    async def fake(url, limit, want_html=False, timeout=0.0):
+        if want_html:
+            return b"<html><head></head><body><div id='app'></div></body></html>", "https://www.fsb.test/"
+        if url.endswith("/sitemap.xml"):
+            locs = "".join(f"<url><loc>https://www.fsb.test/{p}</loc></url>" for p in
+                           ["membership", "membership/join", "membership/benefits", "legal-support", "legal-support/tax", "login", "privacy", "news/one", "other.pdf"])
+            locs += "<url><loc>https://elsewhere.example/membership</loc></url>"
+            return f"<urlset>{locs}</urlset>".encode(), url
+        raise __import__("app.services.safe_fetch", fromlist=["FetchRefused"]).FetchRefused("nope")
+
+    async def nothing(query, **kw):
+        return []
+
+    monkeypatch.setattr(BK, "_download", fake)
+    got = await BK.from_website("https://www.fsb.test/")
+    assert got["business"]["products"] == ["Membership", "Legal Support", "News"] and got["business"]["pages"] == ["Membership", "Legal Support", "News"]
+
+
+async def test_a_script_built_page_gives_up_what_is_inside_its_own_data_and_its_about_page(monkeypatch):
+    shell = (b"<html><head><script type='application/json'>{\"page\":{\"description\":\"We help small firms with legal, tax and money matters, with advice by phone and online.\","
+             b"\"cards\":[{\"title\":\"Legal advice\"},{\"title\":\"Tax help\"},{\"title\":\"Cookie settings\"}]}}</script></head><body><div id='app'></div></body></html>")
+    about = b"<html><body><h1>About us</h1><h2>Our members</h2><p>Thousands of owners rely on us every day for support.</p></body></html>"
+    asked = []
+
+    async def fake(url, limit, want_html=False, timeout=0.0):
+        asked.append(url)
+        if want_html and url.rstrip("/").endswith("fsb.test"):
+            return shell, "https://www.fsb.test/"
+        if want_html and url.endswith("/about"):
+            return about, url
+        raise __import__("app.services.safe_fetch", fromlist=["FetchRefused"]).FetchRefused("nope")
+
+    monkeypatch.setattr(BK, "_download", fake)
+    got = await BK.from_website("https://www.fsb.test/")
+    assert got["business"]["summary"].startswith("We help small firms with legal, tax and money matters")
+    assert got["business"]["products"][:2] == ["Legal advice", "Tax help"] and "Cookie settings" not in got["business"]["products"]
+    assert got["note"] == ""  # it found what the business does, so nothing to apologise for
+
+
+def test_the_scanner_uses_no_outside_search_service():
+    import inspect
+
+    src = inspect.getsource(BK)
+    assert "search_web" not in src and "tavily" not in src.lower() and "deepseek" not in src.lower()
+
+
+def test_the_logo_can_be_see_through_and_lose_its_white_block():
+    base = {"template": "logo", "logoUrl": "/x", "logoPosition": "middle_center", "logoSize": 30}
+    pic = _jpg(colour=(255, 255, 255))
+    solid = BK.compose(pic, _png(size=(200, 80), colour=(200, 30, 60, 255)), base)
+    faded = BK.compose(pic, _png(size=(200, 80), colour=(200, 30, 60, 255)), {**base, "logoOpacity": 40})
+    assert _px(solid, (500, 500))[1] < 60 and 120 < _px(faded, (500, 500))[1] < 190  # the faded logo lets the white picture show through
+    assert BK.clean({"logoOpacity": 3})["logoOpacity"] == 10 and BK.clean({"logoOpacity": "x"})["logoOpacity"] == 100
+    both = Image.new("RGBA", (200, 80), (255, 255, 255, 255))
+    for x in range(60, 140):
+        for y in range(20, 60):
+            both.putpixel((x, y), (20, 40, 160, 255))
+    buf = io.BytesIO(); both.save(buf, "PNG")
+    on_photo = _jpg(colour=(200, 120, 40))
+    boxed = BK.compose(on_photo, buf.getvalue(), {**base, "logoSize": 40, "logoPosition": "middle_center"})
+    clear = BK.compose(on_photo, buf.getvalue(), {**base, "logoSize": 40, "logoPosition": "middle_center", "logoKnockout": True})
+    assert _px(boxed, (330, 500))[1] > 230 and _px(clear, (330, 500))[1] < 140  # the white block is gone and the photo shows round the mark
+    assert _px(clear, (500, 500))[2] > 120  # the mark itself stays

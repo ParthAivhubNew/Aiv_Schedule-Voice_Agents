@@ -9,6 +9,7 @@ The picture AI never draws the logo or the words: they are put on afterwards fro
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
@@ -62,6 +63,28 @@ def hex_colour(value: object, default: str = "") -> str:
     return default
 
 
+def _opacity(value: Any) -> int:
+    try:
+        return min(max(int(value), 10), 100)
+    except (TypeError, ValueError):
+        return 100
+
+
+def _knock_out_white(mark):
+    """The logo with its white (or near-white) background made see-through, softly at the edges, for logos saved on a white block."""
+    px = mark.load()
+    w, h = mark.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            low = min(r, g, b)
+            if low >= 245:
+                px[x, y] = (r, g, b, 0)
+            elif low >= 215:
+                px[x, y] = (r, g, b, int(a * (245 - low) / 30))
+    return mark
+
+
 def _lines(value: Any, limit: int, width: int) -> List[str]:
     items = value if isinstance(value, list) else str(value or "").splitlines()
     out: List[str] = []
@@ -108,6 +131,8 @@ def clean(raw: Any) -> Dict[str, Any]:
         "logoPosition": raw.get("logoPosition") if raw.get("logoPosition") in POSITIONS else "bottom_left",
         "logoSize": size,
         "logoBackdrop": bool(raw.get("logoBackdrop")),
+        "logoOpacity": _opacity(raw.get("logoOpacity")),  # 100 = solid; less lets the picture show through the logo
+        "logoKnockout": bool(raw.get("logoKnockout")),  # make the logo's white background see-through
         "accentLine": bool(raw.get("accentLine")),  # a thin line of the accent colour on the bar's edge: off unless asked for
         "preset": preset,
         "colours": colours,
@@ -276,6 +301,11 @@ def compose(picture: bytes, logo: Optional[bytes], kit: Dict[str, Any]) -> Optio
                 th = max(cap, 1)
                 tw = max(int(mark.size[0] * th / max(mark.size[1], 1)), 1)
             mark = mark.resize((tw, th), Image.LANCZOS)
+            if k["logoKnockout"]:
+                mark = _knock_out_white(mark)
+            if k["logoOpacity"] < 100:
+                alpha = mark.getchannel("A").point(lambda v: int(v * k["logoOpacity"] / 100))
+                mark.putalpha(alpha)
             backed = k["logoBackdrop"] or (in_bar and _lacks_contrast(mark, primary))  # a logo that would melt into the bar gets a light backing
             pad = max(int(th * 0.14), 4) if backed else 0
             bw, bh = tw + 2 * pad, th + 2 * pad
@@ -349,7 +379,7 @@ def preview_backdrop(kit: Dict[str, Any], width: int = 1080, height: int = 1350)
 
 # ── Reading the company's website ───────────────────────────────────────────
 _GENERIC_LINKS = re.compile(r"^(home|log ?in|sign ?in|sign ?up|register|cart|basket|search|menu|skip|close|back|top|more|blog|news|careers?|jobs|privacy|terms|cookies?|contact( us)?|get started|book a demo|follow us)$", re.I)
-_GENERIC_HEADS = re.compile(r"(cookie|newsletter|subscribe|follow us|contact us|get in touch|privacy|terms|copyright|all rights|sign up|log ?in|share|related|menu)", re.I)
+_GENERIC_HEADS = re.compile(r"(follow |cookie|newsletter|subscribe|follow us|contact us|get in touch|privacy|terms|copyright|all rights|sign up|log ?in|share|related|menu)", re.I)
 _HOW = re.compile(r"(how (it|we|this) works?|our process|how to get started|getting started|the process|in (three|3|four|4|five|5) (easy )?steps|steps)", re.I)
 _PRODUCT_PAGE = re.compile(r"(product|service|solution|feature|platform|pricing|offer|what we do|how it works|about)", re.I)
 
@@ -370,6 +400,9 @@ class _Page(HTMLParser):
         self.styles: List[str] = []
         self.jsonld: List[str] = []
         self.nav: List[Tuple[str, str]] = []
+        self.links: List[str] = []
+        self.tels: List[str] = []
+        self.mails: List[str] = []
         self.items: List[Tuple[str, str]] = []
         self._depth_header = 0
         self._depth_nav = 0
@@ -401,6 +434,15 @@ class _Page(HTMLParser):
             blob = " ".join([a.get("src", ""), a.get("alt", ""), a.get("class", ""), a.get("id", "")]).lower()
             if "logo" in blob and (self._depth_header or "logo" in a.get("class", "").lower() or "logo" in a.get("id", "").lower() or "logo" in a.get("src", "").lower()):
                 self.logos.append(a["src"])
+        if tag == "a" and a.get("href"):
+            href = a["href"].strip()
+            low = href.lower()
+            if low.startswith("tel:") and len(self.tels) < 5:
+                self.tels.append(" ".join(href[4:].replace("%20", " ").split()))
+            elif low.startswith("mailto:") and len(self.mails) < 5:
+                self.mails.append(href[7:].split("?")[0].strip())
+            elif not low.startswith(("#", "javascript:", "data:")) and len(self.links) < 500:
+                self.links.append(href)
         if tag in self.CAPTURE and tag != "title" and not self._cap:
             if tag == "script" and "ld+json" not in a.get("type", "").lower():
                 return
@@ -432,6 +474,36 @@ class _Page(HTMLParser):
             self.title += data
         if self._cap:
             self._buf.append(data)
+
+
+def org_facts(page: _Page) -> Dict[str, str]:
+    """The company's name, description and logo address as it states them in the page's structured data (schema.org), when it does."""
+    import json
+
+    def walk(node):
+        if isinstance(node, list):
+            for n in node:
+                yield from walk(n)
+        elif isinstance(node, dict):
+            yield node
+            for v in node.values():
+                if isinstance(v, (list, dict)):
+                    yield from walk(v)
+
+    for blob in page.jsonld:
+        try:
+            data = json.loads(blob)
+        except Exception:
+            continue
+        for node in walk(data):
+            kind = node.get("@type")
+            kinds = kind if isinstance(kind, list) else [kind]
+            if any(str(k) in ("Organization", "Corporation", "LocalBusiness", "NGO", "OnlineBusiness", "Store", "WebSite") for k in kinds) and node.get("name"):
+                logo = node.get("logo")
+                logo = logo.get("url") if isinstance(logo, dict) else logo
+                return {"name": " ".join(str(node["name"]).split())[:80], "description": " ".join(str(node.get("description") or "").split())[:600],
+                        "logo": str(logo or "")}
+    return {}
 
 
 def site_name_from(page: _Page, host: str) -> str:
@@ -491,6 +563,15 @@ def dominant_colour(image: bytes) -> str:
     return "#%02X%02X%02X" % best if best else ""
 
 
+# Read the way a person's browser asks: many sites turn away a request that announces itself as a program, even for a public home page.
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
 def _variants(address: str) -> List[str]:
     """The address as typed, then with and without www, then the home page: tried in turn when a site turns the first one away."""
     u = urlparse(address)
@@ -513,15 +594,95 @@ def business_from_text(text: str) -> Dict[str, Any]:
     return {"summary": summary, "tagline": "", "products": list(dict.fromkeys(short))[:10], "howItWorks": [], "pages": []}
 
 
-async def _download(url: str, limit: int, want_html: bool = False) -> Tuple[bytes, str]:
+_SKIP_SECTIONS = re.compile(r"^(login|log-in|sign-?in|sign-?up|register|account|my-?account|cart|basket|checkout|search|privacy|terms|cookies?|cookie-policy|sitemap|404|error|"
+                            r"wp-|cdn-cgi|tag|category|author|page|feed|amp|preview|admin|api|s|sfsites)", re.I)
+_FILE_EXT = re.compile(r"\.(pdf|jpe?g|png|gif|svg|webp|zip|docx?|xlsx?|pptx?|mp[34]|css|js|xml|ico|txt)(\?|$)", re.I)
+_PAGE_ROLES = (
+    ("about", ("about", "who-we-are", "our-story", "company", "mission", "team")),
+    ("how", ("how-it-works", "how-we", "process", "getting-started")),
+    ("product", ("product", "service", "solution", "feature", "platform", "what-we-do", "offer", "treatment", "shop", "range", "menu", "industr", "support", "benefit")),
+    ("pricing", ("pricing", "plans", "price")),
+    ("contact", ("contact",)),
+)
+
+
+def page_role(path: str) -> str:
+    low = (path or "").lower()
+    for role, words in _PAGE_ROLES:
+        if any(w in low for w in words):
+            return role
+    return "other"
+
+
+async def _sitemap_urls(final: str, host: str) -> List[str]:
+    """The addresses a site lists in its public sitemap (the first sitemap, when it is an index of sitemaps), on this site only."""
+    try:
+        body, _ = await _download(urljoin(final, "/sitemap.xml"), 800_000)
+        locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body.decode("utf-8", errors="ignore"))
+        if locs and all(l.lower().split("?")[0].endswith(".xml") for l in locs[:3]):
+            body, _ = await _download(locs[0], 800_000)
+            locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body.decode("utf-8", errors="ignore"))
+    except Exception:
+        return []
+    return [l for l in locs[:3000] if (urlparse(l).hostname or "").lower().removeprefix("www.") == host]
+
+
+def sections_of(locs: List[str]) -> List[str]:
+    """The main sections of a site, named from the first part of its addresses."""
+    counts: Dict[str, int] = {}
+    for loc in locs:
+        first = (urlparse(loc).path or "/").strip("/").split("/")[0]
+        if not first or len(first) > 40 or _SKIP_SECTIONS.match(first) or "." in first:
+            continue
+        counts[first] = counts.get(first, 0) + 1
+    ranked = sorted(counts, key=lambda k: (-counts[k], k))[:10]
+    return [" ".join(w.capitalize() for w in re.split(r"[-_]+", r)) for r in ranked]
+
+
+def _embedded_text(html: str) -> Dict[str, Any]:
+    """Words a script-built page carries inside its own data (a JSON block the scripts draw from): descriptions, headlines and titles."""
+    import json
+
+    out: List[str] = []
+    best = ""
+    blobs = re.findall(r"<script[^>]*type=[\"']application/(?:json|ld\+json)[\"'][^>]*>(.*?)</script>", html, re.S | re.I)
+    blobs += re.findall(r"window\.__[A-Z_]+__\s*=\s*(\{.*?\});?\s*</script>", html, re.S)
+
+    def walk(node, key=""):
+        nonlocal best
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, str(k).lower())
+        elif isinstance(node, list):
+            for v in node[:80]:
+                walk(v, key)
+        elif isinstance(node, str):
+            t = " ".join(node.split())
+            if key in ("description", "metadescription", "summary", "tagline", "subtitle", "intro", "excerpt") and 50 <= len(t) <= 500 and " " in t and not t.startswith(("http", "{", "<")):
+                best = best or t
+            elif key in ("headline", "title", "heading", "label") and 3 <= len(t) <= 45 and not t.startswith(("http", "{", "<")) and t not in out:
+                out.append(t)
+
+    for blob in blobs[:8]:
+        try:
+            walk(json.loads(blob))
+        except Exception:
+            continue
+    names = [t for t in out if not _GENERIC_HEADS.search(t) and not _GENERIC_LINKS.match(t)]
+    return {"summary": best[:600], "products": names[:10]}
+
+
+_GUESS_PAGES = ("/about", "/about-us", "/what-we-do", "/services", "/our-services", "/products", "/solutions", "/pricing", "/how-it-works", "/contact")
+
+
+async def _download(url: str, limit: int, want_html: bool = False, timeout: float = 0.0) -> Tuple[bytes, str]:
     """Bytes of a public page or picture, by the same safe rules as reading a link in a chat (public addresses only, few redirects, small)."""
     import httpx
 
-    from app.services.crawler_service import USER_AGENT
     from app.services.safe_fetch import FetchRefused, MAX_REDIRECTS, TIMEOUT, _check
 
     current = url
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT, follow_redirects=False, headers=_BROWSER_HEADERS) as client:
         for _ in range(MAX_REDIRECTS + 1):
             await _check(current)
             async with client.stream("GET", current) as r:
@@ -542,13 +703,13 @@ async def _download(url: str, limit: int, want_html: bool = False) -> Tuple[byte
     raise FetchRefused("That website sent us round in circles.")
 
 
-def _usable_logo(raw: bytes) -> Optional[bytes]:
-    """PNG bytes of a picture that can be a logo (readable, at least 48px across), else None."""
+def _usable_logo(raw: bytes, least: int = 48) -> Optional[bytes]:
+    """PNG bytes of a picture that can be a logo (readable, at least `least` px across), else None."""
     from PIL import Image
 
     try:
         with Image.open(io.BytesIO(raw)) as im:
-            if im.size[0] < 48 or im.size[1] < 24:
+            if im.size[0] < least or im.size[1] < max(least // 2, 12):
                 return None
             if getattr(im, "is_animated", False):
                 im.seek(0)
@@ -718,6 +879,97 @@ def business_from(pages: List[_Page], host: str) -> Dict[str, Any]:
     return {"summary": summary[:600], "tagline": h1, "products": products[:10], "howItWorks": steps[:8], "pages": pages_seen}
 
 
+MAX_PAGES = 16
+CRAWL_SECONDS = 18.0
+
+
+def _clean_link(url: str) -> str:
+    u = url.split("#")[0]
+    return u if urlparse(u).path in ("", "/") else u.rstrip("/")
+
+
+async def crawl_site(final: str, host: str, home: "_Page", sitemap: List[str]) -> List[Tuple[str, "_Page"]]:
+    """The home page's neighbours: up to MAX_PAGES pages of this site (About, Services, Products, Pricing ...), found from its menu, its links,
+    its sitemap and the usual page names, read a few at a time within a time limit. Pages that will not load are skipped."""
+    import asyncio
+
+    pool = [h for _l, h in home.nav] + home.links + sitemap + list(_GUESS_PAGES)
+    seen = {_clean_link(final)}
+    ranked: List[Tuple[Tuple[int, int], str]] = []
+    for order, href in enumerate(pool):
+        u = _clean_link(urljoin(final, href))
+        parts = urlparse(u)
+        if u in seen or (parts.hostname or "").lower().removeprefix("www.") != host or parts.scheme not in ("http", "https"):
+            continue
+        if _FILE_EXT.search(parts.path) or parts.query.count("=") > 1:
+            continue
+        first = parts.path.strip("/").split("/")[0]
+        if first and _SKIP_SECTIONS.match(first):
+            continue
+        seen.add(u)
+        role = page_role(parts.path)
+        weight = {"about": 0, "product": 0, "how": 0, "pricing": 1, "contact": 1}.get(role, 2)
+        depth = len([x for x in parts.path.strip("/").split("/") if x])
+        ranked.append(((weight * 10 + depth, order), u))
+    ranked.sort()
+    wanted = [u for _k, u in ranked][: MAX_PAGES * 2]
+    gate = asyncio.Semaphore(8)
+    found: List[Tuple[str, "_Page"]] = []
+
+    async def one(u: str) -> None:
+        async with gate:
+            if len(found) >= MAX_PAGES:
+                return
+            try:
+                body, got = await _download(u, 700_000, want_html=True, timeout=7.0)
+                pg = _Page()
+                pg.feed(body.decode("utf-8", errors="ignore"))
+            except Exception:
+                return
+            if pg.items or pg.meta.get("description") or pg.title.strip():
+                found.append((got, pg))
+
+    tasks = [asyncio.create_task(one(u)) for u in wanted]
+    _, pending = await asyncio.wait(tasks, timeout=CRAWL_SECONDS)
+    for t in pending:
+        t.cancel()
+    order = {u: i for i, u in enumerate(wanted)}
+    found.sort(key=lambda e: order.get(_clean_link(e[0]), 999))
+    return found[:MAX_PAGES]
+
+
+def site_business(entries: List[Tuple[str, "_Page"]], host: str) -> Dict[str, Any]:
+    """Everything the crawled pages say about the business, merged: the About page's words for the summary, product and service names from the
+    pages about what is sold, the steps from any page that explains how it works, and the home page's menu."""
+    per = [(page_role(urlparse(u).path), pg, business_from([pg], host)) for u, pg in entries]
+    home_b = per[0][2]
+    summary = next((b["summary"] for r, _p, b in per if r == "about" and b["summary"]), "") or home_b["summary"] or next((b["summary"] for _r, _p, b in per if b["summary"]), "")
+    products: List[str] = []
+    seen_low: set = set()
+
+    def add(text: str) -> None:
+        t = " ".join(str(text or "").split())
+        if 3 <= len(t) <= 80 and t.lower() not in seen_low and not _GENERIC_HEADS.search(t) and not _GENERIC_LINKS.match(t) and len(products) < 10:
+            seen_low.add(t.lower())
+            products.append(t)
+
+    for r, _p, b in per:
+        if r == "product":
+            if len(b["tagline"]) <= 45:
+                add(b["tagline"])
+            for x in b["products"]:
+                add(x)
+    for _r, _p, b in per:
+        for x in b["products"]:
+            add(x)
+    steps: List[str] = []
+    for _r, _p, b in per:
+        for x in b["howItWorks"]:
+            if x not in steps and len(steps) < 8:
+                steps.append(x)
+    return {"summary": summary[:600], "tagline": home_b["tagline"], "products": products, "howItWorks": steps, "pages": home_b["pages"]}
+
+
 async def from_website(address: str, pasted: str = "") -> Dict[str, Any]:
     """What the company's website says about its brand: name, logos (kept in our media store), the colour theme, a footer line, and what the
     business does (summary, products, steps, menu). Nothing is saved: the person looks it over, changes anything, and saves.
@@ -752,10 +1004,13 @@ async def from_website(address: str, pasted: str = "") -> Dict[str, Any]:
     except Exception:
         pass
     host = (urlparse(final).hostname or host).lower().removeprefix("www.")
-    name = _trim_to_host(site_name_from(page, host), host)
+    org = org_facts(page)
+    name = org.get("name") or _trim_to_host(site_name_from(page, host), host)
 
     # Logos: the picture in the page header, the structured-data logo, then the touch icons and favicon. Up to four are kept to choose from.
     candidates: List[str] = [urljoin(final, u) for u in page.logos[:3]]
+    if org.get("logo"):
+        candidates.append(urljoin(final, org["logo"]))
     for blob in page.jsonld:
         m = re.search(r'"logo"\s*:\s*(?:"([^"]+)"|\{[^{}]*?"url"\s*:\s*"([^"]+)")', blob)
         if m:
@@ -764,68 +1019,95 @@ async def from_website(address: str, pasted: str = "") -> Dict[str, Any]:
     if not page.logos and page.meta.get("og:image"):
         candidates.append(urljoin(final, page.meta["og:image"]))
     candidates += [urljoin(final, path) for path in ("/apple-touch-icon.png", "/logo.png", "/favicon.png", "/favicon.ico")]
-    logo_pngs: List[bytes] = []
-    for url in dict.fromkeys(candidates):
-        if unreachable or url.lower().split("?")[0].endswith(".svg") or len(logo_pngs) >= 4:
-            continue
-        try:
-            blob, _ = await _download(url, 2_000_000)
-        except Exception:
-            continue
-        png = _usable_logo(blob)
-        if png and png not in logo_pngs:
-            logo_pngs.append(png)
+    async def fetch_logos():
+        pngs: List[bytes] = []
+        small: List[bytes] = []
+        urls = [u for u in dict.fromkeys(candidates) if not u.lower().split("?")[0].endswith(".svg")][:10]
+
+        async def one(u: str):
+            try:
+                return (await _download(u, 2_000_000, timeout=8.0))[0]
+            except Exception:
+                return None
+
+        for blob in await asyncio.gather(*[one(u) for u in urls]):
+            if not blob:
+                continue
+            png = _usable_logo(blob)
+            if png and png not in pngs and len(pngs) < 4:
+                pngs.append(png)
+            elif not png:
+                tiny = _usable_logo(blob, 24)
+                if tiny and tiny not in small:
+                    small.append(tiny)
+        return pngs, small
+
+    async def fetch_css() -> str:
+        async def one(href: str) -> str:
+            try:
+                return (await _download(urljoin(final, href), 400_000, timeout=8.0))[0].decode("utf-8", errors="ignore")
+            except Exception:
+                return ""
+
+        return "\n".join(await asyncio.gather(*[one(h) for h in page.sheets[:3]]))
+
+    if unreachable:
+        (logo_pngs, small_ones), sheet_css, sitemap = ([], []), "", []
+    else:
+        (logo_pngs, small_ones), sheet_css, sitemap = await asyncio.gather(fetch_logos(), fetch_css(), _sitemap_urls(final, host))
+    if not logo_pngs and small_ones:
+        logo_pngs = small_ones[:1]
     logos = [u for u in (store_image_bytes(png, "image/png") for png in logo_pngs) if u]
 
     # Colours: custom properties and colours in the page's own style rules and its first style sheets, the theme colour and the logo's colour.
-    css = "\n".join(page.styles)
-    for href in page.sheets[:3]:
-        if unreachable:
-            break
-        try:
-            body, _ = await _download(urljoin(final, href), 400_000)
-            css += "\n" + body.decode("utf-8", errors="ignore")
-        except Exception:
-            continue
+    css = "\n".join(page.styles) + "\n" + sheet_css
     counts, hints = css_colours(css)
     theme_colour = hex_colour(page.meta.get("theme-color") or page.meta.get("msapplication-tilecolor"), "")
     logo_colour = dominant_colour(logo_pngs[0]) if logo_pngs else ""
     palette, swatches = palette_from(counts, hints, theme_colour, logo_colour)
     seen_colour = bool(counts or theme_colour or logo_colour)
 
-    # The business: the home page, and up to two pages the menu points to that talk about what is sold or how it works.
-    pages = [page]
-    for label, href in page.nav:
-        if len(pages) >= 3:
-            break
-        target = urljoin(final, href)
-        if (urlparse(target).hostname or "").lower().removeprefix("www.") != host or target.split("#")[0].rstrip("/") == final.rstrip("/"):
-            continue
-        if not _PRODUCT_PAGE.search(label + " " + urlparse(target).path):
-            continue
-        try:
-            more, _ = await _download(target, 800_000, want_html=True)
-            sub = _Page()
-            sub.feed(more.decode("utf-8", errors="ignore"))
-            pages.append(sub)
-        except Exception:
-            continue
-    business = business_from(pages, host)
+    # The whole site: the home page and up to MAX_PAGES pages around it, merged.
+    entries: List[Tuple[str, _Page]] = [(final, page)]
+    if not unreachable:
+        entries += await crawl_site(final, host, page, sitemap)
+    for _u, pg in entries[1:]:
+        css += "\n" + "\n".join(pg.styles[:2])
+    if css:
+        counts, hints = css_colours(css)
+        palette, swatches = palette_from(counts, hints, theme_colour, logo_colour)
+        seen_colour = bool(counts or theme_colour or logo_colour)
+    business = site_business(entries, host)
+    if not business["summary"] and org.get("description"):
+        business["summary"] = org["description"]
+    if not business["summary"] and not unreachable:  # a page built by scripts: what its own data blocks say
+        embedded = _embedded_text(html_bytes.decode("utf-8", errors="ignore"))
+        mine = [x for x in embedded["products"] if x.lower() not in {p.lower() for p in business["products"]}]
+        business = {**business, "summary": embedded["summary"] or business["summary"], "products": (mine + business["products"])[:10]}  # the home page's own cards come first
+    if not business["products"] and sitemap:
+        sections = sections_of(sitemap)
+        if sections:
+            business = {**business, "products": sections, "pages": business.get("pages") or sections}
+    thin = not business["summary"] and not business["products"]
+    phone = next((t for _u, pg in entries for t in pg.tels), "")
     if str(pasted or "").strip():  # what the owner pasted fills in whatever the website did not give
         said = business_from_text(pasted)
         business = {**business, **{k: v for k, v in said.items() if v and not business.get(k)}}
 
-    footer = f"{name} \u00b7 {host}" if name else host
+    footer = " \u00b7 ".join(x for x in (name, host, phone) if x)
     found = {"name": bool(name), "logo": bool(logos), "colour": seen_colour, "about": bool(business["summary"]), "products": bool(business["products"])}
     if unreachable:
         note = "We could not reach that website, so we used the name in its address. Add your logo and what you do by hand, or paste your About text below."
+    elif not blocked and not found["about"]:
+        note = "This website builds its pages with scripts, so we could read little of it. Add what you do by hand or paste your About text below."
     elif blocked:
         note = ("That website does not let programs read it, so we filled in what we could from its address" + (" and its icon" if logos else "")
                 + ". Add your logo and what you do by hand, or paste your About text below.")
     else:
         note = ""
     return {"name": name, "website": host, "logoUrl": logos[0] if logos else "", "logos": logos, "primary": palette["primary"], "palette": palette,
-            "swatches": swatches, "footerText": footer[:120], "business": business, "found": found, "note": note}
+            "swatches": swatches, "footerText": footer[:120], "business": business, "found": found, "note": note,
+            "crawled": len(entries) if not unreachable else 0, "phone": phone}
 
 
 # ── Using the theme in posts ────────────────────────────────────────────────
