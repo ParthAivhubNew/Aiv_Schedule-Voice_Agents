@@ -886,18 +886,28 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
   );
 }
 
-// True on a phone-sized screen, where the list of journeys becomes a dropdown so the journey itself stays in view.
+// True when there is only phone-sized room: a phone-sized window, or a wider window where the app's own menu leaves the page less than
+// 720px (the list beside a journey needs about that). The list of journeys then becomes a dropdown so the journey itself stays in view.
+// Returns [narrow, measure]: pass `measure` as the ref of the page's outer element.
 function useNarrow() {
   const query = "(max-width: 700px)";
-  const [narrow, setNarrow] = useState(() => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : false));
+  const [small, setSmall] = useState(() => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : false));
+  const [box, setBox] = useState(null);
+  const [cramped, setCramped] = useState(false);
   useEffect(() => {
     if (!window.matchMedia) return undefined;
     const m = window.matchMedia(query);
-    const on = () => setNarrow(m.matches);
+    const on = () => setSmall(m.matches);
     m.addEventListener("change", on);
     return () => m.removeEventListener("change", on);
   }, []);
-  return narrow;
+  useEffect(() => {
+    if (!box || typeof ResizeObserver !== "function") return undefined;
+    const ro = new ResizeObserver((entries) => setCramped(entries[0].contentRect.width < 720));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [box]);
+  return [small || cramped, setBox];
 }
 
 const FILTERS = [["running", "Running"], ["draft", "Drafts"], ["completed", "Finished"], ["archived", "Archived"]];
@@ -913,7 +923,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("running"); // running (with paused) | draft | completed | archived
   const lists = (listsStore && listsStore.lists) || [];
-  const narrow = useNarrow();
+  const [narrow, measure] = useNarrow();
 
   const load = useCallback(async () => {
     try { const r = await api.journeys(); setJourneys(r.journeys || []); setError(""); } catch (e) { setError(e.message || "Couldn't load your journeys."); setJourneys((j) => j || []); }
@@ -939,7 +949,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
   const empty = !journeys.length;
 
   return (
-    <div style={narrow ? { display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflowY: "auto" } : { display: "flex", gap: 16, alignItems: "stretch", height: "100%", minHeight: 0 }} className={narrow ? "jw-quiet" : undefined}>
+    <div ref={measure} style={narrow ? { display: "flex", flexDirection: "column", gap: 12, height: "100%", minHeight: 0, overflowY: "auto" } : { display: "flex", gap: 16, alignItems: "stretch", height: "100%", minHeight: 0 }} className={narrow ? "jw-quiet" : undefined}>
       <style>{WHEEL_CSS}</style>
       <Note error>{error}</Note>
       {narrow ? (
