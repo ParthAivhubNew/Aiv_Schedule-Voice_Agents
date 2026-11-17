@@ -33,3 +33,29 @@ def test_not_in_the_query_when_off():
 def test_chip_is_shown():
     chips = lead_filters.describe(BR.normalize_filters({"postcode_prefixes": ["BN"], "fsb_exclusions": True}))
     assert any(c == "Exclusion list" for c in chips)
+
+
+def test_sole_trader_filter_means_no_company_number():
+    f = BR.normalize_filters({"postcode_prefixes": ["BN"], "legal_form": "sole", "record_sources": ["food", "bogus"]})
+    assert f["legal_form"] == "sole" and f["record_sources"] == ["food"]
+    sql = _sql({"postcode_prefixes": ["BN"], "legal_form": "sole"})
+    assert "NOT (coalesce(business_records.registration_number, '') ~ '^[A-Z0-9]{8}$')" in sql and "CC-%" in sql
+    assert "legal_form" not in BR.normalize_filters({"postcode_prefixes": ["BN"], "legal_form": "anything else"})
+
+
+def test_registered_companies_and_sources():
+    assert "~ '^[A-Z0-9]{8}$'" in _sql({"postcode_prefixes": ["BN"], "legal_form": "company"})
+    sql = _sql({"postcode_prefixes": ["BN"], "legal_form": "sole", "record_sources": ["food", "other"]})
+    assert "ds_food_hygiene" in sql and "ds_cqc" in sql  # "other" means none of the named registers
+
+
+def test_exclusion_list_with_sole_traders_does_not_demand_a_company_number():
+    sole = _sql({"postcode_prefixes": ["BN"], "legal_form": "sole", "fsb_exclusions": True})
+    registered = _sql({"postcode_prefixes": ["BN"], "fsb_exclusions": True})
+    assert sole.count("~ '^[A-Z0-9]{8}$'") == 1 and registered.count("~ '^[A-Z0-9]{8}$'") == 1
+    assert "84110" in sole  # the SIC and name rules still apply
+
+
+def test_chips():
+    chips = lead_filters.describe(BR.normalize_filters({"postcode_prefixes": ["BN"], "legal_form": "sole", "record_sources": ["care"]}))
+    assert "Sole traders (no company number)" in chips and any(c.startswith("Records from: Care") for c in chips)

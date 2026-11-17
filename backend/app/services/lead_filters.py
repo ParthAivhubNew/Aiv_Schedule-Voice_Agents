@@ -174,6 +174,11 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("No charities")
     if filters.get("fsb_exclusions"):
         chips.append("Exclusion list")
+    if filters.get("legal_form"):
+        chips.append("Registered companies only" if filters["legal_form"] == "company" else "Sole traders (no company number)")
+    if filters.get("record_sources"):
+        names = {"food": "Food hygiene register", "care": "Care register", "other": "Imported or web-found"}
+        chips.append("Records from: " + ", ".join(names.get(k, k) for k in filters["record_sources"]))
     if filters.get("min_age_years") is not None:
         chips.append(f"Age: {filters['min_age_years']:g}+ years")
     if filters.get("max_age_years") is not None:

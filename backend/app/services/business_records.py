@@ -504,7 +504,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
-               "company_types", "exclude_charities", "fsb_exclusions",
+               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources",
                # Phase 4: radius, register signals; Phase 7d: website signals
                "near", "signals", "site")
 COUNT_CAP = 10_000
@@ -590,6 +590,12 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
         value = str((filters or {}).get(key) or "").strip()
         if value:
             out[key] = value
+    form = str((filters or {}).get("legal_form") or "").strip().lower()
+    if form in ("company", "sole"):
+        out["legal_form"] = form
+    picked = [v for v in dict.fromkeys(_as_list((filters or {}).get("record_sources"))) if v in RECORD_SOURCES]
+    if picked:
+        out["record_sources"] = picked
     for key in ("min_age_years", "max_age_years"):
         try:
             value = float((filters or {}).get(key))
@@ -740,8 +746,12 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(or_(*[_type_match(t) for t in f["company_types"]]))
     if f.get("exclude_charities"):
         conds.append(~_charity())
+    if f.get("legal_form"):
+        conds.append(_legal_form(f["legal_form"]))
+    if f.get("record_sources"):
+        conds.append(_record_source(f["record_sources"]))
     if f.get("fsb_exclusions"):
-        conds += _fsb_exclusions()
+        conds += _fsb_exclusions(unregistered_too=f.get("legal_form") == "sole")
     today = datetime.utcnow().date()
 
     def years_ago(years: float):
@@ -838,6 +848,29 @@ def _charity() -> Any:
                cast(B.sources, String).like('%"ds_charity_commission"%'))
 
 
+# Sole traders are not on the Companies House register, so they cannot be found by company type. What we hold for them are records with no company
+# number: the Food Hygiene register (every food business of every legal form), the care register, and imported or looked-up businesses. "Sole" therefore
+# means "no company number": a sole trader, a partnership, or a business we could not match to a company. Charity-register numbers (CC-...) are not sole traders.
+RECORD_SOURCES = {"food": "ds_food_hygiene", "care": "ds_cqc", "other": ""}
+_CH_NUMBER = "^[A-Z0-9]{8}$"
+
+
+def _legal_form(form: str) -> Any:
+    reg = func.coalesce(BusinessRecord.registration_number, "")
+    if form == "company":
+        return reg.op("~")(_CH_NUMBER)
+    return and_(~reg.op("~")(_CH_NUMBER), ~reg.like("CC-%"))
+
+
+def _record_source(picked: List[str]) -> Any:
+    """Records that came from any of the picked registers; "other" is a record from none of the named ones (imported, or looked up on the web)."""
+    src = func.coalesce(cast(BusinessRecord.sources, String), "")
+    parts = [src.like(f'%"{RECORD_SOURCES[k]}"%') for k in picked if k in ("food", "care")]
+    if "other" in picked:
+        parts.append(and_(*[~src.like(f'%"{RECORD_SOURCES[k]}"%') for k in ("food", "care")]))
+    return or_(*parts)
+
+
 # FSB's exclusion list ("FSB exclusion rules - for developers", 17 November 2026). A company stays only when it is a Companies House company and none of
 # these applies: its type is one of the excluded types, it is on the Charity Commission register, ANY of its SIC codes is one of the excluded codes (exact,
 # not only the first), or its name has an excluded word (a driving school or dance school stays in). Status "Active" exactly is the search's own default.
@@ -852,11 +885,11 @@ FSB_NAME_WORDS = (r"\m(charit[a-z]*|church|parish|mosque|synagogue|temple|casino
 FSB_NAME_KEEP = r"(driving school|dance school)"
 
 
-def _fsb_exclusions() -> list:
-    """The conditions that leave out everything on FSB's exclusion list (see FSB_TYPES above)."""
+def _fsb_exclusions(unregistered_too: bool = False) -> list:
+    """The conditions that leave out everything on the exclusion list (see FSB_TYPES above). The Companies-House-only rule is skipped
+    when the person is looking at sole traders, who have no company number."""
     B = BusinessRecord
-    return [
-        func.coalesce(B.registration_number, "").op("~")("^[A-Z0-9]{8}$"),  # a Companies House company, not a charity-only or directory record
+    return ([] if unregistered_too else [func.coalesce(B.registration_number, "").op("~")(_CH_NUMBER)]) + [
         ~func.lower(func.btrim(func.coalesce(B.company_category, ""))).in_(FSB_TYPES),
         ~func.coalesce(cast(B.sources, String), "").like('%"ds_charity_commission"%'),  # a record with no sources is not on the charity register
         ~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(FSB_SIC) + r")\|"),

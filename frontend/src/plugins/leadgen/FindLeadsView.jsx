@@ -45,16 +45,19 @@ const CHECK_TIPS = {
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
   noCharities: "Leave out charities and companies on the charity register",
+  legalForm: "Registered companies have a Companies House number. Sole traders are not on that register, so this finds the records we hold with no company number: sole traders, partnerships, and businesses we could not match to a company",
   fsbExclusions: "Exclusion list: only Companies House companies, leaving out charities and registered societies, any company with an excluded SIC code (hospitals, schools, banks, government, trade bodies, railways and the rest), and names with words like church, school, NHS, casino",
 };
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, fsbExclusions: false, notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
+const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, fsbExclusions: false, legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "fsbExclusions", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "fsbExclusions", "legalForm", "recordSources", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
+const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
+const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
 const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "CIC"], ["guarantee", "By guarantee"], ["partnership", "Partnership"]];
 
 const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -101,6 +104,8 @@ function formToFilters(f) {
   if ((f.types || []).length) out.company_types = f.types;
   if (f.noCharities) out.exclude_charities = true;
   if (f.fsbExclusions) out.fsb_exclusions = true;
+  if (f.legalForm) out.legal_form = f.legalForm;
+  if ((f.recordSources || []).length) out.record_sources = f.recordSources;
   if (f.hasWebsite) out.has_website = true;
   if (f.includeNonBusiness) out.include_non_business = true;
   if (f.includeSecondary) out.include_secondary_activity = true;
@@ -123,7 +128,7 @@ function appliedWords(f) {
 function filtersToForm(fl) {
   return {
     name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "),
-    types: fl.company_types || [], noCharities: !!fl.exclude_charities, fsbExclusions: !!fl.fsb_exclusions, town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
+    types: fl.company_types || [], noCharities: !!fl.exclude_charities, fsbExclusions: !!fl.fsb_exclusions, legalForm: fl.legal_form || "", recordSources: fl.record_sources || [], town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
@@ -1182,6 +1187,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                   style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
               })}
             </div>
+            <label style={field} title={CHECK_TIPS.legalForm}><span style={label}>Business form</span>
+              <select className="ui-input" value={form.legalForm} onChange={(e) => setField("legalForm", e.target.value)}>
+                {FORM_OPTIONS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select></label>
+            {form.legalForm === "sole" ? (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Only records that came from these registers (none ticked: all of them)">
+                {SOURCE_OPTIONS.map(([id, name]) => {
+                  const on = (form.recordSources || []).includes(id);
+                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Record from: ${name}`} onClick={() => setField("recordSources", on ? form.recordSources.filter((x) => x !== id) : [...(form.recordSources || []), id])}
+                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
+                })}
+              </div>
+            ) : null}
             {check("noCharities", "Leave out charities")}
             {check("fsbExclusions", "Exclusion list")}
             <label style={field} title="Leave out these legal forms"><span style={label}>Leave out types</span>
