@@ -504,7 +504,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
-               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources",
+               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources", "exclude_items",
                # Phase 4: radius, register signals; Phase 7d: website signals
                "near", "signals", "site")
 COUNT_CAP = 10_000
@@ -593,6 +593,9 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     form = str((filters or {}).get("legal_form") or "").strip().lower()
     if form in ("company", "sole"):
         out["legal_form"] = form
+    items = [v[:40] for v in dict.fromkeys(_as_list((filters or {}).get("exclude_items"))) if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:200]
+    if items:
+        out["exclude_items"] = items
     picked = [v for v in dict.fromkeys(_as_list((filters or {}).get("record_sources"))) if v in RECORD_SOURCES]
     if picked:
         out["record_sources"] = picked
@@ -752,6 +755,8 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(_record_source(f["record_sources"]))
     if f.get("fsb_exclusions"):
         conds += _fsb_exclusions(unregistered_too=f.get("legal_form") == "sole")
+    if f.get("exclude_items"):
+        conds += _exclusion_items(f["exclude_items"])
     today = datetime.utcnow().date()
 
     def years_ago(years: float):
@@ -869,6 +874,45 @@ def _record_source(picked: List[str]) -> Any:
     if "other" in picked:
         parts.append(and_(*[~src.like(f'%"{RECORD_SOURCES[k]}"%') for k in ("food", "care")]))
     return or_(*parts)
+
+
+_SIC_ITEM = re.compile(r"\d{2,5}")
+_COMPANY_NO_ITEM = re.compile(r"[A-Za-z]{0,2}\d{6,8}")
+_DISTRICT_ITEM = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?(?: \d[A-Z]{0,2})?")
+
+
+def classify_exclusions(items: List[str]) -> Dict[str, List[str]]:
+    """Sorts what a person typed into the exclusion box: SIC codes (2 to 5 digits; a shorter one leaves out every code that starts with it),
+    company numbers (a suppression list), postcode districts (BN45, SW1A, BN1 4), and anything else is a word looked for in the name and trade."""
+    out: Dict[str, List[str]] = {"sic": [], "numbers": [], "postcodes": [], "words": []}
+    for raw in items:
+        t = re.sub(r"\s+", " ", str(raw).strip())
+        if _SIC_ITEM.fullmatch(t):
+            out["sic"].append(t)
+        elif _COMPANY_NO_ITEM.fullmatch(t.replace(" ", "")):
+            out["numbers"] += _number_forms(t)
+        elif _DISTRICT_ITEM.fullmatch(t.upper()):
+            out["postcodes"].append(t.upper())
+        elif len(re.sub(r"[^0-9A-Za-z]", "", t)) >= 2:
+            out["words"].append(t)
+    return out
+
+
+def _exclusion_items(items: List[str]) -> list:
+    """The conditions that leave out what the person typed in the exclusion box (see classify_exclusions)."""
+    B = BusinessRecord
+    kinds = classify_exclusions(items)
+    conds = []
+    if kinds["sic"]:  # any of a company's SIC codes, not only the first
+        conds.append(~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(re.escape(c) for c in kinds["sic"]) + r")[0-9]*\|"))
+    if kinds["numbers"]:
+        conds.append(func.coalesce(B.registration_number, "").notin_(kinds["numbers"]))
+    for p in kinds["postcodes"]:
+        conds.append(~_postcode_match(p))
+    if kinds["words"]:
+        conds.append(~or_(*[or_(_whole_word(t, B.name), _trade_text(t, func.coalesce(B.sic_text, ""), False),
+                                _trade_text(t, func.coalesce(B.industry, ""), False)) for t in kinds["words"]]))
+    return conds
 
 
 # FSB's exclusion list ("FSB exclusion rules - for developers", 17 November 2026). A company stays only when it is a Companies House company and none of

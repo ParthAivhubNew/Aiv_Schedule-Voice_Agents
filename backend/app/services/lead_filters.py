@@ -174,6 +174,8 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("No charities")
     if filters.get("fsb_exclusions"):
         chips.append("Exclusion list")
+    if filters.get("exclude_items"):
+        chips.append("Leaving out: " + ", ".join(filters["exclude_items"][:8]) + (" ..." if len(filters["exclude_items"]) > 8 else ""))
     if filters.get("legal_form"):
         chips.append("Registered companies only" if filters["legal_form"] == "company" else "Sole traders (no company number)")
     if filters.get("record_sources"):

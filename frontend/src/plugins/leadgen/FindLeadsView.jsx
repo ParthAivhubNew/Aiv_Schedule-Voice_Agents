@@ -45,16 +45,16 @@ const CHECK_TIPS = {
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
   noCharities: "Leave out charities and companies on the charity register",
+  excludeItems: "Type what to leave out, separated by commas. SIC codes (56101, or just 56 for every code starting with it), postcode districts (BN45), company numbers (01234567) and words in the name or trade (church, casino) are all understood",
   legalForm: "Registered companies have a Companies House number. Sole traders are not on that register, so this finds the records we hold with no company number: sole traders, partnerships, and businesses we could not match to a company",
-  fsbExclusions: "Exclusion list: only Companies House companies, leaving out charities and registered societies, any company with an excluded SIC code (hospitals, schools, banks, government, trade bodies, railways and the rest), and names with words like church, school, NHS, casino",
 };
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, fsbExclusions: false, legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
+const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "fsbExclusions", "legalForm", "recordSources", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
 const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
@@ -103,7 +103,7 @@ function formToFilters(f) {
   if (f.category.trim()) out.company_category = f.category.trim();
   if ((f.types || []).length) out.company_types = f.types;
   if (f.noCharities) out.exclude_charities = true;
-  if (f.fsbExclusions) out.fsb_exclusions = true;
+  if (splitList(f.excludeItems).length) out.exclude_items = splitList(f.excludeItems);
   if (f.legalForm) out.legal_form = f.legalForm;
   if ((f.recordSources || []).length) out.record_sources = f.recordSources;
   if (f.hasWebsite) out.has_website = true;
@@ -128,7 +128,7 @@ function appliedWords(f) {
 function filtersToForm(fl) {
   return {
     name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "),
-    types: fl.company_types || [], noCharities: !!fl.exclude_charities, fsbExclusions: !!fl.fsb_exclusions, legalForm: fl.legal_form || "", recordSources: fl.record_sources || [], town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
+    types: fl.company_types || [], noCharities: !!fl.exclude_charities, excludeItems: (fl.exclude_items || []).join(", "), legalForm: fl.legal_form || "", recordSources: fl.record_sources || [], town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
@@ -1201,7 +1201,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               </div>
             ) : null}
             {check("noCharities", "Leave out charities")}
-            {check("fsbExclusions", "Exclusion list")}
+            <label style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
+              <input className="ui-input" value={form.excludeItems} onChange={(e) => setField("excludeItems", e.target.value)} placeholder="56101, BN45, 01234567, church" /></label>
             <label style={field} title="Leave out these legal forms"><span style={label}>Leave out types</span>
               <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP" /></label>
             <div style={{ display: "flex", gap: 8 }}>

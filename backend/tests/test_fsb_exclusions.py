@@ -59,3 +59,19 @@ def test_exclusion_list_with_sole_traders_does_not_demand_a_company_number():
 def test_chips():
     chips = lead_filters.describe(BR.normalize_filters({"postcode_prefixes": ["BN"], "legal_form": "sole", "record_sources": ["care"]}))
     assert "Sole traders (no company number)" in chips and any(c.startswith("Records from: Care") for c in chips)
+
+
+def test_exclusion_box_sorts_what_was_typed():
+    kinds = BR.classify_exclusions(["56101", "47", "BN45", "bn1 4", "01234567", "SC123456", "church", "take away", "x"])
+    assert kinds["sic"] == ["56101", "47"] and kinds["postcodes"] == ["BN45", "BN1 4"]
+    assert kinds["numbers"] == ["01234567", "SC123456"] and kinds["words"] == ["church", "take away"]  # "x" is too short to mean anything
+
+
+def test_exclusion_box_is_in_the_query():
+    sql = _sql({"postcode_prefixes": ["BN"], "exclude_items": ["56101", "BN45", "01234567", "church"]})
+    assert "56101" in sql and "[0-9]*" in sql  # a SIC code, with codes that start with a shorter entry also left out
+    assert "NOT IN ('01234567')" in sql
+    assert "BN45" in sql and "church" in sql.lower()
+    assert "exclude_items" not in BR.normalize_filters({"postcode_prefixes": ["BN"], "exclude_items": ["", "x"]})
+    chips = lead_filters.describe(BR.normalize_filters({"postcode_prefixes": ["BN"], "exclude_items": ["56101", "church"]}))
+    assert "Leaving out: 56101, church" in chips
