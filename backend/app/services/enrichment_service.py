@@ -596,8 +596,9 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
     advanced 2. Narrowing to a company's own site is include_domains (never query text); directories are exclude_domains. Each result
     carries Tavily's relevance `score`. A 429 is retried once after the wait Tavily asks for. `meter`, when given, counts the
     search and the credits it used."""
-    key = await tavily_key()
-    if not key:
+    from app.services import tavily_pool
+
+    if not await tavily_pool.keys():
         return []
     body: Dict[str, Any] = {"query": (query or "").strip()[:400], "max_results": max(1, min(int(max_results), 20)), "search_depth": depth,
                             "country": "united kingdom", "include_usage": True}
@@ -610,16 +611,9 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
     results: List[Dict[str, Any]] = []
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            for attempt in range(2):
-                resp = await client.post("https://api.tavily.com/search", headers={"Authorization": f"Bearer {key}"}, json=body)
-                if resp.status_code == 429 and attempt == 0:
-                    try:
-                        wait = float(resp.headers.get("Retry-After") or 1)
-                    except ValueError:
-                        wait = 1.0
-                    await asyncio.sleep(min(max(wait, 0.2), 5.0))
-                    continue
-                break
+            resp = await tavily_pool.search(client, body, purpose="news" if days else ("search_advanced" if depth == "advanced" else "search"))
+            if resp is None:
+                return []
             if resp.status_code == 200:
                 data = resp.json()
                 await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
@@ -1596,9 +1590,11 @@ async def enrich_prospect_intelligence(
     page_url: Optional[str] = None,
     db=None,
     scope: str = "leadgen",
+    want_socials: bool = True,
 ) -> Dict[str, Any]:
     """page_url: the page the company was found on. When it is one office's page on the company's
-    own site, that office's details come first and other offices' are kept apart."""
+    own site, that office's details come first and other offices' are kept apart.
+    want_socials=False: no LinkedIn / social-page searches (only contacts were asked for, so none is paid for)."""
     target_company = company or name
     snippets: List[Dict[str, str]] = []
     scraped_info: Dict[str, Any] = {}
@@ -1620,7 +1616,8 @@ async def enrich_prospect_intelligence(
     search_terms = []
     if host:
         search_terms.append(f"site:{host} contact email phone")
-        search_terms.append(f"site:{host} linkedin")
+        if want_socials:
+            search_terms.append(f"site:{host} linkedin")
     place_bit = (place or "").strip()
     person_bit = (person or "").strip()
     if target_company and not str(target_company).isdigit():
@@ -1635,18 +1632,20 @@ async def enrich_prospect_intelligence(
         run_together = re.sub(r"[\s\-]+", "", str(target_company))
         if run_together.lower() != str(target_company).lower() and len(run_together) >= 6:
             search_terms.append(f"{run_together} {place_bit}".strip())
-        if deep:
+        if deep and want_socials:
             search_terms.append(f'"{target_company}" site:linkedin.com/company')
         if person_bit:
             search_terms.append(f'"{person_bit}" "{target_company}"')
-            search_terms.append(f'"{person_bit}" "{target_company}" site:linkedin.com/in')
+            if want_socials:
+                search_terms.append(f'"{person_bit}" "{target_company}" site:linkedin.com/in')
     elif person_bit:
         # Person-only rows (Contact Name, no company) — still try public web.
         search_terms.append(f'"{person_bit}" email OR phone OR contact {place_bit}'.strip())
         search_terms.append(f'"{person_bit}" website OR company {place_bit}'.strip())
-        search_terms.append(f'"{person_bit}" site:linkedin.com/in')
+        if want_socials:
+            search_terms.append(f'"{person_bit}" site:linkedin.com/in')
     if existing_notes and not person_bit:
-        search_terms.append(f"{existing_notes} {target_company} LinkedIn email")
+        search_terms.append(f"{existing_notes} {target_company} {'LinkedIn ' if want_socials else ''}email")
 
     # Dedupe queries while preserving order
     seen_q = set()

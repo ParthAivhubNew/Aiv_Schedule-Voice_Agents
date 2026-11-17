@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
-import { Note, Pill, Table, btn, card, cell, fmt, heading, input, mono, useAction, when } from "./ui";
+import { CallLog, LOG_PAGE_SIZE } from "./CallLog";
+import { Note, Pill, Table, btn, card, cell, fmt, input, mono, useAction, when } from "./ui";
 
 const PURPOSE = { company_by_website: "Company by website", company_by_name: "Company by name", email_lookup: "Person's email" };
 const OUTCOME = {
@@ -19,6 +20,7 @@ export function ApolloKeys({ canEdit }) {
   const [days, setDays] = useState(30);
   const [purpose, setPurpose] = useState("");
   const [keyId, setKeyId] = useState("");
+  const [offset, setOffset] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,12 +31,12 @@ export function ApolloKeys({ canEdit }) {
     setBusy(true);
     setError("");
     try {
-      setData(await adminApi.apollo({ days, purpose, key: keyId }));
+      setData(await adminApi.apollo({ days, purpose, key: keyId, limit: LOG_PAGE_SIZE, offset }));
     } catch (err) {
       setError(err.message);
     }
     setBusy(false);
-  }, [days, purpose, keyId]);
+  }, [days, purpose, keyId, offset]);
   useEffect(() => { load(); }, [load]);
   const [msg, run] = useAction(load);
 
@@ -79,25 +81,23 @@ export function ApolloKeys({ canEdit }) {
         </form>
       ) : null}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ ...heading, margin: "26px 0 6px" }}>When Apollo was asked</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <select style={input} aria-label="What for" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+      <CallLog title="When Apollo was asked" total={data?.total || 0} offset={offset} onPage={setOffset}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "0 0 8px" }}>
+          <select style={input} aria-label="What for" value={purpose} onChange={(e) => { setOffset(0); setPurpose(e.target.value); }}>
             <option value="">Everything</option>
             {Object.entries(PURPOSE).map(([v, l]) => <option key={v} value={v}>{l}{data?.byPurpose?.[v] ? ` (${fmt(data.byPurpose[v])})` : ""}</option>)}
           </select>
-          <select style={input} aria-label="Which key" value={keyId} onChange={(e) => setKeyId(e.target.value)}>
+          <select style={input} aria-label="Which key" value={keyId} onChange={(e) => { setOffset(0); setKeyId(e.target.value); }}>
             <option value="">All keys</option>
             {(data?.keys || []).map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
           </select>
-          <select style={input} aria-label="Period" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <select style={input} aria-label="Period" value={days} onChange={(e) => { setOffset(0); setDays(Number(e.target.value)); }}>
             <option value={1}>Last 24 hours</option>
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
           </select>
           <button type="button" style={btn(false, busy)} disabled={busy} onClick={load}><RefreshCw size={13} /> Refresh</button>
         </div>
-      </div>
       <div style={{ fontSize: 12, color: C.slate, marginBottom: 6 }}>
         Credits is our estimate: 1 for a matched company looked up by website, 1 for a person's email found, and 1 for each search by name (Apollo may charge these; not confirmed). Apollo's own usage page is the exact figure.
       </div>
@@ -119,6 +119,7 @@ export function ApolloKeys({ canEdit }) {
         })}
         {data && !data.calls.length ? <tr><td style={cell} colSpan={8}>No calls in this period.</td></tr> : null}
       </Table>
+      </CallLog>
     </div>
   );
 }

@@ -1039,7 +1039,7 @@ async def social_connections(request: Request):
 
 
 @router.get("/apollo")
-async def apollo_overview(request: Request, days: int = 30, purpose: str = "", key: str = "", limit: int = 100):
+async def apollo_overview(request: Request, days: int = 30, purpose: str = "", key: str = "", limit: int = 10, offset: int = 0):
     """Apollo keys (never the keys themselves), what each has been used for lately, and the newest calls:
     when Apollo was hit, for which company or person, on which key, and how it went."""
     from datetime import timedelta
@@ -1056,12 +1056,15 @@ async def apollo_overview(request: Request, days: int = 30, purpose: str = "", k
             select(ApolloCall.key_id, ApolloCall.outcome, func.count()).where(ApolloCall.at >= since).group_by(ApolloCall.key_id, ApolloCall.outcome))).all()}
         last = {r[0]: (r[1], r[2]) for r in (await db.execute(
             select(ApolloCall.key_id, func.max(ApolloCall.at), func.max(ApolloCall.status)).group_by(ApolloCall.key_id))).all()}
-        q = select(ApolloCall).where(ApolloCall.at >= since).order_by(ApolloCall.at.desc()).limit(min(max(limit, 1), 500))
+        limit = min(max(limit, 1), 100)
+        q = select(ApolloCall).where(ApolloCall.at >= since).order_by(ApolloCall.at.desc())
+        count_q = select(func.count()).select_from(ApolloCall).where(ApolloCall.at >= since)
         if purpose:
-            q = q.where(ApolloCall.purpose == purpose)
+            q, count_q = q.where(ApolloCall.purpose == purpose), count_q.where(ApolloCall.purpose == purpose)
         if key:
-            q = q.where(ApolloCall.key_id == key)
-        calls = (await db.execute(q)).scalars().all()
+            q, count_q = q.where(ApolloCall.key_id == key), count_q.where(ApolloCall.key_id == key)
+        total = (await db.execute(count_q)).scalar() or 0
+        calls = (await db.execute(q.limit(limit).offset(max(offset, 0)))).scalars().all()
         by_purpose = {r[0]: r[1] for r in (await db.execute(
             select(ApolloCall.purpose, func.count()).where(ApolloCall.at >= since).group_by(ApolloCall.purpose))).all()}
         orgs = {o.id: o.name for o in (await db.execute(text("SELECT id, name FROM organizations"))).all()} if calls else {}
@@ -1077,7 +1080,7 @@ async def apollo_overview(request: Request, days: int = 30, purpose: str = "", k
                      "exhausted": counts.get("key_exhausted", 0) + counts.get("rate_limited", 0) + counts.get("refused", 0),
                      "lastUsed": (last[kid][0].isoformat() + "Z") if kid in last and last[kid][0] else None})
     return {
-        "keys": rows, "days": days, "byPurpose": by_purpose,
+        "keys": rows, "days": days, "byPurpose": by_purpose, "total": total, "limit": limit, "offset": max(offset, 0),
         "calls": [{"at": c.at.isoformat() + "Z", "key": c.key_label, "tail": c.key_tail, "purpose": c.purpose, "lookedFor": c.looked_for,
                    "org": orgs.get(c.for_org) or c.for_org, "user": people.get(c.actor) or ("" if c.actor else "System"),
                    "where": AP.route_label(c.route), "route": c.route, "status": c.status, "outcome": c.outcome,
@@ -1132,6 +1135,103 @@ async def apollo_remove_key(key_id: str, request: Request):
         row.data = {"keys": kept}
         await db.commit()
     AP._COOL.pop(key_id, None)
+    return {"ok": True}
+
+
+@router.get("/tavily")
+async def tavily_overview(request: Request, days: int = 30, purpose: str = "", key: str = "", limit: int = 10, offset: int = 0):
+    """Tavily keys (never the keys themselves), what each has been used for lately, and the searches page by page:
+    when Tavily was hit, for which query, on which key, and how it went."""
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    from app.models.models import TavilyCall
+    from app.services import apollo_pool as AP
+    from app.services import tavily_pool as TP
+
+    _who(request)
+    since = datetime.utcnow() - timedelta(days=min(max(days, 1), 365))
+    limit = min(max(limit, 1), 100)
+    async with AsyncSessionLocal() as db:
+        stats = {(r[0], r[1]): (r[2], r[3]) for r in (await db.execute(
+            select(TavilyCall.key_id, TavilyCall.outcome, func.count(), func.coalesce(func.sum(TavilyCall.credits), 0)).where(TavilyCall.at >= since).group_by(TavilyCall.key_id, TavilyCall.outcome))).all()}
+        last = {r[0]: r[1] for r in (await db.execute(select(TavilyCall.key_id, func.max(TavilyCall.at)).group_by(TavilyCall.key_id))).all()}
+        cond = [TavilyCall.at >= since]
+        if purpose:
+            cond.append(TavilyCall.purpose == purpose)
+        if key:
+            cond.append(TavilyCall.key_id == key)
+        total = (await db.execute(select(func.count()).select_from(TavilyCall).where(*cond))).scalar() or 0
+        calls = (await db.execute(select(TavilyCall).where(*cond).order_by(TavilyCall.at.desc()).limit(limit).offset(max(offset, 0)))).scalars().all()
+        by_purpose = {r[0]: r[1] for r in (await db.execute(
+            select(TavilyCall.purpose, func.count()).where(TavilyCall.at >= since).group_by(TavilyCall.purpose))).all()}
+        orgs = {o.id: o.name for o in (await db.execute(text("SELECT id, name FROM organizations"))).all()} if calls else {}
+        people = {o.id: o.name or o.username for o in (await db.execute(text("SELECT id, name, username FROM operators WHERE id = ANY(:ids)"),
+                                                                        {"ids": list({c.actor for c in calls if c.actor})})).all()} if calls else {}
+
+    rows = []
+    for kid, label, secret in await TP.keys():
+        counts = {o: v for (k, o), v in stats.items() if k == kid}
+        rows.append({"id": kid, "label": label, "tail": secret[-4:], "main": kid == "main", "coolingSeconds": TP.cooling_for(kid),
+                     "calls": sum(v[0] for v in counts.values()), "found": counts.get("found", (0, 0))[0], "none": counts.get("none", (0, 0))[0],
+                     "exhausted": sum(counts.get(o, (0, 0))[0] for o in ("key_exhausted", "rate_limited", "refused")),
+                     "credits": sum(v[1] for v in counts.values()),
+                     "lastUsed": (last[kid].isoformat() + "Z") if last.get(kid) else None})
+    return {
+        "keys": rows, "days": days, "byPurpose": by_purpose, "total": total, "limit": limit, "offset": max(offset, 0),
+        "calls": [{"at": c.at.isoformat() + "Z", "key": c.key_label, "tail": c.key_tail, "purpose": c.purpose, "lookedFor": c.looked_for,
+                   "org": orgs.get(c.for_org) or c.for_org, "user": people.get(c.actor) or ("" if c.actor else "System"),
+                   "where": AP.route_label(c.route), "route": c.route, "status": c.status, "outcome": c.outcome, "credits": c.credits or 0} for c in calls],
+    }
+
+
+@router.post("/tavily/keys")
+async def tavily_add_key(body: Dict[str, Any], request: Request):
+    """Add a backup Tavily key. It is used when the keys before it are over their limit, rate limited or refused."""
+    from app.models.models import AppSetting
+    from app.services import tavily_pool as TP
+    from app.services.secret_box import is_masked, open_secret, seal_secret
+
+    _admin_only(request)
+    secret = str(body.get("key") or "").strip()
+    label = str(body.get("label") or "").strip()[:60]
+    if not secret or is_masked(secret) or len(secret) < 12:
+        raise HTTPException(status_code=400, detail="Paste the full Tavily API key.")
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, TP.BACKUPS_DOC)
+        items = list((row.data or {}).get("keys") or []) if row else []
+        if len(items) >= 10:
+            raise HTTPException(status_code=400, detail="That is enough backup keys: remove one first.")
+        pool = await TP.keys()
+        if any(open_secret(i.get("sealed") or "") == secret for i in items) or secret in [k[2] for k in pool if k[0] == "main"]:
+            raise HTTPException(status_code=400, detail="That key is already added.")
+        existing = len(items) + (1 if any(k[0] == "main" for k in pool) else 0)
+        label = label or ("Tavily key" if existing == 0 else f"Backup {existing}")
+        items.append({"id": f"bk_{uuid.uuid4().hex[:10]}", "label": label, "sealed": seal_secret(secret)})
+        if row:
+            row.data = {"keys": items}
+        else:
+            db.add(AppSetting(id=TP.BACKUPS_DOC, data={"keys": items}))
+        await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/tavily/keys/{key_id}")
+async def tavily_remove_key(key_id: str, request: Request):
+    from app.models.models import AppSetting
+    from app.services import tavily_pool as TP
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, TP.BACKUPS_DOC)
+        items = list((row.data or {}).get("keys") or []) if row else []
+        kept = [i for i in items if i.get("id") != key_id]
+        if len(kept) == len(items):
+            raise HTTPException(status_code=404, detail="Key not found. The main key is changed in Platform Keys.")
+        row.data = {"keys": kept}
+        await db.commit()
+    TP._COOL.pop(key_id, None)
     return {"ok": True}
 
 

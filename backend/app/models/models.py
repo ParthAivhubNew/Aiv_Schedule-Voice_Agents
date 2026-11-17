@@ -2581,6 +2581,26 @@ class PhoneScreening(Base):
     provider = Column(String, default="")
 
 
+class TavilyCall(Base):
+    """One search we sent to Tavily: which key, what for, who asked, and how it went. Platform-level (no org_id), like ApolloCall:
+    staff read it in the admin portal. Never holds a key."""
+    __tablename__ = "tavily_calls"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+    key_id = Column(String, default="")  # "main" or the backup id
+    key_label = Column(String, default="")
+    key_tail = Column(String, default="")  # last 4 characters, to tell keys apart
+    purpose = Column(String, default="")  # search | search_advanced | news
+    looked_for = Column(String, default="")  # the query
+    for_org = Column(String, default="")
+    actor = Column(String, default="")
+    route = Column(String, default="")
+    status = Column(Integer, nullable=True)  # HTTP status; None when the request got no answer
+    outcome = Column(String, default="")  # found, none, key_exhausted, rate_limited, refused, error
+    credits = Column(Integer, default=0)  # what Tavily said the search used
+
+
 class ApolloCall(Base):
     """One request we sent to Apollo: which key, what for, who asked, and how it went. Platform-level (no org_id):
     staff read it in the admin portal to see when and why each Apollo key is used. Never holds a key."""
