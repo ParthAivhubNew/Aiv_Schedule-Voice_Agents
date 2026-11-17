@@ -245,6 +245,20 @@ async def _find_leads_warm_loop():
         await asyncio.sleep(900)
 
 
+async def _registry_feeds_start():
+    """The two Companies House live streams and the daily Gazette pull. Each one waits quietly when its key is not saved yet."""
+    from app.services import registry_feeds as RF
+
+    await asyncio.sleep(30)
+    tasks = [asyncio.create_task(RF.stream_loop(feed)) for feed in RF.STREAMS] + [asyncio.create_task(RF.gazette_loop())]
+    try:
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        for t in tasks:
+            t.cancel()
+        raise
+
+
 async def _billing_upkeep_loop():
     """Every few hours: put each company's plans right with Stripe's view (a lost webhook never leaves anyone without the
     credits they paid for or with a plan that has ended), and send last month's report to the owner from the 1st."""
@@ -849,6 +863,7 @@ async def lifespan(app: FastAPI):
     social_results_task = asyncio.create_task(_social_results_loop())
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
     find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
+    registry_feeds_task = asyncio.create_task(_registry_feeds_start())
     call_schedule_task = asyncio.create_task(_call_schedule_loop())
     human_calls_task = asyncio.create_task(_human_calls_loop())
     from app.services.workflows import workflow_loop
@@ -860,6 +875,7 @@ async def lifespan(app: FastAPI):
     call_schedule_task.cancel()
     human_calls_task.cancel()
     find_leads_warm_task.cancel()
+    registry_feeds_task.cancel()
     social_results_task.cancel()
     billing_upkeep_task.cancel()
     email_task.cancel()

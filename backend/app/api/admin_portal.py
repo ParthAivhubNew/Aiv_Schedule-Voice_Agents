@@ -1235,6 +1235,85 @@ async def tavily_remove_key(key_id: str, request: Request):
     return {"ok": True}
 
 
+@router.get("/registry-feeds")
+async def registry_feeds_overview(request: Request, limit: int = 10, offset: int = 0, source: str = ""):
+    """The free official registers that keep our companies current: which keys are saved, how each feed is doing, and the changes
+    found so far, newest first, ten at a time."""
+    from sqlalchemy import func
+
+    from app.models.models import PostcodeLookup, RegistryEvent
+    from app.services import registry_feeds as RF
+
+    _who(request)
+    limit = min(max(limit, 1), 100)
+    state = await RF.get_state()
+    async with AsyncSessionLocal() as db:
+        cond = [RegistryEvent.source == source] if source else []
+        total = (await db.execute(select(func.count()).select_from(RegistryEvent).where(*cond))).scalar() or 0
+        events = (await db.execute(select(RegistryEvent).where(*cond).order_by(RegistryEvent.event_date.desc().nullslast()).limit(limit).offset(max(offset, 0)))).scalars().all()
+        by_source = {r[0]: r[1] for r in (await db.execute(select(RegistryEvent.source, func.count()).group_by(RegistryEvent.source))).all()}
+        postcodes = (await db.execute(select(func.count()).select_from(PostcodeLookup))).scalar() or 0
+    labels = {"ch_companies": "Companies House: company changes (live)", "ch_officers": "Companies House: directors joining or leaving (live)",
+              "gazette": "The Gazette: insolvency notices (daily)", "fca": "FCA register check (run by staff)", "onspd": "ONS Postcode Directory (file load)"}
+    feeds = [{"id": k, "label": v, **(state.get(k) or {"status": "not started"})} for k, v in labels.items()]
+    return {"keys": await RF.keys_present(), "feeds": feeds, "total": total, "limit": limit, "offset": max(offset, 0), "bySource": by_source, "postcodes": postcodes,
+            "events": [{"at": e.event_date.isoformat() + "Z" if e.event_date else None, "source": e.source, "company": e.company_name, "number": e.company_number,
+                        "kind": e.kind, "field": e.field, "old": e.old_value, "new": e.new_value, "link": e.link} for e in events]}
+
+
+@router.post("/registry-feeds/keys")
+async def registry_feeds_set_key(body: Dict[str, Any], request: Request):
+    """Save the Companies House stream key, or the FCA register key and email. Sealed at rest; never shown again."""
+    from app.services import registry_feeds as RF
+    from app.services.secret_box import is_masked
+
+    _admin_only(request)
+    which = str(body.get("which") or "")
+    key = str(body.get("key") or "").strip()
+    if which == "ch_stream":
+        if not key or is_masked(key) or len(key) < 10:
+            raise HTTPException(status_code=400, detail="Paste the full Companies House stream key.")
+        await RF.set_key("ch_stream", key)
+    elif which == "fca":
+        email = str(body.get("email") or "").strip()
+        if not key or is_masked(key) or "@" not in email:
+            raise HTTPException(status_code=400, detail="Paste the FCA key and the email it was registered with.")
+        await RF.set_key("fca_key", key)
+        await RF.set_key("fca_email", email)
+    else:
+        raise HTTPException(status_code=400, detail="Unknown key.")
+    return {"ok": True}
+
+
+@router.post("/registry-feeds/run")
+async def registry_feeds_run(body: Dict[str, Any], request: Request):
+    """Start a one-off job in the background: the Gazette now, the FCA check, or the postcode file load. Progress shows in the feed list."""
+    import asyncio
+
+    from app.services import registry_feeds as RF
+
+    _admin_only(request)
+    job = str(body.get("job") or "")
+
+    async def _run():
+        try:
+            if job == "gazette":
+                await RF.pull_gazette(days=min(max(int(body.get("days") or 7), 1), 60))
+            elif job == "fca":
+                await RF.check_fca(limit=min(max(int(body.get("limit") or 200), 1), 2000))
+            elif job == "onspd":
+                await RF.load_onspd(str(body.get("url") or ""), prefix=str(body.get("prefix") or "BN"))
+        except Exception as err:
+            await RF.patch_state(job, status="error", error=str(err)[:200])
+
+    if job not in ("gazette", "fca", "onspd"):
+        raise HTTPException(status_code=400, detail="Unknown job.")
+    if job == "onspd" and not str(body.get("url") or "").startswith("http"):
+        raise HTTPException(status_code=400, detail="Paste the download link of the ONS Postcode Directory zip.")
+    asyncio.create_task(_run())
+    return {"ok": True, "started": job}
+
+
 @router.get("/platform-keys")
 async def platform_keys(request: Request):
     """Provider groups with masked keys (never the keys themselves) and the Telnyx assistant."""

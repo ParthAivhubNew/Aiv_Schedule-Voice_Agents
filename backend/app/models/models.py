@@ -2581,6 +2581,44 @@ class PhoneScreening(Base):
     provider = Column(String, default="")
 
 
+class RegistryEvent(Base):
+    """One change seen in an official register about a company we hold: a status change, a new or resigned officer, a new company, an insolvency
+    notice. Read from the Companies House streaming API and The Gazette. Platform-level (no org_id): public facts, like BusinessRecord. Holds the
+    company number, event, date and source only; officers are kept by name, role and date, never an address."""
+    __tablename__ = "registry_events"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_registry_event"),)
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    source = Column(String, nullable=False, index=True)  # ch_companies | ch_officers | gazette
+    ext_id = Column(String, nullable=False)  # the feed's own id for the event (stream timepoint, notice number), so it is stored once
+    company_number = Column(String, default="", index=True)
+    company_name = Column(String, default="")
+    kind = Column(String, default="", index=True)  # status_changed | name_changed | address_changed | new_company | officer_appointed | officer_resigned | gazette_notice
+    field = Column(String, default="")
+    old_value = Column(String, default="")
+    new_value = Column(String, default="")
+    event_date = Column(DateTime, nullable=True, index=True)
+    link = Column(String, default="")
+    detail = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PostcodeLookup(Base):
+    """One UK postcode from the ONS Postcode Directory (Open Government Licence): its district, coordinates, local authority and region.
+    Platform-level reference data. Loaded for the areas wanted (e.g. BN), so territories and district checks need no Google data."""
+    __tablename__ = "postcode_lookup"
+
+    postcode = Column(String, primary_key=True)  # upper-cased with the space, e.g. "BN1 4AB"
+    district = Column(String, index=True)  # "BN1"
+    lat = Column(Float, nullable=True)
+    lng = Column(Float, nullable=True)
+    local_authority = Column(String, default="")  # ONS code
+    ward = Column(String, default="")
+    region = Column(String, default="")
+    country = Column(String, default="")
+    loaded_from = Column(String, default="")
+
+
 class TavilyCall(Base):
     """One search we sent to Tavily: which key, what for, who asked, and how it went. Platform-level (no org_id), like ApolloCall:
     staff read it in the admin portal. Never holds a key."""

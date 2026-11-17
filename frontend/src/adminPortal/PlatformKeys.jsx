@@ -8,6 +8,7 @@ import { DataSourceFiles } from "./DataSourceFiles";
 import { DataCompliance } from "./DataCompliance";
 import { ApolloKeys } from "./ApolloKeys";
 import { TavilyKeys } from "./TavilyKeys";
+import { RegistryFeeds } from "./RegistryFeeds";
 import { ConsentDeclarations } from "./ConsentDeclarations";
 import { FitWeights } from "./FitWeights";
 
@@ -265,6 +266,9 @@ export function PlatformKeys({ canEdit }) {
 
           <div style={heading}>Tavily</div>
           <TavilyKeys canEdit={canEdit} />
+
+          <div style={heading}>Official registers</div>
+          <RegistryFeeds canEdit={canEdit} />
 
           <div style={heading}>Email Finder & Discovery Keys</div>
           <WebSearchToggle canEdit={canEdit} />
