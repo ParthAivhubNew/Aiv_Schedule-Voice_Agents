@@ -172,6 +172,8 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("Type: " + ", ".join(COMPANY_TYPES[t][0] for t in filters["company_types"] if t in COMPANY_TYPES))
     if filters.get("exclude_charities"):
         chips.append("No charities")
+    if filters.get("fsb_exclusions"):
+        chips.append("Exclusion list")
     if filters.get("min_age_years") is not None:
         chips.append(f"Age: {filters['min_age_years']:g}+ years")
     if filters.get("max_age_years") is not None:

@@ -504,7 +504,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
-               "company_types", "exclude_charities",
+               "company_types", "exclude_charities", "fsb_exclusions",
                # Phase 4: radius, register signals; Phase 7d: website signals
                "near", "signals", "site")
 COUNT_CAP = 10_000
@@ -598,7 +598,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
         if value >= 0:
             out[key] = value
     for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
-                "exclude_charities"):
+                "exclude_charities", "fsb_exclusions"):
         if (filters or {}).get(key):
             out[key] = True
     # Phase 4: "within N miles of a postcode" arrives as the districts inside the radius (see icp._districts_within)
@@ -740,6 +740,8 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(or_(*[_type_match(t) for t in f["company_types"]]))
     if f.get("exclude_charities"):
         conds.append(~_charity())
+    if f.get("fsb_exclusions"):
+        conds += _fsb_exclusions()
     today = datetime.utcnow().date()
 
     def years_ago(years: float):
@@ -834,6 +836,32 @@ def _charity() -> Any:
     B = BusinessRecord
     return or_(func.coalesce(B.company_category, "").ilike("%charit%"), func.coalesce(B.registration_number, "").like("CC-%"),
                cast(B.sources, String).like('%"ds_charity_commission"%'))
+
+
+# FSB's exclusion list ("FSB exclusion rules - for developers", 17 November 2026). A company stays only when it is a Companies House company and none of
+# these applies: its type is one of the excluded types, it is on the Charity Commission register, ANY of its SIC codes is one of the excluded codes (exact,
+# not only the first), or its name has an excluded word (a driving school or dance school stays in). Status "Active" exactly is the search's own default.
+FSB_TYPES = ("charitable incorporated organisation", "scottish charitable incorporated organisation", "registered society", "royal charter company",
+             "other company type")
+FSB_SIC = ("84110", "84120", "84130", "84210", "84220", "84230", "84240", "84250", "84300", "85100", "85200", "85310", "85320", "85410", "85421", "85422",
+           "85510", "85520", "85590", "85600", "86101", "86102", "86210", "86220", "86230", "86900", "64110", "64191", "64192", "64910", "64921", "64922",
+           "64929", "82911", "94110", "94120", "94200", "94910", "94920", "94990", "88910", "91011", "52230", "49100", "52212", "50100", "50300", "36000",
+           "37000", "19201", "06100", "53100", "99000")
+FSB_NAME_WORDS = (r"\m(charit[a-z]*|church|parish|mosque|synagogue|temple|casino[a-z]*|credit union|nhs|hospital|school|college|university|academy trust|"
+                  r"shopping centre|bureau de change|tourist information|weighbridge[a-z]*)\M")
+FSB_NAME_KEEP = r"(driving school|dance school)"
+
+
+def _fsb_exclusions() -> list:
+    """The conditions that leave out everything on FSB's exclusion list (see FSB_TYPES above)."""
+    B = BusinessRecord
+    return [
+        func.coalesce(B.registration_number, "").op("~")("^[A-Z0-9]{8}$"),  # a Companies House company, not a charity-only or directory record
+        ~func.lower(func.btrim(func.coalesce(B.company_category, ""))).in_(FSB_TYPES),
+        ~func.coalesce(cast(B.sources, String), "").like('%"ds_charity_commission"%'),  # a record with no sources is not on the charity register
+        ~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(FSB_SIC) + r")\|"),
+        or_(~B.name.op("~*")(FSB_NAME_WORDS), B.name.op("~*")(FSB_NAME_KEEP)),
+    ]
 
 
 SORTS = ("best", "newest", "name", "fit")
