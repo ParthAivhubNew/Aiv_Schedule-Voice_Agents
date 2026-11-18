@@ -94,7 +94,7 @@ _RAW: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     "Religious Organisations and Places of Worship": (("church", "chapel", "mosque", "synagogue", "temple", "parish", "cathedral", "gurdwara", "place of worship", "worship", "religious"), ("94910",)),
     "River Authorities": (("river authority", "environment agency", "river board"), ()),
     "Schools (Independent)": (("school",), _SCHOOL_SICS),
-    "Schools (Leisure Based Activities)": (("riding school", "sailing school", "ski school", "swimming school", "dance school"), ("85510",)),
+    "Schools (Leisure Based Activities)": (("riding school", "sailing school", "ski school", "swimming school"), ("85510",)),
     "Schools (Special)": (("school",), _SCHOOL_SICS),
     "Schools and Colleges (Art)": (("art school", "school of art", "art college"), ("85520",)),
     "Schools of Music": (("school of music", "music school"), ("85520",)),
