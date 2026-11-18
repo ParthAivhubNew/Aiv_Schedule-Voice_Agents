@@ -37,6 +37,14 @@ export function kindOf(item, cats) {
   return cats.has(keyOf(t)) || cats.has(keyOf(t.replace(/\(.*?\)/g, ""))) ? "Category" : "Word";
 }
 
+// The items under one heading per kind, in a fixed order, each keeping its place in the list so it can be removed.
+const KIND_TITLES = { Category: "Categories", Word: "Words", "SIC code": "SIC codes", Postcode: "Postcodes", "Company no.": "Company numbers" };
+export function groupItems(list, cats) {
+  const by = {};
+  list.forEach((it, i) => { (by[kindOf(it, cats)] ||= []).push({ it, i }); });
+  return Object.keys(KIND_TITLES).filter((k) => by[k]).map((k) => ({ kind: k, title: KIND_TITLES[k], items: by[k] }));
+}
+
 // Up to six suggestions for what is being typed: those that start with it (shortest first), then those with a word that starts with it.
 export function matches(draft, list, taken) {
   const w = String(draft || "").replace(/^\s+/, "").toLowerCase();
@@ -108,27 +116,21 @@ function ChipInput({ value, onChange, placeholder, label, list, cats, tall }) {
     if (e.key === "Escape" && found.length) { e.stopPropagation(); setOpen(false); setActive(-1); }
   };
 
+  const groups = groupItems(have, cats);
+  const removeGroup = (g) => {
+    const drop = new Set(g.items.map((x) => x.i));
+    onChange(have.filter((_, n) => !drop.has(n)).join(", "));
+  };
+
   return (
-    <div style={{ position: "relative" }}>
-      <div onClick={() => inputRef.current && inputRef.current.focus()}
-        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: 6, background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8, maxHeight: tall ? "55vh" : 160, minHeight: tall ? 160 : 0, overflowY: "auto", cursor: "text", alignContent: "flex-start" }}>
-        {have.map((it, i) => {
-          const kind = kindOf(it, cats);
-          return (
-            <span key={`${it}-${i}`} title={KIND_TIPS[kind]} style={{ ...FONT, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, background: "var(--ui-sunken, #f3f4f6)", border: "1px solid var(--ui-line)", borderRadius: 6, padding: "1px 4px 1px 8px", maxWidth: "100%" }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it}</span>
-              <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ui-muted)" }}>{kind}</span>
-              <button type="button" aria-label={`Remove ${it}`} onClick={(e) => { e.stopPropagation(); removeAt(i); }}
-                style={{ all: "unset", cursor: "pointer", display: "inline-flex", padding: 2, borderRadius: 4, color: "var(--ui-muted)" }}><X size={12} /></button>
-            </span>
-          );
-        })}
-        <span style={{ position: "relative", flex: "1 1 140px", minWidth: 120, display: "inline-block" }}>
+    <div style={{ background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8 }}>
+      <div style={{ position: "relative", padding: "8px 10px", borderBottom: groups.length ? "1px solid var(--ui-line)" : "none" }}>
+        <span style={{ position: "relative", display: "block" }}>
           <span aria-hidden="true" style={{ ...FONT, position: "absolute", left: 0, top: 0, bottom: 0, display: "flex", alignItems: "center", whiteSpace: "pre", overflow: "hidden", maxWidth: "100%", pointerEvents: "none" }}>
             <span style={{ visibility: "hidden" }}>{draft}</span><span style={FAINT}>{ghost ? ghost.slice(lead.length) : ""}</span>
           </span>
           <input ref={inputRef} aria-label={label} aria-autocomplete="list" aria-expanded={found.length > 0} value={draft} spellCheck={false} autoComplete="off"
-            placeholder={have.length ? "" : placeholder}
+            placeholder={placeholder}
             onChange={(e) => { setDraft(e.target.value.replace(/^\s+/, "")); setOpen(true); setActive(-1); }}
             onFocus={() => setOpen(true)}
             onBlur={() => { setOpen(false); if (draft.trim()) commit(draft); }}
@@ -139,19 +141,42 @@ function ChipInput({ value, onChange, placeholder, label, list, cats, tall }) {
             onKeyDown={onKeyDown}
             style={{ ...FONT, position: "relative", width: "100%", border: "none", outline: "none", background: "transparent", color: "inherit", padding: 0, margin: 0 }} />
         </span>
+        {found.length ? (
+          <ul role="listbox" aria-label={`${label} suggestions`}
+            style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 2, zIndex: 30, listStyle: "none", padding: 4, background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.12)" }}>
+            {found.map((s, i) => (
+              <li key={s} role="option" aria-selected={i === active} onMouseDown={(e) => { e.preventDefault(); commit(s); inputRef.current && inputRef.current.focus(); }}
+                onMouseEnter={() => setActive(i)}
+                style={{ ...FONT, fontSize: 13, display: "flex", gap: 8, padding: "6px 8px", borderRadius: 6, cursor: "pointer", background: i === active ? "var(--ui-hover, #eef0f4)" : "transparent" }}>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
+                <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ui-muted)", alignSelf: "center" }}>{kindOf(s, cats)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
-      {found.length ? (
-        <ul role="listbox" aria-label={`${label} suggestions`}
-          style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 2, zIndex: 30, listStyle: "none", padding: 4, background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.12)" }}>
-          {found.map((s, i) => (
-            <li key={s} role="option" aria-selected={i === active} onMouseDown={(e) => { e.preventDefault(); commit(s); inputRef.current && inputRef.current.focus(); }}
-              onMouseEnter={() => setActive(i)}
-              style={{ ...FONT, fontSize: 13, display: "flex", gap: 8, padding: "6px 8px", borderRadius: 6, cursor: "pointer", background: i === active ? "var(--ui-hover, #eef0f4)" : "transparent" }}>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
-              <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ui-muted)", alignSelf: "center" }}>{kindOf(s, cats)}</span>
-            </li>
+      {groups.length ? (
+        <div style={{ maxHeight: tall ? "55vh" : 220, minHeight: tall ? 160 : 0, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+          {groups.map((g) => (
+            <section key={g.kind} aria-label={g.title}>
+              <div title={KIND_TIPS[g.kind]} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <strong style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--ui-muted)" }}>{g.title}</strong>
+                <span style={{ fontSize: 11, color: "var(--ui-muted)" }}>{g.items.length}</span>
+                <button type="button" aria-label={`Clear all ${g.title.toLowerCase()}`} onClick={() => removeGroup(g)}
+                  style={{ all: "unset", cursor: "pointer", marginLeft: "auto", fontSize: 11, color: "var(--ui-muted)", textDecoration: "underline" }}>Clear</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {g.items.map(({ it, i }) => (
+                  <span key={`${it}-${i}`} title={it} style={{ ...FONT, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4, background: "var(--ui-sunken, #f3f4f6)", border: "1px solid var(--ui-line)", borderRadius: 6, padding: "1px 4px 1px 8px", maxWidth: "100%" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it}</span>
+                    <button type="button" aria-label={`Remove ${it}`} onClick={() => removeAt(i)}
+                      style={{ all: "unset", cursor: "pointer", display: "inline-flex", padding: 2, borderRadius: 4, color: "var(--ui-muted)" }}><X size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            </section>
           ))}
-        </ul>
+        </div>
       ) : null}
     </div>
   );
@@ -216,7 +241,7 @@ export default function ExclusionBox({ value, onChange, placeholder, label, titl
               </button>
               <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={() => setBig(false)}><X size={16} /></button>
             </div>
-            <div style={{ overflow: "auto", paddingBottom: 150 }}>
+            <div style={{ overflow: "auto", paddingBottom: 200 }}>
               {asText
                 ? <TextMode value={value} onChange={onChange} placeholder={placeholder} label={label} list={sug.list} />
                 : <ChipInput value={value} onChange={onChange} placeholder={placeholder} label={label} list={sug.list} cats={sug.cats} tall />}

@@ -594,6 +594,16 @@ async def geocode_postcode(postcode: str = "", db: AsyncSession = Depends(get_db
     return {"postcode": code, "lat": point[0], "lng": point[1]}
 
 
+@router.get("/industries")
+async def industries(db: AsyncSession = Depends(get_db)):
+    """Every industry that can be picked, with how many Active companies carry it, for the picker to match as the person types.
+    {"ready": false} until scripts/refresh_industry_terms.py has run: the page then uses the older SIC search."""
+    from app.services import industry_index
+
+    terms = await industry_index.load(db)
+    return {"ready": bool(terms), "terms": terms, "families": industry_index.families() if terms else []}
+
+
 @router.get("/exclusion-suggestions")
 async def exclusion_suggestions():
     """The categories and words the Leave out and Exclusion list boxes finish for the person as they type. A fixed list."""

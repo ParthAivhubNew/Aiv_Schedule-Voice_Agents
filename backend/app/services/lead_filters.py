@@ -103,6 +103,9 @@ async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, 
     if action == "remove":
         return {"action": "remove", "filters": current, "remove_names": remove_names}
     filters = business_records.normalize_filters({k: v for k, v in data.items() if k in business_records.FILTER_KEYS})
+    # Industry types are picked from a list the model has never seen: keep the person's picks when the model returns the full set without them.
+    if current.get("industry_types") and not filters.get("industry_types"):
+        filters["industry_types"] = current["industry_types"]
     # "any status" is a deliberate ask; a blank status from the model must never widen the search.
     return {"action": "search", "filters": filters, "remove_names": []}
 
@@ -171,6 +174,8 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("Sector: " + ", ".join(filters["sector"]))
     if filters.get("sic_codes"):
         chips.append("SIC: " + ", ".join(filters["sic_codes"]))
+    if filters.get("industry_types"):
+        chips.append("Industry type: " + ", ".join(filters["industry_types"]))
     if filters.get("towns"):
         chips.append("Town: " + ", ".join(t.title() for t in filters["towns"]))
     if filters.get("postcode_prefixes"):

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closest, items, keyOf, kindOf, matches, wordAt } from "./ExclusionBox";
+import { closest, groupItems, items, keyOf, kindOf, matches, wordAt } from "./ExclusionBox";
 
 const CATS = new Set(["places of worship", "hospitals", "schools special", "banks and financial institutions"]);
 
@@ -18,6 +18,19 @@ describe("what each chip is read as", () => {
   it("reads a label the way the server does", () => {
     expect(keyOf("Banks & Financial  Institutions")).toBe("banks and financial institutions");
     expect(items("a, b\nc,, d ")).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("the list under headings", () => {
+  it("puts each kind under one heading, in a fixed order, keeping each item's place", () => {
+    const g = groupItems(["church", "Hospitals", "56101", "Places of Worship", "bn9", "charity"], CATS);
+    expect(g.map((x) => x.title)).toEqual(["Categories", "Words", "SIC codes", "Postcodes"]);
+    expect(g[0].items).toEqual([{ it: "Hospitals", i: 1 }, { it: "Places of Worship", i: 3 }]);
+    expect(g[1].items.map((x) => x.it)).toEqual(["church", "charity"]);
+  });
+  it("shows no heading for a kind with no items", () => {
+    expect(groupItems([], CATS)).toEqual([]);
+    expect(groupItems(["church"], CATS).map((x) => x.kind)).toEqual(["Word"]);
   });
 });
 

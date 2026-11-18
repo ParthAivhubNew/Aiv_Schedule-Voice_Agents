@@ -504,7 +504,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
-               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources", "exclude_items",
+               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources", "exclude_items", "industry_types",
                # Phase 4: radius, register signals; Phase 7d: website signals
                "near", "signals", "site")
 COUNT_CAP = 10_000
@@ -596,6 +596,9 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     items = [v[:80] for v in dict.fromkeys(_as_list((filters or {}).get("exclude_items"))) if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:300]
     if items:
         out["exclude_items"] = items
+    kinds = [v[:60] for v in dict.fromkeys(_as_list((filters or {}).get("industry_types"))) if "|" not in v and len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:20]
+    if kinds:
+        out["industry_types"] = kinds
     picked = [v for v in dict.fromkeys(_as_list((filters or {}).get("record_sources"))) if v in RECORD_SOURCES]
     if picked:
         out["record_sources"] = picked
@@ -725,8 +728,13 @@ def _trade_conditions(f: Dict[str, Any], any_activity: bool) -> list:
                 clauses += [_whole_word(w, B.name), _trade_text(w, B.sic_text, any_activity), _trade_text(w, B.industry, any_activity)]
             clauses += [_sic_code(c, any_activity) for c in sics]
         conds.append(or_(*clauses))
-    if f.get("sic_codes"):
-        conds.append(or_(*[_sic_code(c, any_activity) for c in f["sic_codes"]]))
+    # The Industry picker fills both lists, and its chips mean "any of these": a SIC pick and a register-type pick are ORed, never ANDed
+    # (a company has one or the other: Companies House gives SIC codes, the care and food registers give a type).
+    picks = [_sic_code(c, any_activity) for c in f.get("sic_codes") or []]
+    # A register's own type, exactly: the column holds one, or several joined by "|" (the care register).
+    picks += [func.coalesce(B.industry, "").op("~")(r"(^|\|)" + re.escape(v) + r"(\||$)") for v in f.get("industry_types") or []]
+    if picks:
+        conds.append(or_(*picks))
     return conds
 
 

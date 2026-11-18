@@ -27,7 +27,7 @@ import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
 import ExclusionBox from "./ExclusionBox";
 // Phase 4: SIC picker, radius, signals, saved searches
-import { SicPicker } from "./IcpEditor";
+import IndustryPicker from "./IndustryPicker";
 import { SearchField } from "../../components/SearchField";
 import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
@@ -53,9 +53,9 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
+const EMPTY_FORM = { name: "", sector: "", sic: "", industryTypes: [], town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "industryTypes", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
 const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
@@ -95,6 +95,7 @@ function formToFilters(f) {
   if (String(f.name || "").trim()) out.name_contains = f.name.trim();
   if (splitList(f.sector).length) out.keyword = splitList(f.sector);
   if (splitList(f.sic).length) out.sic_codes = splitList(f.sic);
+  if ((f.industryTypes || []).length) out.industry_types = f.industryTypes;
   if (splitList(f.town).length) out.towns = splitList(f.town);
   if (splitList(f.postcode).length) out.postcode_prefixes = splitList(f.postcode);
   if (f.sizes.length) out.size_bands = f.sizes;
@@ -128,7 +129,7 @@ function appliedWords(f) {
 
 function filtersToForm(fl) {
   return {
-    name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "),
+    name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "), industryTypes: fl.industry_types || [],
     types: fl.company_types || [], noCharities: !!fl.exclude_charities, excludeItems: (fl.exclude_items || []).join(", "), legalForm: fl.legal_form || "", recordSources: fl.record_sources || [], town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
     postcode: (fl.postcode_prefixes || []).join(", "), sizes: fl.size_bands || [],
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
@@ -1115,7 +1116,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }} style={{ flex: "999 1 320px", minWidth: 0, display: "flex" }}>
           <SearchField label="Company name" title="Find a company by its name. Searches every registered company" value={form.name} onChange={(v) => setField("name", v)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" />
         </form>
-        {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
+        {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "industry_types", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
         <div role="tablist" aria-label="What to look for" className="fl-seg">
           {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
@@ -1165,8 +1166,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
             <div style={field} title="Leave out companies whose name or sector has any of these words, or that are in one of these categories"><span style={label}>Leave out</span>
               <ExclusionBox label="Leave out" value={form.notSector} onChange={(v) => setField("notSector", v)} placeholder="franchise, holdings, Hospitals" /></div>
-            <div style={field} title="The register's industry codes. A short code takes every code that starts with it"><span style={label}>Industry (SIC codes)</span>
-              <SicPicker value={splitList(form.sic)} labels={sicLabels} onChange={(codes, labels) => { setField("sic", codes.join(", ")); setSicLabels(labels); }} /></div>
+            <div style={field} title="Pick from the industries on the register, with how many companies each has. A short SIC code takes every code that starts with it"><span style={label}>Industry</span>
+              <IndustryPicker codes={splitList(form.sic)} labels={sicLabels} types={form.industryTypes || []}
+                onChange={({ codes, labels, types }) => { setForm((f) => ({ ...f, sic: codes.join(", "), industryTypes: types })); setSicLabels(labels); }} /></div>
             {check("includeSecondary", "Include side activities")}
             {check("includeNonBusiness", "Include schools & community places")}
           </FilterGroup>

@@ -385,6 +385,7 @@ export const api = {
   chooseContact: (id, body) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/choose`, { method: 'POST', body }),
   findSocial: (id, network, hint = '') => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-social`, { method: 'POST', body: { network, hint }, timeoutMs: 60000 }),
   findLinkedin: (id, body = {}) => apiRequest(`/leads/companies/${encodeURIComponent(id)}/find-linkedin`, { method: 'POST', body, timeoutMs: 60000 }),
+  industries: () => apiRequest('/leads/industries', { timeoutMs: 30000 }),
   exclusionSuggestions: () => apiRequest('/leads/exclusion-suggestions'),
   understandFilters: (text, filters) => apiRequest('/leads/understand', { method: 'POST', body: { text, filters }, timeoutMs: 40000 }),
   searchSummary: (body) => apiRequest('/leads/search/summary', { method: 'POST', body, timeoutMs: 40000 }),
