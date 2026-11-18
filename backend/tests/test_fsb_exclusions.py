@@ -32,7 +32,7 @@ def test_not_in_the_query_when_off():
 
 def test_chip_is_shown():
     chips = lead_filters.describe(BR.normalize_filters({"postcode_prefixes": ["BN"], "fsb_exclusions": True}))
-    assert any(c == "Exclusion list" for c in chips)
+    assert any(c == "Standard exclusions" for c in chips)
 
 
 def test_sole_trader_filter_means_no_company_number():

@@ -45,7 +45,7 @@ const CHECK_TIPS = {
   hasEmail: "Only companies we already hold an email for",
   includeClosed: "Also show companies that have closed or been dissolved",
   noCharities: "Leave out charities and companies on the charity register",
-  excludeItems: "Type what to leave out, separated by commas. SIC codes (56101, or just 56 for every code starting with it), postcode districts (BN45), company numbers (01234567) and words in the name or trade (church, casino) are all understood",
+  excludeItems: "Type what to leave out, separated by commas. SIC codes (56101, or just 56 for every code starting with it), postcode districts (BN9), company numbers (01234567) and words in the name or trade (church, casino) are all understood",
   legalForm: "Registered companies have a Companies House number. Sole traders are not on that register, so this finds the records we hold with no company number: sole traders, partnerships, and businesses we could not match to a company",
 };
 const text = { fontFamily: FONT_BODY };
@@ -54,7 +54,7 @@ const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
 const EMPTY_FORM = { name: "", sector: "", sic: "", town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory", "minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
+const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
 const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
@@ -385,7 +385,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
-  const [groups, setGroups] = useState({ industry: true, location: true, size: true, company: false, contact: false, lists: false, person: true });
+  const [groups, setGroups] = useState({ industry: true, location: true, size: true, company: false, status: false, contact: false, lists: false, person: true });
   const [people, setPeople] = useState([]);
   const [peopleTotal, setPeopleTotal] = useState(0); // companies that have people on file
   const [fillIds, setFillIds] = useState([]);
@@ -1137,6 +1137,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             <div style={field} title="The register's industry codes. A short code takes every code that starts with it"><span style={label}>Industry (SIC codes)</span>
               <SicPicker value={splitList(form.sic)} labels={sicLabels} onChange={(codes, labels) => { setField("sic", codes.join(", ")); setSicLabels(labels); }} /></div>
             {check("includeSecondary", "Include side activities")}
+            {check("includeNonBusiness", "Include schools & community places")}
           </FilterGroup>
           <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")}>
             <div style={field}>
@@ -1169,7 +1170,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               </label>
             ))}
           </FilterGroup>
-          <FilterGroup title="Size (filed accounts)" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
+          <FilterGroup title="Size / accounts type" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
               {SIZE_OPTIONS.map(([id, name]) => (
                 <button key={id} type="button" title={`Only ${name} companies`} aria-label={`Size: ${name}`} className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
@@ -1178,17 +1179,19 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             </div>
           </FilterGroup>
           <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")}>
-            <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
-              <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Any of the legal forms ticked">
-              {TYPE_OPTIONS.map(([id, name]) => {
-                const on = (form.types || []).includes(id);
-                return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Type: ${name}`} onClick={() => setField("types", on ? form.types.filter((x) => x !== id) : [...(form.types || []), id])}
-                  style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
-              })}
-            </div>
-            <label style={field} title={CHECK_TIPS.legalForm}><span style={label}>Business form</span>
-              <select className="ui-input" value={form.legalForm} onChange={(e) => setField("legalForm", e.target.value)}>
+            {form.legalForm !== "sole" ? (<>
+              <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
+                <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Any of the legal forms ticked">
+                {TYPE_OPTIONS.map(([id, name]) => {
+                  const on = (form.types || []).includes(id);
+                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Type: ${name}`} onClick={() => setField("types", on ? form.types.filter((x) => x !== id) : [...(form.types || []), id])}
+                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
+                })}
+              </div>
+            </>) : null}
+            <label style={field} title={CHECK_TIPS.legalForm}><span style={label}>Registered or sole trader</span>
+              <select className="ui-input" value={form.legalForm} onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, legalForm: v, ...(v === "sole" ? { category: "", types: [], noCharities: false } : {}) })); }}>
                 {FORM_OPTIONS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select></label>
             {form.legalForm === "sole" ? (
@@ -1200,11 +1203,13 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                 })}
               </div>
             ) : null}
-            {check("noCharities", "Leave out charities")}
+            {form.legalForm !== "sole" ? check("noCharities", "Leave out charities") : null}
+            <label style={field} title="Leave out these legal forms, for example Registered Society or Royal Charter Company"><span style={label}>Leave out types</span>
+              <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP, Registered Society" /></label>
             <label style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
-              <input className="ui-input" value={form.excludeItems} onChange={(e) => setField("excludeItems", e.target.value)} placeholder="56101, BN45, 01234567, church" /></label>
-            <label style={field} title="Leave out these legal forms"><span style={label}>Leave out types</span>
-              <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP" /></label>
+              <input className="ui-input" value={form.excludeItems} onChange={(e) => setField("excludeItems", e.target.value)} placeholder="56101, BN9, 01234567, church" /></label>
+          </FilterGroup>
+          <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")}>
             <div style={{ display: "flex", gap: 8 }}>
               <label style={field} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
                 <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="e.g. 5" /></label>
@@ -1214,7 +1219,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {check("includeClosed", "Include closed / dissolved")}
           </FilterGroup>
           <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
-            {check("includeNonBusiness", "Include schools & community places")}{check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
+            {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
           </FilterGroup>
           <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
