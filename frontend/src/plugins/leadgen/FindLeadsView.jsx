@@ -25,6 +25,7 @@ import { LookupCost, announceCreditsChanged } from "./CreditsChip";
 import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
+import ExclusionBox from "./ExclusionBox";
 // Phase 4: SIC picker, radius, signals, saved searches
 import { SicPicker } from "./IcpEditor";
 import { SearchField } from "../../components/SearchField";
@@ -83,7 +84,7 @@ const CHAT_CSS = `
 }
 `;
 
-const splitList = (v) => String(v || "").split(",").map((s) => s.trim()).filter(Boolean);
+const splitList = (v) => String(v || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
 const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined : Number(v));
 
 // The filter panel and the chat are the same search: the panel's fields become this filter object,
@@ -1162,8 +1163,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")}>
             <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
               <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
-            <label style={field} title="Leave out companies whose name or sector has any of these words"><span style={label}>Leave out</span>
-              <input className="ui-input" value={form.notSector} onChange={(e) => setField("notSector", e.target.value)} placeholder="franchise, holdings" /></label>
+            <div style={field} title="Leave out companies whose name or sector has any of these words, or that are in one of these categories"><span style={label}>Leave out</span>
+              <ExclusionBox label="Leave out" value={form.notSector} onChange={(v) => setField("notSector", v)} placeholder="franchise, holdings, Hospitals" /></div>
             <div style={field} title="The register's industry codes. A short code takes every code that starts with it"><span style={label}>Industry (SIC codes)</span>
               <SicPicker value={splitList(form.sic)} labels={sicLabels} onChange={(codes, labels) => { setField("sic", codes.join(", ")); setSicLabels(labels); }} /></div>
             {check("includeSecondary", "Include side activities")}
@@ -1236,8 +1237,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {form.legalForm !== "sole" ? check("noCharities", "Leave out charities") : null}
             <label style={field} title="Leave out these legal forms, for example Registered Society or Royal Charter Company"><span style={label}>Leave out types</span>
               <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP, Registered Society" /></label>
-            <label style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
-              <input className="ui-input" value={form.excludeItems} onChange={(e) => setField("excludeItems", e.target.value)} placeholder="56101, BN9, 01234567, church" /></label>
+            <div style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
+              <ExclusionBox label="Exclusion list" value={form.excludeItems} onChange={(v) => setField("excludeItems", v)} placeholder="56101, BN9, 01234567, church, Places of Worship" /></div>
           </FilterGroup>
           <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")}>
             <div style={{ display: "flex", gap: 8 }}>

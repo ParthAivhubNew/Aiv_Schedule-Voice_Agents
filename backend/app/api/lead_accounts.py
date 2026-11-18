@@ -594,6 +594,14 @@ async def geocode_postcode(postcode: str = "", db: AsyncSession = Depends(get_db
     return {"postcode": code, "lat": point[0], "lng": point[1]}
 
 
+@router.get("/exclusion-suggestions")
+async def exclusion_suggestions():
+    """The categories and words the Leave out and Exclusion list boxes finish for the person as they type. A fixed list."""
+    from app.services import exclusion_categories
+
+    return {"suggestions": exclusion_categories.suggestions()}
+
+
 class UnderstandIn(BaseModel):
     text: str
     filters: Dict[str, Any] = {}

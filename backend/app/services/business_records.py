@@ -593,7 +593,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     form = str((filters or {}).get("legal_form") or "").strip().lower()
     if form in ("company", "sole"):
         out["legal_form"] = form
-    items = [v[:40] for v in dict.fromkeys(_as_list((filters or {}).get("exclude_items"))) if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:200]
+    items = [v[:80] for v in dict.fromkeys(_as_list((filters or {}).get("exclude_items"))) if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:300]
     if items:
         out["exclude_items"] = items
     picked = [v for v in dict.fromkeys(_as_list((filters or {}).get("record_sources"))) if v in RECORD_SOURCES]
@@ -783,8 +783,7 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(~or_(*[site.ilike(f"%{h}%") for h in DIRECTORY_SITES]))
     # "Is none of": the same columns and the same main-activity rule as the include filters, negated.
     if f.get("not_keyword"):
-        conds.append(~or_(*[or_(_whole_word(t, B.name), _trade_text(t, func.coalesce(B.sic_text, ""), any_activity),
-                                _trade_text(t, func.coalesce(B.industry, ""), any_activity)) for t in f["not_keyword"]]))
+        conds += _leave_out_words(f["not_keyword"])
     if f.get("not_towns"):
         conds.append(~or_(*[func.coalesce(B.region, "").ilike(_like(t, exact=True), escape="\\") for t in f["not_towns"]]))
     if f.get("not_company_category"):
@@ -909,9 +908,29 @@ def _exclusion_items(items: List[str]) -> list:
         conds.append(func.coalesce(B.registration_number, "").notin_(kinds["numbers"]))
     for p in kinds["postcodes"]:
         conds.append(~_postcode_match(p))
-    if kinds["words"]:
-        conds.append(~or_(*[or_(_whole_word(t, B.name), _trade_text(t, func.coalesce(B.sic_text, ""), False),
-                                _trade_text(t, func.coalesce(B.industry, ""), False)) for t in kinds["words"]]))
+    conds += _leave_out_words(kinds["words"])
+    return conds
+
+
+def _leave_out_words(items: List[str]) -> list:
+    """Leaves out companies that have any of these words, or a category they stand for ("Places of Worship" is church, chapel, mosque and the
+    religious SIC code), in the name or in ANY listed activity. Whole words, a plural accepted (see exclusion_categories)."""
+    from app.services import exclusion_categories as XC
+
+    B = BusinessRecord
+    words: List[str] = []
+    sics: List[str] = []
+    for item in items:
+        w, s = XC.expand(item)
+        words += w
+        sics += s
+    rxs = [r for r in dict.fromkeys(XC.word_regex(w) for w in words) if r]
+    conds = []
+    if rxs:
+        rx = "(" + "|".join(rxs) + ")"
+        conds.append(~or_(B.name.op("~*")(rx), func.coalesce(B.sic_text, "").op("~*")(rx), func.coalesce(B.industry, "").op("~*")(rx)))
+    if sics:
+        conds.append(~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(dict.fromkeys(sics)) + r")\|"))
     return conds
 
 
