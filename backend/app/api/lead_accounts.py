@@ -599,7 +599,7 @@ async def exclusion_suggestions():
     """The categories and words the Leave out and Exclusion list boxes finish for the person as they type. A fixed list."""
     from app.services import exclusion_categories
 
-    return {"suggestions": exclusion_categories.suggestions()}
+    return {"suggestions": exclusion_categories.suggestions(), "categories": list(exclusion_categories.CATEGORIES)}
 
 
 class UnderstandIn(BaseModel):
