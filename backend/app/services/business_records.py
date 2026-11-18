@@ -914,7 +914,8 @@ def _exclusion_items(items: List[str]) -> list:
 
 def _leave_out_words(items: List[str]) -> list:
     """Leaves out companies that have any of these words, or a category they stand for ("Places of Worship" is church, chapel, mosque and the
-    religious SIC code), in the name or in ANY listed activity. Whole words, a plural accepted (see exclusion_categories)."""
+    religious SIC code), in the name or in ANY listed activity (what the company is). Not in its description: that says who it serves ("IT for
+    schools"), not what it is. Whole words, a plural accepted (see exclusion_categories)."""
     from app.services import exclusion_categories as XC
 
     B = BusinessRecord
@@ -925,10 +926,16 @@ def _leave_out_words(items: List[str]) -> list:
         words += w
         sics += s
     rxs = [r for r in dict.fromkeys(XC.word_regex(w) for w in words) if r]
-    conds = []
+    conds = [~_charity()] if XC.wants_charities_out(items) else []
     if rxs:
         rx = "(" + "|".join(rxs) + ")"
-        conds.append(~or_(B.name.op("~*")(rx), func.coalesce(B.sic_text, "").op("~*")(rx), func.coalesce(B.industry, "").op("~*")(rx)))
+        # A driving school or dance school is not the school being left out (FSB keeps them), unless the person typed those words.
+        asked = [r for w in words if re.search(r"driving|dance", w, re.I) and (r := XC.word_regex(w))]
+        general = [r for r in rxs if r not in asked]
+        parts = ([and_(B.name.op("~*")("(" + "|".join(general) + ")"), ~B.name.op("~*")(FSB_NAME_KEEP))] if general else []) \
+            + ([B.name.op("~*")("(" + "|".join(asked) + ")")] if asked else [])
+        in_name = or_(*parts)
+        conds.append(~or_(in_name, func.coalesce(B.sic_text, "").op("~*")(rx), func.coalesce(B.industry, "").op("~*")(rx)))
     if sics:
         conds.append(~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(dict.fromkeys(sics)) + r")\|"))
     return conds

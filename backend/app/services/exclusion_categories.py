@@ -21,7 +21,7 @@ _RAW: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     "Airports": (("airport",), ("52230",)),
     "Ambulance and Medical Transportation Services": (("ambulance",), ()),
     "Armed Forces": (("armed forces", "royal navy", "royal air force"), ("84220",)),
-    "Banks and Financial Institutions": (("bank", "building society"), ("64110", "64191", "64192")),
+    "Banks and Financial Institutions": (("bank plc", "bank of", "building society"), ("64110", "64191", "64192")),
     "Birth Marriage & Deaths Registration Offices": (("registration office", "register office", "registrar"), ()),
     "Blood Donor Services": (("blood donor", "blood service"), ()),
     "Blood Stock Agents": (("bloodstock",), ()),
@@ -67,7 +67,7 @@ _RAW: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     "Libraries": (("library", "libraries"), ("91011",)),
     "Loans & Debt - Management": (("debt management", "debt advice"), ()),
     "Local Government": (("borough council", "county council", "district council", "town council", "parish council", "city council", "local authority"), ("84110",)),
-    "Members of Parliaments": (("member of parliament", "parliament"), ()),
+    "Members of Parliaments": (("member of parliament", "houses of parliament"), ()),
     "Mental Health Centres": (("mental health",), ()),
     "Merchants Banks": (("merchant bank",), ("64191",)),
     "Ministry of Defence": (("ministry of defence",), ("84220",)),
@@ -89,7 +89,7 @@ _RAW: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     "Primary Care Trusts": (("primary care trust",), ()),
     "Probate Registries": (("probate registry",), ()),
     "Probation Services": (("probation",), ()),
-    "Railways Operators of": (("railway", "rail operator", "network rail"), ("49100",)),
+    "Railways Operators of": (("railway station", "rail operator", "network rail", "train operating"), ("49100",)),
     "Recruitment (Armed Forces)": (("armed forces",), ("84220",)),
     "Religious Organisations and Places of Worship": (("church", "chapel", "mosque", "synagogue", "temple", "parish", "cathedral", "gurdwara", "place of worship", "worship", "religious"), ("94910",)),
     "River Authorities": (("river authority", "environment agency", "river board"), ()),
@@ -108,7 +108,7 @@ _RAW: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     "Trade Assoc & Regulatory Bodies": (("trade association", "regulatory body"), ("94110", "94120", "94990")),
     "Trade Unions Activities of": (("trade union", "trades union"), ("94200",)),
     "Trading Standards": (("trading standards",), ()),
-    "Train Information Services": (("train information", "railway"), ("49100",)),
+    "Train Information Services": (("train information",), ("49100",)),
     "Train Stations": (("train station", "railway station"), ("49100",)),
     "University Activities of": (("university",), ("85421", "85422")),
     "Water Authorities": (("water authority", "water board"), ("36000",)),
@@ -125,6 +125,14 @@ def key(label: str) -> str:
 
 
 CATEGORIES: Dict[str, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {key(k): v for k, v in _RAW.items()}
+
+
+_CHARITY_KEYS = {key("Charities and Charitable Organisations"), "charity", "charities", "charitable"}
+
+
+def wants_charities_out(items: List[str]) -> bool:
+    """A charity's name often has none of the words ("Brighton Housing Trust"), so leaving out charities also uses the charity register."""
+    return any(key(i) in _CHARITY_KEYS for i in items)
 
 
 def suggestions() -> List[str]:

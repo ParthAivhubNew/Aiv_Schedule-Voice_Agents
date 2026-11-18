@@ -61,9 +61,33 @@ def test_ordinary_businesses_stay():
     assert not hits("Churchill Consulting Ltd", "Places of Worship")
     assert not hits("Elm Court Management Ltd", "Courts")
     assert not hits("Green Fingers Garden Nursery", "Nursery Schools")
+    assert not hits("Bank Street Bakery Ltd", "Banks and Financial Institutions")
+    assert not hits("Model Railway Supplies Ltd", "Railways Operators of", "Train Stations")
+    assert hits("Barclays Bank PLC", "Banks and Financial Institutions")
     assert not hits("Smith Accountancy Ltd", *ITEMS)
     assert not hits("Brighton Plumbing Services", *ITEMS)
     assert not hits("Harbour Bakery Ltd", *ITEMS)
+
+
+def test_charities_are_left_out_by_the_charity_register_too():
+    """A charity such as "Brighton Housing Trust" has none of the words in its name, so only the register can find it."""
+    assert XC.wants_charities_out(["Charities and Charitable Organisations"])
+    assert XC.wants_charities_out(["church", "charity"])
+    assert not XC.wants_charities_out(["Hospitals", "Schools (Special)"])
+    sql = " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+                   for c in BR._filter_conditions(BR.normalize_filters({"exclude_items": ITEMS})))
+    assert "ds_charity_commission" in sql
+    sql = " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+                   for c in BR._filter_conditions(BR.normalize_filters({"exclude_items": ["Hospitals"]})))
+    assert "ds_charity_commission" not in sql
+
+
+def test_driving_and_dance_schools_stay_unless_asked_for():
+    def sql_of(items):
+        return " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+                        for c in BR._filter_conditions(BR.normalize_filters({"exclude_items": items})))
+    assert "driving school" in sql_of(["Schools (Special)"])
+    assert "driving school" not in sql_of(["driving school"])
 
 
 def test_category_labels_become_sic_codes():
@@ -78,4 +102,6 @@ def test_the_whole_list_compiles_in_both_boxes():
         conds = BR._filter_conditions(BR.normalize_filters(f))
         sql = " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})) for c in conds)
         assert "~*" in sql and "church" in sql and "94910" in sql
+        assert "business_records.description" not in sql  # a description says who a company serves ("IT for schools"), not what it is
+        assert "driving school" in sql  # FSB keeps driving and dance schools
     assert len(BR.normalize_filters({"exclude_items": ITEMS})["exclude_items"]) == len(ITEMS)  # nothing cut off
