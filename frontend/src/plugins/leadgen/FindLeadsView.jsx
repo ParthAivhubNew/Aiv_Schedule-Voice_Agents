@@ -439,6 +439,27 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     return savedKeys.has(c.id) || Boolean(d && savedKeys.has(d));
   };
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [words, setWords] = useState("");
+  const [wordsBusy, setWordsBusy] = useState(false);
+  // A sentence fills the filter boxes below (including the leave-out ones); the person checks them and presses Find companies.
+  const fillFromWords = async (e) => {
+    e.preventDefault();
+    const t = words.trim();
+    if (!t || wordsBusy) return;
+    setWordsBusy(true);
+    try {
+      const r = await api.understandFilters(t, formToFilters(form));
+      if (!r.understood) { notice("I couldn't turn that into filters. Try something like: accountants in Leeds, leave out charities."); return; }
+      setForm((f) => ({ ...filtersToForm(r.filters), title: f.title }));
+      setGroups((g) => ({ ...g, industry: true, location: true, company: true, status: true, size: true, contact: true }));
+      setWords("");
+      notice(`Filled in: ${(r.chips || []).join(" · ") || "your filters"}. Check them, then press Find companies.`);
+    } catch (err) {
+      notice(err.message || "Couldn't read that. Try again.");
+    } finally {
+      setWordsBusy(false);
+    }
+  };
   // Phase 4: names for the SIC codes picked here, and the radius lookup (the districts inside N miles of a postcode)
   const [sicLabels, setSicLabels] = useState({});
   const lookRadius = async (postcode, miles) => {
@@ -1121,6 +1142,15 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
               <button type="button" className="fl-collapse" aria-label="Hide the filters" title="Hide the filters to give the results more room" onClick={toggleFilters}><ChevronsLeft size={16} /></button>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0 }} value={words} disabled={wordsBusy}
+                title="Type it as a sentence. The filters below are filled in for you, including what to leave out"
+                onChange={(e) => setWords(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") fillFromWords(e); }}
+                placeholder="Describe it: accountants in Leeds, leave out charities" />
+              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!words.trim() || wordsBusy} aria-busy={wordsBusy} title="Fill the filters from your sentence. It does not run the search" onClick={fillFromWords}>
+                <Sparkles size={14} /> {wordsBusy ? "Reading…" : "Fill"}
+              </button>
             </div>
           </div>
           {tab === "people" ? (

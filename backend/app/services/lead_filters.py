@@ -45,6 +45,20 @@ _SCHEMA = {
         "min_age_years": {"type": "number", "description": "'established', 'for 10+ years' -> 10"},
         "max_age_years": {"type": "number", "description": "'new', 'startups', 'recently founded' -> 2"},
         "name_contains": {"type": "string"},
+        "not_keyword": {"type": "array", "items": {"type": "string"},
+                        "description": "Words to LEAVE OUT: companies whose name or trade has any of them ('exclude churches and "
+                                       "schools' -> ['church', 'school']). Lower-case, singular. Only what the person asked to leave out."},
+        "not_towns": {"type": "array", "items": {"type": "string"}, "description": "Towns to leave out."},
+        "not_company_category": {"type": "array", "items": {"type": "string"},
+                                 "description": "Legal forms to leave out, as the register words them, e.g. 'Registered Society', "
+                                                "'Royal Charter Company', 'LLP'."},
+        "exclude_charities": {"type": "boolean", "description": "True if the person wants charities left out."},
+        "exclude_items": {"type": "array", "items": {"type": "string"},
+                          "description": "Anything else to leave out that is a SIC code (56101), a postcode district (BN45), a company "
+                                         "number (01234567) or a word. Prefer not_keyword for plain words."},
+        "include_non_business": {"type": "boolean", "description": "True only if the person asks to include schools or community places."},
+        "legal_form": {"type": "string", "enum": ["", "company", "sole"],
+                       "description": "'sole' if they ask for sole traders / businesses with no company number, 'company' for registered companies only."},
         "has_website": {"type": "boolean"}, "has_email": {"type": "boolean"}, "has_phone": {"type": "boolean"},
         "remove_names": {"type": "array", "items": {"type": "string"},
                          "description": "For action 'remove': the company names the user wants gone."},
@@ -61,7 +75,7 @@ _SYSTEM = (
 )
 
 _SEARCH_HINT = re.compile(
-    r"\b(find|search|show|list|get|give|look(ing)? for|need|want|only|exclude|remove|drop|without|"
+    r"\b(find|search|show|list|get|give|look(ing)? for|need|want|only|exclude|excluding|except|leave out|not|no|remove|drop|without|"
     r"narrow|add|also|instead|in|near|around|older|newer|micro|small|startup|established)\b", re.I)
 
 

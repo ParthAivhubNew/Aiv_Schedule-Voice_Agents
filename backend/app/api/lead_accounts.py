@@ -594,6 +594,26 @@ async def geocode_postcode(postcode: str = "", db: AsyncSession = Depends(get_db
     return {"postcode": code, "lat": point[0], "lng": point[1]}
 
 
+class UnderstandIn(BaseModel):
+    text: str
+    filters: Dict[str, Any] = {}
+
+
+@router.post("/understand")
+async def understand_filters(body: UnderstandIn, db: AsyncSession = Depends(get_db)):
+    """A sentence -> the filter panel's filters ("accountants in Leeds, leave out churches and charities"). The current filters are
+    kept unless the sentence changes them. Runs no search. {"understood": false} when the sentence is not about finding companies."""
+    from app.services import lead_filters
+
+    text = (body.text or "").strip()[:500]
+    if not text:
+        raise HTTPException(status_code=422, detail="Type what you are looking for.")
+    plan = await lead_filters.interpret(db, text, body.filters or None)
+    if plan["action"] != "search":
+        return {"understood": False, "filters": body.filters or {}, "chips": []}
+    return {"understood": True, "filters": plan["filters"], "chips": [c for c in lead_filters.describe(plan["filters"]) if c != "Status: Active"]}
+
+
 @router.get("/companies/{company_id}/logo")
 async def company_logo(company_id: str, db: AsyncSession = Depends(get_db)):
     """The company's logo from its own website's icon, or 404. Kept on our server so the browser never contacts the company's site."""
