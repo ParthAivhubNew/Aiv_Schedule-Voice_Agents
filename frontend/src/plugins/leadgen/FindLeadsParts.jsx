@@ -154,22 +154,21 @@ export function ViewMenu({ sortLabel, sortValue, sortOptions, onSort, pageSize, 
 export function FilterGroup({ title, active = 0, onClear, open, onToggle, children }) {
   return (
     <section style={{ borderBottom: `1px solid ${C.borderLight}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 4px 10px 2px" }}>
-        <button type="button" aria-expanded={open} onClick={onToggle}
-          style={{ all: "unset", cursor: "pointer", flex: 1, display: "flex", alignItems: "center", gap: 8, ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
-          {active ? <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 3, background: C.cobalt }} /> : null}
-          {title}
-        </button>
+      {/* One whole-row button, like Apollo's: the name, how many filters are on, and the arrow all open and close the group. */}
+      <button type="button" aria-expanded={open} aria-label={open ? `Hide ${title}` : `Show ${title}`} onClick={onToggle}
+        style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "12px 4px 12px 2px", ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
+        {active ? <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 3, background: C.cobalt, flex: "none" }} /> : null}
+        <span style={{ flex: 1, minWidth: 0 }}>{title}</span>
         {active ? (
-          <button type="button" title={`Clear ${title}`} aria-label={`Clear ${title}`} onClick={onClear}
-            style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, ...text, fontSize: 11.5, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px" }}>
+          <span role="button" tabIndex={0} title={`Clear ${title}`} aria-label={`Clear ${title}`}
+            onClick={(e) => { e.stopPropagation(); onClear(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onClear(); } }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11.5, fontWeight: 500, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px" }}>
             {active} <X size={11} />
-          </button>
+          </span>
         ) : null}
-        <button type="button" aria-label={open ? `Hide ${title}` : `Show ${title}`} onClick={onToggle} style={{ all: "unset", cursor: "pointer", display: "inline-flex", color: C.slate }}>
-          <ChevronDown size={15} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-        </button>
-      </div>
+        <ChevronDown size={15} aria-hidden="true" color={C.slate} style={{ flex: "none", transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+      </button>
       {open ? <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 2px 14px" }}>{children}</div> : null}
     </section>
   );
