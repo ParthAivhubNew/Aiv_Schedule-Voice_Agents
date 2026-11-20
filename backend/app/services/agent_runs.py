@@ -274,6 +274,7 @@ async def run_step(db: AsyncSession, run: AgentRun, step: Dict[str, Any], actor:
 
 # ── The runner ──────────────────────────────────────────────────────────────
 _tasks: Dict[str, asyncio.Task] = {}
+_gen: Dict[str, int] = {}  # the newest driver's number per run: a driver that is no longer the newest stops after its current step
 
 
 def _with(steps: List[Dict[str, Any]], idx: int, **changes: Any) -> List[Dict[str, Any]]:
@@ -289,9 +290,11 @@ def _finish(run: AgentRun, status: str) -> None:
     run.summary = (f"{len(done)} of {len(run.steps or [])} steps done. " + " ".join(f"{s['label']}: {s['result'][:160]}" for s in done if s.get("result")))[:1500]
 
 
-async def _drive(run_id: str, org_id: str) -> None:
+async def _drive(run_id: str, org_id: str, gen: int = 0, before: Optional[asyncio.Task] = None) -> None:
     from app.database import AsyncSessionLocal
 
+    if before is not None and not before.done():
+        await asyncio.wait({before})  # the older driver finishes its step and stops; two never work on one run at once
     with org_scope(org_id):
         async with AsyncSessionLocal() as db:
             try:
@@ -300,7 +303,7 @@ async def _drive(run_id: str, org_id: str) -> None:
                     if run is None:
                         return
                     await db.refresh(run)
-                    if run.status != "running":
+                    if run.status != "running" or _gen.get(run_id, gen) != gen:
                         return
                     steps = [dict(s) for s in run.steps or []]
                     if (run.cursor or 0) >= len(steps):
@@ -348,13 +351,18 @@ async def _drive(run_id: str, org_id: str) -> None:
             except Exception as err:
                 logger.error("agent run %s crashed: %s", run_id, err)
             finally:
-                _tasks.pop(run_id, None)
+                if _gen.get(run_id, gen) == gen:  # an older driver leaving must not unregister the newer one
+                    _tasks.pop(run_id, None)
+                    _gen.pop(run_id, None)
 
 
 def spawn(run: AgentRun) -> None:
-    if run.id in _tasks and not _tasks[run.id].done():
-        return
-    _tasks[run.id] = asyncio.get_running_loop().create_task(_drive(run.id, run.org_id or ""))
+    """Start driving a run. Pause then a quick resume used to find the old driver still alive, skip the start, and then the old driver
+    exited: the run stayed "running" with nobody driving it. Now a new driver always starts, waits for the old one to stop, and takes over."""
+    old = _tasks.get(run.id)
+    gen = _gen.get(run.id, 0) + 1
+    _gen[run.id] = gen
+    _tasks[run.id] = asyncio.get_running_loop().create_task(_drive(run.id, run.org_id or "", gen, old))
 
 
 async def start(db: AsyncSession, run: AgentRun) -> None:

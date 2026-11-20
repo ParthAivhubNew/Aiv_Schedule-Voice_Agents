@@ -262,7 +262,7 @@ async def test_web_search_is_only_offered_when_the_toggle_is_on_and_is_a_proposa
     assert "search_web" not in tools_seen[0] and "search_web" in tools_seen[-1]
     assert off["proposals"] == []  # a model that calls it anyway is refused by the server
     p = on["proposals"][0]
-    assert p["kind"] == "web_search" and p["params"] == {"query": "dental practices in Leeds"}
+    assert p["kind"] == "web_search" and p["params"] == {"query": "dental practices in Leeds", "count": 8, "include_big": False}
 
 
 async def test_a_thin_register_result_offers_the_web(db, fakes, monkeypatch):

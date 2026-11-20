@@ -37,7 +37,7 @@ from app.services.dns_verifier import setup_guide, verify_domain_dns
 from app.services.email_dispatcher import mailbox_settings, read_unsubscribe_token, suppress
 from app.services.enrichment_waterfall import lookup_person_waterfall
 from app.services.llm_gateway import call_open_chat_llm
-from app.services.secret_box import seal_secret
+from app.services.secret_box import seal_blob
 
 logger = logging.getLogger("email_outreach_api")
 
@@ -45,6 +45,12 @@ router = APIRouter(prefix="/email", tags=["Email outreach"])
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _HM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _placeholder(pw: str) -> bool:
+    """A masked value from the UI, not a real password: bullets or an ellipsis, or nothing but * ? and dots."""
+    t = (pw or "").strip()
+    return "•" in t or "…" in t or (bool(t) and set(t) <= set("*?."))
 
 
 def _iso(d: Optional[datetime]) -> Optional[str]:
@@ -55,6 +61,19 @@ async def _mailbox(db: AsyncSession, mailbox_id: str) -> EmailMailbox:
     mb = (await db.execute(select(EmailMailbox).where(EmailMailbox.id == mailbox_id))).scalars().first()
     if not mb:
         raise HTTPException(status_code=404, detail="Mailbox not found.")
+    return mb
+
+
+async def _own_mailbox(db: AsyncSession, ctx: Dict[str, Any], mailbox_id: str) -> EmailMailbox:
+    """The mailbox, if this user may manage it: same rule as the Mail screen (admins any, others their own, an API key its list)."""
+    mb = await _mailbox(db, mailbox_id)
+    if ctx.get("type") == "api_key":
+        allowed = ctx.get("mailbox_ids")
+        ok = not allowed or mb.id in allowed
+    else:
+        ok = bool(ctx.get("is_admin")) or (mb.operator_id or "") == (ctx.get("operator_id") or "")
+    if not ok:
+        raise HTTPException(status_code=404, detail="That mailbox is not available to you.")
     return mb
 
 
@@ -195,7 +214,7 @@ async def create_mailbox(db: AsyncSession, operator_id: str, body: MailboxBody) 
     mb = EmailMailbox(
         id=f"mb_{uuid.uuid4().hex[:12]}", operator_id=operator_id or "", email=addr,
         display_name=body.display_name.strip()[:80] or addr.split("@")[0], provider=body.preset or "smtp",
-        auth_type="credentials", credentials_encrypted=seal_secret(json.dumps(settings)), status="connected",
+        auth_type="credentials", credentials_encrypted=seal_blob(json.dumps(settings)), status="connected",
         daily_cap=0, max_daily_target=max(5, min(int(body.max_daily_target or 40), 100)),
         signature=body.signature.strip()[:2000],
     )
@@ -215,8 +234,7 @@ async def connect_mailbox(body: MailboxBody, request: Request, db: AsyncSession 
 
 @router.patch("/mailboxes/{mailbox_id}")
 async def update_mailbox(mailbox_id: str, body: MailboxPatch, request: Request, db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     if body.display_name is not None:
         mb.display_name = body.display_name.strip()[:80]
     if body.signature is not None:
@@ -224,14 +242,14 @@ async def update_mailbox(mailbox_id: str, body: MailboxPatch, request: Request, 
     if body.max_daily_target is not None:
         mb.max_daily_target = max(5, min(int(body.max_daily_target), 100))
         mb.plan_date = ""  # re-plan today with the new target
-    if body.password:
+    if body.password and not _placeholder(body.password):  # the form sends the bullets back when the password was not changed
         settings = mailbox_settings(mb)
         settings["password"] = body.password
         try:
             await T.check_login(settings)
         except T.MailError as err:
             raise HTTPException(status_code=400, detail=str(err))
-        mb.credentials_encrypted = seal_secret(json.dumps(settings))
+        mb.credentials_encrypted = seal_blob(json.dumps(settings))
         mb.last_error = ""
         if mb.status == "error":
             mb.status = "connected"
@@ -248,8 +266,7 @@ class AliasBody(BaseModel):
 async def add_alias(mailbox_id: str, body: AliasBody, request: Request, db: AsyncSession = Depends(get_db)):
     """A second address this mailbox can send as (an alias set up at the email provider). It must be on the
     mailbox's own domain, so the mailbox's SPF, DKIM and DMARC records cover it."""
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     addr = body.address.strip().lower()
     if not _EMAIL.match(addr):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
@@ -270,8 +287,7 @@ async def add_alias(mailbox_id: str, body: AliasBody, request: Request, db: Asyn
 
 @router.delete("/mailboxes/{mailbox_id}/aliases")
 async def remove_alias(mailbox_id: str, address: str, request: Request, db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     want = address.strip().lower()
     mb.aliases = [a for a in (mb.aliases or []) if a["address"] != want]
     for camp in (await db.execute(select(EmailCampaign))).scalars().all():
@@ -283,8 +299,7 @@ async def remove_alias(mailbox_id: str, address: str, request: Request, db: Asyn
 
 @router.delete("/mailboxes/{mailbox_id}")
 async def delete_mailbox(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     for camp in (await db.execute(select(EmailCampaign))).scalars().all():
         if mailbox_id in (camp.mailbox_ids or []):
             camp.mailbox_ids = [i for i in camp.mailbox_ids if i != mailbox_id]
@@ -295,8 +310,7 @@ async def delete_mailbox(mailbox_id: str, request: Request, db: AsyncSession = D
 
 @router.post("/mailboxes/{mailbox_id}/test")
 async def test_mailbox(mailbox_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     try:
         await T.check_login(mailbox_settings(mb))
     except T.MailError as err:
@@ -315,8 +329,7 @@ class DnsCheckBody(BaseModel):
 @router.post("/mailboxes/{mailbox_id}/dns-check")
 async def audit_mailbox_dns(mailbox_id: str, request: Request, body: Optional[DnsCheckBody] = None,
                             db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     typed = re.sub(r"[^a-z0-9_-]", "", ((body.dkim_selector if body else "") or "").strip().lower().split("._domainkey")[0])
     selector = typed or (mb.dns_check_details or {}).get("dkim_selector_pref") or None
     dns = await verify_domain_dns(mb.email.split("@")[-1], selector)
@@ -338,8 +351,7 @@ async def set_dkim_override(mailbox_id: str, body: DkimOverrideBody, request: Re
     """Lets a mailbox send without a DKIM record, at the user's own risk (mail may be junked and the domain's
     reputation can suffer). SPF is still required: without it many receivers reject the mail outright.
     Bounces over 2% and the warm-up limits still protect the mailbox."""
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     if body.allow and not mb.spf_verified:
         raise HTTPException(status_code=400, detail="SPF is still missing, and mail without it is usually rejected outright. Add the SPF record first, then you can choose to send without DKIM.")
     mb.dkim_override = body.allow
@@ -353,8 +365,7 @@ class WarmupBody(BaseModel):
 
 @router.post("/mailboxes/{mailbox_id}/warmup")
 async def set_warmup(mailbox_id: str, body: WarmupBody, request: Request, db: AsyncSession = Depends(get_db)):
-    current(request)
-    mb = await _mailbox(db, mailbox_id)
+    mb = await _own_mailbox(db, current(request), mailbox_id)
     if body.action == "pause":
         mb.status = "paused"
         mb.pause_reason = "Paused by you."
@@ -1307,9 +1318,10 @@ async def save_writing_profile(body: ProfileBody, request: Request, db: AsyncSes
     if not cp:
         cp = CompanyProfile(id="default")
         db.add(cp)
-    cp.name = p["company"] or cp.name
-    cp.website = p["website"] or cp.website
-    cp.tone = p["tone"] or cp.tone
+    sent = body.model_fields_set  # a field the form sent empty clears it; a field the caller left out keeps what is saved
+    cp.name = p["company"] if "company" in sent else (p["company"] or cp.name)
+    cp.website = p["website"] if "website" in sent else (p["website"] or cp.website)
+    cp.tone = p["tone"] if "tone" in sent else (p["tone"] or cp.tone)
     if p["sells"]:
         cp.pitch = p["sells"]
     if body.legal_name is not None:  # printed in every marketing email: UK rules need who is sending and where to write to them

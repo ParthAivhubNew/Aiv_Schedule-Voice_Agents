@@ -153,6 +153,9 @@ async def save_steps(db: AsyncSession, camp: EmailCampaign, steps: List[Dict[str
         if (e.waiting_on or "").startswith("task:"):
             await cancel_tasks(db, e.id)
             e.waiting_on, e.next_action_at = "", now
+        elif e.waiting_on == "call" or (e.waiting_on or "").startswith("approval:"):  # waiting on a call or an approval for a step that is gone
+            await cancel_approvals(db, e.id)
+            e.waiting_on, e.waiting_since, e.next_action_at = "", None, now
         if pos > len(steps):
             e.status, e.next_action_at, e.finish_reason = "completed", None, "finished"
         else:
@@ -484,10 +487,29 @@ def variant_for(enrollment_id: str) -> str:
     return "b" if int(hashlib.sha1(enrollment_id.encode()).hexdigest(), 16) % 2 else "a"
 
 
+def day_bounds_utc(tz_name: str, now: Optional[datetime] = None) -> tuple:
+    """(start, end) of the company's current local day, as naive UTC times like every stored timestamp."""
+    from zoneinfo import ZoneInfo
+
+    now = now or datetime.utcnow()
+    try:
+        zone = ZoneInfo(tz_name)
+    except Exception:
+        zone = ZoneInfo("UTC")
+    local = now.replace(tzinfo=ZoneInfo("UTC")).astimezone(zone)
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    to_utc = lambda d: d.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return to_utc(start), to_utc(end)
+
+
 async def sent_today(db: AsyncSession, campaign_id: str, now: datetime) -> int:
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    from app.services.org_settings import org_timezone
+
+    start, end = day_bounds_utc(await org_timezone(db), now)
     return (await db.execute(select(func.count(EmailMessage.id)).where(
-        EmailMessage.campaign_id == campaign_id, EmailMessage.is_warmup.is_(False), EmailMessage.sent_at >= start))).scalar() or 0
+        EmailMessage.campaign_id == campaign_id, EmailMessage.is_warmup.is_(False),
+        EmailMessage.sent_at >= start, EmailMessage.sent_at < end))).scalar() or 0
 
 
 async def already_sent(db: AsyncSession, enrollment_id: str, step_id: str) -> bool:
@@ -806,6 +828,8 @@ async def enrol(db: AsyncSession, camp: EmailCampaign, people: List[Dict[str, An
     in another running journey. With dry_run nothing is written: the same counts, for a confirmation."""
     from app.services.email_dispatcher import is_email_suppressed
 
+    if not dry_run:  # two adds at once would both pass the duplicate check below: the second waits for the first to commit
+        await db.execute(select(EmailCampaign.id).where(EmailCampaign.id == camp.id).with_for_update())
     steps = await steps_of(db, camp.id)
     needs_email = any((("call" if s.channel == "voice_call" else s.channel) in EMAIL_LIKE) for s in steps)
     first = steps[0] if steps else None
@@ -1075,13 +1099,15 @@ async def results(db: AsyncSession, camp: EmailCampaign) -> Dict[str, Any]:
         EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)).group_by(EmailMessage.status))).all())
     opened = (await db.execute(select(func.count(EmailMessage.id)).where(
         EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False), EmailMessage.open_count > 0))).scalar() or 0
-    sent = sum(msgs.values())
+    sent = sum(n for st, n in msgs.items() if st not in ("queued", "failed"))  # only what really went out, as step_results counts
     people = {g: sum(status.get(s, 0) for s in sts) for g, sts in STATUS_GROUPS.items()}
     variants = {}
     rows = (await db.execute(select(EmailEnrollment.variant, EmailMessage.status, func.count(EmailMessage.id)).join(
         EmailEnrollment, EmailEnrollment.id == EmailMessage.enrollment_id).where(
         EmailMessage.campaign_id == camp.id, EmailMessage.is_warmup.is_(False)).group_by(EmailEnrollment.variant, EmailMessage.status))).all()
     for v, st, n in rows:
+        if st in ("queued", "failed"):
+            continue
         d = variants.setdefault(v or "a", {"sent": 0, "replied": 0})
         d["sent"] += n
         d["replied"] += n if st == "replied" else 0
@@ -1351,6 +1377,13 @@ async def set_status(db: AsyncSession, camp: EmailCampaign, status: str, org_id:
         reds = [o["text"] for o in await preflight(db, camp, org_id) if o["level"] == "red"]
         if reds:
             raise JourneyError(reds[0])
+        if camp.one_at_a_time:  # the same rule enrol applies, checked again here for people added while this journey was a draft
+            mine = select(EmailEnrollment.email).where(EmailEnrollment.campaign_id == camp.id, EmailEnrollment.status == "active", EmailEnrollment.email != "")
+            clash = (await db.execute(select(func.count(EmailEnrollment.id)).join(EmailCampaign, EmailCampaign.id == EmailEnrollment.campaign_id).where(
+                EmailEnrollment.status == "active", EmailEnrollment.campaign_id != camp.id, EmailCampaign.status == "running",
+                EmailEnrollment.email.in_(mine)))).scalar() or 0
+            if clash:
+                raise JourneyError(f"{clash} people here are already in another running journey. Pause that one, or turn off the one-at-a-time setting for this journey.")
         camp.status = "running"
         now = datetime.utcnow()
         for e in (await db.execute(select(EmailEnrollment).where(
@@ -1421,6 +1454,13 @@ async def create(db: AsyncSession, *, name: str, goal: str = "", steps: List[Dic
     clean = clean_steps(steps)
     if not (name or "").strip():
         raise JourneyError("Give the journey a name.")
+    start, end = s.get("sending_window_start") or "09:00", s.get("sending_window_end") or "17:00"
+    if not (_HM.match(start) and _HM.match(end)) or start >= end:  # the same checks as update_settings
+        raise JourneyError("Sending hours must be like 09:00 to 17:00.")
+    days = sorted({d for d in (s.get("days_of_week") or [1, 2, 3, 4, 5]) if d in range(1, 8)})
+    if not days:
+        raise JourneyError("Pick at least one sending day.")
+    delay = max(30, _int(s.get("min_delay_seconds"), 30, 3600, 120))
     have = set((await db.execute(select(EmailMailbox.id))).scalars().all())
     from app.models.models import CompanyProfile
 
@@ -1429,9 +1469,8 @@ async def create(db: AsyncSession, *, name: str, goal: str = "", steps: List[Dic
         boxes = (await db.execute(select(EmailMailbox))).scalars().all()
         mailbox_ids = [m.id for m in boxes if m.status in ("warming", "active", "graduated")]
     camp = EmailCampaign(id=f"cp_{uuid.uuid4().hex[:12]}", name=name.strip()[:120], status="draft", mailbox_ids=[m for m in dict.fromkeys(mailbox_ids) if m in have],
-                         timezone_policy="org", sending_window_start=s.get("sending_window_start") or "09:00", sending_window_end=s.get("sending_window_end") or "17:00",
-                         days_of_week=sorted(set(s.get("days_of_week") or [1, 2, 3, 4, 5])), min_delay_seconds=max(30, int(s.get("min_delay_seconds") or 120)),
-                         max_delay_seconds=max(30, int(s.get("min_delay_seconds") or 120)), goal=(goal or "").strip()[:600], daily_cap=_int(s.get("daily_cap"), 0, 5000),
+                         timezone_policy="org", sending_window_start=start, sending_window_end=end,
+                         days_of_week=days, min_delay_seconds=delay, max_delay_seconds=delay, goal=(goal or "").strip()[:600], daily_cap=_int(s.get("daily_cap"), 0, 5000),
                          exit_rules=s.get("rules") or None, owner_id=owner_id, one_at_a_time=bool(s.get("one_at_a_time", True)), template_key=template_key,
                          approval_required=bool(s["approval_required"]) if "approval_required" in s else await _approval_default(db, prof))
     db.add(camp)

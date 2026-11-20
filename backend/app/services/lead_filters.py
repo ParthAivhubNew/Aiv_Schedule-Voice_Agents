@@ -79,12 +79,17 @@ _SEARCH_HINT = re.compile(
     r"narrow|add|also|instead|in|near|around|older|newer|micro|small|startup|established)\b", re.I)
 
 
-async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, Any]] = None, *, scope: str = "leadgen") -> Dict[str, Any]:
+# Filters the model's schema has no field for: the person's own picks are kept when it returns the full set without them.
+_CARRY = ("industry_types", "near", "signals", "saved", "record_sources", "fsb_exclusions", "site")
+
+
+async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, Any]] = None, *, scope: str = "leadgen", force: bool = False) -> Dict[str, Any]:
     """-> {"action": "search"|"remove"|"chat", "filters": {...normalised...}, "remove_names": [...]}.
     Never raises: if the model can't be reached the answer is 'chat', so the user simply gets a
     conversational reply rather than an error or a made-up search."""
     current = business_records.normalize_filters(current or {}) if current else {}
-    if not (message or "").strip() or not _SEARCH_HINT.search(message):
+    # force: the person typed into a box meant for filters ("dentists Leeds"), so a missing verb is no reason to skip the model.
+    if not (message or "").strip() or not (force or _SEARCH_HINT.search(message)):
         return {"action": "chat", "filters": current, "remove_names": []}
     try:
         data = await llm_gateway.extract_structured(
@@ -103,9 +108,12 @@ async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, 
     if action == "remove":
         return {"action": "remove", "filters": current, "remove_names": remove_names}
     filters = business_records.normalize_filters({k: v for k, v in data.items() if k in business_records.FILTER_KEYS})
-    # Industry types are picked from a list the model has never seen: keep the person's picks when the model returns the full set without them.
-    if current.get("industry_types") and not filters.get("industry_types"):
-        filters["industry_types"] = current["industry_types"]
+    for key in _CARRY:
+        if current.get(key) and not filters.get(key):
+            filters[key] = current[key]
+    # A status the person set (any, or closed companies) stays unless the model returned one itself.
+    if not data.get("status") and current.get("status") not in (None, "", "Active"):
+        filters["status"] = current["status"]
     # "any status" is a deliberate ask; a blank status from the model must never widen the search.
     return {"action": "search", "filters": filters, "remove_names": []}
 

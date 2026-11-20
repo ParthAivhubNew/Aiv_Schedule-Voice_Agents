@@ -445,7 +445,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   useEffect(() => { if (cfg.leads) loadProfile(); }, [loadProfile, cfg.leads]);
   const loadHistory = useCallback(() => { api.chatHistory(HISTORY_KEY).then((r) => setHistory(r?.chats || [])).catch(() => {}); }, [HISTORY_KEY]);
   useEffect(() => { if (page) loadHistory(); }, [page, loadHistory]);
-  useEffect(() => { api.chatHistory(MEMORY_KEY).then((r) => setMemory((r?.chats || []).map((c) => ({ id: c.id, text: c.title })))).catch(() => {}); }, [MEMORY_KEY]);
+  useEffect(() => { api.chatHistory(MEMORY_KEY).then((r) => setMemory((r?.chats || []).map((c) => ({ id: c.id, text: c.text || c.title })))).catch(() => {}); }, [MEMORY_KEY]);
   useEffect(() => {
     if (open) { setRender(true); setLeaving(false); return undefined; }
     if (!render) return undefined;
@@ -554,7 +554,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (!t) { if (quiet) return; say(["Tell me what to remember, for example: /remember I only sell to companies with a website."]); return; }
     const id = `m_${Date.now()}`;
     try {
-      await api.saveChatHistory(MEMORY_KEY, { id, title: t, at: Date.now(), chat: [{ id: "1", role: "user", text: t }], filters: {} });
+      await api.saveChatHistory(MEMORY_KEY, { id, title: t.slice(0, 70), text: t, at: Date.now(), chat: [{ id: "1", role: "user", text: t }], filters: {} });
       setMemory((m) => [{ id, text: t }, ...m]);
       if (!quiet) say([`Saved. I will keep this in mind from now on: “${t}”. Type /memory to see or remove what I remember.`]);
     } catch { if (!quiet) say(["I couldn't save that. Try again in a moment."]); }
@@ -589,6 +589,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const doSwitch = async (p) => {
     const target = PLUGINS[p.params.plugin];
     if (!target) return;
+    const startedIn = chatId.current; // the answer belongs to the chat that asked: a new or reopened chat must not receive it
     setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
     let res = null;
     let failure = null;
@@ -596,6 +597,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     try {
       await target.ask(body, (ev) => { if (ev.type === "final") res = ev.result; else if (ev.type === "error") failure = new Error(ev.message); });
     } catch (err) { failure = err; }
+    if (chatId.current !== startedIn) return;
     if (failure || !res) {
       setActs((a) => ({ ...a, [p.id]: { state: "error", text: failure?.message || `The ${target.short} assistant did not answer. Try again.` } }));
       return;
@@ -657,8 +659,9 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     if (p.kind === "web_search") {
       setActs((a) => ({ ...a, [p.id]: { state: "running" } }));
       try {
-        const r = await api.discoverAccounts({ query: p.params.query, ...(p.params.count ? { count: p.params.count } : {}), include_big: Boolean(p.params.include_big) });
-        const results = (r.leads || []).slice(0, p.params.count || 8);
+        const cap = Math.min(Math.max(Number(p.params.count) || 8, 1), 50); // always bounded: a card with no number still asks for 8 at most
+        const r = await api.discoverAccounts({ query: p.params.query, count: cap, include_big: Boolean(p.params.include_big) });
+        const results = (r.leads || []).slice(0, cap);
         setActs((a) => ({ ...a, [p.id]: { state: "done", results, text: webResultText(results.length, p.params.count, p.params.query) } }));
       } catch (err) {
         setActs((a) => ({ ...a, [p.id]: { state: "error", text: err.message || "The web search didn't finish. Nothing was charged." } }));
@@ -857,7 +860,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
                         <div style={{ ...text, fontWeight: 600, display: "flex", gap: 6, alignItems: "center" }}>
                           {p.kind === "go" || p.kind === "switch" ? <ArrowRight size={15} aria-hidden="true" /> : p.kind === "plan" || p.kind === "plan_outline" ? <CalendarClock size={15} aria-hidden="true" /> : p.kind === "web_search" ? <Globe size={15} aria-hidden="true" /> : p.kind === "check_list" ? <ShieldCheck size={15} aria-hidden="true" /> : p.kind === "campaign" ? <Send size={15} aria-hidden="true" /> : p.kind.startsWith("journey_") ? <Route size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />} {p.title}
                         </div>
-                        <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found.`}` : p.detail)}</div>
+                        <div style={{ ...muted, margin: "2px 0 8px" }}>{a.text || (p.kind === "web_search" ? `${p.detail} ${webRate == null ? "" : `${creditWord(webRate)} per company found${p.params?.count ? `, at most ${creditWord(webRate * p.params.count)} for up to ${p.params.count}` : ""}.`}` : p.detail)}</div>
                         {p.kind === "plan_outline" && a.state !== "done" ? <OutlineRows plan={p.params.plan} /> : null}
                         {a.state === "done" ? <span style={{ ...muted, color: C.green, display: "inline-flex", gap: 4, alignItems: "center" }}><Check size={14} aria-hidden="true" /> Done</span> : (
                           <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" disabled={a.state === "running"} onClick={() => confirm(p)}>

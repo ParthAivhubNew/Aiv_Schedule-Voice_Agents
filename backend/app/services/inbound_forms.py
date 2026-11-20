@@ -40,7 +40,9 @@ FREE_EMAIL = {
     "mail.com", "zoho.com", "yandex.com", "btinternet.com", "sky.com", "talktalk.net", "virginmedia.com",
 }
 _EMAIL = re.compile(r"^[A-Za-z0-9._%+\-']{1,64}@([A-Za-z0-9\-]+\.)+[A-Za-z]{2,24}$")
-_TAGS = re.compile(r"<[^>]*>")
+_TAGS = re.compile(r"</?[A-Za-z][^<>]*>|<!--.*?-->|<[?!][^<>]*>", re.S)  # real tags and comments only: "a < b and c > d" is left alone
+_HOST = re.compile(r"[a-z0-9]([a-z0-9.\-]{0,253}[a-z0-9])?")
+DEFAULT_CONSENT = "By sending this form you agree that we may contact you about your enquiry."
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _KEY = re.compile(r"[^a-z0-9_]+")
 
@@ -49,12 +51,12 @@ def new_key() -> str:
     return secrets.token_urlsafe(18)  # 24 characters of A-Z a-z 0-9 - _
 
 
-def clean_text(value: Any, limit: int = MAX_VALUE, *, keep_plus: bool = False) -> str:
+def clean_text(value: Any, limit: int = MAX_VALUE, *, keep_plus: bool = False, formula_guard: bool = True) -> str:
     """Plain text only: no markup, no control characters, one line, and nothing a spreadsheet would run
-    as a formula when the owner exports it."""
+    as a formula when the owner exports it (`formula_guard=False` for an email, which is checked by pattern instead)."""
     s = _CTRL.sub("", _TAGS.sub("", str(value if value is not None else "")))
     s = re.sub(r"\s+", " ", s).strip()[:limit]
-    risky = s[:1] in ("=", "@", "+", "-") and not (keep_plus and re.fullmatch(r"\+?[\d][\d ()\-.]*", s))
+    risky = formula_guard and s[:1] in ("=", "@", "+", "-") and not (keep_plus and re.fullmatch(r"\+?[\d][\d ()\-.]*", s))
     if s and risky:
         s = "'" + s
     return s
@@ -72,7 +74,7 @@ def clean_origin_list(values: Any) -> List[str]:
     out: List[str] = []
     for v in values if isinstance(values, list) else []:
         h = host_of(str(v))
-        if h and h not in out and len(out) < 30:
+        if h and _HOST.fullmatch(h) and h not in out and len(out) < 30:
             out.append(h)
     return out
 
@@ -155,12 +157,14 @@ def clean_settings(raw: Any) -> Dict[str, Any]:
         "block_free_email": bool(raw.get("block_free_email")),
         "daily_limit": max(1, min(limit, 5000)),
         "thanks": clean_text(raw.get("thanks"), 300) or "Thanks, we got your details.",
+        "consent_text": clean_text(raw.get("consent_text"), 300),
     }
 
 
 # ── Checking a public answer ─────────────────────────────────────────────────────────────────
-def validate_answer(fields: List[Dict[str, Any]], settings: Dict[str, Any], data: Any) -> Tuple[Dict[str, str], Dict[str, str]]:
-    """(clean answers by field id, errors by field id). Unknown keys are an error, not silently kept."""
+def validate_answer(fields: List[Dict[str, Any]], settings: Dict[str, Any], data: Any, *, skip_email_rules: bool = False) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """(clean answers by field id, errors by field id). Unknown keys are an error, not silently kept.
+    `skip_email_rules` skips the free-mail and allowed-domain rules for an address that came from our own email link."""
     if not isinstance(data, dict) or len(data) > MAX_BODY_KEYS:
         return {}, {"_": "That answer could not be read."}
     known = {f["id"] for f in fields} | {HONEYPOT}
@@ -171,7 +175,7 @@ def validate_answer(fields: List[Dict[str, Any]], settings: Dict[str, Any], data
         if f["type"] == "checkbox":
             val = "yes" if raw in (True, "true", "on", "yes", "1", 1) else ""
         else:
-            val = clean_text(raw, 254 if f["type"] == "email" else MAX_VALUE, keep_plus=f["type"] == "phone")
+            val = clean_text(raw, 254 if f["type"] == "email" else MAX_VALUE, keep_plus=f["type"] == "phone", formula_guard=f["type"] != "email")
         if f["required"] and not val:
             errors[f["id"]] = "Please fill this in."
             continue
@@ -184,7 +188,9 @@ def validate_answer(fields: List[Dict[str, Any]], settings: Dict[str, Any], data
                 continue
             domain = val.split("@", 1)[1]
             allow = settings.get("allowed_email_domains") or []
-            if settings.get("block_free_email") and domain in FREE_EMAIL:
+            if skip_email_rules:
+                pass
+            elif settings.get("block_free_email") and domain in FREE_EMAIL:
                 errors[f["id"]] = "Please use your work email address."
             elif allow and domain not in allow:
                 errors[f["id"]] = "That email domain is not accepted by this form."
@@ -210,6 +216,7 @@ def ip_hash(ip: str) -> str:
 
 def frame_ancestors(settings: Dict[str, Any]) -> str:
     allowed = settings.get("allowed_origins") or []
+    allowed = [h for h in allowed if isinstance(h, str) and _HOST.fullmatch(h)]  # nothing else may reach the header
     return "frame-ancestors " + (" ".join(f"https://{h} http://{h}" for h in allowed) if allowed else "*")
 
 
@@ -219,23 +226,28 @@ def company_name_from(domain: str) -> str:
     return re.sub(r"[-_]+", " ", stem).strip().title()
 
 
-async def has_mail_server(domain: str) -> bool:
+async def has_mail_server(domain: str) -> Optional[bool]:
     """Whether the email's domain can receive mail (an MX record, or else an address record). A free check
-    that catches typos and made-up domains; it does not prove the mailbox exists."""
+    that catches typos and made-up domains; it does not prove the mailbox exists.
+    True / False when DNS gave a definite answer; None when it could not be asked (timeout, resolver down): try again later."""
     if not domain:
         return False
     import dns.asyncresolver
     import dns.exception
+    import dns.resolver
 
     res = dns.asyncresolver.Resolver()
     res.lifetime = 4.0
+    unsure = False
     for rtype in ("MX", "A"):
         try:
             if await res.resolve(domain, rtype):
                 return True
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            continue  # a definite "no" for this record type
         except (dns.exception.DNSException, OSError):
-            continue
-    return False
+            unsure = True
+    return None if unsure else False
 
 
 def lead_fields(fields: List[Dict[str, Any]], answers: Dict[str, str]) -> Dict[str, Any]:
@@ -266,9 +278,15 @@ async def approve(db, sub, form, *, how: str) -> Optional[str]:
     from app.api.lead_lists import put_in_list
     from app.models.models import LeadAccount
 
+    from app.services import optouts as OO
+
     fields = form.published_fields or form.fields or []
     cols = lead_fields(fields, sub.payload or {})
     email = (cols.get("email") or sub.email or "").lower()
+    bad_e, _ = await OO.blocked(db, [email], [])
+    if OO.clean_email(email) in bad_e:  # someone who opted out is never put back on a list, whoever approves
+        sub.status, sub.reason = "blocked", "This person has opted out."
+        return None
     existing = (await db.execute(select(LeadAccount).where(func.lower(LeadAccount.email) == email))).scalars().first() if email else None
     if existing:
         lead_id = existing.id
@@ -312,7 +330,10 @@ async def auto_review(org_id: str, submission_id: str) -> None:
                 domain = sub.email.split("@", 1)[1] if "@" in sub.email else ""
                 if not form:
                     return
-                if await has_mail_server(domain):
+                ok = await has_mail_server(domain)
+                if ok is None:
+                    return  # DNS could not answer: stays pending, and the sweep tries again
+                if ok:
                     await approve(db, sub, form, how="auto")
                 else:
                     sub.status, sub.reason = "blocked", "The email's domain cannot receive mail."
@@ -321,11 +342,75 @@ async def auto_review(org_id: str, submission_id: str) -> None:
         logger.exception("form submission %s: review failed", submission_id)
 
 
-def start_review(org_id: str, submission_id: str) -> None:
+_TASKS: set = set()  # a running task is only weakly referenced by the loop: hold it until it finishes
+_last_sweep = 0.0
+SWEEP_EVERY_S = 300
+SWEEP_AFTER_S = 120
+SWEEP_MAX_AGE = timedelta(days=7)
+
+
+def _spawn(coro) -> None:
     try:
-        asyncio.get_running_loop().create_task(auto_review(org_id, submission_id))
+        task = asyncio.get_running_loop().create_task(coro)
     except RuntimeError:
-        pass
+        coro.close()
+        return
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)
+
+
+def start_review(org_id: str, submission_id: str) -> None:
+    _spawn(auto_review(org_id, submission_id))
+
+
+async def sweep_pending(limit: int = 50) -> int:
+    """Review answers still pending after a restart or a DNS hiccup. Returns how many it looked at."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.models.models import InboundSubmission
+
+    now = datetime.utcnow()
+    try:
+        with system_scope():
+            async with AsyncSessionLocal() as db:
+                rows = (await db.execute(select(InboundSubmission.org_id, InboundSubmission.id).where(
+                    InboundSubmission.status == "pending", InboundSubmission.created_at < now - timedelta(seconds=SWEEP_AFTER_S),
+                    InboundSubmission.created_at > now - SWEEP_MAX_AGE).order_by(InboundSubmission.created_at).limit(limit))).all()
+    except Exception:
+        logger.exception("form submissions: sweep failed")
+        return 0
+    for org_id, sid in rows:
+        if org_id:
+            await auto_review(org_id, sid)
+    return len(rows)
+
+
+def maybe_sweep() -> None:
+    """Called from the public submit route: at most one sweep every few minutes per process."""
+    global _last_sweep
+    now = datetime.utcnow().timestamp()
+    if now - _last_sweep < SWEEP_EVERY_S:
+        return
+    _last_sweep = now
+    _spawn(sweep_pending())
+
+
+async def lock_person(db, form_id: str, email: str) -> None:
+    """Serialise two simultaneous answers from the same person to one form, so the "already sent?" check and the insert
+    cannot both pass. Held until the transaction ends. A no-op on databases without advisory locks."""
+    from sqlalchemy import text
+
+    try:
+        if db.get_bind().dialect.name == "postgresql":
+            await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"inbound:{form_id}:{email}"})
+    except Exception:
+        logger.warning("form %s: could not take the duplicate guard", form_id)
+
+
+def consent_meta(settings: Dict[str, Any], version: Any, ip: str) -> Dict[str, Any]:
+    """What the visitor was shown and when, kept with the answer (not part of the answers themselves)."""
+    return {"consent_text": settings.get("consent_text") or DEFAULT_CONSENT, "at": datetime.utcnow().isoformat() + "Z",
+            "form_version": version, "ip_hash": ip_hash(ip)}
 
 
 async def submissions_today(db, form_id: str) -> int:

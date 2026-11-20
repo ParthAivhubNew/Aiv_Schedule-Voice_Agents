@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Headset, BookOpen, ExternalLink } from "lucide-react";
 import { C } from "../tokens";
 import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
@@ -11,6 +11,7 @@ import { NavItem } from "./NavItem";
 import { GlobalAssistant } from "./GlobalAssistant";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 import { WORKFLOWS_HEADER, useWorkflowsOpen } from "../workflows/openWorkflows";
+import { openSupport } from "./openSupport";
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
 // It only applies on wide screens (global.css); phones keep their slide-out menu.
@@ -89,6 +90,14 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
         })}
       </nav>
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
+      {!embedded && (
+        <>
+          <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: appId }) }} />
+          <NavItem item={{ id: "documentation", label: "Documentation", icon: BookOpen, title: "Open the documentation in a new tab", onClick: () => window.open(`/help/${appId || ""}`, "_blank") }} >
+            <ExternalLink size={12} style={{ color: "var(--ui-side-muted)", flexShrink: 0, marginLeft: -4 }} />
+          </NavItem>
+        </>
+      )}
       {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}

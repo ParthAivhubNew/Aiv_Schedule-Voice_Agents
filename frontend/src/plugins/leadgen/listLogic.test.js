@@ -50,6 +50,19 @@ describe("possible duplicates and shared phones", () => {
   });
 });
 
+describe("duplicate flags ignore what is not a duplicate", () => {
+  it("does not flag different contacts at one company, or companies sharing a mail or social host", () => {
+    const flags = duplicateFlags([
+      row("1", { registration_number: "01234567", contact_name: "Ann" }), row("2", { registration_number: "01234567", contact_name: "Bob" }),
+      row("3", { domain: "gmail.com" }), row("4", { domain: "gmail.com" }),
+      row("5", { domain: "facebook.com" }), row("6", { domain: "m.facebook.com" }),
+    ]);
+    expect(flags).toEqual({});
+    const same = duplicateFlags([row("7", { registration_number: "09", contact_name: "Ann" }), row("8", { registration_number: "09", contact_name: "ann" })]);
+    expect(same["7"]).toEqual(["duplicate"]);
+  });
+});
+
 describe("list numbers", () => {
   it("words where a company first came from", () => {
     expect(firstSeen({ source: "import", created_at: "2026-11-03T10:00:00Z" })).toBe("Imported · 3 Nov 2026");

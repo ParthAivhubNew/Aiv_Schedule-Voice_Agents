@@ -1,4 +1,4 @@
-import { searchKey, skipRepeat } from "./searchGuard";
+import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "./searchGuard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
@@ -12,7 +12,7 @@ import { LeadsMap } from "./LeadsMap";
 import { amountChoices, PAGE_SIZES, typedAmount } from "./drawShape";
 import { SearchStatus, useHold } from "./SearchStatus";
 import { TableSkeleton, TopBar } from "../../app/Loader";
-import { askConfirm, askList, askText } from "./Dialogs";
+import { askList, askText } from "./Dialogs";
 import { CallButton, useCallDialog } from "./CallFlow";
 import { PaneSwitch } from "../../components/PaneSwitch";
 import { useConnection } from "../../hooks/useConnections";
@@ -54,15 +54,13 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", sic: "", industryTypes: [], town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [] };
+const EMPTY_FORM = { name: "", sector: "", sic: "", industryTypes: [], town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [], keep: {} };
 const FIRST_KEY = "aivhub_find_first";
 const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "industryTypes", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
 const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
 const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
 const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "CIC"], ["guarantee", "By guarantee"], ["partnership", "Partnership"]];
-
-const when = (at) => new Date(at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 // Find Leads layout and control styles.
 const CHAT_CSS = `
@@ -90,8 +88,18 @@ const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined
 
 // The filter panel and the chat are the same search: the panel's fields become this filter object,
 // and a chat reply's filters are written back into the panel -- so neither can drift from the other.
+// Filters the panel has no control for (the standard FSB exclusions, a site filter, a status such as Dissolved) are carried in form.keep,
+// so applying the panel again, or filling it from a sentence, does not silently drop them.
+const KEEP_KEYS = ["fsb_exclusions", "site"];
+const keptFrom = (fl) => {
+  const keep = Object.fromEntries(KEEP_KEYS.filter((k) => fl[k] && !(Array.isArray(fl[k]) && !fl[k].length)).map((k) => [k, fl[k]]));
+  const status = String(fl.status || "");
+  if (status && !["active", "any"].includes(status.toLowerCase())) keep.status = status;
+  return keep;
+};
+
 function formToFilters(f) {
-  const out = {};
+  const out = { ...(f.keep || {}) };
   // One box for industry words and company names: each word is matched against both.
   if (String(f.name || "").trim()) out.name_contains = f.name.trim();
   if (splitList(f.sector).length) out.keyword = splitList(f.sector);
@@ -139,6 +147,7 @@ function filtersToForm(fl) {
     notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
     saved: fl.saved || "", title: "",
     near: fl.near || null, nearPostcode: fl.near?.postcode || "", nearMiles: fl.near ? String(fl.near.miles) : "5", nearError: "", signals: fl.signals || [],
+    keep: keptFrom(fl),
   };
 }
 
@@ -189,6 +198,7 @@ function ContactsPanel({ company }) {
     try {
       const r = await api.companyContacts(company.id, { include_web: includeWeb, find_site_only: findSiteOnly });
       setData(r);
+      if (includeWeb && !findSiteOnly) announceCreditsChanged();  // a web lookup that found something just used a credit: the chip refreshes
       const found = domainOf(r.web?.website || "") || domainOf(r.stored?.website || "");
       setDomain((d) => d || found);
       return found;
@@ -371,6 +381,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [total, setTotal] = useState(0);
   const [capped, setCapped] = useState(false);
   const [excluded, setExcluded] = useState([]);
+  excludedRef.current = excluded;
   const [searched, setSearched] = useState(false);
   const [tab, setTab] = useState("companies"); // companies | people
   const [sort, setSort] = useState("best");
@@ -382,6 +393,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [savedTotal, setSavedTotal] = useState(null); // null until the count is known: a loading dash, never a wrong 0
   const [selKey, setSelKey] = useState(""); // the search the ticks belong to: a new search (not a new page) clears them
   const sel = useBulkSelect(selKey);
+  selKeyRef.current = selKey;
   const cardsById = useRef(new Map()); // every company card seen in this search, so ticks on other pages still have their row
   const lastQuery = useRef(null); // the request behind the results on screen, for "Select all"
   const [selecting, setSelecting] = useState(false);
@@ -408,6 +420,9 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   // A drawn area is counted first, the user picks how many to see, then the companies are placed in steps.
   const [areaStep, setAreaStep] = useState(null); // null | {phase: counting|choose|running|done, ...}
   const stopArea = useRef(false);
+  const areaRun = useRef(0); // each area scan gets a number; a scan that is no longer the latest never writes to the screen
+  const excludedRef = useRef([]);
+  const selKeyRef = useRef("");
   const [custom, setCustom] = useState(""); // a number typed as "how many"
   // How many companies the list loads at a time; remembered in the browser.
   const [pageSize, setPageSize] = useState(() => {
@@ -425,6 +440,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   // Every search can be cancelled: a newer run id makes the older one's answer be ignored when it arrives.
   const runId = useRef(0);
   const runSig = useRef(""); // the search now running
+  const supersedeArea = () => { stopArea.current = true; areaRun.current += 1; };
   const [didYouMean, setDidYouMean] = useState({}); // a mistyped town and the town it probably meant
   const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
@@ -452,7 +468,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     setWordsBusy(true);
     try {
       const r = await api.understandFilters(t, formToFilters(form));
-      if (!r.understood) { notice("I couldn't turn that into filters. Try something like: accountants in Leeds, leave out charities."); return; }
+      if (!r.understood) { notice(r.message || "I couldn't turn that into filters. Try something like: accountants in Leeds, leave out charities."); return; }
       setForm((f) => ({ ...filtersToForm(r.filters), title: f.title }));
       setGroups((g) => ({ ...g, industry: true, location: true, company: true, status: true, size: true, contact: true }));
       setWords("");
@@ -477,6 +493,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   };
   const applySaved = (filters) => {
     const f = { ...EMPTY_FORM, ...filtersToForm(cleanFilters(filters)) };
+    supersedeArea(); setArea(null); setAreaStep(null); setAreaNote("");
     setExcluded([]); setForm(f); setTab("companies"); search(null, f, 0, null, undefined, undefined, true);
   };
   const toggleSize = (s) => setForm((f) => ({ ...f, sizes: f.sizes.includes(s) ? f.sizes.filter((x) => x !== s) : [...f.sizes, s] }));
@@ -582,7 +599,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     const fresh = Boolean(e); // a search the person just pressed starts without the companies they hid before
     const shape = wipe ? null : areaOverride !== undefined ? areaOverride : area;
     // A different search pressed while one is running replaces it (the old answer is dropped); only an exact repeat is ignored.
-    const sig = searchKey(formToFilters(f), offset, shape);
+    const sig = searchKey(formToFilters(f), offset, shape, { tab: "companies", sort: sortOverride || sort, drop: dropOverride });
     if (skipRepeat(busy, force, sig, runSig.current)) return;
     runSig.current = sig;
     if (!shape) ranFor.current = formToFilters(f);
@@ -594,6 +611,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     }
     dropFor.current = f.sector;
     if (shape) { countArea(shape, f, drop); return; }
+    supersedeArea(); // no area now: an area scan still reading must not write over this list
     setBusy(true);
     setError("");
     const myRun = ++runId.current;
@@ -623,7 +641,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setTotal(r.total_all ?? r.total);
       setCapped(r.total_all == null && r.total_capped);
       // The slower figures (real total, group counts, saved) arrive a moment after the page is already on screen.
-      loadSummary(r.query_filters || formToFilters(f), excluded); // counted on the filters the search really ran, so the figures match the list shown
+      loadSummary(r.query_filters || formToFilters(f), hiddenNow(query.exclude_ids, excludedRef.current)); // counted on the filters the search really ran, so the figures match the list shown
       setApplied(r.filters);
       setChips(r.chips || []);
       setDidYouMean(r.did_you_mean || {});
@@ -661,7 +679,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const resetSearch = () => {
     runId.current += 1;
     searchHold.clear();
-    stopArea.current = true;
+    supersedeArea();
     pausedRef.current = false;
     setPaused(false);
     fillRun.current += 1;
@@ -729,6 +747,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (e) e.preventDefault();
     const f = overrideForm || form;
     ranFor.current = { ...formToFilters(f), ...(String(f.title || "").trim() ? { title: String(f.title).trim() } : {}) };
+    runSig.current = searchKey(formToFilters(f), offset, null, { tab: "people", sort: sortOverride || sort, title: f.title || "" });
     setBusy(true);  // a new search replaces one still running (the older answer is dropped by the run id)
     setError("");
     const myRun = ++runId.current;
@@ -789,7 +808,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   // Step 1: how many companies could be in the area. Free and quick.
   const countArea = async (shape, f = form, drop = dropTerms) => {
-    stopArea.current = true;
+    supersedeArea();
     setError("");
     setSelKey(JSON.stringify(["area", shape, formToFilters(f), drop]));
     setAreaStep({ phase: "counting" });
@@ -833,9 +852,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
 
   // Step 2: read the area in steps until there are as many as the user asked for (or none are left).
   const showFromArea = async (shape, target, candidates, f = form, drop = dropTerms) => {
+    const mine = ++areaRun.current;
     stopArea.current = false;
     pausedRef.current = false;
     setPaused(false);
+    const stale = () => mine !== areaRun.current;
     const got = [];
     let scan = 0;
     let more = true;
@@ -847,9 +868,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     try {
       while (more && !stopArea.current && got.length < target) {
         while (pausedRef.current && !stopArea.current) await new Promise((r) => setTimeout(r, 300)); // paused: nothing new is read
+        if (stale()) return;
         if (stopArea.current) break;
         setAreaStep({ phase: "running", found: got.length, scanned: scan, candidates, target });
-        const r = await api.searchCompanies({ filters: formToFilters(f), area: shape, scan, exclude_ids: excluded, drop_terms: drop, widen: widenRef.current });
+        const r = await api.searchCompanies({ filters: formToFilters(f), area: shape, scan, exclude_ids: excludedRef.current, drop_terms: drop, widen: widenRef.current });
+        if (stale()) return;
         if (stopArea.current) break;
         if (r.points) setPoints((p) => ({ ...p, ...r.points }));
         got.push(...r.companies);
@@ -862,6 +885,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
         more = r.next_scan != null;
         scan = r.next_scan ?? scan;
       }
+      if (stale()) return;
       const shown = got.slice(0, target);
       setCompanies(shown);
       setTotal(shown.length);
@@ -870,6 +894,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       setChips(lastChips);
       setAreaStep({ phase: "done", shown: shown.length, more: more || got.length > target, candidates });
     } catch (err) {
+      if (stale()) return;
       setError(err.message || "The search didn't finish. Try again.");
       setAreaStep({ phase: "done", shown: got.length, more: true, candidates, stopped: true });
     }
@@ -884,7 +909,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     countArea(shape, form);
   };
   const clearArea = () => {
-    stopArea.current = true;
+    supersedeArea();
     runId.current += 1; // a count still on its way is ignored
     countHold.clear();
     setAreaStep(null);
@@ -981,7 +1006,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [checking, setChecking] = useState(null);
   const [preparing, setPreparing] = useState(false);
   // A detail the register holds but we haven't shown yet (c.closed) is not missing: Reveal shows it, free. Get contacts is only for what we have nowhere.
-  const missingDetail = (c) => ["website", "phone", "email"].some((k) => !c[k] && !(c.closed || {})[k]);
+  const missingDetail = detailMissing;
   const getContacts = async (list) => {
     const savedOf = (c, pool) => pool.find((a) => (a.business_record_id && a.business_record_id === c.id) || (domainOf(c.website) && a.domain === domainOf(c.website)) || a.name.toLowerCase() === String(c.name || "").toLowerCase());
     setPreparing(true);
@@ -1067,8 +1092,11 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     if (inArea || !lastQuery.current) { sel.selectAll(companies.map((c) => c.id)); return; }
     setSelecting(true);
     try {
-      const r = await api.searchSelectAll({ ...lastQuery.current, limit: SELECT_ALL_LIMIT });
-      (r.companies || []).forEach((c) => cardsById.current.set(c.id, { ...(cardsById.current.get(c.id) || {}), ...c }));
+      const started = { run: runId.current, key: selKeyRef.current };
+      const q = lastQuery.current;
+      const r = await api.searchSelectAll({ ...q, exclude_ids: hiddenNow(q.exclude_ids, excludedRef.current), limit: SELECT_ALL_LIMIT });
+      if (isLate(started, { run: runId.current, key: selKeyRef.current })) return; // the filters changed while this was on its way
+      (r.companies || []).forEach((c) => { const had = cardsById.current.get(c.id); cardsById.current.set(c.id, had ? { ...had, ...c } : { ...c, slim: true }); });
       sel.selectAll((r.companies || []).map((c) => c.id));
     } catch (err) {
       notice(err.message || "Couldn't select them all. Try again.");
@@ -1147,7 +1175,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           <div className="fl-pin">
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
-              <button type="button" className="fl-collapse" aria-label="Hide the filters" title="Hide the filters to give the results more room" onClick={toggleFilters}><ChevronsLeft size={16} /></button>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0 }} value={words} disabled={wordsBusy}

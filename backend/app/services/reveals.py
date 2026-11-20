@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Set, Tuple
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import ContactReveal
@@ -55,8 +56,26 @@ async def open_one(db: AsyncSession, business_id: str, kind: str) -> None:
         raise ValueError("Only a website, phone or email can be opened.")
     have = (await db.execute(select(ContactReveal.id).where(ContactReveal.business_id == business_id, ContactReveal.kind == kind))).first()
     if not have:
-        db.add(ContactReveal(business_id=business_id, kind=kind))
+        await _insert(db, [(business_id, kind)])
         await db.commit()
+
+
+async def _insert(db: AsyncSession, pairs: List[Tuple[str, str]]) -> None:
+    """Add reveal rows without committing. A row another request added a moment ago (the unique key uq_contact_reveal) counts as already open:
+    each insert runs in its own savepoint, so a clash undoes only itself and never the caller's work."""
+    try:
+        async with db.begin_nested():
+            for business_id, kind in pairs:
+                db.add(ContactReveal(business_id=business_id, kind=kind))
+    except IntegrityError:
+        if len(pairs) == 1:
+            return
+        for business_id, kind in pairs:
+            try:
+                async with db.begin_nested():
+                    db.add(ContactReveal(business_id=business_id, kind=kind))
+            except IntegrityError:
+                continue
 
 
 async def open_many(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple[str, str]]) -> Set[Tuple[str, str]]:
@@ -72,8 +91,7 @@ async def open_many(db: AsyncSession, businesses: Iterable[Any], seen: Set[Tuple
                 fresh.append((biz.id, kind))
     if not fresh:
         return seen
-    for business_id, kind in fresh:
-        db.add(ContactReveal(business_id=business_id, kind=kind))
+    await _insert(db, fresh)
     await db.commit()
     return seen | set(fresh)
 

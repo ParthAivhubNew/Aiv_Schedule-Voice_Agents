@@ -12,12 +12,14 @@ a plan or a block says no. Nothing here spends credits.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import org_scope, system_scope
@@ -95,7 +97,7 @@ def clean_condition(raw: Any) -> Optional[Dict[str, str]]:
     return {"field": field, "op": op, "value": value}
 
 
-def _clean_blocks(raw: Any, depth: int, count: List[int]) -> Optional[List[Dict[str, Any]]]:
+def _clean_blocks(raw: Any, depth: int, count: List[int], trusted: frozenset = frozenset()) -> Optional[List[Dict[str, Any]]]:
     """The flow in the shape the engine runs, or None when a block is not valid. Old rules (a plain list of actions) read as the same flow."""
     out: List[Dict[str, Any]] = []
     for b in raw if isinstance(raw, list) else []:
@@ -118,7 +120,7 @@ def _clean_blocks(raw: Any, depth: int, count: List[int]) -> Optional[List[Dict[
             cond = clean_condition(b.get("cond"))
             if cond is None or depth >= MAX_DEPTH:
                 return None
-            then, other = _clean_blocks(b.get("then"), depth + 1, count), _clean_blocks(b.get("else"), depth + 1, count)
+            then, other = _clean_blocks(b.get("then"), depth + 1, count, trusted), _clean_blocks(b.get("else"), depth + 1, count, trusted)
             if then is None or other is None or not (then or other):
                 return None
             out.append({"type": "if", "cond": cond, "then": then, "else": other})
@@ -140,7 +142,10 @@ def _clean_blocks(raw: Any, depth: int, count: List[int]) -> Optional[List[Dict[
             if action == "webhook":
                 from app.services.webhook_dispatcher import url_problem
 
-                if url_problem(value) or not value.lower().startswith(("https://", "http://")):
+                if not value.lower().startswith(("https://", "http://")):
+                    return None
+                # An address this workflow already holds is not looked up again (a DNS blip must not drop it or block every later save).
+                if value not in trusted and url_problem(value):
                     return None
             out.append(step)
         else:
@@ -148,8 +153,31 @@ def _clean_blocks(raw: Any, depth: int, count: List[int]) -> Optional[List[Dict[
     return out
 
 
-def clean_workflow(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """A workflow in the shape the engine runs, or None when it is not valid."""
+def _has_action(blocks: List[Dict[str, Any]], action: str) -> bool:
+    return any((b.get("type") == "action" and b.get("action") == action) or (b.get("type") == "if" and (_has_action(b.get("then") or [], action) or _has_action(b.get("else") or [], action)))
+               for b in blocks)
+
+
+def _webhook_urls(blocks: Any) -> set:
+    out: set = set()
+    for b in blocks if isinstance(blocks, list) else []:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type", "action") == "action" and b.get("action") == "webhook" and b.get("value"):
+            out.add(str(b["value"]))
+        out |= _webhook_urls(b.get("then")) | _webhook_urls(b.get("else"))
+    return out
+
+
+def _clean_id(raw: Any) -> str:
+    """A client-supplied id kept to safe characters and 64 long; a new one when nothing usable is left."""
+    given = re.sub(r"[^A-Za-z0-9_-]", "", str(raw or ""))[:64]
+    return given or f"wf_{uuid.uuid4().hex[:8]}"
+
+
+def clean_workflow(raw: Dict[str, Any], trusted: frozenset = frozenset()) -> Optional[Dict[str, Any]]:
+    """A workflow in the shape the engine runs, or None when it is not valid. Looks up web addresses (DNS), so call it off the event loop
+    (see clean_all). trusted holds addresses already saved, which are not looked up again."""
     event = str(raw.get("event") or "")
     info = EVENT_INFO.get(event)
     if info is None:
@@ -158,7 +186,7 @@ def clean_workflow(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     outcome = str(when.get("outcome") or "")
     if outcome and outcome not in info["outcomes"]:
         return None
-    flow = _clean_blocks(raw.get("do"), 0, [0])
+    flow = _clean_blocks(raw.get("do"), 0, [0], trusted)
     if not flow:
         return None
     conditions = []
@@ -171,14 +199,43 @@ def clean_workflow(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     reenroll = str(lim.get("reenroll") or "every")
     if reenroll not in ("every", "once", "days"):
         reenroll = "every"
+    if reenroll == "every" and event == "email.opened" and _has_action(flow, "send_email"):
+        reenroll = "once"  # an email that is opened sends an email that is opened: without a limit it never stops
     try:
         per_day = min(max(int(lim.get("per_day") or DEFAULT_PER_DAY), 1), 1000)
         days = min(max(int(lim.get("days") or 7), 1), 365)
     except (TypeError, ValueError):
         return None
-    return {"id": str(raw.get("id") or f"wf_{uuid.uuid4().hex[:8]}"), "name": str(raw.get("name") or "").strip()[:80] or "Untitled workflow",
+    return {"id": _clean_id(raw.get("id")), "name": str(raw.get("name") or "").strip()[:80] or "Untitled workflow",
             "enabled": bool(raw.get("enabled", True)), "event": event, "when": {"outcome": outcome} if outcome else {}, "conditions": conditions,
             "do": flow, "limits": {"reenroll": reenroll, "days": days, "per_day": per_day}}
+
+
+def _mask_url(url: str) -> str:
+    from urllib.parse import urlparse
+
+    u = urlparse(url)
+    return f"{u.scheme}://{u.hostname}/…" if u.scheme and u.hostname else "…"
+
+
+def _mask_blocks(blocks: Any) -> Any:
+    out = []
+    for b in blocks if isinstance(blocks, list) else []:
+        if not isinstance(b, dict):
+            out.append(b)
+            continue
+        b = dict(b)
+        if b.get("action") == "webhook" and b.get("value"):
+            b["value"] = _mask_url(str(b["value"]))
+        if b.get("type") == "if":
+            b["then"], b["else"] = _mask_blocks(b.get("then")), _mask_blocks(b.get("else"))
+        out.append(b)
+    return out
+
+
+def mask_webhooks(w: Dict[str, Any]) -> Dict[str, Any]:
+    """The workflow with each webhook address cut to its host: the path and query often hold the secret."""
+    return {**w, "do": _mask_blocks(w.get("do"))}
 
 
 async def get_workflows(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -188,10 +245,28 @@ async def get_workflows(db: AsyncSession) -> List[Dict[str, Any]]:
     return [w for w in ((row.rules or {}).get("workflows") or []) if isinstance(w, dict)] if row else []
 
 
-async def save_workflows(db: AsyncSession, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def clean_all(db: AsyncSession, items: List[Dict[str, Any]]) -> List[Optional[Dict[str, Any]]]:
+    """Every item cleaned (None where one is not valid), the address lookups done once and off the event loop. Ids are unique within the list."""
+    trusted: set = set()
+    for w in await get_workflows(db):
+        trusted |= _webhook_urls(w.get("do"))
+    frozen = frozenset(trusted)
+    loop = asyncio.get_running_loop()
+    out = [await loop.run_in_executor(None, clean_workflow, i, frozen) for i in items[:MAX_RULES]]
+    seen: set = set()
+    for w in out:
+        if w is not None:
+            if w["id"] in seen:
+                w["id"] = f"wf_{uuid.uuid4().hex[:8]}"
+            seen.add(w["id"])
+    return out
+
+
+async def save_workflows(db: AsyncSession, items: List[Dict[str, Any]], cleaned: Optional[List[Optional[Dict[str, Any]]]] = None) -> List[Dict[str, Any]]:
+    """Save the workflows. Pass cleaned (from clean_all) when the caller already checked them, so the lookups are not done twice."""
     from app.models.models import ConnectionRules
 
-    clean = [w for w in (clean_workflow(i) for i in items[:MAX_RULES]) if w]
+    clean = [w for w in (cleaned if cleaned is not None else await clean_all(db, items)) if w]
     row = await db.get(ConnectionRules, "default")
     rules = dict(row.rules or {}) if row else {}
     rules["workflows"] = clean
@@ -228,16 +303,21 @@ def _email_of(event: str, data: Dict[str, Any]) -> str:
 
 
 async def _list_ids(db: AsyncSession, name: str) -> set:
+    """The ids in one list. The lists are read once per session (one event) and read again after a block adds to a list."""
     from app.api.lead_lists import _load
 
-    want = (name or "").strip().lower()
-    return {i for l in await _load(db) if str(l.get("name", "")).strip().lower() == want for i in l.get("ids", [])}
+    cache = db.info.get("wf_lists")
+    if cache is None:
+        cache = db.info["wf_lists"] = {}
+        for l in await _load(db):
+            cache.setdefault(str(l.get("name", "")).strip().lower(), set()).update(l.get("ids", []))
+    return cache.get((name or "").strip().lower(), set())
 
 
 async def check(db: AsyncSession, cond: Dict[str, str], lead: Optional[LeadAccount]) -> bool:
-    """Whether one filter holds for this lead. With no lead behind the event, a filter on the lead cannot hold."""
+    """Whether one filter holds for this lead. With no lead behind the event, a filter on the lead cannot hold, and "is not" / "does not contain" does."""
     if lead is None:
-        return False
+        return cond["op"] in ("is_not", "not_contains")
     field, op, value = cond["field"], cond["op"], cond["value"]
     if field == "stage":
         got = (lead.stage or "new") == value
@@ -275,7 +355,7 @@ async def run_action(db: AsyncSession, org_id: str, lead: Optional[LeadAccount],
     if action == "set_stage":
         if not dry:
             lead.stage = value
-        return f"{would}{'set' if not dry else 'set'} stage to {value.replace('_', ' ')}"
+        return f"{would}set stage to {value.replace('_', ' ')}"
     if action == "add_note":
         if not dry:
             await C.record_event(db, "note", lead_id=lead.id, ref_id=f"{rule['id']}:{uuid.uuid4().hex[:6]}", summary=_fill(value, lead)[:500])
@@ -301,6 +381,7 @@ async def run_action(db: AsyncSession, org_id: str, lead: Optional[LeadAccount],
             from app.api.lead_lists import put_in_list
 
             await put_in_list(db, "", value, [lead.id])
+            db.info.pop("wf_lists", None)
         return f"{would}add to the list {value}"
     if action == "send_email":
         if dry:
@@ -318,19 +399,29 @@ async def run_action(db: AsyncSession, org_id: str, lead: Optional[LeadAccount],
 
 
 async def _post_webhook(url: str, rule: Dict[str, Any], event: str, lead: Optional[LeadAccount], data: Dict[str, Any]) -> str:
+    from urllib.parse import urlparse
+
     import httpx
 
-    from app.services.webhook_dispatcher import url_problem
+    from app.services.webhook_dispatcher import check_url
 
-    problem = await asyncio.get_running_loop().run_in_executor(None, url_problem, url)
+    problem, ip = await asyncio.get_running_loop().run_in_executor(None, check_url, url)
     if problem:
         return f"not sent: {problem}"
     body = {"workflow": rule["name"], "event": event, "at": datetime.utcnow().isoformat() + "Z",
             "lead": {"id": lead.id, "name": lead.name, "email": lead.email, "phone": lead.phone, "stage": lead.stage, "industry": lead.industry, "region": lead.region} if lead else None}
+    target, extra = url, {}
+    if ip:  # connect to the address that was checked, not to whatever the name points at now
+        u = urlparse(url)
+        netloc = f"[{ip}]" if ":" in ip else ip
+        if u.port:
+            netloc += f":{u.port}"
+        target = u._replace(netloc=netloc).geturl()
+        extra = {"headers": {"Host": u.netloc.rsplit("@", 1)[-1]}, "extensions": {"sni_hostname": u.hostname}}
     try:
         async with httpx.AsyncClient(timeout=8, follow_redirects=False) as c:
-            r = await c.post(url, json=body)
-        if r.status_code >= 400:
+            r = await c.post(target, json=body, **extra)
+        if not 200 <= r.status_code < 300:
             raise RuntimeError(f"your address answered {r.status_code}")
         return f"sent to your web address ({r.status_code})"
     except httpx.HTTPError as err:
@@ -389,7 +480,11 @@ async def advance(db: AsyncSession, org_id: str, run: WorkflowRun, rule: Dict[st
 def _key(rule: Dict[str, Any], event: str, data: Dict[str, Any], lead: Optional[LeadAccount]) -> str:
     # Meetings, campaigns and posts arrive nested ({"meeting": {...}}), so their id is one level down; without it a second one looked like a repeat.
     nested = next((data[k].get("id") for k in ("meeting", "campaign", "post", "reply") if isinstance(data.get(k), dict) and data[k].get("id")), "")
-    return f"{rule['id']}:{event}:{data.get('id') or data.get('call_id') or nested or ''}:{lead.id if lead else ''}"[:240]
+    key = f"{rule['id']}:{event}:{data.get('id') or data.get('call_id') or nested or ''}:{lead.id if lead else ''}"
+    if len(key) <= 240:
+        return key
+    # Cutting a long key short could make two different events look the same; a hash of the whole key cannot.
+    return key[:180] + ":" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
 
 
 async def _blocked_why(db: AsyncSession, rule: Dict[str, Any], lead: Optional[LeadAccount], key: str) -> str:
@@ -447,16 +542,13 @@ async def on_event(org_id: str, event: str, data: Dict[str, Any]) -> None:
             await db.flush()
             if not why:
                 await advance(db, org_id, run, rule, lead, event=event, data=data)
-        await db.commit()
-
-
-async def _handler(org_id: str, event: str, data: Dict[str, Any]) -> None:
-    await on_event(org_id, event, data)
+            # One commit per workflow: if a later one fails and the bus tries the event again, this one is already saved and counts as a duplicate.
+            await db.commit()
 
 
 def register() -> None:
     for ev in EVENT_INFO:
-        C.subscribe(ev, _handler)
+        C.subscribe(ev, on_event)
 
 
 # ── Waiting runs, retries, and trying a workflow without changing anything ─────
@@ -464,20 +556,49 @@ async def _rule_of(db: AsyncSession, run: WorkflowRun) -> Optional[Dict[str, Any
     return next((r for r in await get_workflows(db) if r["id"] == run.workflow_id), None)
 
 
-async def continue_run(db: AsyncSession, run: WorkflowRun) -> None:
-    """Resume a waiting run, or retry a failed one, from the block it stopped at."""
+async def continue_run(db: AsyncSession, run: WorkflowRun) -> bool:
+    """Resume a waiting run, or retry a failed one, from the block it stopped at. False when another worker or request took it first."""
+    # Take the run with one UPDATE that only matches while it still has the status we saw: of two callers, one gets the row and the other gets nothing.
+    took = (await db.execute(update(WorkflowRun).where(WorkflowRun.id == run.id, WorkflowRun.status == run.status).values(status="running")
+                             .returning(WorkflowRun.id).execution_options(synchronize_session=False))).first()
+    if took is None:
+        return False
     rule = await _rule_of(db, run)
     if rule is None or not rule.get("enabled"):
         run.status, run.queue, run.resume_at = "stopped", [], None
         run.log = list(run.log or []) + [_line("Stopped", "The workflow was turned off or deleted.")]
-        return
+        return True
     lead = await db.get(LeadAccount, run.lead_id) if run.lead_id else None
     if run.lead_id and lead is None:
         run.status, run.queue, run.resume_at = "stopped", [], None
         run.log = list(run.log or []) + [_line("Stopped", "The company was deleted.")]
-        return
+        return True
     run.status = "running"
-    await advance(db, run.org_id or "", run, rule, lead)
+    await advance(db, run.org_id or "", run, rule, lead, event=run.event or "")
+    return True
+
+
+MAX_RESUME_FAILURES = 5
+_RESUME_FAILED = "Could not continue"
+
+
+async def _note_resume_failure(run_id: str, org: str, err: Exception) -> None:
+    """A run that fails outside its blocks (the database, a missing row) is tried again by the loop; after a few tries it is marked failed."""
+    try:
+        with org_scope(org):
+            async with AsyncSessionLocal() as db:
+                run = await db.get(WorkflowRun, run_id)
+                if run is None:
+                    return
+                log = list(run.log or []) + [_line(_RESUME_FAILED, str(err)[:200] or "it did not finish", ok=False)]
+                run.log = log
+                if sum(1 for l in log if l.get("label") == _RESUME_FAILED) >= MAX_RESUME_FAILURES:
+                    run.status, run.resume_at = "failed", None
+                    run.log = log + [_line("Stopped", "It could not continue after several tries. Use Retry once the problem is fixed.", ok=False)]
+                run.updated_at = datetime.utcnow()
+                await db.commit()
+    except Exception as note_err:
+        logger.warning("[workflow] could not record the failure of run %s: %s", run_id, note_err)
 
 
 async def resume_due(limit: int = 50) -> int:
@@ -492,12 +613,12 @@ async def resume_due(limit: int = 50) -> int:
             with org_scope(org):
                 async with AsyncSessionLocal() as db:
                     run = await db.get(WorkflowRun, run_id)
-                    if run is not None and run.status == "waiting":
-                        await continue_run(db, run)
+                    if run is not None and run.status == "waiting" and await continue_run(db, run):
                         await db.commit()
                         done += 1
         except Exception as err:
             logger.warning("[workflow] could not resume run %s: %s", run_id, err)
+            await _note_resume_failure(run_id, org, err)
     return done
 
 
@@ -527,7 +648,7 @@ async def workflow_loop() -> None:
 
 async def test_run(db: AsyncSession, org_id: str, rule: Dict[str, Any], lead: LeadAccount) -> List[Dict[str, Any]]:
     """What the workflow would do for this lead, line by line. Nothing is changed, sent or saved."""
-    cleaned = clean_workflow(rule)
+    cleaned = (await clean_all(db, [rule]))[0]
     if cleaned is None:
         raise ValueError("This workflow is not complete yet.")
     probe = WorkflowRun(workflow_id=cleaned["id"], workflow_name=cleaned["name"], event=cleaned["event"], lead_id=lead.id, lead_name=lead.name, queue=list(cleaned["do"]), log=[])
@@ -583,7 +704,7 @@ async def make_workflow_card(t: Any, args: Dict[str, Any]) -> None:
     t0 = _time.time()
     raw = {"name": args.get("name"), "event": args.get("event"), "when": {"outcome": args.get("outcome") or ""}, "conditions": args.get("conditions") or [],
            "do": args.get("steps") or [], "enabled": True}
-    rule = clean_workflow(raw)
+    rule = await asyncio.get_running_loop().run_in_executor(None, clean_workflow, raw)
     if rule is None:
         logger.warning("[workflow] the assistant wrote a workflow that was not valid: %s", args)
         t.notes.append("That workflow was not valid: check the event, its outcome, and that every step has what it needs (a stage, a list name, a web address). Fix it and try again, or ask the person.")

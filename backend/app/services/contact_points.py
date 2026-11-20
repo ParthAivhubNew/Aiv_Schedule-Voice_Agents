@@ -183,7 +183,7 @@ def points_of(biz: Any) -> List[Dict[str, str]]:
             for network, url in rs.items():
                 kind = _NETWORK_NAMES.get(str(network).lower(), "") or page_kind(url if isinstance(url, str) else "")
                 if kind:
-                    add(kind, url if isinstance(url, str) else (url or {}).get("url"), "research")
+                    add(kind, url if isinstance(url, str) else (url.get("url") if isinstance(url, dict) else None), "research")
         for person in research.get("team") or research.get("people") or []:
             if isinstance(person, dict):
                 add("phone", person.get("phone"), "research", "found", person.get("name", ""))
@@ -275,11 +275,14 @@ async def bulk_add(db: Any, values: List[Dict[str, Any]]) -> int:
 async def sync_safely(db: Any, biz: Any) -> None:
     """`sync`, committed, and never raising: a problem here must not turn a successful lookup into an error."""
     try:
-        async with db.begin_nested():
+        async with db.begin_nested():  # a failure undoes only this savepoint: the caller's own uncommitted work is left alone
             await sync(db, biz)
-        await db.commit()
     except Exception as err:
         logger.warning("contact points not updated for %s: %s", getattr(biz, "id", "?"), err)
+    try:
+        await db.commit()
+    except Exception as err:
+        logger.warning("contact points not saved for %s: %s", getattr(biz, "id", "?"), err)
         try:
             await db.rollback()
         except Exception:

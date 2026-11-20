@@ -249,7 +249,8 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   }, [onClose]);
 
   const strip = (w) => { const { stats, ...rest } = w; return rest; };
-  // Every change starts from what the server holds now and is applied by id, so two quick changes or a second tab cannot overwrite each other.
+  // Every change starts from what the server holds now and is applied by id, which narrows the window for two quick changes or a second tab
+  // to overwrite each other. It does not close it: the API has no version check, so a save between this read and this write is still lost.
   const persist = async (change) => {
     const fresh = (await api.getWorkflows()).workflows.map(strip);
     await api.saveWorkflows(change(fresh));

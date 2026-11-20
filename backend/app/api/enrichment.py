@@ -3,7 +3,7 @@ import asyncio
 import json
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -120,45 +120,70 @@ async def _can_deep_search(db: AsyncSession) -> None:
         raise HTTPException(status_code=402, detail=why)
 
 
-_ONCE_LOCKS: dict = {}  # a double-click sends two requests at once: they queue here so the second sees the first one's charge
+import weakref
+
+_ONCE_LOCKS: "weakref.WeakValueDictionary" = weakref.WeakValueDictionary()  # a lock lives only while a request holds it, so the table never grows
 
 
 def _once_lock(ref: str):
+    """Same-process queue for one (organisation, thing). Across workers the database lock in `_once_db_lock` does the same job."""
     import asyncio
 
     from app.core.tenancy import current_org
 
-    return _ONCE_LOCKS.setdefault((current_org(), ref), asyncio.Lock())
+    key = (current_org(), ref)
+    lock = _ONCE_LOCKS.get(key)
+    if lock is None:
+        lock = _ONCE_LOCKS[key] = asyncio.Lock()
+    return lock
 
 
-async def _charge_leads(db: AsyncSession, count: int, what: str, item: str = "lead_lookup", once: str = "") -> None:
-    """Charge leads researched, once each (item: the rate card line, lead_lookup unless a cheaper one such as lead_social applies). Never fails the request.
-    With `once` (a key such as "<company>:website"), the same thing is never charged twice within 90 days, however many times it is asked for."""
+async def _once_db_lock(db: AsyncSession, ref: str) -> None:
+    """Hold a Postgres lock on this organisation's `ref` until the next commit, so two workers cannot both pass the "already charged?" check."""
+    from sqlalchemy import text
+
+    from app.core.tenancy import current_org
+
+    bind = getattr(db, "bind", None)
+    if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+        await db.execute(text("select pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"{current_org()}:{ref}"})
+
+
+async def _charge_leads(db: AsyncSession, count: int, what: str, item: str = "lead_lookup", once: str = "", window_days: int = 90) -> bool:
+    """Charge leads researched, once each (item: the rate card line, lead_lookup unless a cheaper one such as lead_social applies).
+    With `once` (a key such as "<company>:website"), the same thing is never charged twice within `window_days` (90 by default), however many times it is asked for.
+    Returns True when the thing is paid for (charged now or already), False when the charge failed: the caller then keeps nothing that was paid for.
+    The charge is committed here; whatever the caller left uncommitted is committed with it."""
     import uuid
 
     from app.services.credits import charge, charged_recently
 
     if count <= 0:
-        return
+        return True
     try:
         ref = f"lead:{once}" if once else f"lead:{uuid.uuid4().hex[:16]}"
         if once:
             async with _once_lock(ref):
-                if await charged_recently(db, ref, item):
-                    return
+                await _once_db_lock(db, ref)
+                if await charged_recently(db, ref, item, days=window_days):
+                    await db.commit()
+                    return True
                 await charge(db, item, count, ref, what)
                 await db.commit()
-            return
+            return True
         await charge(db, item, count, ref, what)
         await db.commit()
+        return True
     except Exception as err:
-        logging.getLogger(__name__).warning(f"[credits] lead charge skipped: {err}")
+        logging.getLogger(__name__).warning(f"[credits] lead charge failed: {err}")
         await db.rollback()
+        return False
 
 
-async def _charge_deep_search(db: AsyncSession, what: str, once: str = "") -> None:
+async def _charge_deep_search(db: AsyncSession, what: str, once: str = "") -> bool:
     """Charge one Google Places lookup ("Deep web search" -- never named Google to the user).
-    Never fails the request. With `once`, the same search is never charged twice within 90 days."""
+    With `once`, the same search is never charged twice within 90 days. Returns True when paid for (now or already), False when the charge failed
+    (and the uncommitted work of the caller is rolled back with it)."""
     import uuid
 
     from app.services.credits import charge, charged_recently
@@ -167,16 +192,21 @@ async def _charge_deep_search(db: AsyncSession, what: str, once: str = "") -> No
         ref = f"deepsearch:{once}" if once else f"deepsearch:{uuid.uuid4().hex[:16]}"
         if once:
             async with _once_lock(ref):
+                await _once_db_lock(db, ref)
                 if await charged_recently(db, ref, "google_deep_search"):
-                    return
+                    await db.commit()
+                    return True
                 await charge(db, "google_deep_search", 1, ref, what)
                 await db.commit()
-            return
+            return True
         await charge(db, "google_deep_search", 1, ref, what)
         await db.commit()
+        return True
     except Exception as err:
-        logging.getLogger(__name__).warning(f"[credits] deep search charge skipped: {err}")
+        logging.getLogger(__name__).warning(f"[credits] deep search charge failed: {err}")
         await db.rollback()
+        return False
+
 
 # Explicit gap-fill phrases only. Bare words like "research" / "missing" / "ok"
 # must not kick off enrichment during strategy chat.
@@ -351,6 +381,16 @@ async def fill_gaps(req: FillGapsRequest):
 
 # ── Chat history: one private list per signed-in person, per plugin ─────────
 _CHATS_KEPT = 30
+_MEMORY_KEPT = 200  # what the person asked the assistant to remember is kept apart from chats: a long chat history never pushes a memory out
+_chat_locks: Dict[str, asyncio.Lock] = {}  # one writer at a time per saved list, so two saves at once cannot overwrite each other
+
+
+def _is_memory(plugin: str) -> bool:
+    return plugin.endswith("_memory")
+
+
+def _chat_lock(key: str) -> asyncio.Lock:
+    return _chat_locks.setdefault(key, asyncio.Lock())
 _CHAT_PLUGINS = ("leadgen", "voice", "leadgen_assistant", "leadgen_assistant_memory", "voice_assistant", "voice_assistant_memory",
                  "social_assistant", "social_assistant_memory")
 # What an assistant answer showed beside its words (the draft card, offers, pick-one). Kept so a reopened chat shows them again
@@ -389,6 +429,7 @@ def _chats_key(request: Request, plugin: str) -> str:
 class ChatIn(BaseModel):
     id: str
     title: str = ""
+    text: str = Field("", max_length=1000)  # a memory's full words; the title is only its first 70 characters, for lists
     at: Optional[float] = None
     chat: List[Dict[str, Any]] = []
     filters: Optional[Dict[str, Any]] = None
@@ -417,13 +458,17 @@ async def _save_chat(body: ChatIn, request: Request, db: AsyncSession, plugin: s
     if not any((m.get("role") or m.get("who")) == "user" for m in msgs):
         return {"saved": False}
     entry = {"id": body.id[:40], "title": (body.title or msgs[0]["text"])[:70], "at": body.at or 0, "chat": msgs, "filters": body.filters or {}}
+    if _is_memory(plugin):
+        entry["text"] = (body.text or body.title or msgs[0]["text"]).strip()[:500]
     for k in ("acts", "state"):
         v = getattr(body, k)
         if v and _size(v) <= _EXTRA_MAX:
             entry[k] = v
-    old = (await _get_doc(db, key)).get("chats", [])
-    await _put_doc(db, key, {"chats": ([entry] + [c for c in old if c.get("id") != entry["id"]])[:_CHATS_KEPT]})
-    await db.commit()
+    async with _chat_lock(key):
+        old = (await _get_doc(db, key)).get("chats", [])
+        keep = _MEMORY_KEPT if _is_memory(plugin) else _CHATS_KEPT
+        await _put_doc(db, key, {"chats": ([entry] + [c for c in old if c.get("id") != entry["id"]])[:keep]})
+        await db.commit()
     return {"saved": True}
 
 
@@ -431,9 +476,10 @@ async def _delete_chat(chat_id: str, request: Request, db: AsyncSession, plugin:
     from app.services.credits import _get_doc, _put_doc
 
     key = _chats_key(request, plugin)
-    old = (await _get_doc(db, key)).get("chats", [])
-    await _put_doc(db, key, {"chats": [c for c in old if c.get("id") != chat_id]})
-    await db.commit()
+    async with _chat_lock(key):
+        old = (await _get_doc(db, key)).get("chats", [])
+        await _put_doc(db, key, {"chats": [c for c in old if c.get("id") != chat_id]})
+        await db.commit()
     return {"deleted": True}
 
 

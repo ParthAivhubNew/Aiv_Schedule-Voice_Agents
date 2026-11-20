@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -231,6 +231,33 @@ def note_lookup(biz: BusinessRecord, kind: str, found: bool) -> None:
     else:
         missed[kind] = datetime.utcnow().isoformat() + "Z"
     raw["lookups_missed"] = missed
+    biz.raw_data = raw
+
+
+MISS_HOURS = 24  # a lookup that found nothing is not repeated (and its web search not paid for again) for this long, unless the person adds words
+
+
+def missed_recently(biz: BusinessRecord, kind: str, hours: float = MISS_HOURS) -> bool:
+    """True when a lookup for `kind` on this company came back empty less than `hours` ago."""
+    stamp = ((biz.raw_data or {}).get("lookups_missed") or {}).get(kind)
+    return bool(stamp) and _age_days(stamp) * 24 <= hours
+
+
+def drop_shown(biz: BusinessRecord, kinds: Iterable[str]) -> None:
+    """Take back what a lookup showed for these kinds (website, phone, email) because it could not be charged. The hidden combined result stays,
+    so the next press shows it again, and charges then."""
+    raw = dict(biz.raw_data or {})
+    shown = dict(raw.get("contacts_web") or {})
+    if not shown:
+        return
+    for kind in kinds:
+        if kind == "website":
+            shown["website"] = ""
+        elif kind == "phone":
+            shown["phones"] = []
+        elif kind == "email":
+            shown["emails"] = []
+    raw["contacts_web"] = shown
     biz.raw_data = raw
 
 

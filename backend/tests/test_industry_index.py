@@ -57,7 +57,7 @@ def test_dormant_is_hidden_and_the_biggest_come_first():
 def test_type_filter_matches_one_exact_type_in_a_list():
     conds = BR._filter_conditions(BR.normalize_filters({"industry_types": ["Doctors/GPs", "Pub/bar/nightclub"]}))
     sql = " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})) for c in conds)
-    assert "~ '(^|" in sql and "Doctors/GPs" in sql and "Pub/bar/nightclub" in sql  # an exact element of the "|" list, not a contains match
+    assert "~* '(^|" in sql and "Doctors/GPs" in sql and "Pub/bar/nightclub" in sql  # an exact element of the "|" list, not a contains match
     assert "ILIKE '%%Doctors" not in sql
 
 

@@ -13,7 +13,7 @@ import hmac
 import json
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from email.message import EmailMessage as MimeMessage
 from email.utils import formataddr, formatdate, make_msgid
 from typing import Any, Dict, Optional, Tuple
@@ -24,7 +24,7 @@ from sqlalchemy.future import select
 from app.config import settings
 from app.models.models import EmailMailbox, EmailMessage, EmailSendLog, EmailSuppression
 from app.services import mail_transport as T
-from app.services.secret_box import open_secret
+from app.services.secret_box import open_blob
 
 logger = logging.getLogger("email_dispatcher")
 
@@ -32,7 +32,7 @@ logger = logging.getLogger("email_dispatcher")
 # ── Mailbox settings ────────────────────────────────────────────────────────
 def mailbox_settings(mb: EmailMailbox) -> Dict[str, Any]:
     try:
-        raw = json.loads(open_secret(mb.credentials_encrypted or "") or "{}")
+        raw = json.loads(open_blob(mb.credentials_encrypted or "") or "{}")
     except Exception:
         raw = {}
     return T.clean_settings(raw, mb.email)
@@ -40,6 +40,8 @@ def mailbox_settings(mb: EmailMailbox) -> Dict[str, Any]:
 
 # ── Unsubscribe links ───────────────────────────────────────────────────────
 def _key() -> bytes:
+    if not settings.SECRET_KEY:  # an empty secret would make every token forgeable
+        raise RuntimeError("SECRET_KEY is not set; unsubscribe and open links cannot be signed")
     return hashlib.sha256(("email-unsubscribe:" + (settings.SECRET_KEY or "")).encode("utf-8")).digest()
 
 
@@ -117,7 +119,11 @@ async def suppress(db: AsyncSession, org_id: Optional[str], email_addr: str, rea
 
 # ── Daily counts ────────────────────────────────────────────────────────────
 async def day_log(db: AsyncSession, mailbox_id: str, day: Optional[str] = None) -> EmailSendLog:
-    day = day or date.today().isoformat()
+    if not day:
+        from app.services.org_settings import org_timezone
+        from app.services.email_worker import local_now
+
+        day = local_now(await org_timezone(db)).date().isoformat()  # the company's day, the same one the daily plan uses
     row = (await db.execute(select(EmailSendLog).where(EmailSendLog.mailbox_id == mailbox_id, EmailSendLog.date == day))).scalars().first()
     if not row:
         row = EmailSendLog(id=str(uuid.uuid4()), mailbox_id=mailbox_id, date=day, sent_count=0, warmup_sent_count=0,

@@ -245,10 +245,11 @@ async def test_a_webhook_step_posts_the_lead_details_and_a_bad_address_is_never_
         def __init__(self, **kw): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
-        async def post(self, url, json=None): posted.append((url, json)); return Resp()
+        async def post(self, url, json=None, **kw): posted.append((url, json)); return Resp()
 
     monkeypatch.setattr(httpx, "AsyncClient", Client)
     monkeypatch.setattr("app.services.webhook_dispatcher.url_problem", lambda u: None)
+    monkeypatch.setattr("app.services.webhook_dispatcher.check_url", lambda u: (None, None))
     await _save(db, org, _rule(do=[{"type": "action", "action": "webhook", "value": "https://hooks.example.com/in"}]))
     await _fire(org, "call.completed", {"lead_id": "la_h", "id": "c1"})
     assert posted[0][0] == "https://hooks.example.com/in" and posted[0][1]["lead"]["email"] == "h@x.test" and posted[0][1]["event"] == "call.completed"
@@ -388,3 +389,222 @@ async def test_an_event_with_no_matching_company_leaves_a_skipped_run_that_says_
     assert status == "skipped" and "no company" in lines[0][1]
     await _fire(org, "call.completed", {"to": "+440000000000", "id": "c9"})  # the same event again
     assert len(await _runs(db, org)) == 1
+
+
+# ── Review fixes ────────────────────────────────────────────────────────────
+def test_local_and_plain_http_addresses_are_refused_unless_switched_on_and_a_scope_id_cannot_crash_it(monkeypatch):
+    import socket
+
+    from app.services import webhook_dispatcher as WD
+
+    monkeypatch.delenv("ALLOW_LOCAL_WEBHOOKS", raising=False)
+    monkeypatch.delenv("ALLOW_HTTP_WEBHOOKS", raising=False)
+    assert WD.url_problem("http://localhost:8000/hook") and WD.url_problem("https://127.0.0.1/x")
+    assert WD.url_problem("http://hooks.example.com/x") == "Webhook URLs must use HTTPS."
+    monkeypatch.setenv("ALLOW_LOCAL_WEBHOOKS", "true")
+    assert WD.url_problem("http://localhost:8000/hook") is None
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(socket.AF_INET6, 0, 0, "", ("fe80::1%eth0", 443, 0, 2))])
+    assert WD.url_problem("https://hooks.example.com/x")  # refused, not a ValueError
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(socket.AF_INET, 0, 0, "", ("93.184.216.34", 443))])
+    assert WD.check_url("https://hooks.example.com/x") == (None, "93.184.216.34")
+
+
+async def test_the_webhook_goes_to_the_address_that_was_checked_and_a_redirect_is_a_failure(monkeypatch):
+    sent = []
+
+    class Resp:
+        status_code = 200
+
+    class Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, **kw): sent.append((url, kw)); return Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    monkeypatch.setattr("app.services.webhook_dispatcher.check_url", lambda u: (None, "93.184.216.34"))
+    out = await W._post_webhook("https://hooks.example.com:8443/in?k=1", {"name": "R"}, "call.completed", None, {})
+    assert "(200)" in out
+    assert sent[0][0] == "https://93.184.216.34:8443/in?k=1"
+    assert sent[0][1]["headers"] == {"Host": "hooks.example.com:8443"} and sent[0][1]["extensions"] == {"sni_hostname": "hooks.example.com"}
+    Resp.status_code = 302
+    with pytest.raises(RuntimeError, match="302"):
+        await W._post_webhook("https://hooks.example.com/in", {"name": "R"}, "call.completed", None, {})
+
+
+async def test_a_webhook_after_a_wait_still_says_which_event_started_it(db, monkeypatch):
+    org = "org_wf_ev"
+    await _lead(db, org, id="la_ev")
+    bodies = []
+
+    class Resp:
+        status_code = 200
+
+    class Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, **kw): bodies.append(json); return Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    monkeypatch.setattr("app.services.webhook_dispatcher.url_problem", lambda u: None)
+    monkeypatch.setattr("app.services.webhook_dispatcher.check_url", lambda u: (None, None))
+    await _save(db, org, _rule(do=[{"type": "wait", "hours": 1}, {"type": "action", "action": "webhook", "value": "https://hooks.example.com/in"}]))
+    await _fire(org, "call.completed", {"lead_id": "la_ev", "id": "c1"})
+    with org_scope(org):
+        run = (await db.execute(select(WorkflowRun))).scalars().first()
+        run.resume_at = datetime.utcnow() - timedelta(minutes=1)
+        await db.commit()
+    assert await W.resume_due() == 1
+    assert bodies[0]["event"] == "call.completed"
+
+
+def test_ids_are_cleaned_and_a_long_key_cannot_make_two_events_look_alike():
+    w = W.clean_workflow(_rule(id="../" + "x" * 200 + " <b>"))
+    assert len(w["id"]) == 64 and set(w["id"]) <= set("x_-")
+    assert W.clean_workflow(_rule(id="///"))["id"].startswith("wf_")
+    rule = {"id": "wf_" + "a" * 64}
+    a = W._key(rule, "call.completed", {"id": "c" * 300 + "1"}, None)
+    b = W._key(rule, "call.completed", {"id": "c" * 300 + "2"}, None)
+    assert a != b and len(a) <= 240 and len(b) <= 240
+    assert W._key({"id": "wf_1"}, "call.completed", {"id": "c1"}, None) == "wf_1:call.completed:c1:"  # short keys are unchanged
+
+
+async def test_two_workflows_sent_with_the_same_id_are_saved_with_different_ids(db):
+    org = "org_wf_id"
+    saved = await _save(db, org, _rule(id="same", name="One"), _rule(id="same", name="Two"))
+    assert saved[0]["id"] == "same" and saved[1]["id"] != "same"
+
+
+def test_an_opened_email_that_sends_an_email_is_limited_to_once_per_company_when_saved():
+    send = [{"type": "action", "action": "send_email", "value": "Hello", "subject": "Hi"}]
+    assert W.clean_workflow(_rule(event="email.opened", do=send))["limits"]["reenroll"] == "once"
+    assert W.clean_workflow(_rule(event="email.opened", do=send, limits={"reenroll": "days", "days": 3}))["limits"]["reenroll"] == "days"
+    assert W.clean_workflow(_rule(event="email.opened"))["limits"]["reenroll"] == "every"
+    nested = [{"type": "if", "cond": {"field": "stage", "op": "is", "value": "new"}, "then": send, "else": []}]
+    assert W.clean_workflow(_rule(event="email.opened", do=nested))["limits"]["reenroll"] == "once"
+    assert W.clean_workflow(_rule(event="call.completed", do=send))["limits"]["reenroll"] == "every"
+
+
+async def test_saving_does_not_look_up_a_saved_address_again_and_does_one_pass(db, monkeypatch):
+    org = "org_wf_dns"
+    calls = []
+    monkeypatch.setattr("app.services.webhook_dispatcher.url_problem", lambda u: calls.append(u) and None)
+    hook = _rule(id="wf_hook", do=[{"type": "action", "action": "webhook", "value": "https://hooks.example.com/in"}])
+    await _save(db, org, hook)
+    assert calls == ["https://hooks.example.com/in"]  # looked up once, not by both the route and the save
+    monkeypatch.setattr("app.services.webhook_dispatcher.url_problem", lambda u: "We could not find that address. Check the URL.")
+    with org_scope(org):
+        again = await W.save_workflows(db, [hook, _rule(id="wf_other", name="Other")])
+        await db.rollback()
+    assert [w["id"] for w in again] == ["wf_hook", "wf_other"]  # the saved address survived a lookup that now fails
+    with org_scope(org):
+        fresh = await W.clean_all(db, [dict(hook, do=[{"type": "action", "action": "webhook", "value": "https://new.example.com/x"}])])
+        await db.rollback()
+    assert fresh == [None]  # a new address is still checked
+
+
+async def test_no_company_behind_the_event_means_is_not_and_does_not_contain_hold(db):
+    with org_scope("org_wf_c"):
+        assert await W.check(db, {"field": "stage", "op": "is", "value": "new"}, None) is False
+        assert await W.check(db, {"field": "stage", "op": "is_not", "value": "new"}, None) is True
+        assert await W.check(db, {"field": "industry", "op": "not_contains", "value": "x"}, None) is True
+        assert await W.check(db, {"field": "region", "op": "contains", "value": "x"}, None) is False
+        assert await W.check(db, {"field": "in_list", "op": "is_not", "value": "L"}, None) is True
+
+
+async def test_the_lists_are_read_once_per_event_however_many_in_list_filters_there_are(db, monkeypatch):
+    org = "org_wf_l"
+    await _lead(db, org, id="la_l")
+    loads = []
+    import app.api.lead_lists as L
+
+    async def fake_load(session):
+        loads.append(1)
+        return [{"name": "VIP", "ids": ["la_l"]}, {"name": "Other", "ids": []}]
+
+    monkeypatch.setattr(L, "_load", fake_load)
+    with org_scope(org):
+        lead = await db.get(LeadAccount, "la_l")
+        assert await W.check(db, {"field": "in_list", "op": "is", "value": "VIP"}, lead) is True
+        assert await W.check(db, {"field": "in_list", "op": "is", "value": "Other"}, lead) is False
+        assert await W.check(db, {"field": "in_list", "op": "is_not", "value": "vip"}, lead) is False
+        await db.rollback()
+    assert len(loads) == 1
+
+
+async def test_a_run_can_be_taken_only_once_so_a_double_retry_does_not_repeat_it(db):
+    org = "org_wf_take"
+    await _lead(db, org, id="la_tk")
+    await _save(db, org, _rule(do=[{"type": "wait", "hours": 1}, {"type": "action", "action": "set_stage", "value": "won"}]))
+    await _fire(org, "call.completed", {"lead_id": "la_tk", "id": "c1"})
+    with org_scope(org):
+        rid = (await db.execute(select(WorkflowRun))).scalars().first().id
+        await db.rollback()
+    from app.database import AsyncSessionLocal
+
+    with org_scope(org):
+        async with AsyncSessionLocal() as s1, AsyncSessionLocal() as s2:
+            r1, r2 = await s1.get(WorkflowRun, rid), await s2.get(WorkflowRun, rid)
+            assert await W.continue_run(s1, r1) is True
+            await s1.commit()
+            assert await W.continue_run(s2, r2) is False  # s2 saw "waiting", but it was already taken
+            await s2.rollback()
+
+
+async def test_a_run_that_keeps_failing_to_resume_is_marked_failed_after_a_few_tries(db, monkeypatch):
+    org = "org_wf_fail"
+    await _lead(db, org, id="la_f")
+    await _save(db, org, _rule(do=[{"type": "wait", "hours": 1}, {"type": "action", "action": "set_stage", "value": "won"}]))
+    await _fire(org, "call.completed", {"lead_id": "la_f", "id": "c1"})
+    with org_scope(org):
+        run = (await db.execute(select(WorkflowRun))).scalars().first()
+        run.resume_at = datetime.utcnow() - timedelta(minutes=1)
+        await db.commit()
+
+    async def boom(db, run):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(W, "continue_run", boom)
+    for n in range(W.MAX_RESUME_FAILURES - 1):
+        await W.resume_due()
+    assert (await _runs(db, org))[0][0] == "waiting"
+    await W.resume_due()
+    status, lines, _ = (await _runs(db, org))[0]
+    assert status == "failed" and lines[-1][0] == "Stopped"
+    assert await W.resume_due() == 0  # no longer picked up every 30 seconds
+
+
+async def test_each_workflow_is_saved_as_it_runs_so_a_failure_in_a_later_one_does_not_repeat_the_earlier(db, monkeypatch):
+    org = "org_wf_commit"
+    await _lead(db, org, id="la_cm")
+    await _save(db, org, _rule(id="wf_one", name="One"), _rule(id="wf_two", name="Two"))
+    real = W.advance
+    calls = []
+
+    async def flaky(db_, org_id, run, rule, lead, **kw):
+        calls.append(rule["id"])
+        if rule["id"] == "wf_two" and len(calls) == 2:
+            raise RuntimeError("second one broke")
+        await real(db_, org_id, run, rule, lead, **kw)
+
+    monkeypatch.setattr(W, "advance", flaky)
+    with pytest.raises(RuntimeError):
+        await _fire(org, "call.completed", {"lead_id": "la_cm", "id": "c1"})
+    assert [r[2] for r in await _runs(db, org)] == ["One"]  # the first is kept, so the bus's second attempt sees it as a repeat
+    await _fire(org, "call.completed", {"lead_id": "la_cm", "id": "c1"})
+    assert calls == ["wf_one", "wf_two", "wf_two"]  # One did not run again
+
+
+async def test_people_who_cannot_edit_company_settings_see_only_the_host_of_a_webhook(db, monkeypatch):
+    org = "org_wf_mask"
+    monkeypatch.setattr("app.services.webhook_dispatcher.url_problem", lambda u: None)
+    _, admin = await make_user(db, "wfm1", "Admin", org_id=org)
+    _, member = await make_user(db, "wfm2", "Operator", org_id=org)
+    hook = "https://hooks.example.com/services/T0/B0/secrettoken?key=abc"
+    async with _client(admin) as c:
+        assert (await c.put("/api/together/workflows", json={"workflows": [_rule(do=[{"type": "action", "action": "webhook", "value": hook}])]})).status_code == 200
+        assert (await c.get("/api/together/workflows")).json()["workflows"][0]["do"][0]["value"] == hook
+    async with _client(member) as c:
+        got = (await c.get("/api/together/workflows")).json()["workflows"][0]["do"][0]["value"]
+    assert got == "https://hooks.example.com/…" and "secrettoken" not in got

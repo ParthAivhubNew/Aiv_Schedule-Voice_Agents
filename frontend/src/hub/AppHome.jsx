@@ -1,4 +1,4 @@
-import { ArrowRight, Smartphone, Workflow } from "lucide-react";
+import { ArrowRight, BookOpen, ExternalLink, Headset, Smartphone, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { C, FONT_BODY } from "../app/constants";
 import { AppChrome } from "../app/ui";
@@ -6,6 +6,7 @@ import { api } from "../api/apiClient";
 import { fmt, money } from "../team/CreditsTab";
 import { navigateHash } from "../utils/route";
 import { openWorkflows } from "../workflows/openWorkflows";
+import { openSupport } from "./openSupport";
 import { APPS } from "./apps";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
@@ -170,17 +171,25 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
       <AppChrome />
       <header style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 clamp(16px, 4vw, 32px)", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
         <BrandLockup size={30} />
-        <UserProfileMenu
-          operator={operator}
-          onLogout={onLogout}
-          commonAi={commonAi}
-          onOpenCommonAi={onOpenCommonAi}
-          onOpenTeamUsers={onOpenTeamUsers}
-          onOpenProfileSettings={onOpenProfileSettings}
-          onOpenCalcomAdmin={onOpenCalcomAdmin}
-          onOpenDeveloperKeys={onOpenDeveloperKeys}
-          onOpenConnections={onOpenConnections}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button type="button" className="ui-btn ui-btn--ghost hide-mobile" onClick={() => openSupport({ plugin: "home" })} title="Support">
+            <Headset size={16} /> Support
+          </button>
+          <button type="button" className="ui-btn ui-btn--ghost hide-mobile" onClick={() => window.open("/help", "_blank")} title="Documentation">
+            <BookOpen size={16} /> Documentation <ExternalLink size={12} style={{ color: C.slate }} />
+          </button>
+          <UserProfileMenu
+            operator={operator}
+            onLogout={onLogout}
+            commonAi={commonAi}
+            onOpenCommonAi={onOpenCommonAi}
+            onOpenTeamUsers={onOpenTeamUsers}
+            onOpenProfileSettings={onOpenProfileSettings}
+            onOpenCalcomAdmin={onOpenCalcomAdmin}
+            onOpenDeveloperKeys={onOpenDeveloperKeys}
+            onOpenConnections={onOpenConnections}
+          />
+        </div>
       </header>
 
       <main style={{ width: "100%", maxWidth: 1080, boxSizing: "border-box", margin: "0 auto", padding: "clamp(24px, 5vw, 44px) clamp(16px, 4vw, 32px) 64px" }}>
@@ -211,6 +220,19 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
             Each app has its own plan. You can open any app to try it before you buy.
           </p>
         )}
+        <div style={{ marginTop: 32, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ fontSize: 13, color: C.slate }}>
+            Need help or looking for product guides?
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button type="button" className="ui-btn ui-btn--secondary" onClick={() => openSupport({ plugin: "home" })}>
+              <Headset size={15} /> Support
+            </button>
+            <button type="button" className="ui-btn ui-btn--secondary" onClick={() => window.open("/help", "_blank")}>
+              <BookOpen size={15} /> Documentation <ExternalLink size={12} style={{ color: C.slate }} />
+            </button>
+          </div>
+        </div>
       </main>
     </div>
   );

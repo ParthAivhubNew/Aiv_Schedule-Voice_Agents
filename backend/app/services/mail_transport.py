@@ -163,6 +163,7 @@ class Incoming:
     failed_recipients: List[str] = field(default_factory=list)
     bounce_status: str = ""  # e.g. 5.1.1 (5.x.x = permanent)
     bounced_message_id: str = ""
+    is_receipt: bool = False  # a read receipt (MDN): not a bounce and not a reply
 
 
 _ID = re.compile(r"<[^<>\s]+>")
@@ -226,6 +227,10 @@ def parse_message(raw: bytes, uid: int = 0) -> Incoming:
     inc.text = _text_of(msg)
 
     is_report = msg.get_content_type() == "multipart/report"
+    if is_report and (str(msg.get_param("report-type") or "").lower() == "disposition-notification"
+                      or any(p.get_content_type() == "message/disposition-notification" for p in msg.walk())):
+        inc.is_receipt = True  # a read receipt says nothing went wrong
+        return inc
     if is_report or _BOUNCE_FROM.search(msg.get("From", "")) and _BOUNCE_SUBJECT.search(inc.subject):
         inc.is_bounce = True
         for part in msg.walk():
@@ -254,7 +259,7 @@ def parse_message(raw: bytes, uid: int = 0) -> Incoming:
                     if m:
                         inc.bounced_message_id = m.group(1)
         if not inc.failed_recipients:
-            own = {inc.from_addr}
+            own = {inc.from_addr, *inc.to_addrs}  # the report is addressed to our own mailbox
             inc.failed_recipients = [e.lower() for e in dict.fromkeys(_EMAIL.findall(inc.text)) if e.lower() not in own][:3]
         if not inc.bounce_status:
             m = _STATUS.search(inc.text)
@@ -278,16 +283,20 @@ def _fetch_sync(settings: Dict[str, Any], last_uid: int, limit: int) -> Tuple[Li
         uids = sorted(int(u) for u in (data[0] or b"").split() if int(u) > last_uid)
         newest = max([last_uid, *uids]) if uids else last_uid
         out: List[Incoming] = []
+        reached = last_uid  # the high mark only moves over messages that were really fetched
         for uid in uids[:limit]:
             typ, parts = m.uid("fetch", str(uid), "(BODY.PEEK[])")
             raw = next((p[1] for p in parts or [] if isinstance(p, tuple) and len(p) > 1), None)
+            if not raw:
+                break  # nothing came back: this one is tried again next time
+            reached = uid
             if raw:
                 try:
                     out.append(parse_message(raw, uid))
                 except Exception as err:
                     logger.debug(f"unreadable message {uid}: {err}")
-        if len(uids) > limit:
-            newest = uids[limit - 1]
+        if uids:
+            newest = reached
         return out, newest
     finally:
         try:

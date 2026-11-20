@@ -18,19 +18,30 @@ export const openPicks = (a) => ((a.verification || {}).fixes || []).filter((f) 
 
 const digits = (v) => String(v || "").replace(/\D+/g, "");
 
+// Hosts many unrelated businesses share: a company with only a Gmail address or a Facebook page is not the same company as the next one.
+const SHARED_HOSTS = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "hotmail.co.uk", "live.com", "yahoo.com", "yahoo.co.uk", "icloud.com", "aol.com",
+  "btinternet.com", "sky.com", "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com", "tiktok.com", "youtube.com", "wixsite.com", "business.site", "yell.com"]);
+const sharedHost = (d) => { const h = String(d || "").toLowerCase().replace(/^www\./, ""); return SHARED_HOSTS.has(h) || [...SHARED_HOSTS].some((x) => h.endsWith("." + x)); };
+
 // id -> ["duplicate" | "shared_phone"]. A duplicate shares a company number, a website domain, or a name and postcode.
+// Different named contacts at one company are separate rows on purpose, and a shared mail or social host says nothing: neither is flagged.
 export function duplicateFlags(rows) {
   const groups = { dup: new Map(), phone: new Map() };
   const add = (map, key, row) => { if (key) map.set(key, [...(map.get(key) || []), row]); };
   rows.forEach((a) => {
     add(groups.dup, a.registration_number ? `n:${String(a.registration_number).trim().toUpperCase()}` : "", a);
-    add(groups.dup, a.domain ? `d:${String(a.domain).toLowerCase()}` : "", a);
+    add(groups.dup, a.domain && !sharedHost(a.domain) ? `d:${String(a.domain).toLowerCase()}` : "", a);
     add(groups.dup, a.name && a.postcode ? `p:${String(a.name).trim().toLowerCase()}|${String(a.postcode).replace(/\s+/g, "").toLowerCase()}` : "", a);
     add(groups.phone, digits(phoneFor(a)?.text), a);
   });
   const out = {};
   const mark = (id, flag) => { out[id] = out[id] || []; if (!out[id].includes(flag)) out[id].push(flag); };
-  groups.dup.forEach((list) => { if (list.length > 1) list.forEach((a) => mark(a.id, "duplicate")); });
+  groups.dup.forEach((list) => {
+    if (list.length < 2) return;
+    const byContact = new Map();
+    list.forEach((a) => { const k = String(a.contact_name || "").trim().toLowerCase(); byContact.set(k, [...(byContact.get(k) || []), a]); });
+    byContact.forEach((same) => { if (same.length > 1) same.forEach((a) => mark(a.id, "duplicate")); });
+  });
   groups.phone.forEach((list) => {
     const companies = new Set(list.map((a) => (a.registration_number ? String(a.registration_number).toUpperCase() : a.id)));
     if (list.length > 1 && companies.size > 1) list.forEach((a) => mark(a.id, "shared_phone"));
@@ -62,6 +73,6 @@ export function listStats(members) {
   const top = Object.entries(counts).sort((x, y) => y[1] - x[1])[0];
   const source = !top ? "" : top[1] > rows.length / 2 ? top[0] : "Mixed";
   // With an email, but held until the register match or consent is settled: why the Ready to email count can drop after a check.
-  const held = rows.filter((a) => a.email && (a.email_route || {}).email === false && (a.email_route || {}).group === "quick_choice").length;
+  const held = rows.filter((a) => emailFor(a)?.text && (a.email_route || {}).email === false && (a.email_route || {}).group === "quick_choice").length;
   return { ready, avgFit, source, held };
 }

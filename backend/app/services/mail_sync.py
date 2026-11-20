@@ -186,6 +186,7 @@ def _read_sync(settings: Dict[str, Any], state: Dict[str, Any], limit: int) -> D
             if last == 0 and len(uids) > FIRST_SYNC_MAX:
                 uids = uids[-FIRST_SYNC_MAX:]
             batch = uids[:limit]
+            reached = last  # the high mark only moves over messages that were really fetched
             for uid in batch:
                 typ, parts = m.uid("fetch", str(uid), "(FLAGS BODY.PEEK[])")
                 raw, flags = None, ""
@@ -193,16 +194,19 @@ def _read_sync(settings: Dict[str, Any], state: Dict[str, Any], limit: int) -> D
                     if isinstance(p, tuple) and len(p) > 1:
                         raw = p[1]
                         flags = p[0].decode(errors="ignore")
+                if not raw:
+                    break  # nothing came back: stop here and try this one again next time
+                reached = uid
                 if raw:
                     try:
                         items.append({"folder": mine, "remote": remote, "uid": uid, "seen": "\\Seen" in flags,
                                       "starred": "\\Flagged" in flags, "draft": "\\Draft" in flags, "parsed": parse_full(raw)})
                     except Exception as err:
                         logger.debug(f"unreadable message {uid} in {remote}: {err}")
-            newest = batch[-1] if batch else last
+            newest = reached
             if not batch and uids == [] and last == 0:
                 newest = 0
-            uids_state[mine] = {"validity": validity, "last": newest, "more": len(uids) > len(batch)}
+            uids_state[mine] = {"validity": validity, "last": newest, "more": len(uids) > len(batch) or reached != (batch[-1] if batch else last)}
         return {"folders": folders, "uids": uids_state, "items": items}
     finally:
         try:
@@ -344,8 +348,20 @@ async def store_items(db: AsyncSession, org_id: str, mb: EmailMailbox, items: Li
     return added
 
 
+_sync_locks: Dict[str, asyncio.Lock] = {}
+
+
 async def sync_mailbox(db: AsyncSession, org_id: str, mb: EmailMailbox, settings: Dict[str, Any], limit: int = PER_SYNC_MAX) -> Dict[str, Any]:
-    """Reads new mail for one mailbox into the database. Raises T.MailError when the server cannot be read."""
+    """Reads new mail for one mailbox into the database. Raises T.MailError when the server cannot be read.
+    One sync per mailbox at a time (this process): a second one would insert the same messages twice."""
+    lock = _sync_locks.setdefault(mb.id, asyncio.Lock())
+    if lock.locked():
+        return {"added": 0, "more": False}
+    async with lock:
+        return await _sync_locked(db, org_id, mb, settings, limit)
+
+
+async def _sync_locked(db: AsyncSession, org_id: str, mb: EmailMailbox, settings: Dict[str, Any], limit: int) -> Dict[str, Any]:
     res = await server_read(settings, mb.mail_state or {}, limit)
     added = await store_items(db, org_id, mb, res["items"])
     mb.mail_state = {"folders": res["folders"], "uids": res["uids"]}

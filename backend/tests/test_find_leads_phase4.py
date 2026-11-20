@@ -162,6 +162,66 @@ async def test_weekly_runs_once_per_7_days(store, monkeypatch):
     assert await SS.weekly(db, "org_t", t0 + timedelta(days=7, minutes=1)) == 1
 
 
+async def test_run_keeps_a_rename_made_while_it_ran(store, monkeypatch):
+    db, docs = store
+    rows, saved = [biz(1)], []
+    stub_search(monkeypatch, rows, saved)
+    s = await SS.create(db, "Old name", {"sic_codes": ["69201"]}, "", False, "Ann")
+    stale = (await SS.load(db))[0]
+    other = await SS.load(db)
+    other[0]["name"] = "New name"
+    await SS._save(db, other)  # a rename lands while the run is reading
+    rows.append(biz(2))
+    got = await SS.run_by_id(db, stale["id"])
+    assert got["name"] == "New name" and (await SS.load(db))[0]["name"] == "New name"
+    assert (await SS.load(db))[0]["last_added"] == 1
+    await SS._save(db, [])  # deleted while running: the run does not bring it back
+    assert (await SS._store_run(db, stale))["id"] == stale["id"] and await SS.load(db) == []
+
+
+async def test_failed_weekly_day_is_retried(store, monkeypatch):
+    db, docs = store
+    stub_search(monkeypatch, [biz(1)], [])
+    SS._ran_day.clear()
+    s = await SS.create(db, "W", {"sic_codes": ["69201"]}, "", True, "Ann")
+    s["last_run_at"] = None
+    await SS._save(db, [s], "org_t")
+
+    async def boom(db, s, now=None):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(SS, "run_one", boom)
+    t0 = datetime(2026, 11, 2, 8, 0)
+    assert await SS.weekly(db, "org_t", t0) == 0
+    assert "org_t" not in SS._ran_day
+
+
+async def test_saved_search_reads_past_an_all_old_first_page(store, monkeypatch):
+    db, docs = store
+    old = [biz(i) for i in range(1, 4)]
+    new = biz(9)
+    calls = []
+
+    async def fake_search(db, filters, **kw):
+        calls.append(kw.get("offset"))
+        pages = {0: old, 3: [new]}
+        return {"rows": pages.get(kw.get("offset") or 0, []), "total": 4}
+
+    monkeypatch.setattr(SS, "MAX_ADDS_PER_RUN", 3)
+    monkeypatch.setattr(BR, "search_filtered", fake_search)
+    saved = []
+
+    async def fake_save(db, body, owner):
+        saved.append([a.business_record_id for a in body.accounts])
+        return {"added": len(body.accounts)}
+
+    from app.api import lead_accounts
+
+    monkeypatch.setattr(lead_accounts, "save_accounts", fake_save)
+    s = {"id": "ss_1", "filters": {"sic_codes": ["69201"]}, "seen_ids": ["b1", "b2", "b3"], "list_id": "l"}
+    assert await SS.run_one(db, s) == 1 and saved == [["b9"]] and calls == [0, 3]
+
+
 # ── the real queries, on Postgres ──────────────────────────────────────────
 @pytest.mark.db
 async def test_signal_and_radius_filters_run_on_postgres(db):

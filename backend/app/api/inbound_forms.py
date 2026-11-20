@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,7 @@ public_router = APIRouter(prefix="/f", tags=["Inbound (public)"])
 
 MAX_FORMS = 100
 MAX_BODY_BYTES = 20_000
+SHARED_RATE_PER_MIN = 600  # per form, all visitors together (each address is held to the usual 30 writes a minute)
 
 
 class FormIn(BaseModel):
@@ -150,8 +152,9 @@ async def delete_form(form_id: str, db: AsyncSession = Depends(get_db)):
 
 
 def _sub_out(s: InboundSubmission) -> Dict[str, Any]:
+    answers = {k: v for k, v in (s.payload or {}).items() if k != "_meta"}
     return {"id": s.id, "form_id": s.form_id, "email": s.email, "status": s.status, "reason": s.reason, "lead_id": s.lead_id,
-            "answers": s.payload or {}, "schema_version": s.schema_version, "created_at": s.created_at.isoformat() + "Z" if s.created_at else None}
+            "answers": answers, "consent": (s.payload or {}).get("_meta"), "schema_version": s.schema_version, "created_at": s.created_at.isoformat() + "Z" if s.created_at else None}
 
 
 @router.get("/forms/{form_id}/submissions")
@@ -232,8 +235,32 @@ async def _link_context(f: Dict[str, Any], t: str) -> Optional[Dict[str, Any]]:
 
 
 def _client_ip(request: Request) -> str:
-    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    return fwd or (request.client.host if request.client else "")
+    """The connecting address. main.py's ProxyHeadersMiddleware already swaps in the forwarded address, but only when the
+    hop is a trusted proxy (TRUSTED_PROXIES), so the client-supplied X-Forwarded-For header is never read here."""
+    return request.client.host if request.client else ""
+
+
+async def _read_body(request: Request) -> Optional[bytes]:
+    """The request body, or None when it is over MAX_BODY_BYTES (declared length checked first, then the stream is capped)."""
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_BODY_BYTES:
+            return None
+    except ValueError:
+        return None
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > MAX_BODY_BYTES:
+            return None
+    return bytes(buf)
+
+
+_TOKEN_RE = re.compile(r"__(TITLE|KEY|FIELDS|THANKS|HP|PREFILL|CONSENT)__")
+
+
+def _render(page: str, values: Dict[str, str]) -> str:
+    """Fill the page's placeholders in one pass, so a value that itself contains a placeholder is never substituted again."""
+    return _TOKEN_RE.sub(lambda m: values[m.group(1)], page)
 
 
 @public_router.get("/{key}/config")
@@ -251,12 +278,15 @@ async def submit(key: str, request: Request):
     if not f:
         raise HTTPException(status_code=404, detail="This form is not available.")
     ip = _client_ip(request)
-    wait = check_rate(f"inbound:{key}:{ip}", True) or check_rate(f"inbound:{key}", True)
+    # The shared bucket only guards against a flood from everywhere; it is far looser than the per-address one so one
+    # address cannot use it to lock real visitors out.
+    wait = check_rate(f"inbound:{key}:{ip}", True) or check_rate(f"inbound:{key}", True, rate=SHARED_RATE_PER_MIN, write_rate=SHARED_RATE_PER_MIN)
     if wait:
         return JSONResponse({"detail": "Too many answers just now. Try again in a moment."}, status_code=429, headers={"Retry-After": str(wait)})
-    raw = await request.body()
-    if len(raw) > MAX_BODY_BYTES:
+    raw = await _read_body(request)
+    if raw is None:
         return JSONResponse({"detail": "That answer is too large."}, status_code=413)
+    IF.maybe_sweep()
     try:
         data = json.loads(raw or b"{}")
     except ValueError:
@@ -272,30 +302,33 @@ async def submit(key: str, request: Request):
             return JSONResponse({"detail": "This link has expired. Ask the sender for a new one."}, status_code=410)
     if isinstance(data, dict) and data.get(IF.HONEYPOT):
         return {"ok": True, "thanks": thanks}  # a bot: look like success, store nothing
-    answers, errors = IF.validate_answer(f["fields"], f["settings"], data)
+    if tok and isinstance(data, dict):  # the address in the link is the one the email went to: it replaces whatever was typed
+        for fld in f["fields"]:
+            if fld["type"] == "email":
+                data[fld["id"]] = tok["email"]
+    answers, errors = IF.validate_answer(f["fields"], f["settings"], data, skip_email_rules=bool(tok))
     if errors:
         return JSONResponse({"detail": "Please check the form.", "errors": errors}, status_code=422)
     email = IF.email_of(f["fields"], answers)
-    if tok:  # the address in the link is the one the email went to: the person cannot send an answer as someone else
+    if tok:
         email = tok["email"]
-        for fld in f["fields"]:
-            if fld["type"] == "email":
-                answers[fld["id"]] = email
     with org_scope(f["org_id"]):
         async with AsyncSessionLocal() as db:
             if await IF.submissions_today(db, f["id"]) >= int(f["settings"].get("daily_limit") or IF.DEFAULT_DAILY_LIMIT):
                 return JSONResponse({"detail": "This form is not taking answers right now. Please try again later."}, status_code=429)
+            await IF.lock_person(db, f["id"], email)  # two posts at once from the same person cannot both pass the checks below
             if tok:  # one answer per person per personal link
                 done = (await db.execute(select(InboundSubmission.id).where(
                     InboundSubmission.form_id == f["id"], InboundSubmission.email == email, InboundSubmission.reason == "email link"))).first()
                 if done:
-                    return {"ok": True, "thanks": thanks}
+                    return JSONResponse({"detail": "This form has already been sent from this link. Thank you."}, status_code=409)
             same = None if tok else (await db.execute(select(InboundSubmission.id).where(
                 InboundSubmission.form_id == f["id"], InboundSubmission.email == email,
                 InboundSubmission.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)))).first()
             if same:
                 return {"ok": True, "thanks": thanks}  # the same person twice in one day: one row is enough
-            sub = InboundSubmission(id=f"sub_{uuid.uuid4().hex[:16]}", form_id=f["id"], schema_version=f["version"], payload=answers,
+            sub = InboundSubmission(id=f"sub_{uuid.uuid4().hex[:16]}", form_id=f["id"], schema_version=f["version"],
+                                    payload={**answers, "_meta": IF.consent_meta(f["settings"], f["version"], ip)},
                                     email=email, status="pending", ip_hash=IF.ip_hash(ip))
             db.add(sub)
             if tok:  # it came from our own email: no email check, it goes straight to the lead it was sent to
@@ -315,10 +348,16 @@ async def form_page(key: str, t: str = ""):
     f = await _published(key)
     if not f:
         return HTMLResponse("<!doctype html><meta charset=utf-8><title>Form not available</title><p style='font:16px system-ui;padding:24px'>This form is not available.</p>", status_code=404)
-    page = _PAGE.replace("__TITLE__", html.escape(f["name"])).replace("__KEY__", json.dumps(key)).replace("__FIELDS__", json.dumps(_public_fields(f["fields"])).replace("</", "<\\/")) \
-        .replace("__THANKS__", json.dumps(f["settings"].get("thanks", "")).replace("</", "<\\/")).replace("__HP__", IF.HONEYPOT)
     ctx = await _link_context(f, t) if t else None
-    page = page.replace("__PREFILL__", json.dumps({**ctx, "t": t} if ctx else None).replace("</", "<\\/"))
+
+    def js(v: Any) -> str:
+        return json.dumps(v).replace("</", "<\\/")
+
+    page = _render(_PAGE, {
+        "TITLE": html.escape(f["name"]), "KEY": json.dumps(key), "FIELDS": js(_public_fields(f["fields"])),
+        "THANKS": js(f["settings"].get("thanks", "")), "HP": IF.HONEYPOT, "PREFILL": js({**ctx, "t": t} if ctx else None),
+        "CONSENT": html.escape(f["settings"].get("consent_text") or IF.DEFAULT_CONSENT),
+    })
     return HTMLResponse(page, headers={
         "Content-Security-Policy": IF.frame_ancestors(f["settings"]) + "; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'",
         "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
@@ -340,7 +379,7 @@ button[disabled]{opacity:.6;cursor:default}.hp{position:absolute;left:-9999px;wi
 .from{color:#6b6762;font-size:14px;margin:-8px 0 8px}
 </style></head><body>
 <form id="f" novalidate><h1>__TITLE__</h1><div id="fields"></div><div class="hp" aria-hidden="true"><label>Leave this empty<input type="text" name="__HP__" tabindex="-1" autocomplete="off"></label></div>
-<div class="err" id="top" role="alert"></div><button type="submit" id="go">Submit</button></form>
+<div class="err" id="top" role="alert"></div><button type="submit" id="go">Submit</button><p class="from" id="consent">__CONSENT__</p></form>
 <div class="ok" id="done" hidden role="status"></div>
 <script>
 var KEY=__KEY__,FIELDS=__FIELDS__,THANKS=__THANKS__,PREFILL=__PREFILL__;
@@ -354,7 +393,7 @@ FIELDS.forEach(function(f){
     el.id=id;w.appendChild(el);}
   var e=document.createElement("div");e.className="err";e.id="e_"+f.id;w.appendChild(e);box.appendChild(w);
 });
-if(PREFILL){FIELDS.forEach(function(f){var el=document.getElementById("q_"+f.id);if(!el)return;if(f.type==="email"){el.value=PREFILL.email;el.readOnly=true;}else if(f.type==="name"&&PREFILL.name){el.value=PREFILL.name;}if(f.share){var n=document.createElement("div");n.className="from";n.textContent="This will be added to the company details, shown as confirmed by you.";el.parentNode.appendChild(n);}});if(PREFILL.sender){var p=document.createElement("p");p.className="from";p.textContent="Sent to you by "+PREFILL.sender+".";var h=document.querySelector("h1");h.parentNode.insertBefore(p,h.nextSibling);}}
+if(PREFILL){FIELDS.forEach(function(f){var el=document.getElementById("q_"+f.id);if(!el)return;if(f.type==="email"){el.value=PREFILL.email;el.readOnly=true;}else if(f.type==="name"&&PREFILL.name){el.value=PREFILL.name;}if(f.share){var n=document.createElement("div");n.className="from";n.textContent="This will be added to the company details, shown as given by you, not verified.";el.parentNode.appendChild(n);}});if(PREFILL.sender){var p=document.createElement("p");p.className="from";p.textContent="Sent to you by "+PREFILL.sender+".";var h=document.querySelector("h1");h.parentNode.insertBefore(p,h.nextSibling);}}
 form.addEventListener("submit",function(ev){
   ev.preventDefault();var body={},go=document.getElementById("go");
   FIELDS.forEach(function(f){var el=document.getElementById("q_"+f.id);body[f.id]=f.type==="checkbox"?el.checked:el.value;document.getElementById("e_"+f.id).textContent="";});

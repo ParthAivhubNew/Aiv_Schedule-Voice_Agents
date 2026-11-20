@@ -116,7 +116,7 @@ def test_a_typo_of_a_trade_still_means_the_trade():
 
 
 def test_not_keyword_is_whole_word_too():
-    assert r"~* '\mtax\M'" in sql({"keyword": ["plumber"], "not_keyword": ["tax"]})
+    assert r"~* '(\m(tax)(s|es)?\M)'" in sql({"keyword": ["plumber"], "not_keyword": ["tax"]})  # whole word, plural tolerant
 
 
 @pytest.mark.db

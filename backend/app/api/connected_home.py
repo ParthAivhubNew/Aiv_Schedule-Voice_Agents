@@ -464,7 +464,7 @@ async def need_any_plan(request: Request, db: AsyncSession = Depends(get_db)) ->
 
 
 @router.get("/together/workflows", dependencies=[Depends(need_any_plan)])
-async def get_workflows(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def get_workflows(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     from sqlalchemy import func
 
     from app.models.models import WorkflowRun
@@ -484,7 +484,10 @@ async def get_workflows(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
         c = counts.get(wid) or {"runs": 0, "failed": 0, "waiting": 0, "skipped": 0, "last": None}
         return {**c, "last": (c["last"].isoformat() + "Z") if c["last"] else None}
 
-    return {"workflows": [{**w, "stats": stats(w["id"])} for w in await W.get_workflows(db)],
+    flows = await W.get_workflows(db)
+    if not allowed(request, "company", "full"):  # a web address can carry a token: people who cannot edit see the host only
+        flows = [W.mask_webhooks(w) for w in flows]
+    return {"workflows": [{**w, "stats": stats(w["id"])} for w in flows],
             "events": W.EVENTS, "actions": W.ACTIONS, "stages": W.STAGES, "call_outcomes": W.CALL_OUTCOMES, "reply_kinds": W.REPLY_KINDS,
             "event_info": W.EVENT_INFO, "action_info": W.ACTION_INFO, "condition_fields": W.CONDITION_FIELDS, "templates": W.TEMPLATES}
 
@@ -498,11 +501,12 @@ async def put_workflows(body: WorkflowsIn, db: AsyncSession = Depends(get_db)) -
     # Check everything before anything is written, so a workflow that fails the rules can never take the saved ones with it.
     if len(body.workflows) > W.MAX_RULES:
         raise HTTPException(status_code=400, detail=f"You can have up to {W.MAX_RULES} workflows. Delete one first.")
-    for item in body.workflows:
-        if W.clean_workflow(item) is None:
+    cleaned = await W.clean_all(db, body.workflows)  # the address lookups happen here, once, off the event loop
+    for item, ok in zip(body.workflows, cleaned):
+        if ok is None:
             name = str((item or {}).get("name") or "A workflow")
             raise HTTPException(status_code=400, detail=f"“{name}” isn't complete or isn't allowed. Check that it has an event and at least one step with everything filled in (a web address must be a public https address).")
-    return {"workflows": await W.save_workflows(db, body.workflows)}
+    return {"workflows": await W.save_workflows(db, body.workflows, cleaned=cleaned)}
 
 
 def _run_out(r: Any) -> Dict[str, Any]:
@@ -538,7 +542,8 @@ async def retry_workflow_run(run_id: str, db: AsyncSession = Depends(get_db)) ->
     run = await _run_or_404(db, run_id)
     if run.status != "failed":
         raise HTTPException(status_code=409, detail="Only a run that stopped on a failed step can be retried.")
-    await W.continue_run(db, run)
+    if not await W.continue_run(db, run):
+        raise HTTPException(status_code=409, detail="That run is already being retried.")
     await db.commit()
     return {"run": _run_out(run)}
 

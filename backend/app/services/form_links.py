@@ -137,8 +137,12 @@ async def attach(db, sub: Any, form: Any, tok: Dict[str, str]) -> Optional[str]:
     if biz is not None:
         if shared.get("phone") and await OO.phone_blocked(db, shared["phone"]):
             shared.pop("phone")  # a person who opted out is never put back
-        if shared:
-            raw = dict(biz.raw_data or {})
-            raw["business_confirmed"] = {**(raw.get("business_confirmed") or {}), **shared, "confirmed_at": datetime.utcnow().isoformat() + "Z"}
+        raw = dict(biz.raw_data or {})
+        held = dict(raw.get("business_confirmed") or {})
+        # The link is a forwardable bearer token and the record is shared across organisations, so this is an unverified
+        # suggestion: the first value given stays, and a later one never overwrites it.
+        fresh = {k: v for k, v in shared.items() if not held.get(k)}
+        if fresh:
+            raw["business_confirmed"] = {**held, **fresh, "unverified": True, "confirmed_at": datetime.utcnow().isoformat() + "Z"}
             biz.raw_data = raw
     return lead.id

@@ -32,7 +32,9 @@ SECRET_FIELD_NAMES = frozenset({
 
 
 def _fernet() -> Fernet:
-    raw = (settings.SECRET_KEY or "aivhub-secret-key-change-in-production-2026").encode("utf-8")
+    if not settings.SECRET_KEY:  # no built-in fallback key: anyone reading the source would know it
+        raise RuntimeError("SECRET_KEY is not set; secrets cannot be sealed or opened")
+    raw = settings.SECRET_KEY.encode("utf-8")
     digest = hashlib.sha256(raw).digest()
     key = base64.urlsafe_b64encode(digest)
     return Fernet(key)
@@ -98,6 +100,30 @@ def open_secret(value: Optional[str]) -> str:
         return _fernet().decrypt(blob.encode("ascii")).decode("utf-8")
     except (InvalidToken, Exception) as err:
         logger.warning("Failed to decrypt sealed secret: %s", err)
+        return ""
+
+
+def seal_blob(plain: Optional[str]) -> str:
+    """Seals a whole JSON blob. Unlike seal_secret it never mistakes the content (a password with ? or *) for a mask."""
+    text = (plain or "").strip()
+    if not text:
+        return ""
+    if is_sealed(text):
+        return text
+    return _PREFIX + _fernet().encrypt(text.encode("utf-8")).decode("ascii")
+
+
+def open_blob(value: Optional[str]) -> str:
+    """Opens a blob from seal_blob. A leftover plaintext blob (written before this) is returned as it is."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if not is_sealed(text):
+        return text
+    try:
+        return _fernet().decrypt(text[len(_PREFIX):].encode("ascii")).decode("utf-8")
+    except Exception as err:
+        logger.warning("Failed to decrypt sealed blob: %s", err)
         return ""
 
 

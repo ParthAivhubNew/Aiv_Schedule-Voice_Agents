@@ -21,7 +21,9 @@ MAX_ADDS_PER_RUN = 200
 MAX_SEEN = 20_000
 WEEKLY_EVERY = timedelta(days=7)
 MAX_NAME = 80
+_MAX_PAGES = 5
 _ran_day: Dict[str, str] = {}
+_running: set = set()
 
 
 class SavedSearchError(ValueError):
@@ -62,9 +64,22 @@ async def run_one(db, s: Dict[str, Any], now: Optional[datetime] = None) -> int:
 
     now = now or datetime.utcnow()
     seen = list(s.get("seen_ids") or [])
-    found = await BR.search_filtered(db, {**(s.get("filters") or {}), "saved": "exclude"}, limit=MAX_ADDS_PER_RUN, exclude_ids=seen[-5000:], stats=False)
     known = set(seen)
-    fresh = [r for r in found["rows"] if r.id not in known][:MAX_ADDS_PER_RUN]
+    fresh: List[Any] = []
+    offset = 0
+    # Only the newest ids are sent as exclusions (the list can hold 20,000), so older ones can come back: read further pages
+    # until something new turns up, otherwise a search whose first page is all old would add nothing for ever.
+    for _ in range(_MAX_PAGES):
+        found = await BR.search_filtered(db, {**(s.get("filters") or {}), "saved": "exclude"}, limit=MAX_ADDS_PER_RUN, offset=offset,
+                                         exclude_ids=seen[-5000:], stats=False)
+        page = found["rows"]
+        for r in page:
+            if r.id not in known and len(fresh) < MAX_ADDS_PER_RUN:
+                known.add(r.id)
+                fresh.append(r)
+        offset += len(page)
+        if len(fresh) >= MAX_ADDS_PER_RUN or len(page) < MAX_ADDS_PER_RUN:
+            break
     added = 0
     if fresh:
         res = await LA.save_accounts(db, LA.AccountsIn(accounts=[_account(r) for r in fresh], list_id=s.get("list_id") or ""), s.get("created_by") or "")
@@ -73,6 +88,19 @@ async def run_one(db, s: Dict[str, Any], now: Optional[datetime] = None) -> int:
     s["last_run_at"] = now.isoformat() + "Z"
     s["last_added"] = added
     return added
+
+
+async def _store_run(db, s: Dict[str, Any], org_id: Optional[str] = None) -> Dict[str, Any]:
+    """Writes only what a run changed onto the freshly loaded document, so a rename, a weekly switch or a delete made while the
+    run was reading is not undone. A search deleted meanwhile stays deleted."""
+    searches = await load(db, org_id)
+    cur = next((x for x in searches if x.get("id") == s.get("id")), None)
+    if cur is None:
+        return s
+    for k in ("seen_ids", "last_run_at", "last_added"):
+        cur[k] = s.get(k)
+    await _save(db, searches, org_id)
+    return cur
 
 
 async def create(db, name: str, filters: Dict[str, Any], list_name: str, weekly: bool, owner: str) -> Dict[str, Any]:
@@ -109,20 +137,27 @@ async def run_by_id(db, search_id: str) -> Dict[str, Any]:
     if not s:
         raise SavedSearchError("That saved search doesn't exist any more.")
     await run_one(db, s)
-    await _save(db, searches)
-    return s
+    return await _store_run(db, s)
 
 
 async def weekly(db, org_id: str, now: Optional[datetime] = None) -> int:
     """Once a day per organisation, runs each weekly search that last ran 7 or more days ago, then tells the admins what was added."""
     now = now or datetime.utcnow()
     day = now.date().isoformat()
-    if _ran_day.get(org_id) == day:
+    if _ran_day.get(org_id) == day or org_id in _running:
         return 0
-    _ran_day[org_id] = day
+    _running.add(org_id)
+    try:
+        return await _weekly_run(db, org_id, now, day)
+    finally:
+        _running.discard(org_id)
+
+
+async def _weekly_run(db, org_id: str, now: datetime, day: str) -> int:
     searches = await load(db, org_id)
     total = 0
     lines: List[str] = []
+    failed = False
     for s in searches:
         if not s.get("weekly"):
             continue
@@ -133,11 +168,14 @@ async def weekly(db, org_id: str, now: Optional[datetime] = None) -> int:
             n = await run_one(db, s, now)
         except Exception as err:
             logger.warning("saved search %s failed: %s", s.get("id"), err)
+            failed = True
             continue
+        await _store_run(db, s, org_id)
         total += n
         if n:
             lines.append(f"<b>{n}</b> new {'company' if n == 1 else 'companies'} in {s['name']}")
-    await _save(db, searches, org_id)
+    if not failed:
+        _ran_day[org_id] = day  # a day with a failed search is tried again on the next visit
     if lines:
         from app.core.notify import notify
         from app.config import settings

@@ -596,7 +596,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     items = [v[:80] for v in dict.fromkeys(_as_list((filters or {}).get("exclude_items"))) if len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:300]
     if items:
         out["exclude_items"] = items
-    kinds = [v[:60] for v in dict.fromkeys(_as_list((filters or {}).get("industry_types"))) if "|" not in v and len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:20]
+    kinds = [v[:120] for v in dict.fromkeys(_as_list((filters or {}).get("industry_types"))) if "|" not in v and len(re.sub(r"[^0-9A-Za-z]", "", v)) >= 2][:20]
     if kinds:
         out["industry_types"] = kinds
     picked = [v for v in dict.fromkeys(_as_list((filters or {}).get("record_sources"))) if v in RECORD_SOURCES]
@@ -607,7 +607,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             value = float((filters or {}).get(key))
         except (TypeError, ValueError):
             continue
-        if value >= 0:
+        if 0 <= value <= MAX_AGE_YEARS:  # also rejects nan and inf, which would crash the date sum
             out[key] = value
     for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
                 "exclude_charities", "fsb_exclusions"):
@@ -636,7 +636,9 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
 
 _NB_INDUSTRY = r"(school|college|university|nursery|pre-school|preschool|childcare|caring premises|care home|hospital|community|church|place of worship|chapel|mosque|temple|charity|food ?bank)"
 _NB_NAME = r"\m(school|academy|church|nursery|college|community centre|food ?bank|primary|chapel|mosque)\M"
-_NB_WORDS = re.compile(r"school|college|university|nursery|childcare|care|hospital|community|church|charity|food ?bank|academy|chapel|mosque|temple|place of worship", re.I)
+MAX_AGE_YEARS = 200.0
+# Whole words (and their plurals): "healthcare" or "Templeton" must not count as asking for care homes or temples.
+_NB_WORDS = re.compile(r"\b(?:school|college|university|nursery|childcare|care|hospital|community|church|charity|food ?bank|academy|chapel|mosque|temple|place of worship)(?:s|es)?\b", re.I)
 
 
 def _wants_non_business(f: Dict[str, Any]) -> bool:
@@ -651,7 +653,7 @@ def _postcode_match(prefix: str) -> Any:
     """LS1 means the LS1 district (LS1 4AB), never LS10 to LS19; EC1 still takes EC1A to EC1Y, which are letters, not other districts.
     A prefix with a space, or ending in a letter (LS, LS1 4), is read as typed."""
     p = prefix.strip().upper()
-    like = BusinessRecord.postcode.like(_like(p, prefix_only=True), escape="\\")
+    like = BusinessRecord.postcode.like(_like(p, prefix_only=True), escape="\\")  # left bare so a postcode index can still serve it
     if " " not in p and p[-1:].isdigit():
         return and_(like, ~BusinessRecord.postcode.op("~")("^" + re.escape(p) + "[0-9]"))
     return like
@@ -732,7 +734,8 @@ def _trade_conditions(f: Dict[str, Any], any_activity: bool) -> list:
     # (a company has one or the other: Companies House gives SIC codes, the care and food registers give a type).
     picks = [_sic_code(c, any_activity) for c in f.get("sic_codes") or []]
     # A register's own type, exactly: the column holds one, or several joined by "|" (the care register).
-    picks += [func.coalesce(B.industry, "").op("~")(r"(^|\|)" + re.escape(v) + r"(\||$)") for v in f.get("industry_types") or []]
+    # Any capitalisation, and spaces around the "|" ("A | B"), since the picker merges spellings into one chip.
+    picks += [func.coalesce(B.industry, "").op("~*")(r"(^|\|)\s*" + re.escape(v) + r"\s*(\||$)") for v in f.get("industry_types") or []]
     if picks:
         conds.append(or_(*picks))
     return conds
@@ -856,8 +859,9 @@ def _type_match(key: str) -> Any:
 def _charity() -> Any:
     """The same rule as fit_score.is_charity: the register type says charity, a charity-register number, or the charity register is a source."""
     B = BusinessRecord
+    # coalesce on every column: a row with no sources must come out "not a charity", never NULL (which a leave-out would drop)
     return or_(func.coalesce(B.company_category, "").ilike("%charit%"), func.coalesce(B.registration_number, "").like("CC-%"),
-               cast(B.sources, String).like('%"ds_charity_commission"%'))
+               func.coalesce(cast(B.sources, String), "").like('%"ds_charity_commission"%'))
 
 
 # Sole traders are not on the Companies House register, so they cannot be found by company type. What we hold for them are records with no company
@@ -915,7 +919,7 @@ def _exclusion_items(items: List[str]) -> list:
     if kinds["numbers"]:
         conds.append(func.coalesce(B.registration_number, "").notin_(kinds["numbers"]))
     for p in kinds["postcodes"]:
-        conds.append(~_postcode_match(p))
+        conds.append(~func.coalesce(_postcode_match(p), False))  # no postcode is "not in this district": NULL would drop the row
     conds += _leave_out_words(kinds["words"])
     return conds
 

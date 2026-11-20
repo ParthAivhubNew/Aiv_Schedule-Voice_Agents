@@ -63,31 +63,52 @@ API_VERSION = "2026-10"
 RETRY_DELAYS = (10, 60)
 
 
-def url_problem(url: str) -> Optional[str]:
-    """Why a webhook address is not allowed, or None. Only the customer's own servers: never our network."""
+def _flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def check_url(url: str) -> "tuple[Optional[str], Optional[str]]":
+    """(problem, ip). The problem is why a webhook address is not allowed, or None. The ip is the address that was checked: send to that
+    one (not to the hostname again) so a DNS answer that changes between the check and the send cannot point us inside our network.
+    ip is None when the host is a local name allowed for development. Local and plain-http targets are off unless ALLOW_LOCAL_WEBHOOKS /
+    ALLOW_HTTP_WEBHOOKS is set."""
     import ipaddress
     import socket
     from urllib.parse import urlparse
 
-    u = urlparse((url or "").strip())
-    host = (u.hostname or "").lower()
-    if u.scheme not in ("https", "http") or not host:
-        return "Webhook URLs must start with https://."
-    if host in ("localhost", "127.0.0.1", "::1"):
-        allowed = os.getenv("ALLOW_LOCAL_WEBHOOKS", "true").lower() in ("1", "true", "yes")
-        return None if allowed else "That address is not allowed."
-    allow_http = os.getenv("ALLOW_HTTP_WEBHOOKS", "true").lower() in ("1", "true", "yes")
-    if u.scheme != "https" and not allow_http:
-        return "Webhook URLs must use HTTPS."
     try:
-        infos = socket.getaddrinfo(host, u.port or 443, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return "We could not find that address. Check the URL."
+        u = urlparse((url or "").strip())
+        host = (u.hostname or "").lower()
+        port = u.port
+    except ValueError:
+        return "Webhook URLs must start with https://.", None
+    if u.scheme not in ("https", "http") or not host:
+        return "Webhook URLs must start with https://.", None
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return (None, None) if _flag("ALLOW_LOCAL_WEBHOOKS") else ("That address is not allowed.", None)
+    if u.scheme != "https" and not _flag("ALLOW_HTTP_WEBHOOKS"):
+        return "Webhook URLs must use HTTPS.", None
+    try:
+        infos = socket.getaddrinfo(host, port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError):
+        return "We could not find that address. Check the URL.", None
+    first: Optional[str] = None
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
+        try:
+            ip = ipaddress.ip_address(str(info[4][0]).split("%")[0])  # an IPv6 answer can carry a scope id ("fe80::1%eth0")
+        except ValueError:
+            return "That address could not be checked.", None
+        if getattr(ip, "ipv4_mapped", None) is not None:
+            ip = ip.ipv4_mapped
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            return "That address points inside a private network, which is not allowed."
-    return None
+            return "That address points inside a private network, which is not allowed.", None
+        first = first or str(ip)
+    return (None, first) if first else ("We could not find that address. Check the URL.", None)
+
+
+def url_problem(url: str) -> Optional[str]:
+    """Why a webhook address is not allowed, or None. Only the customer's own servers: never our network."""
+    return check_url(url)[0]
 
 
 def generate_webhook_secret() -> str:
@@ -244,7 +265,8 @@ def dispatch_event(org_id: str, event_type: str, data: Dict[str, Any], test: boo
         try:
             from app.services import connections
 
-            connections.emit(org_id, event_type, data, str(data.get("id") or data.get("call_id") or ""))
+            nested = next((str(data[k]["id"]) for k in ("meeting", "campaign", "post", "reply") if isinstance(data.get(k), dict) and data[k].get("id")), "")
+            connections.emit(org_id, event_type, data, str(data.get("id") or data.get("call_id") or nested or ""))
         except Exception:
             pass
     try:

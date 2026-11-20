@@ -6,6 +6,7 @@ for the reason they picked, and it is saved only when they press the button, so 
 """
 from __future__ import annotations
 
+import json
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
@@ -39,6 +40,22 @@ def _clip(text: Any, n: int) -> str:
     return " ".join(str(text or "").split())[:n]
 
 
+CONTEXT_MAX = 2000  # characters of JSON kept per rating; the page sends filters and tool names, nothing near this
+
+
+def _bounded(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """The context a rating keeps, cut to a safe size: long text values are clipped and anything still over CONTEXT_MAX is dropped."""
+    out: Dict[str, Any] = {}
+    for k, v in ctx.items():
+        if isinstance(v, str):
+            v = v[:300]
+        elif isinstance(v, (dict, list)) and len(json.dumps(v, default=str)) > 800:
+            v = None  # a filter set or tool list this big is not a real one
+        if v is not None:
+            out[k] = v
+    return out if len(json.dumps(out, default=str)) <= CONTEXT_MAX else {}
+
+
 def lesson_for(reason: str, note: str) -> str:
     """The one sentence a thumbs down offers to remember: the person's own words when they gave a note, else the fixed line for the reason."""
     own = _clip(note, 300)
@@ -53,7 +70,7 @@ async def record(db: AsyncSession, *, org: str, plugin: str, rating: str, reason
     reason = (reason if reason in REASONS else "other") if rating == "down" else ""
     lesson = lesson_for(reason, note) if rating == "down" else ""
     ctx = context if isinstance(context, dict) else {}
-    keep = {k: ctx[k] for k in ("filters", "total", "tools", "kind") if k in ctx}
+    keep = _bounded({k: ctx[k] for k in ("filters", "total", "tools", "kind") if k in ctx})
     row = AssistantFeedback(
         id=f"af_{uuid.uuid4().hex[:16]}", from_org=org or "", plugin=plugin, chat_id=_clip(chat_id, 80), message_id=_clip(message_id, 80),
         rating=rating, reason=reason, note=_clip(note, 500), question=_clip(question, 1000), answer=_clip(answer, 3000),

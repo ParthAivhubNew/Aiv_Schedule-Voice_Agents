@@ -89,10 +89,13 @@ async def send_lead_email(db: AsyncSession, org_id: str, lead: LeadAccount, subj
     return res
 
 
+CALL_ERROR_TRIES = 5  # after this many errors in a row the step is skipped so the journey still moves on
+
+
 # ── A call step inside an email campaign ────────────────────────────────────
 async def run_call_step(db: AsyncSession, org_id: str, enr: EmailEnrollment, step: Any, now: datetime):
     """Ring the lead behind an enrolment. Returns (outcome, why) where outcome is "called", "skipped" or "deferred"
-    (outside calling hours). Skipping never stops the sequence: the next step still runs."""
+    (outside calling hours, or an error worth trying again). Skipping never stops the sequence: the next step still runs."""
     from sqlalchemy import func
 
     from app.models.models import EmailMessage
@@ -128,6 +131,11 @@ async def run_call_step(db: AsyncSession, org_id: str, enr: EmailEnrollment, ste
         return "called", ""
     except Exception as err:
         logger.warning(f"[connections] call step for {getattr(enr, 'id', '?')} failed: {err}")
+        errors = int((getattr(enr, "vars", None) or {}).get("call_errors") or 0) + 1
+        if errors < CALL_ERROR_TRIES:  # an error is most often temporary: the step stays due and is tried again, not lost
+            enr.vars = {**(enr.vars or {}), "call_errors": errors}
+            return "deferred", str(err)[:120]
+        enr.vars = {k: v for k, v in (enr.vars or {}).items() if k != "call_errors"}
         return "skipped", str(err)[:120]
 
 

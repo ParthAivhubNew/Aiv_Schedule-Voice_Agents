@@ -16,6 +16,7 @@ TEST_DB = os.environ.get("TEST_DATABASE_URL", "")
 # (nothing connects until a query runs).
 os.environ["DATABASE_URL"] = TEST_DB or "postgresql+asyncpg://unused:unused@localhost:1/unused"
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
+os.environ.setdefault("ALLOW_LOCAL_WEBHOOKS", "true")  # webhook tests post to localhost; production leaves this off
 
 
 def pytest_collection_modifyitems(config, items):

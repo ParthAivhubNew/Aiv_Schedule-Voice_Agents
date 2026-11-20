@@ -53,7 +53,8 @@ def test_plan_mailbox_day_graduation():
     assert decision["new_status"] == "graduated"
     assert decision["daily_cap"] == 40
     assert decision["campaign_sends"] > 0
-    assert decision["warmup_sends"] >= 3
+    assert decision["warmup_sends"] == 0  # routine warm-up stops at graduation
+    assert decision["campaign_sends"] == 40
 
 
 def test_plan_mailbox_day_auto_pause_on_high_bounces():
@@ -78,3 +79,25 @@ def test_plan_mailbox_day_disabled_state():
     assert decision["action"] == "skip"
     assert decision["new_status"] == "disabled"
     assert decision["daily_cap"] == 0
+
+
+def test_an_active_mailbox_sends_no_routine_warmup():
+    mb = MailboxState(id="mb_1", email="test@domain.com", status="active", max_daily_target=40)
+    decision = plan_mailbox_day(mb, recent_logs=[])
+    assert decision["warmup_sends"] == 0
+    assert decision["campaign_sends"] == 40
+
+
+def test_a_mailbox_never_warms_up_with_itself():
+    from types import SimpleNamespace as NS
+
+    from app.services.email_worker import WARMUP_NOTE, warmup_partners
+
+    me = NS(id="a", email="Outreach@opnbi.com", aliases=[{"address": "hello@opnbi.com"}], status="active")
+    other = NS(id="b", email="parth@aivhub.com", aliases=[], status="warming")
+    twin = NS(id="c", email="outreach@OPNBI.com", aliases=[], status="active")  # the same address connected twice
+    paused = NS(id="d", email="gone@x.com", aliases=[], status="paused")
+    got = warmup_partners(me, [me, other, twin, paused], "outreach@opnbi.com")  # the platform address is this mailbox's own
+    assert got == ["parth@aivhub.com"]
+    assert warmup_partners(other, [me, other], "hello@opnbi.com") == ["hello@opnbi.com", "Outreach@opnbi.com"]
+    assert "warm-up message" in WARMUP_NOTE

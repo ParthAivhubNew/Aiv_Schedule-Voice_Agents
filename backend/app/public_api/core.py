@@ -122,10 +122,25 @@ def page_of(rows: Sequence[Any], limit: int, offset: int) -> Dict[str, Any]:
 _WINDOWS: Dict[str, Deque[float]] = defaultdict(deque)
 
 
-def check_rate(who: str, write: bool) -> Optional[int]:
-    """Seconds to wait if this caller is over its limit, else None (and the request is counted)."""
+_last_sweep = 0.0
+
+
+def _sweep(now: float) -> None:
+    """Drop buckets whose newest hit is over a minute old, so keys from one-off callers do not pile up."""
+    global _last_sweep
+    if now - _last_sweep < 60:
+        return
+    _last_sweep = now
+    for name in [n for n, q in _WINDOWS.items() if not q or now - q[-1] > 60]:
+        _WINDOWS.pop(name, None)
+
+
+def check_rate(who: str, write: bool, *, rate: Optional[int] = None, write_rate: Optional[int] = None) -> Optional[int]:
+    """Seconds to wait if this caller is over its limit, else None (and the request is counted).
+    `rate` / `write_rate` override the per-minute limits for one caller group."""
     now = time.time()
-    buckets = [(f"{who}:all", RATE_PER_MIN)] + ([(f"{who}:write", WRITE_PER_MIN)] if write else [])
+    _sweep(now)
+    buckets = [(f"{who}:all", rate if rate is not None else RATE_PER_MIN)] + ([(f"{who}:write", write_rate if write_rate is not None else WRITE_PER_MIN)] if write else [])
     for name, limit in buckets:
         q = _WINDOWS[name]
         while q and now - q[0] > 60:

@@ -291,8 +291,16 @@ export function addedMessage(r, asked) {
 
 // "Add to list" box on Saved Accounts: pick an existing list or name a new one.
 export function AddToListDialog({ ids, listsStore, onToast, onClose }) {
-  const [target, setTarget] = useState(listsStore.lists[0]?.id || "new");
+  const choices = listsStore.lists.filter((l) => !l.virtual); // "not in any list" is a view, not somewhere to add to
+  const [target, setTarget] = useState(choices[0]?.id || "new");
+  const [touched, setTouched] = useState(false);
   const [name, setName] = useState("");
+  // The lists can arrive or change after the dialog opens: follow them until the person picks one.
+  const firstId = choices[0]?.id || "";
+  useEffect(() => {
+    if (target !== "new" && !choices.some((l) => l.id === target)) setTarget(firstId || "new");
+    else if (!touched && target === "new" && firstId) setTarget(firstId);
+  }, [firstId, choices.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const go = async () => {
@@ -312,14 +320,14 @@ export function AddToListDialog({ ids, listsStore, onToast, onClose }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div role="dialog" aria-label="Add to list" onClick={(e) => e.stopPropagation()} className="ui-card" style={{ width: "min(100%, 420px)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>Add {ids.length.toLocaleString()} {ids.length === 1 ? "company" : "companies"} to a list</div>
-        <select className="ui-input" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="List">
-          {listsStore.lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        <select className="ui-input" value={target} onChange={(e) => { setTouched(true); setTarget(e.target.value); }} aria-label="List">
+          {choices.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           <option value="new">+ A new list</option>
         </select>
         {target === "new" ? <input className="ui-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, for example Leeds dentists" aria-label="New list name" /> : null}
         {error ? <div role="alert" style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button title="Back to the first list and clear the name" type="button" className="ui-btn ui-btn--ghost" onClick={() => { setTarget(listsStore.lists[0]?.id || "new"); setName(""); setError(""); }}>Reset</button>
+          <button title="Back to the first list and clear the name" type="button" className="ui-btn ui-btn--ghost" onClick={() => { setTouched(false); setTarget(firstId || "new"); setName(""); setError(""); }}>Reset</button>
           <button title="Close without saving" type="button" className="ui-btn ui-btn--ghost" onClick={onClose}>Cancel</button>
           <button title="Add these companies to the list" type="button" className="ui-btn ui-btn--primary" disabled={busy || (target === "new" && !name.trim())} onClick={go}>{busy ? "Adding…" : "Add"}</button>
         </div>

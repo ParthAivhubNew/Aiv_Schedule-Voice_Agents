@@ -709,7 +709,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       sel.clear();
       await store.reload();
       await listsStore?.reload?.();
-      store.toast?.(`Deleted ${out.deleted.toLocaleString()}.${out.locked?.length ? ` ${out.locked.length} are being checked right now and were kept.` : ""}`);
+      store.toast?.(`Deleted ${out.deleted.toLocaleString()}.${out.over_cap ? ` ${out.over_cap.toLocaleString()} more were not deleted (the limit is 5,000 at a time). Run it again for the rest.` : ""}${out.locked?.length ? ` ${out.locked.length} are being checked right now and were kept.` : ""}`);
     } catch (e) {
       store.toast?.(e.message || "Couldn't delete them");
     }
@@ -750,10 +750,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const startCampaign = async () => {
     const withEmail = pickedIds.filter((id) => emailFor(base.find((a) => a.id === id) || {})?.text);
     if (!withEmail.length) { store.toast("None of the ticked companies has an email yet. Use Get contacts first."); return; }
-    const name = await askText({ title: `Start a journey on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Journey ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`, confirm: "Continue", maxLength: 80 });
+    const name = await askText({ title: `Start a journey on ${withEmail.length.toLocaleString()} ${withEmail.length === 1 ? "company" : "companies"}`, label: "Name the list they go in", initial: `Journey ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })} ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`, confirm: "Continue", maxLength: 80 });
     if (!name) return;
     try {
-      const r = await api.createLeadList(name.trim(), withEmail);
+      let r;
+      for (let n = 1; ; n += 1) { // a name already taken (same default twice in a minute) gets 2, 3, ...
+        try { r = await api.createLeadList(n === 1 ? name.trim() : `${name.trim().slice(0, 74)} ${n}`, withEmail); break; } catch (e) { if (n >= 5 || !/already have a list/i.test(e.message || "")) throw e; }
+      }
       await listsStore.reload();
       onCampaign(r.list.id);
     } catch (e) {
@@ -948,7 +951,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     {a.signals?.length || flags[a.id] ? (
                       <div style={{ marginTop: 3, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         <SignalTags signals={a.signals} />
-                        {flags[a.id] ? <span title={FLAG_WORDS[flags[a.id][0]][1]} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{FLAG_WORDS[flags[a.id][0]][0]}</span> : null}
+                        {flags[a.id] ? <span title={flags[a.id].map((f) => FLAG_WORDS[f][1]).join(" ")} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{flags[a.id].map((f) => FLAG_WORDS[f][0]).join(" · ")}</span> : null}
                       </div>
                     ) : null}
                   </td>

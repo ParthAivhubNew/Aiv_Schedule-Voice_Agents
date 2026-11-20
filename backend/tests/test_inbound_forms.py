@@ -186,7 +186,7 @@ def test_oversized_and_malformed_bodies(client):
 
 def test_a_burst_from_one_address_is_slowed(client, monkeypatch):
     c, API = client
-    monkeypatch.setattr(API, "check_rate", lambda who, write: 30)
+    monkeypatch.setattr(API, "check_rate", lambda who, write, **kw: 30)
     r = c.post("/f/" + "k" * 24 + "/submit", json={"name": "A", "email": "a@acme.co.uk"})
     assert r.status_code == 429 and r.headers["retry-after"] == "30"
 
@@ -254,3 +254,118 @@ async def test_one_organisations_forms_and_answers_are_invisible_to_another(db):
     with org_scope("org_a"):
         async with AsyncSessionLocal() as s:
             assert len((await s.execute(select(InboundForm))).scalars().all()) == 1
+
+
+# ── Review fixes ──────────────────────────────────────────────────────────────────────────────
+def test_an_email_with_a_plus_is_not_given_a_formula_prefix():
+    clean, errs = IF.validate_answer(_fields(), SETTINGS, {"name": "A", "email": "+a@acme.co.uk"})
+    assert not errs and clean["email"] == "+a@acme.co.uk"
+
+
+def test_only_real_tags_are_stripped():
+    assert IF.clean_text("a < b and c > d") == "a < b and c > d"
+    assert IF.clean_text("x <b>bold</b> <!-- hi --> y") == "x bold y"
+
+
+def test_a_personal_link_to_a_free_mailbox_passes_a_work_email_form():
+    s = IF.clean_settings({"block_free_email": True})
+    assert "email" in IF.validate_answer(_fields(), s, {"name": "A", "email": "a@gmail.com"})[1]
+    assert not IF.validate_answer(_fields(), s, {"name": "A", "email": "a@gmail.com"}, skip_email_rules=True)[1]
+
+
+def test_odd_hosts_never_reach_the_frame_header():
+    assert IF.clean_settings({"allowed_origins": ["https://evil.com; script-src *", "ok.com"]})["allowed_origins"] == ["ok.com"]
+    assert IF.frame_ancestors({"allowed_origins": ["a.com; x", "b.com"]}) == "frame-ancestors https://b.com http://b.com"
+
+
+def test_a_label_holding_a_placeholder_is_not_substituted_again(client, monkeypatch):
+    c, API = client
+    fields = IF.clean_fields([{"id": "email", "type": "email", "label": "__PREFILL__ __THANKS__"}])
+    published = {"id": "frm_1", "org_id": "org_x", "name": "__KEY__", "fields": fields, "settings": IF.clean_settings({"thanks": "T"}), "version": 1}
+
+    async def fake(key):
+        return published
+
+    monkeypatch.setattr(API, "_published", fake)
+    r = c.get("/f/" + "k" * 24 + "/page")
+    assert "<title>__KEY__</title>" in r.text and "__PREFILL__ __THANKS__" in r.text
+
+
+def test_the_page_shows_the_consent_line_and_a_default(client):
+    c, _ = client
+    assert IF.DEFAULT_CONSENT in c.get("/f/" + "k" * 24 + "/page").text
+
+
+def test_consent_is_recorded_with_the_form_version():
+    m = IF.consent_meta(IF.clean_settings({"consent_text": "We may email you."}), 3, "203.0.113.9")
+    assert m["consent_text"] == "We may email you." and m["form_version"] == 3 and m["at"].endswith("Z") and "203" not in m["ip_hash"]
+    assert IF.consent_meta(IF.clean_settings({}), 1, "")["consent_text"] == IF.DEFAULT_CONSENT
+
+
+def test_the_forwarded_for_header_is_not_trusted(client):
+    from types import SimpleNamespace
+
+    _, API = client
+    req = SimpleNamespace(headers={"x-forwarded-for": "1.2.3.4"}, client=SimpleNamespace(host="10.0.0.5"))
+    assert API._client_ip(req) == "10.0.0.5"
+
+
+def test_a_declared_oversized_body_is_refused_before_reading(client):
+    c, _ = client
+    r = c.post("/f/" + "k" * 24 + "/submit", content=b"{}", headers={"content-type": "application/json", "content-length": "999999"})
+    assert r.status_code in (400, 413)  # the client library may refuse the mismatch itself; the route never reads that much
+
+
+def test_rate_buckets_are_evicted_and_the_shared_bucket_is_looser():
+    import time
+
+    from app.public_api import core
+
+    core._WINDOWS.clear()
+    core._WINDOWS["old:all"].append(time.time() - 500)
+    core._WINDOWS["empty:all"]
+    core._last_sweep = 0.0
+    assert core.check_rate("new", False) is None
+    assert "old:all" not in core._WINDOWS and "empty:all" not in core._WINDOWS
+    for _ in range(40):
+        assert core.check_rate("shared", True, rate=600, write_rate=600) is None
+    core._WINDOWS.clear()
+
+
+@pytest.mark.asyncio
+async def test_a_dns_timeout_means_retry_later_not_blocked(monkeypatch):
+    import dns.asyncresolver
+    import dns.exception
+    import dns.resolver
+
+    class Slow:
+        lifetime = 1
+
+        async def resolve(self, d, t):
+            raise dns.exception.Timeout()
+
+    class Gone(Slow):
+        async def resolve(self, d, t):
+            raise dns.resolver.NXDOMAIN()
+
+    monkeypatch.setattr(dns.asyncresolver, "Resolver", Slow)
+    assert await IF.has_mail_server("acme.co.uk") is None
+    monkeypatch.setattr(dns.asyncresolver, "Resolver", Gone)
+    assert await IF.has_mail_server("nowhere.test") is False
+
+
+def test_background_review_tasks_are_kept_until_done():
+    import asyncio
+
+    async def go():
+        ran = []
+
+        async def job():
+            ran.append(1)
+
+        IF._spawn(job())
+        assert len(IF._TASKS) == 1
+        await asyncio.sleep(0.05)
+        assert ran and not IF._TASKS
+
+    asyncio.run(go())

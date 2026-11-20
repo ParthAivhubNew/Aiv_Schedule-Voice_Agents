@@ -162,8 +162,9 @@ async def test_contacts_use_only_the_exact_company_number_and_label_web_results(
     async def allow(db):
         return None
 
-    async def charge(db, count, what):
+    async def charge(db, count, what, **_kw):
         charged.append(count)
+        return True  # the charge helper now reports whether it took the credit
 
     monkeypatch.setattr("app.api.lead_accounts._can_research", allow)
     monkeypatch.setattr("app.api.lead_accounts._charge_leads", charge)

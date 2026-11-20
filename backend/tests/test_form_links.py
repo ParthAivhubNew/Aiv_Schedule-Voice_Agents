@@ -70,3 +70,38 @@ def test_the_share_choice_is_kept_only_for_phone_and_website():
 def test_the_two_reasons_to_stop_a_journey_include_the_form():
     assert J.DEFAULT_RULES["on_form"] is True
     assert J.EXIT_STATUS["form_returned"] == "form_returned"
+
+
+def test_a_second_link_answer_never_overwrites_the_shared_company_value():
+    import asyncio
+    from types import SimpleNamespace
+
+    class Res:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+        def first(self):
+            return None
+
+    lead = SimpleNamespace(id="acc_1", business_record_id="biz_1", contact_name="", phone="", website="", contact_title="", industry="",
+                           region="", notes="", custom=None)
+    biz = SimpleNamespace(raw_data={"business_confirmed": {"phone": "020 7000 0001"}})
+
+    class Db:
+        async def get(self, model, key):
+            return lead if key == "acc_1" else biz
+
+        async def execute(self, *a, **k):
+            return Res()
+
+    fields = [{"id": "phone", "type": "phone", "label": "Phone", "maps_to": "phone", "share_to_company": True},
+              {"id": "site", "type": "text", "label": "Site", "maps_to": "website", "share_to_company": True}]
+    form = SimpleNamespace(published_fields=fields, fields=fields)
+    sub = SimpleNamespace(payload={"phone": "020 9999 9999", "site": "acme.co.uk"}, status="", reason="", lead_id="")
+    asyncio.run(FL.attach(Db(), sub, form, {"lead_id": "acc_1", "org_id": "o", "form_id": "f", "enrollment_id": "", "email": "a@acme.co.uk"}))
+    held = biz.raw_data["business_confirmed"]
+    assert held["phone"] == "020 7000 0001" and held["website"] == "acme.co.uk" and held["unverified"] is True
+    assert lead.phone == "020 9999 9999"  # the organisation's own lead still gets what was sent

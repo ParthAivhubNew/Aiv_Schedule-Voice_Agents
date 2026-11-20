@@ -1,5 +1,7 @@
 import JobDock from "./hub/JobDock";
 import HumanCallHost from "./hub/HumanCallHost";
+import { SupportHub } from "./hub/SupportHub";
+import { HelpPage } from "./help/HelpPage";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT, restoreSession } from "./api/authStore";
@@ -153,9 +155,30 @@ function savedOperator() {
   }
 }
 
+function isHelpPath() {
+  try {
+    const p = window.location.pathname || "";
+    if (p.startsWith("/help")) return true;
+    const h = window.location.hash || "";
+    if (h.startsWith("#/help")) return true;
+  } catch (_) {}
+  return false;
+}
+
 // Sign-in gate: nothing of the app mounts (or calls the API) until the user is signed in and
 // has a password of their own.
 export default function App() {
+  const [onHelp, setOnHelp] = useState(() => isHelpPath());
+  useEffect(() => {
+    const check = () => setOnHelp(isHelpPath());
+    window.addEventListener("popstate", check);
+    window.addEventListener("outreach-route", check);
+    return () => {
+      window.removeEventListener("popstate", check);
+      window.removeEventListener("outreach-route", check);
+    };
+  }, []);
+
   const [session, setSession] = useState(() => {
     const op = savedOperator();
     return op ? { operator: op, key: op.id + ":" + Date.now() } : null;
@@ -196,6 +219,10 @@ export default function App() {
     setSession(null);
     setMustChangePassword(false);
   };
+
+  if (onHelp) {
+    return <HelpPage />;
+  }
 
   if (!session && restoring) return <AppChrome />;
   if (!session) {
@@ -1042,6 +1069,7 @@ function MainApp({ onSignedOut }) {
       <ConnectionsSettingsModal isOpen={showConnections} onClose={() => setShowConnections(false)} initialTab={connectionsTab} />
 
       <InstallPrompt />
+      <SupportHub />
     </OrgSettingsProvider>
   );
 }

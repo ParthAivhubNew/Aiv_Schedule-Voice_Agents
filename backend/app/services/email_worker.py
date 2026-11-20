@@ -149,6 +149,22 @@ async def plan_day(db: AsyncSession, mb: EmailMailbox, today: str) -> None:
 
 
 # ── Warmup sending ──────────────────────────────────────────────────────────
+WARMUP_NOTE = "--" + chr(10) + "This is an automated warm-up message sent between Aivhub mailboxes. No reply or action is needed."
+
+
+def warmup_partners(mb: EmailMailbox, boxes: Any, platform_addr: str) -> List[str]:
+    """Who this mailbox may send warm-up mail to: the platform mailbox and the company's other sending mailboxes, never itself.
+    The same address is never listed twice, and an address that is this mailbox's own (or one of its aliases) is left out, so a mailbox
+    that is also the platform address, or is connected twice, does not mail itself."""
+    mine = {str(mb.email or "").strip().lower(), *(str(a.get("address", "")).strip().lower() for a in (mb.aliases or []))}
+    out: List[str] = []
+    for addr in [platform_addr, *(o.email for o in boxes if o.id != mb.id and o.status in SENDING)]:
+        key = str(addr or "").strip().lower()
+        if key and key not in mine and key not in (x.lower() for x in out):
+            out.append(str(addr).strip())
+    return out
+
+
 async def send_warmup(db: AsyncSession, org_id: str, mb: EmailMailbox, partners: List[str], local: datetime,
                       now: datetime) -> bool:
     if not partners or not mb.warmup_quota:
@@ -164,6 +180,7 @@ async def send_warmup(db: AsyncSession, org_id: str, mb: EmailMailbox, partners:
     if (log.warmup_sent_count or 0) >= due:
         return False
     subject, body = random.choice(WARMUP_LINES)
+    body = body + chr(10) * 2 + WARMUP_NOTE
     res = await send_cold_email(db, org_id, mb, random.choice(partners), subject, body,
                                 entity_type="corporate", is_warmup=True, warmup_id=uuid.uuid4().hex[:16])
     return res["status"] == "sent"
@@ -282,6 +299,7 @@ async def run_campaign(db: AsyncSession, org_id: str, camp: EmailCampaign, boxes
             if approval is not None:
                 approval.status = "sent"
             await _advance(enr, steps, now)
+            await db.commit()  # saved right after the real send, so a later failure can never send this person the same email again
         elif res["status"] == "blocked_pecr":  # not emailed: reached another way, and the journey carries on
             if approval is not None:
                 approval.status = "cancelled"
@@ -349,8 +367,8 @@ async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None)
     from app.services.org_settings import org_timezone
 
     now = now or datetime.utcnow()
-    today = now.date().isoformat()
     local = local_now(await org_timezone(db), now)
+    today = local.date().isoformat()  # the company's day, the one day_log counts in
     boxes = {m.id: m for m in (await db.execute(select(EmailMailbox))).scalars().all()}
     platform_addr = (await platform_mailbox.get()).get("email", "")
     stats = {"warmup": 0, "campaign": 0}
@@ -359,9 +377,10 @@ async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None)
         await plan_day(db, mb, today)
     for mb in boxes.values():
         if mb.status in SENDING:
-            partners = [p for p in [platform_addr, *(o.email for o in boxes.values() if o.id != mb.id and o.status in SENDING)] if p]
+            partners = warmup_partners(mb, boxes.values(), platform_addr)
             if await send_warmup(db, org_id, mb, partners, local, now):
                 stats["warmup"] += 1
+                await db.commit()  # the mail went out: its record must not depend on anything later in this cycle
     camps = (await db.execute(select(EmailCampaign).where(EmailCampaign.status == "running"))).scalars().all()
     for camp in camps:
         stats["campaign"] += await run_campaign(db, org_id, camp, boxes, local, now)
@@ -370,11 +389,28 @@ async def run_org(db: AsyncSession, org_id: str, now: Optional[datetime] = None)
         anyone = (await db.execute(select(EmailEnrollment.id).where(EmailEnrollment.campaign_id == camp.id).limit(1))).first()
         if anyone and not left:
             camp.status = "completed"
-    for mb in boxes.values():
-        if mb.status not in ("disabled",):
+    from app.services import journeys as J
+
+    for camp in (await db.execute(select(EmailCampaign).where(EmailCampaign.status == "completed"))).scalars().all():
+        await J.sweep_silent(db, camp, now)  # people who finished a journey and never answered, after the journey itself has ended
+    await db.commit()
+    for mb in list(boxes.values()):
+        if mb.status in ("disabled",):
+            continue
+        try:
             await read_inbox(db, org_id, mb, now)
             await refresh_mail(db, org_id, mb, now)
-    await db.commit()
+            await db.commit()
+        except Exception as err:  # the inbox work stands alone: it can never undo what was sent above
+            logger.warning(f"[Email] inbox work failed for {mb.email}: {err}")
+            await db.rollback()
+            try:
+                for other in boxes.values():  # a rollback expires every loaded row: reload them before the next mailbox
+                    await db.refresh(other)
+                mb.last_sync_at = now  # not retried every minute
+                await db.commit()
+            except Exception:
+                await db.rollback()
     return stats
 
 
@@ -429,7 +465,7 @@ async def platform_partner(now: Optional[datetime] = None) -> int:
             msg["In-Reply-To"] = m.message_id
             msg["References"] = m.message_id
         msg[T.WARMUP_HEADER] = m.warmup_id
-        msg.set_content(random.choice(WARMUP_REPLIES))
+        msg.set_content(random.choice(WARMUP_REPLIES) + chr(10) * 2 + WARMUP_NOTE)
         try:
             await T.send(settings, msg)
             replies += 1

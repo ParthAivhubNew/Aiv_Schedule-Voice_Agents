@@ -84,6 +84,7 @@ BOUNCE_WARN_THRESHOLD = 0.015  # 1.5%: still sending, but the person is told bef
 MIN_SENDS_FOR_RATE_CHECK = 10  # Don't evaluate bounce rate on negligible volume
 GRADUATION_HEALTHY_DAYS = 21   # 21 continuous healthy days to graduate
 EARLY_CAMPAIGN_MIN = 2         # real emails a day allowed in the first week of warm-up
+MAINTENANCE_WARMUP = 0        # warm-up emails a day once a mailbox has graduated: none. Warm-up is for the first weeks; real campaign mail keeps the reputation after that
 
 
 def plan_mailbox_day(
@@ -163,8 +164,8 @@ def plan_mailbox_day(
         # Check graduation
         if healthy_days >= GRADUATION_HEALTHY_DAYS and current_cap >= mailbox.max_daily_target:
             new_status = "graduated"
-            # Graduated mailboxes: 80% campaign outreach, 20% ongoing seed warmup maintenance
-            warmup_sends = max(3, int(current_cap * 0.20))
+            # Graduated mailboxes stop routine warm-up (MAINTENANCE_WARMUP): the whole day's cap is for real outreach
+            warmup_sends = MAINTENANCE_WARMUP
             campaign_sends = current_cap - warmup_sends
         else:
             new_status = "warming"
@@ -184,7 +185,7 @@ def plan_mailbox_day(
     elif mailbox.status in ("graduated", "active"):
         new_status = "active"
         current_cap = mailbox.max_daily_target
-        warmup_sends = max(3, int(current_cap * 0.20))
+        warmup_sends = MAINTENANCE_WARMUP
         campaign_sends = current_cap - warmup_sends
     else:
         new_status = mailbox.status

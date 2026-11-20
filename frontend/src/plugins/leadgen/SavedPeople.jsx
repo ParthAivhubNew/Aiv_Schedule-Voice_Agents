@@ -70,7 +70,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
                   <td>{p.account.name}</td>
                   <td style={{ color: p.email ? C.ink : C.slate }}>{p.email || "-"}</td>
                   <td style={{ color: p.phone ? C.ink : C.slate, whiteSpace: "nowrap" }}>{p.phone || "-"}</td>
-                  <td><StageBadge stage={p.account.stage || "new"} /></td>
+                  <td><StageBadge stage={p.account.connection?.stage || "new"} /></td>
                   <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{p.found ? "Found by a company check" : "Saved or imported"}</td>
                 </tr>
               ))}

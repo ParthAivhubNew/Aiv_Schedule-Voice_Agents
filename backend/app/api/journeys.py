@@ -30,7 +30,7 @@ from sqlalchemy.future import select
 
 from app.core.auth_middleware import current
 from app.database import get_db
-from app.models.models import EmailApproval, EmailCampaign, EmailEnrollment, EmailSequenceStep, JourneyTask
+from app.models.models import EmailApproval, EmailCampaign, EmailEnrollment, EmailMessage, EmailSequenceStep, JourneyTask
 from app.services import journeys as J
 
 router = APIRouter(prefix="/journeys", tags=["Journeys"])
@@ -138,7 +138,11 @@ async def draft(body: DraftIn, request: Request, db: AsyncSession = Depends(get_
 @router.get("/tasks")
 async def tasks(request: Request, status: str = "open", journey: str = "", today: bool = False, db: AsyncSession = Depends(get_db)):
     current(request)
-    due = (datetime.utcnow().replace(hour=23, minute=59, second=59) if today else None)
+    due = None
+    if today:  # the end of the company's day, not UTC's
+        from app.services.org_settings import org_timezone
+
+        due = J.day_bounds_utc(await org_timezone(db))[1]
     if status == "open":
         await J.close_resolved_tasks(db, journey)
         await db.commit()
@@ -292,8 +296,15 @@ async def remove_person(journey_id: str, enrollment_id: str, request: Request, d
     row = (await db.execute(select(EmailEnrollment).where(EmailEnrollment.id == enrollment_id, EmailEnrollment.campaign_id == journey_id))).scalars().first()
     if not row:
         raise HTTPException(status_code=404, detail="That person isn't in this journey.")
+    contacted = (await db.execute(select(EmailMessage.id).where(
+        EmailMessage.enrollment_id == row.id, EmailMessage.status.in_(("sent", "delivered", "replied", "bounced"))).limit(1))).first()
+    if contacted:  # kept, ended: deleting it would erase the record that they were already emailed, and they could be added and emailed again
+        await J.exit_enrollment(db, row, "removed", status="finished")
+        await db.commit()
+        return {"ok": True, "kept": True}
     await J.cancel_tasks(db, row.id)
     await J.cancel_approvals(db, row.id)
+    await J.cancel_queued_calls(db, row)
     await db.delete(row)
     await db.commit()
     return {"ok": True}
@@ -319,6 +330,8 @@ async def clone(journey_id: str, request: Request, db: AsyncSession = Depends(ge
 async def delete(journey_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     current(request)
     camp = await _journey(db, journey_id)
+    for enr in (await db.execute(select(EmailEnrollment).where(EmailEnrollment.campaign_id == camp.id))).scalars().all():
+        await J.cancel_queued_calls(db, enr)  # a call already lined up for someone in this journey must not go out after it is gone
     for model in (EmailEnrollment, EmailSequenceStep, JourneyTask, EmailApproval):
         for row in (await db.execute(select(model).where(model.campaign_id == camp.id))).scalars().all():
             await db.delete(row)

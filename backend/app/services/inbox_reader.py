@@ -105,23 +105,29 @@ async def process(db: AsyncSession, org_id: str, mb: EmailMailbox, messages: Lis
             out["warmup_uids"].append(inc.uid)
             continue
 
+        if inc.is_receipt:
+            continue
         if inc.is_bounce:
             sent = await _sent_message(db, [inc.bounced_message_id])
-            permanent = (inc.bounce_status or "5").startswith("5")
-            targets = [sent.recipient_email] if sent else inc.failed_recipients
+            permanent = (inc.bounce_status or "").startswith("5")  # unknown or 4.x.x is soft: nobody is suppressed, no bounce is counted
+            if not permanent:
+                continue
+            targets = [sent.recipient_email] if sent else [a for a in inc.failed_recipients if a != own]
             for addr in targets:
                 if not sent:
                     sent = (await db.execute(select(EmailMessage).where(
                         EmailMessage.recipient_email == addr, EmailMessage.mailbox_id == mb.id, EmailMessage.is_warmup.is_(False))
                         .order_by(EmailMessage.sent_at.desc()))).scalars().first()
-                if permanent:
-                    await suppress(db, org_id, addr, "hard_bounce", "inbox_reader")
+                await suppress(db, org_id, addr, "hard_bounce", "inbox_reader")
             if sent and sent.status != "bounced":
                 sent.status = "bounced"
                 sent.bounce_reason = f"{inc.bounce_status} {T.reply_text(inc.text, 300)}".strip()
-                if permanent:
-                    await _stop(db, sent.enrollment_id, "bounced")
-                log = await day_log(db, mb.id, (sent.sent_at or datetime.utcnow()).date().isoformat())
+                await _stop(db, sent.enrollment_id, "bounced")
+                from app.services.email_worker import local_now
+                from app.services.org_settings import org_timezone
+
+                day = local_now(await org_timezone(db), sent.sent_at or datetime.utcnow()).date().isoformat()  # the day it counted as sent
+                log = await day_log(db, mb.id, day)
                 log.bounced_count = (log.bounced_count or 0) + 1
                 out["bounces"] += 1
             continue

@@ -154,7 +154,7 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
                     {f.maps_to === "phone" || f.maps_to === "website" ? (
                       <label style={{ ...text, fontSize: 13, display: "flex", gap: 8, alignItems: "flex-start" }} htmlFor={`sh_${f.id}`}>
                         <input id={`sh_${f.id}`} type="checkbox" style={{ marginTop: 3 }} checked={!!f.share_to_company} onChange={(e) => setField(f.id, { share_to_company: e.target.checked })} />
-                        <span>Add this answer to the company's details, shown as confirmed by the business. Only used when the form is opened from a link in an email you sent, and the form tells the person.</span>
+                        <span>Add this answer to the company's details, shown as given by the business and not verified. Only used when the form is opened from a link in an email you sent, and the form tells the person.</span>
                       </label>
                     ) : null}
                   </div>
@@ -191,7 +191,12 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
             <input type="checkbox" checked={!!draft.settings.block_free_email} onChange={(e) => setSettings({ block_free_email: e.target.checked })} /> Ask for a work email (refuse Gmail, Outlook and other free mailboxes)
           </label>
           <ListEditor id="s_dom" title="Only accept these email domains" hint="For example acme.co.uk. Leave empty to accept any." value={draft.settings.allowed_email_domains || []} onChange={(v) => setSettings({ allowed_email_domains: v })} />
-          <ListEditor id="s_org" title="Only let these websites show the form" hint="For example acme.com. Leave empty to allow any site. Your own hosted link always works." value={draft.settings.allowed_origins || []} onChange={(v) => setSettings({ allowed_origins: v })} />
+          <ListEditor id="s_org" title="Websites that can embed the form in a frame" hint="For example acme.com. Leave empty to allow any site. This only controls where the form can be shown in a frame. It does not stop anyone from sending answers to your link. Your own hosted link always works." value={draft.settings.allowed_origins || []} onChange={(v) => setSettings({ allowed_origins: v })} />
+          <div>
+            <label style={label} htmlFor="s_consent">Privacy line under the form</label>
+            <input id="s_consent" className="ui-input" maxLength={300} placeholder="By sending this form you agree we may contact you about your enquiry." value={draft.settings.consent_text || ""} onChange={(e) => setSettings({ consent_text: e.target.value })} />
+            <div style={muted}>Shown under the Submit button. The wording and time are saved with each answer.</div>
+          </div>
           <div>
             <label style={label} htmlFor="s_max">Most answers accepted in 24 hours</label>
             <input id="s_max" className="ui-input ifm-auto" type="number" min={1} max={5000} value={draft.settings.daily_limit || 200} onChange={(e) => setSettings({ daily_limit: Math.max(1, Math.min(5000, Number(e.target.value) || 200)) })} style={{ maxWidth: 140 }} />

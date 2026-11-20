@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,21 +23,36 @@ router = APIRouter(prefix="/leads/lists", tags=["Leads"])
 
 MAX_LISTS = 200
 MAX_NAME = 80
+MAX_IDS = 5000
+CHUNK = 500
+VIRTUAL_ID = "lst_unsorted"
 
 
 class ListIn(BaseModel):
     name: str = ""
-    ids: List[str] = []
+    ids: List[str] = Field(default_factory=list, max_length=MAX_IDS)
 
 
 class ListPatch(BaseModel):
     name: Optional[str] = None
-    add: List[str] = []
-    remove: List[str] = []
+    add: List[str] = Field(default_factory=list, max_length=MAX_IDS)
+    remove: List[str] = Field(default_factory=list, max_length=MAX_IDS)
 
 
 def _key() -> str:
     return f"leadlists:{current_org()}"
+
+
+async def _lock(db: AsyncSession) -> None:
+    """Hold this organisation's lists document until the caller commits, so two requests never
+    load the same copy and overwrite each other (same pattern as credits._lock)."""
+    from app.models.models import AppSetting
+
+    q = select(AppSetting.id).where(AppSetting.id == _key()).with_for_update()
+    if (await db.execute(q)).first() is None:
+        db.add(AppSetting(id=_key(), data={}))
+        await db.flush()
+        await db.execute(q)
 
 
 async def _load(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -53,7 +68,10 @@ async def _existing(db: AsyncSession, ids: List[str]) -> List[str]:
     """Only ids that are really saved accounts of this organisation, in the order given, no repeats."""
     if not ids:
         return []
-    found = set((await db.execute(select(LeadAccount.id).where(LeadAccount.id.in_(ids)))).scalars().all())
+    found: set = set()
+    uniq = list(dict.fromkeys(ids))
+    for n in range(0, len(uniq), CHUNK):
+        found |= set((await db.execute(select(LeadAccount.id).where(LeadAccount.id.in_(uniq[n:n + CHUNK])))).scalars().all())
     seen: List[str] = []
     for i in ids:
         if i in found and i not in seen:
@@ -84,6 +102,7 @@ def _name(raw: str) -> str:
 async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[str], owner: str = "") -> Dict[str, Any]:
     """Add companies to a list by id, or by name (an existing list with that name, else a new one).
     Used when saving a search or an imported file straight into a list."""
+    await _lock(db)
     lists = await _load(db)
     hit = next((l for l in lists if l["id"] == list_id), None) if list_id else None
     if not hit and list_name.strip():
@@ -105,33 +124,32 @@ async def put_in_list(db: AsyncSession, list_id: str, list_name: str, ids: List[
 UNSORTED = "Unsorted"
 
 
-async def _adopt_loose(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Every saved company belongs to a list. Ones saved before lists existed, or taken out of their
-    last list, are gathered into "Unsorted" (made if needed) so they can be renamed, moved and used."""
+async def _loose(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[str]:
+    """Saved companies that are in no list."""
     placed = {i for l in lists for i in l["ids"]}
     every = (await db.execute(select(LeadAccount.id).order_by(LeadAccount.created_at))).scalars().all()
-    loose = [i for i in every if i not in placed]
+    return [i for i in every if i not in placed]
+
+
+async def _with_unsorted(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """"Unsorted" is a view, never stored: the saved companies that are in no list. Taking a company out of
+    its last list, or deleting a list, therefore sticks; nothing is written by reading."""
+    loose = await _loose(db, lists)
     if not loose:
         return lists
-    hit = next((l for l in lists if l["name"].lower() == UNSORTED.lower()), None)
-    if not hit:
-        if len(lists) >= MAX_LISTS:
-            return lists
-        hit = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": UNSORTED, "ids": [], "created_at": datetime.utcnow().isoformat() + "Z"}
-        lists = lists + [hit]
-    hit["ids"] = hit["ids"] + loose
-    await _save(db, lists)
-    return lists
+    taken = any(l["name"].lower() == UNSORTED.lower() for l in lists)
+    return lists + [{"id": VIRTUAL_ID, "name": "Not in any list" if taken else UNSORTED, "ids": loose, "virtual": True}]
 
 
 @router.get("")
 async def all_lists(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     lists = await _clean(db, await _load(db))
-    return {"lists": await _adopt_loose(db, lists)}
+    return {"lists": await _with_unsorted(db, lists)}
 
 
 @router.post("")
 async def create(body: ListIn, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _lock(db)
     lists = await _load(db)
     if len(lists) >= MAX_LISTS:
         raise HTTPException(status_code=400, detail=f"You can keep up to {MAX_LISTS} lists. Delete one first.")
@@ -150,8 +168,19 @@ async def create(body: ListIn, request: Request, db: AsyncSession = Depends(get_
 
 @router.patch("/{list_id}")
 async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _lock(db)
     lists = await _load(db)
     hit = next((l for l in lists if l["id"] == list_id), None)
+    if not hit and list_id == VIRTUAL_ID:
+        # Renaming or adding to the "not in any list" view makes it a real list holding those companies.
+        loose = await _loose(db, lists)
+        if loose and (body.name is not None or body.add):
+            if len(lists) >= MAX_LISTS:
+                raise HTTPException(status_code=400, detail=f"You can keep up to {MAX_LISTS} lists. Delete one first.")
+            hit = {"id": f"lst_{uuid.uuid4().hex[:10]}", "name": UNSORTED, "ids": loose, "created_at": datetime.utcnow().isoformat() + "Z"}
+            lists = [hit] + lists
+        elif loose:
+            return {"list": {"id": VIRTUAL_ID, "name": UNSORTED, "ids": loose, "virtual": True}, "added": 0, "already": 0, "missing": 0, "already_items": []}
     if not hit:
         raise HTTPException(status_code=404, detail="That list doesn't exist any more.")
     if body.name is not None:
@@ -180,6 +209,9 @@ async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_d
 
 @router.delete("/{list_id}")
 async def delete(list_id: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    if list_id == VIRTUAL_ID:
+        return {"ok": True}  # a view of companies in no list: there is nothing stored to delete
+    await _lock(db)
     lists = await _load(db)
     keep = [l for l in lists if l["id"] != list_id]
     if len(keep) == len(lists):

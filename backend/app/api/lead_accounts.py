@@ -539,6 +539,8 @@ async def search_select_all(body: SelectAllIn, db: AsyncSession = Depends(get_db
     want = select_all_limit(body.limit)
     sort = body.sort if body.sort in business_records.SORTS else "best"
     fit_ctx = await ICP.context(db) if sort == "fit" else None  # the same order the pages showed
+    if sort == "fit" and not fit_ctx:
+        sort = "best"  # no ICP: /search shows "best" order, so the ids must come in that order too
     rows: List[Any] = []
     seen: set = set()
     total, capped = 0, False
@@ -626,9 +628,13 @@ async def understand_filters(body: UnderstandIn, db: AsyncSession = Depends(get_
     text = (body.text or "").strip()[:500]
     if not text:
         raise HTTPException(status_code=422, detail="Type what you are looking for.")
-    plan = await lead_filters.interpret(db, text, body.filters or None)
+    plan = await lead_filters.interpret(db, text, body.filters or None, force=True)
     if plan["action"] != "search":
         return {"understood": False, "filters": body.filters or {}, "chips": []}
+    try:  # the same checks /search makes, so the panel is never filled with a state that then fails to run
+        business_records.check_filters(plan["filters"])
+    except ValueError as err:
+        return {"understood": False, "filters": body.filters or {}, "chips": [], "message": str(err)}
     return {"understood": True, "filters": plan["filters"], "chips": [c for c in lead_filters.describe(plan["filters"]) if c != "Status: Active"]}
 
 
@@ -794,9 +800,12 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
         saved = (biz.raw_data or {}).get("contacts_web") or {}  # an earlier lookup is shown again free: it is already paid for
         if saved.get("guardrail") and (saved.get("website") or saved.get("phones") or saved.get("emails")):
             web = {**{k: v for k, v in saved.items() if k not in ("audit", "ledger")}, "found": True, "cached": True}
-    await db.commit()
     if web and web.get("found") and not (web.get("cached") or web.get("from_saved")) and not body.find_site_only:
-        await _charge_leads(db, 1, f"Contacts for {biz.name}")
+        # Charged together with what was found (one commit): if the charge fails everything is rolled back and nothing paid-for is kept.
+        # The key makes a double-click or a second tab free for a day, held in the database (credit entries), not in memory.
+        if not await _charge_leads(db, 1, f"Contacts for {biz.name}", once=f"{biz.id}:contacts", window_days=1):
+            await _charge_failed(db)
+    await db.commit()
     from app.services import person_emails as PE
 
     officers = PE.attach(CC.active_officers(biz.officers), await PE.kept_for(db, biz.id))
@@ -837,6 +846,8 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         return await _find_email(db, biz, body.hint)
     if lead_filters.card(biz)["website"]:
         return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, lead_filters.card(biz))}
+    if not body.hint and CC.missed_recently(biz, "website"):
+        return _recent_miss(biz, "website", await RV.mask_one(db, lead_filters.card(biz)))
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
@@ -852,10 +863,12 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     found_web = bool(web and web.get("found") and web.get("website"))  # a phone that turns up on the way is kept, but only a website is charged here
     if found_web:
         source = "web"
-        await db.commit()
-        if not (web.get("cached") or web.get("from_saved")):
-            await _charge_leads(db, 1, f"Website for {biz.name}", once=f"{biz.id}:website:{body.hint}")
+        if not web.get("cached"):  # a result the earlier combined search held back is paid for now, when it is first shown
+            if not await _charge_leads(db, 1, f"Website for {biz.name}", once=f"{biz.id}:website"):
+                await _charge_failed(db)
             charged += 1
+        else:
+            await db.commit()
     if not (lead_filters.card(biz)["website"] or (web or {}).get("website")):
         try:
             await _can_deep_search(db)
@@ -863,6 +876,10 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
+        except Exception as err:  # a vendor error is a miss that did not finish: no 500, and the miss is not remembered
+            logger.warning("find-website: deeper search failed for %r: %s", biz.name, err)
+            place = None
+            note = "The deeper search didn't finish just now. Nothing was charged."
         if place and not site_check.same_business(biz.name, place.get("name") or ""):
             logger.info("find-website: deeper search returned a different business for %r: %r", biz.name, place.get("name"))
             place = None
@@ -888,8 +905,8 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
             try:
                 # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
                 await _keep_place(db, biz, place, confirmed)
-                await db.commit()
-                await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:website:{body.hint}")
+                if not await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:website"):  # kept and charged in one commit
+                    await _charge_failed(db, deep=True)
                 charged += 1
                 source = "deep"
                 await RV.open_one(db, biz.id, "website")  # paid for by the deeper search, so it is shown without another click
@@ -912,6 +929,18 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     _PAGE_CACHE.clear()  # the rows that were remembered no longer show this company's details
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
             "options": _options(biz, "website", got), "listing": listing}
+
+
+async def _charge_failed(db: AsyncSession, deep: bool = False) -> None:
+    """The charge for a find did not go through and what was found was rolled back with it. Out of credits gives the normal 402; anything else a 502."""
+    await (_can_deep_search(db) if deep else _can_research(db))
+    raise HTTPException(status_code=502, detail="We couldn't take the credit just now, so nothing was kept and nothing was charged. Try again in a minute.")
+
+
+def _recent_miss(biz: BusinessRecord, kind: str, company: Dict[str, Any]) -> Dict[str, Any]:
+    """The answer when this company was searched for this field in the last day and nothing turned up: no new paid search."""
+    return {"found": False, "source": "", "charged": 0, "company": company, "options": _options(biz, kind, False),
+            "note": f"We looked for the {kind} a short while ago and found nothing, so nothing was searched or charged. Add details to search again, or try tomorrow."}
 
 
 def _closest(web: Optional[Dict[str, Any]]) -> str:
@@ -937,7 +966,7 @@ async def company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
-    if CP.is_registry_company(biz) and CC.people_stale(biz):
+    if CP.is_registry_company(biz) and CC.people_stale(biz):  # a read that saves: free and idempotent, it only fills the registry's people the first time
         try:
             await CC.refresh_from_registry(db, biz)
             await db.commit()
@@ -1045,7 +1074,11 @@ async def _email_through_google(db: AsyncSession, biz: BusinessRecord, hint: str
         await _can_deep_search(db)
     except HTTPException:
         return False
-    place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="website")
+    try:
+        place = await search_deeper(f"{biz.name} {biz.region or ''}".strip(), name=biz.name, postcode=biz.postcode or "", domain=biz.domain or "", want="website")
+    except Exception as err:
+        logger.warning("find-email: deeper search failed for %r: %s", biz.name, err)
+        return False
     site = (place or {}).get("website") or ""
     if not site or not site_check.same_business(biz.name, place.get("name") or ""):
         return False
@@ -1059,8 +1092,8 @@ async def _email_through_google(db: AsyncSession, biz: BusinessRecord, hint: str
     web.update({"emails": emails[:1], "source": "web", "guardrail": True, "verified": False, "fetched_at": datetime.utcnow().isoformat() + "Z"})
     raw["contacts_web"] = web
     biz.raw_data = raw
-    await db.commit()
-    await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:email:{hint}")
+    if not await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:email"):  # kept and charged in one commit
+        await _charge_failed(db, deep=True)
     await RV.open_one(db, biz.id, "email")
     return True
 
@@ -1072,6 +1105,8 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     have = lead_filters.card(biz)
     if have["email"] or have["web_email"]:
         return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, have)}
+    if not hint and CC.missed_recently(biz, "email"):
+        return _recent_miss(biz, "email", await RV.mask_one(db, have))
     await _can_research(db)
     try:
         web = await CC.web_contacts(db, biz, want="email", hint=hint)
@@ -1083,9 +1118,9 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     got = bool(web.get("emails"))
     source, person = ("web" if got else ""), ""
     charged = 0
-    if got and not (web.get("cached") or web.get("from_saved")):
-        await db.commit()
-        await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email:{hint}")
+    if got and not web.get("cached"):  # a result the earlier combined search held back is paid for now, when it is first shown
+        if not await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email"):
+            await _charge_failed(db)
         charged = 1
     elif not got:
         # Stage 2: the company published no address, so ask the email finders (cheapest first, two at most) for its directors.
@@ -1097,8 +1132,8 @@ async def _find_email(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
             names = CC.split_officer_name(hit[1])
             await PE.keep(db, biz.id, hit[1], names["first_name"], names["last_name"], hit[0], "verified", "")  # paid for here, so the person's own row shows it too
             got, source, person = True, "people", hit[1]
-            await db.commit()
-            await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email:{hint}")
+            if not await _charge_leads(db, 1, f"Email for {biz.name}", once=f"{biz.id}:email"):
+                await _charge_failed(db)
             charged = 1
         else:
             if await _email_through_google(db, biz, hint):  # Stage 3: Google's listing, then the address its own site publishes
@@ -1181,6 +1216,8 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
 
     if lead_filters.card(biz)["phone"] or lead_filters.card(biz)["web_phone"]:
         return {"found": True, "source": "stored", "charged": 0, "note": "", "company": await RV.mask_one(db, lead_filters.card(biz))}
+    if not hint and CC.missed_recently(biz, "phone"):
+        return _recent_miss(biz, "phone", await RV.mask_one(db, lead_filters.card(biz)))
     await _can_research(db)
     charged, note, source = 0, "", ""
     try:
@@ -1193,10 +1230,12 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
                 "note": f"This company appears to have closed ({web.get('reason', 'the register says so')}). Nothing was charged."}
     if web and web.get("phones"):
         source = "web"
-        await db.commit()
-        if not (web.get("cached") or web.get("from_saved")):
-            await _charge_leads(db, 1, f"Phone for {biz.name}", once=f"{biz.id}:phone:{hint}")
+        if not web.get("cached"):  # a result the earlier combined search held back is paid for now, when it is first shown
+            if not await _charge_leads(db, 1, f"Phone for {biz.name}", once=f"{biz.id}:phone"):
+                await _charge_failed(db)
             charged += 1
+        else:
+            await db.commit()
     else:
         try:
             await _can_deep_search(db)
@@ -1204,6 +1243,10 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         except HTTPException:
             place = None
             note = "Nothing found on the web, and there are not enough credits for the deeper search."
+        except Exception as err:
+            logger.warning("find-phone: deeper search failed for %r: %s", biz.name, err)
+            place = None
+            note = "The deeper search didn't finish just now. Nothing was charged."
         if place and not site_check.same_business(biz.name, place.get("name") or ""):
             logger.info("find-phone: deeper search returned a different business for %r: %r", biz.name, place.get("name"))
             place = None
@@ -1221,8 +1264,8 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         if confirmed.get("phone"):
             try:
                 await _keep_place(db, biz, place, confirmed)
-                await db.commit()
-                await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:phone:{hint}")
+                if not await _charge_deep_search(db, f"Deeper search: {biz.name}", once=f"{biz.id}:phone"):  # kept and charged in one commit
+                    await _charge_failed(db, deep=True)
                 charged += 1
                 source = "deep"
                 await RV.open_one(db, biz.id, "phone")
@@ -1400,19 +1443,24 @@ async def company_contact_points(company_id: str, db: AsyncSession = Depends(get
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     points = await CP.for_company(db, company_id)
-    if not points:  # a company nobody has looked at since the list was introduced: fill it from what the record already holds
+    if not points:  # a company nobody has looked at since the list was introduced: fill it from what the record already holds (idempotent: adds only what is missing)
         await CP.sync_safely(db, biz)
         points = await CP.for_company(db, company_id)
     seen = await RV.opened(db, [company_id])
     out: List[Dict[str, Any]] = []
     hidden = 0
     for p in points:
-        if p["kind"] in RV.KINDS and p["source"] in ("record", "register") and (company_id, p["kind"]) not in seen:
+        # the same rule as the company card: anything the register or a bulk file or a directory source (Apollo, Google) gave stays hidden until opened;
+        # only what this organisation's own web lookup or research found is shown
+        if p["kind"] in RV.KINDS and p["source"] not in ("web", "research") and (company_id, p["kind"]) not in seen:
             hidden += 1
             out.append({**p, "value": "", "hidden": True})
         else:
             out.append(p)
-    shared = [{**x, "value": x["value"] if x["kind"] in CP.PAGE_KINDS else ""} for x in await CP.shared_with(db, company_id)]
+    visible = {(p["kind"], p["value"]) for p in out if not p.get("hidden")}
+    # another record sharing a still-hidden phone or email would confirm it, so it is listed only once the value itself is visible
+    shared = [{**x, "value": x["value"] if x["kind"] in CP.PAGE_KINDS else ""} for x in await CP.shared_with(db, company_id)
+              if x["kind"] in CP.PAGE_KINDS or (x["kind"], x["value"]) in visible]
     return {"points": out, "hidden": hidden, "shared_with": shared}
 
 
@@ -1956,32 +2004,40 @@ class BulkDelete(BaseModel):
     do_not_contact: bool = False  # erase and never contact again (an erasure request)
 
 
+BULK_DELETE_CAP = 5000
+
+
 @router.post("/accounts/bulk-delete")
 async def bulk_delete_accounts(body: BulkDelete, db: AsyncSession = Depends(get_db)):
-    """Delete many saved companies at once (up to 2,000): they leave their lists and any journey they are in. A company being
-    checked right now is left alone and reported. With do_not_contact, their email and phone go on the do-not-contact list first."""
+    """Delete many saved companies at once (up to 5,000, in chunks that each commit): they leave their lists and any journey they are in.
+    A company being checked right now is left alone and reported. With do_not_contact, their email and phone go on the do-not-contact list first.
+    Ids past the cap are not touched and counted in over_cap so the screen can say so."""
     from app.services import company_check_job, connections as C, journeys as J
 
-    ids = list(dict.fromkeys(i for i in body.ids if i))[:2000]
+    every = list(dict.fromkeys(i for i in body.ids if i))
+    ids = every[:BULK_DELETE_CAP]
+    over_cap = len(every) - len(ids)
     if not ids:
         raise HTTPException(status_code=400, detail="Choose at least one company to delete.")
     locked = await company_check_job.locked_ids()
-    rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all()
-    deleted, skipped_locked = 0, []
-    for row in rows:
-        if row.id in locked:
-            skipped_locked.append(row.id)
-            continue
-        if body.do_not_contact:  # the address and the number are blocked separately: a shared switchboard must not hide a person's email
-            if row.email:
-                await C.add_block(db, email=row.email, name=row.name or "", reason="Erased at the owner's request", source="manual")
-            if row.phone:
-                await C.add_block(db, phone=row.phone, name=row.name or "", reason="Erased at the owner's request", source="manual")
-        await J.exit_for_lead(db, row, "", "deleted")
-        await db.delete(row)
-        deleted += 1
-    await db.commit()
-    return {"deleted": deleted, "locked": skipped_locked, "not_found": len(ids) - len(rows)}
+    deleted, skipped_locked, found = 0, [], 0
+    for n in range(0, len(ids), 500):
+        rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids[n:n + 500])))).scalars().all()
+        found += len(rows)
+        for row in rows:
+            if row.id in locked:
+                skipped_locked.append(row.id)
+                continue
+            if body.do_not_contact:  # the address and the number are blocked separately: a shared switchboard must not hide a person's email
+                if row.email:
+                    await C.add_block(db, email=row.email, name=row.name or "", reason="Erased at the owner's request", source="manual")
+                if row.phone:
+                    await C.add_block(db, phone=row.phone, name=row.name or "", reason="Erased at the owner's request", source="manual")
+            await J.exit_for_lead(db, row, "", "deleted")
+            await db.delete(row)
+            deleted += 1
+        await db.commit()  # each chunk stands on its own: a later failure never loses blocks already made
+    return {"deleted": deleted, "locked": skipped_locked, "not_found": len(ids) - found, "over_cap": over_cap}
 
 
 async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[BusinessRecord]:

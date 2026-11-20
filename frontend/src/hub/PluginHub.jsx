@@ -1,6 +1,8 @@
 import {
+  BookOpen,
   CalendarCheck,
   ChevronDown,
+  Headset,
   KeyRound,
   Link2,
   LogOut,
@@ -10,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { openSupport } from "./openSupport";
 import { C, FONT_BODY, FONT_MONO } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
@@ -117,6 +120,8 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           {onOpenConnections ? (
             <MenuItem icon={Link2} title="Connections" sub="How Leads, Voice & Social work together" onClick={() => { setOpen(false); onOpenConnections(); }} />
           ) : null}
+          <MenuItem icon={Headset} title="Support" sub="Report an issue or ask a question" onClick={() => { setOpen(false); openSupport({ plugin: "home" }); }} />
+          <MenuItem icon={BookOpen} title="Documentation" sub="Open documentation in a new tab" onClick={() => { setOpen(false); window.open("/help", "_blank"); }} />
 
           {installable ? (
             <MenuItem icon={Smartphone} title="Install the app" sub="Add Outreach to your home screen" onClick={() => { setOpen(false); setInstallOpen(true); }} />
