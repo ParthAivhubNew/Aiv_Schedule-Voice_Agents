@@ -214,41 +214,39 @@ export function SupportHub() {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        onClick={close}
-        style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(15, 23, 42, 0.35)" }}
-        data-testid="support-backdrop"
-      />
+      <style>{POPUP_CSS}</style>
       {/* Panel */}
       <div
         ref={panelRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label="Support"
         tabIndex={-1}
         data-testid="support-panel"
+        className="sh-pop"
         style={{
-          position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 1000,
-          width: "min(440px, 100vw)", background: "#fff",
-          display: "flex", flexDirection: "column",
-          boxShadow: "-8px 0 32px rgba(15, 23, 42, 0.18)",
-          animation: "mo-slide-in 0.22s var(--mo-ease, ease) backwards",
+          position: "fixed", right: 24, bottom: 92, zIndex: 1000,
+          width: "min(400px, calc(100vw - 32px))", height: "min(640px, calc(100vh - 116px))", background: "#fff",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+          borderRadius: 16, border: `1px solid ${C.border}`,
+          boxShadow: "0 18px 48px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.08)",
+          animation: "sh-rise 0.2s ease-out backwards",
           outline: "none",
         }}
       >
         {/* Header */}
-        <div style={{ background: C.gradientPrimary, padding: "18px 20px 14px", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Headset size={22} color="#fff" />
-              <span style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>Support</span>
-            </div>
-            <button type="button" onClick={close} className="ui-icon-btn" aria-label="Close support" style={{ color: "#fff" }}>
-              <X size={20} />
-            </button>
+        <div style={{ background: C.gradientPrimary, padding: "16px 16px 14px 18px", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+          <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255,255,255,0.18)", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Headset size={22} color="#fff" />
+          </span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>Support</div>
+            <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.82)", marginTop: 3 }}>Tell us what went wrong</div>
           </div>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>Tell us what went wrong</div>
+          <button type="button" onClick={close} aria-label="Close support"
+            style={{ all: "unset", cursor: "pointer", width: 34, height: 34, borderRadius: "50%", background: "rgba(255,255,255,0.16)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}>
+            <X size={18} />
+          </button>
         </div>
 
         {/* Tabs */}
@@ -455,14 +453,28 @@ export function SupportHub() {
         {/* Footer link to docs */}
         <div style={{ padding: "10px 20px", borderTop: `1px solid ${C.border}`, fontSize: 12.5, color: C.slate, flexShrink: 0 }}>
           Still stuck?{" "}
-          <a href={`/help/${ctx.plugin || ""}`} style={{ color: C.cobalt, fontWeight: 500, textDecoration: "none" }}>
+          <a href={`/help/${ctx.plugin || ""}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontWeight: 500, textDecoration: "none" }}>
             Read the documentation
           </a>
         </div>
       </div>
+      <button type="button" className="sh-fab" onClick={close} aria-label="Close support" title="Close support"
+        style={{ position: "fixed", right: 24, bottom: 24, zIndex: 1001, width: 52, height: 52, borderRadius: "50%", border: "none", cursor: "pointer", background: C.gradientPrimary, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(52, 87, 213, 0.4)" }}>
+        <X size={22} />
+      </button>
     </>
   );
 }
+
+// The popup sits in the lower right corner with a round button under it. On a phone it takes the whole screen.
+const POPUP_CSS = `
+@keyframes sh-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@media (max-width:640px){
+  .sh-pop{right:0!important;bottom:0!important;top:0!important;left:0!important;width:100%!important;height:100%!important;border-radius:0!important;border:0!important}
+  .sh-fab{display:none!important}
+}
+@media (prefers-reduced-motion:reduce){.sh-pop{animation:none!important}}
+`;
 
 // --- Small field wrapper ---
 function Field({ label, error, hint, children }) {

@@ -2888,14 +2888,12 @@ export function CallingWorkspace({
             );
           })}
           <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: pluginLocked, onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) }} />
+          <NavItem item={{ id: "documentation", label: "Documentation", icon: BookOpen, external: true, title: "Open the documentation in a new tab", onClick: () => window.open("/help/voice", "_blank") }} />
         </nav>
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         {!embedded && (
           <>
             <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: "voice", screen: page }) }} />
-            <NavItem item={{ id: "documentation", label: "Documentation", icon: BookOpen, title: "Open the documentation in a new tab", onClick: () => window.open("/help/voice", "_blank") }}>
-              <ExternalLink size={12} style={{ color: "var(--ui-side-muted)", flexShrink: 0, marginLeft: -4 }} />
-            </NavItem>
           </>
         )}
         {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}

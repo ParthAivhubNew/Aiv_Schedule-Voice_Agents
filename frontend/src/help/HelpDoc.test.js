@@ -13,7 +13,7 @@ describe("Documentation content model & tree structure", () => {
     expect(ids).toContain("troubleshooting");
   });
 
-  it("Leads contains required sub-pages: Find leads, Lists, Journeys, Mail, Forms", () => {
+  it("Leads contains required sub-pages: Find leads, Lists, Journeys, Mail, Forms, AI Assistant, About your business", () => {
     const leadsNode = DOCS_TREE.find((n) => n.id === "leads");
     expect(leadsNode).toBeDefined();
     const childIds = leadsNode.children.map((c) => c.id);
@@ -23,25 +23,19 @@ describe("Documentation content model & tree structure", () => {
       "leads-journeys",
       "leads-mail",
       "leads-forms",
+      "leads-assistant",
+      "leads-business",
     ]);
   });
 
-  it("every page is a real designed page with correct headings and callout saying 'This guide is being written.'", () => {
+  it("every page is real documentation: several sections, enough words, no placeholder text", () => {
+    const words = (doc) => JSON.stringify(doc.sections || []).replace(/[{}\[\]":,]/g, " ").split(/\s+/).filter(Boolean).length;
     ALL_DOCS.forEach((doc) => {
-      expect(doc.title).toBeTruthy();
-      expect(doc.summary).toBeTruthy();
-      expect(doc.sections.length).toBeGreaterThan(0);
-
-      // Verify the honest callout
-      const hasWritingCallout = doc.sections.some((s) =>
-        (s.blocks || []).some(
-          (b) => b.type === "callout" && b.text === "This guide is being written."
-        )
-      );
-      expect(
-        hasWritingCallout,
-        `Doc "${doc.id}" must contain honest callout: "This guide is being written."`
-      ).toBe(true);
+      expect(doc.title, doc.id).toBeTruthy();
+      expect(doc.summary, doc.id).toBeTruthy();
+      expect(doc.sections.length, `${doc.id} needs at least 4 sections`).toBeGreaterThanOrEqual(4);
+      expect(words(doc), `${doc.id} is too short`).toBeGreaterThanOrEqual(450);
+      expect(JSON.stringify(doc).toLowerCase(), doc.id).not.toContain("being written");
     });
   });
 
@@ -69,8 +63,8 @@ describe("Documentation content model & tree structure", () => {
     const workflowsResults = searchDocs("cross-app");
     expect(workflowsResults.some((r) => r.doc.id === "workflows")).toBe(true);
 
-    const calloutResults = searchDocs("being written");
-    expect(calloutResults.length).toBeGreaterThan(0);
+    const exclusionResults = searchDocs("Exclusion list");
+    expect(exclusionResults.some((r) => r.doc.id === "leads-find")).toBe(true);
   });
 
   it("searchDocs returns empty array for empty search queries", () => {
@@ -86,5 +80,15 @@ describe("the app names used by the sidebar links", () => {
     expect(findDocByPath("/help/scheduler").id).toBe("social");
     expect(findDocByPath("/help/voice").id).toBe("voice");
     expect(findDocByPath("/help/leadgen/find").id).toBe("leads-find");
+  });
+});
+
+describe("guide paths in the text become links", () => {
+  it("turns /help paths into anchors and leaves other text alone", async () => {
+    const { linkify } = await import("./DocRenderer.jsx");
+    expect(linkify("No links here")).toBe("No links here");
+    const out = linkify("See the guide (/help/leads/find) first.");
+    expect(Array.isArray(out)).toBe(true);
+    expect(out.find((n) => typeof n === "object").props.href).toBe("/help/leads/find");
   });
 });

@@ -3995,6 +3995,7 @@ export function SocialWorkspace({
     { label: "Setup", items: [
       { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", locked: pluginLocked,
         onClick: () => { if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; } openWorkflows({ from: "social", event: "post.published" }); } },
+      { id: "documentation", label: "Documentation", icon: BookOpen, external: true, title: "Open the documentation in a new tab", onClick: () => window.open("/help/social", "_blank") },
       { id: "theme", label: "Theme", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
       { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
     ] },

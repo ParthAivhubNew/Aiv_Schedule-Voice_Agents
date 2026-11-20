@@ -93,9 +93,6 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
       {!embedded && (
         <>
           <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: appId }) }} />
-          <NavItem item={{ id: "documentation", label: "Documentation", icon: BookOpen, title: "Open the documentation in a new tab", onClick: () => window.open(`/help/${appId || ""}`, "_blank") }} >
-            <ExternalLink size={12} style={{ color: "var(--ui-side-muted)", flexShrink: 0, marginLeft: -4 }} />
-          </NavItem>
         </>
       )}
       {wallet && !embedded ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}

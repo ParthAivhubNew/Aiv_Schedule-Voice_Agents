@@ -5,6 +5,8 @@ import { leadsListsDoc } from "./leadsLists";
 import { leadsJourneysDoc } from "./leadsJourneys";
 import { leadsMailDoc } from "./leadsMail";
 import { leadsFormsDoc } from "./leadsForms";
+import { leadsAssistantDoc } from "./leadsAssistant";
+import { leadsBusinessDoc } from "./leadsBusiness";
 import { voiceDoc } from "./voice";
 import { socialDoc } from "./social";
 import { workflowsDoc } from "./workflows";
@@ -27,6 +29,8 @@ export const DOCS_TREE = [
       { id: "leads-journeys", label: "Journeys", doc: leadsJourneysDoc },
       { id: "leads-mail", label: "Mail", doc: leadsMailDoc },
       { id: "leads-forms", label: "Forms", doc: leadsFormsDoc },
+      { id: "leads-assistant", label: "AI Assistant", doc: leadsAssistantDoc },
+      { id: "leads-business", label: "About your business", doc: leadsBusinessDoc },
     ],
   },
   {
@@ -65,6 +69,8 @@ export const ALL_DOCS = [
   leadsJourneysDoc,
   leadsMailDoc,
   leadsFormsDoc,
+  leadsAssistantDoc,
+  leadsBusinessDoc,
   voiceDoc,
   socialDoc,
   workflowsDoc,
@@ -89,7 +95,9 @@ export function findDocByPath(path) {
       (segment === "leads/lists" && d.id === "leads-lists") ||
       (segment === "leads/journeys" && d.id === "leads-journeys") ||
       (segment === "leads/mail" && d.id === "leads-mail") ||
-      (segment === "leads/forms" && d.id === "leads-forms")
+      (segment === "leads/forms" && d.id === "leads-forms") ||
+      (segment === "leads/assistant" && d.id === "leads-assistant") ||
+      (segment === "leads/business" && d.id === "leads-business")
     );
   });
   return match || gettingStartedDoc;

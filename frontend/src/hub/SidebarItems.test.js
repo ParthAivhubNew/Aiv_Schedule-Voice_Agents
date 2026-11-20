@@ -1,55 +1,46 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-describe("Sidebar Support and Documentation items", () => {
-  const pluginShell = readFileSync(new URL("./PluginShell.jsx", import.meta.url), "utf8");
-  const callingWorkspace = readFileSync(new URL("../plugins/voice/calling/CallingWorkspace.jsx", import.meta.url), "utf8");
+const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-  it("PluginShell includes Support and Documentation directly above sb-credits", () => {
-    const supportIndex = pluginShell.indexOf('id: "support"');
-    const docIndex = pluginShell.indexOf('id: "documentation"');
-    const creditsIndex = pluginShell.indexOf('className="sb-credits"');
+describe("Support and Documentation in the sidebars", () => {
+  const shell = read("./PluginShell.jsx");
+  const voice = read("../plugins/voice/calling/CallingWorkspace.jsx");
+  const leads = read("../plugins/leadgen/LeadGenerationPlugin.jsx");
+  const social = read("../plugins/scheduler/SocialWorkspace.jsx");
 
-    expect(supportIndex).toBeGreaterThan(-1);
-    expect(docIndex).toBeGreaterThan(-1);
-    expect(creditsIndex).toBeGreaterThan(-1);
-
-    expect(supportIndex).toBeLessThan(docIndex);
-    expect(docIndex).toBeLessThan(creditsIndex);
+  it("Support sits directly above the credits in the shared sidebar, and is hidden when embedded", () => {
+    const support = shell.indexOf('id: "support"');
+    const credits = shell.indexOf('className="sb-credits"');
+    expect(support).toBeGreaterThan(-1);
+    expect(support).toBeLessThan(credits);
+    expect(shell.slice(shell.lastIndexOf("{!embedded", support), support)).toContain("{!embedded");
   });
 
-  it("PluginShell hides Support and Documentation when embedded", () => {
-    // Both items are inside `{!embedded && ...}`
-    const block = pluginShell.slice(pluginShell.indexOf('id: "support"'), pluginShell.indexOf('className="sb-credits"'));
-    const beforeBlock = pluginShell.slice(pluginShell.lastIndexOf("{!embedded", pluginShell.indexOf('id: "support"')));
-    expect(beforeBlock).toContain("{!embedded");
+  it("Support sits directly above the credits in Voice's own sidebar", () => {
+    const support = voice.indexOf('id: "support"');
+    const credits = voice.indexOf('className="sb-credits"');
+    expect(support).toBeGreaterThan(-1);
+    expect(support).toBeLessThan(credits);
   });
 
-  it("CallingWorkspace includes Support and Documentation directly above sb-credits", () => {
-    const supportIndex = callingWorkspace.indexOf('id: "support"');
-    const docIndex = callingWorkspace.indexOf('id: "documentation"');
-    const creditsIndex = callingWorkspace.indexOf('className="sb-credits"');
-
-    expect(supportIndex).toBeGreaterThan(-1);
-    expect(docIndex).toBeGreaterThan(-1);
-    expect(creditsIndex).toBeGreaterThan(-1);
-
-    expect(supportIndex).toBeLessThan(docIndex);
-    expect(docIndex).toBeLessThan(creditsIndex);
+  it("Documentation is a tab among the others, not at the bottom", () => {
+    expect(shell.includes('id: "documentation"')).toBe(false); // nothing in the bottom block any more
+    expect(leads).toContain('id: "documentation"');
+    expect(social).toContain('id: "documentation"');
+    expect(voice).toContain('id: "documentation"');
+    // Voice: right after Workflows, inside the nav list and before the spacer above the bottom block
+    expect(voice.indexOf('id: "workflows"')).toBeLessThan(voice.indexOf('id: "documentation"'));
+    expect(voice.indexOf('id: "documentation"')).toBeLessThan(voice.indexOf('className="app-sidebar-spacer"', voice.indexOf('id: "documentation"')));
   });
 
-  it("CallingWorkspace hides Support and Documentation when embedded", () => {
-    const beforeBlock = callingWorkspace.slice(callingWorkspace.lastIndexOf("{!embedded", callingWorkspace.indexOf('id: "support"')));
-    expect(beforeBlock).toContain("{!embedded");
+  it("each app's Documentation tab opens its own guide in a new tab", () => {
+    expect(leads).toContain('window.open("/help/leads", "_blank")');
+    expect(social).toContain('window.open("/help/social", "_blank")');
+    expect(voice).toContain('window.open("/help/voice", "_blank")');
   });
 
-  it("Support item has headset icon and Documentation has book icon with external link mark", () => {
-    expect(pluginShell).toMatch(/icon:\s*Headset/);
-    expect(pluginShell).toMatch(/icon:\s*BookOpen/);
-    expect(pluginShell).toContain("<ExternalLink");
-
-    expect(callingWorkspace).toMatch(/icon:\s*Headset/);
-    expect(callingWorkspace).toMatch(/icon:\s*BookOpen/);
-    expect(callingWorkspace).toContain("<ExternalLink");
+  it("Documentation stays available when a plan is locked", () => {
+    expect(leads).toContain('item.id !== "documentation"');
   });
 });

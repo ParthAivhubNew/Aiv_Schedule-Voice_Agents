@@ -2,6 +2,14 @@ import React, { useState } from "react";
 import { Check, Copy, Info, AlertTriangle, Lightbulb } from "lucide-react";
 import { C } from "../tokens";
 
+// A guide path in the text, such as /help/leads/find, becomes a link to that guide.
+const GUIDE_PATH = /(\/help(?:\/[a-z-]+)*)/g;
+export function linkify(text) {
+  const str = String(text ?? "");
+  if (!str.includes("/help")) return str;
+  return str.split(GUIDE_PATH).map((part, i) => (i % 2 === 1 ? <a key={i} href={part} style={{ color: C.cobalt, fontWeight: 500 }}>{part}</a> : part));
+}
+
 export function DocRenderer({ doc }) {
   if (!doc) return null;
   return (
@@ -47,7 +55,7 @@ export function DocRenderer({ doc }) {
 function RenderBlock({ block }) {
   switch (block.type) {
     case "paragraph":
-      return <p style={{ fontSize: 14.5, color: C.textInk, margin: 0, lineHeight: 1.65 }}>{block.text}</p>;
+      return <p style={{ fontSize: 14.5, color: C.textInk, margin: 0, lineHeight: 1.65 }}>{linkify(block.text)}</p>;
 
     case "callout": {
       const isTip = block.tone === "tip";
@@ -76,7 +84,7 @@ function RenderBlock({ block }) {
                 {block.title}
               </div>
             )}
-            <div style={{ fontSize: 13.5, color: C.textInk, lineHeight: 1.5 }}>{block.text}</div>
+            <div style={{ fontSize: 13.5, color: C.textInk, lineHeight: 1.5 }}>{linkify(block.text)}</div>
           </div>
         </div>
       );
@@ -106,7 +114,7 @@ function RenderBlock({ block }) {
                 {idx + 1}
               </span>
               <span style={{ flex: 1, fontSize: 14, color: C.textInk, lineHeight: 1.55 }}>
-                {typeof step === "string" ? step : step.text}
+                {linkify(typeof step === "string" ? step : step.text)}
               </span>
             </li>
           ))}
@@ -136,7 +144,7 @@ function RenderBlock({ block }) {
                 <tr key={i} style={{ borderBottom: i < block.rows.length - 1 ? `1px solid ${C.borderLight}` : "none" }}>
                   {row.map((cell, j) => (
                     <td key={j} style={{ padding: "10px 14px", color: C.textInk }}>
-                      {cell}
+                      {linkify(cell)}
                     </td>
                   ))}
                 </tr>

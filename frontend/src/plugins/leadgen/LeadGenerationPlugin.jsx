@@ -34,8 +34,7 @@ import {
   Users,
   FileSpreadsheet,
   Workflow,
-  FileText,
-} from "lucide-react";
+  FileText, BookOpen } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
@@ -275,6 +274,7 @@ export default function LeadGenerationPlugin({
     { id: "inbound_forms", label: "Forms", icon: FileText, group: "Inbound", title: "Web forms that turn visitors into leads" },
     { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
+    { id: "documentation", label: "Documentation", icon: BookOpen, group: "Setup", external: true },
   ], embedViews);
   const navGroups = ["Outreach", "Inbound", "Setup"].map((label) => ({
     label,
@@ -283,10 +283,11 @@ export default function LeadGenerationPlugin({
       label: item.label,
       short: item.short,
       icon: item.icon,
+      external: item.external,
       count: item.count,
       active: view === item.id || (item.id === "mail" && view === "mailboxes") || (item.id === "lists" && SAVED_VIEWS.includes(view)),
-      locked: isLocked && item.id !== "subscription",
-      title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
+      locked: isLocked && item.id !== "subscription" && item.id !== "documentation",
+      title: isLocked && item.id !== "subscription" && item.id !== "documentation" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
       // Mail's two pages are sub-items under it, the way the other apps list theirs.
       children: item.id === "mail" ? (() => {
         const subs = onlyEmbedViews([
@@ -296,8 +297,12 @@ export default function LeadGenerationPlugin({
         return subs.length > 1 && !isLocked ? subs : undefined;
       })() : undefined,
       onClick: () => {
-        if (isLocked && item.id !== "subscription") {
+        if (isLocked && item.id !== "subscription" && item.id !== "documentation") {
           showToast("Choose a plan or buy a top-up to unlock Leads.");
+          return;
+        }
+        if (item.id === "documentation") {  // the guide is its own web page, opened beside the app
+          window.open("/help/leads", "_blank");
           return;
         }
         if (item.id === "workflows") {  // one page for the whole company, not a Leads screen
