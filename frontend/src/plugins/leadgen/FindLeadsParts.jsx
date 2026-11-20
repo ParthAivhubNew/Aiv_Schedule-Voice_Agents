@@ -151,7 +151,9 @@ export function ViewMenu({ sortLabel, sortValue, sortOptions, onSort, pageSize, 
 }
 
 // One collapsible group in the filters column, with how many of its filters are on and a × to clear them.
-export function FilterGroup({ title, active = 0, onClear, open, onToggle, children }) {
+// chips: [{ id, text, onRemove }], shown under the name only while the group is closed, so a closed group still says what it is filtering on.
+export function FilterGroup({ title, active = 0, onClear, open, onToggle, children, chips = [] }) {
+  const shown = chips.slice(0, 3);
   return (
     <section style={{ borderBottom: `1px solid ${C.borderLight}` }}>
       {/* One whole-row button, like Apollo's: the name, how many filters are on, and the arrow all open and close the group. */}
@@ -169,13 +171,24 @@ export function FilterGroup({ title, active = 0, onClear, open, onToggle, childr
         ) : null}
         <ChevronDown size={15} aria-hidden="true" color={C.slate} style={{ flex: "none", transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
       </button>
+      {!open && shown.length ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 2px 12px" }}>
+          {shown.map((c) => (
+            <button key={c.id} type="button" title={`Remove ${c.text}`} aria-label={`Remove ${c.text}`} onClick={c.onRemove}
+              style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", maxWidth: "100%", display: "inline-flex", alignItems: "center", gap: 4, ...text, fontSize: 12, color: C.ink, background: C.paperSoft, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.text}</span> <X size={11} aria-hidden="true" style={{ flex: "none" }} />
+            </button>
+          ))}
+          {chips.length > shown.length ? <button type="button" onClick={onToggle} style={{ all: "unset", cursor: "pointer", ...text, fontSize: 12, color: C.slate, padding: "2px 4px" }}>+{chips.length - shown.length} more</button> : null}
+        </div>
+      ) : null}
       {open ? <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 2px 14px" }}>{children}</div> : null}
     </section>
   );
 }
 
 const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", padding: "9px 12px", background: "#FAFBFC", borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 3, whiteSpace: "nowrap" };
-const td = { ...text, fontSize: 13, color: C.textInk, padding: "9px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
+const td = { ...text, fontSize: 13, color: C.textInk, padding: "5px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
 const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: "#fff" });
 // Pinned by default through GridTools, so the person can unpin them and the unpin is remembered.
 const COMPANY_PIN = ["Company"];
@@ -392,8 +405,8 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                   </Cell>
                   <Cell style={{ background: bg, minWidth: 260, maxWidth: 320 }} title={c.name}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <CompanyAvatar c={c} />
-                      <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <CompanyAvatar c={c} size={28} />
+                      <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           <span title={c.name} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayName(c.name)}</span>
                           {legalTag(c.company_category, c.registration_number) ? <span style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(c.company_category, c.registration_number)}</span> : null}
@@ -401,7 +414,7 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
-                        <div style={{ ...muted, fontSize: 11.5, whiteSpace: "nowrap" }}>{c.registration_number ? `No. ${c.registration_number}` : ""}</div>
+                        {c.registration_number ? <div style={{ ...muted, fontSize: 11, lineHeight: 1.25, whiteSpace: "nowrap" }}>No. {c.registration_number}</div> : null}
                         {c.signals?.length ? <div style={{ marginTop: 3 }}><SignalTags signals={c.signals} /></div> : null}
                       </div>
                     </div>

@@ -32,6 +32,7 @@ import { SearchField } from "../../components/SearchField";
 import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
+import { summaryChips } from "./filterSummary";
 import { filterNarrowed } from "./filterNarrowed";
 
 // The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
@@ -387,7 +388,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
-  const [groups, setGroups] = useState({ industry: true, location: true, size: true, company: false, status: false, contact: false, lists: false, person: true });
+  const [groups, setGroups] = useState({ industry: true });
   const [people, setPeople] = useState([]);
   const [peopleTotal, setPeopleTotal] = useState(0); // companies that have people on file
   const [fillIds, setFillIds] = useState([]);
@@ -1050,11 +1051,14 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   };
 
   const filterCount = Object.keys(formToFilters(form)).length;
-  const setGroup = (k) => setGroups((g) => ({ ...g, [k]: !g[k] }));
+  // Like Apollo: opening a group closes the others, so only one is open at a time.
+  const setGroup = (k) => setGroups((g) => (g[k] ? { ...g, [k]: false } : { [k]: true }));
   const firstLoad = busy && !companies.length && !people.length && view !== "map";
   const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
+  // What a closed group shows under its name: its values as chips, each removing just that value.
+  const chipsFor = (k) => summaryChips(k, form, sicLabels).map((c) => ({ id: c.id, text: c.text, onRemove: () => setForm((f) => ({ ...f, ...c.patch(f) })) }));
   companies.forEach((c) => cardsById.current.set(c.id, c));
   const pickedRows = [...sel.ids].map((id) => cardsById.current.get(id)).filter(Boolean);
   // A drawn area holds every company it found on screen; a normal search is resolved on the server, up to the limit.
@@ -1156,14 +1160,15 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             </div>
           </div>
           {tab === "people" ? (
-            <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")}>
+            <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")} chips={chipsFor("person")}>
               <label style={field} title="A word from their role, like director or secretary"><span style={label}>Role includes</span>
                 <input className="ui-input" value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder="director, secretary" /></label>
             </FilterGroup>
           ) : null}
-          <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")}>
+          <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")} chips={chipsFor("industry")}>
             <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
-              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
+              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" />
+              <span style={{ ...muted, fontSize: 12 }}>A common word on its own can be slow across the whole register. Add a town to speed it up.</span></label>
             <div style={field} title="Leave out companies whose name or sector has any of these words, or that are in one of these categories"><span style={label}>Leave out</span>
               <ExclusionBox label="Leave out" value={form.notSector} onChange={(v) => setField("notSector", v)} placeholder="franchise, holdings, Hospitals" /></div>
             <div style={field} title="Pick from the industries on the register, with how many companies each has. A short SIC code takes every code that starts with it"><span style={label}>Industry</span>
@@ -1172,7 +1177,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             {check("includeSecondary", "Include side activities")}
             {check("includeNonBusiness", "Include schools & community places")}
           </FilterGroup>
-          <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")}>
+          <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")} chips={chipsFor("location")}>
             <div style={field}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }} title="One or more towns, separated by commas"><span style={label}>Town / city</span>
                 <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
@@ -1196,14 +1201,14 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               {form.nearError ? <span role="alert" style={{ ...muted, color: C.red || "#B42318" }}>{form.nearError}</span> : null}
             </div>
           </FilterGroup>
-          <FilterGroup title="Reasons to get in touch now" active={activeIn("signals")} open={groups.signals} onToggle={() => setGroup("signals")} onClear={() => clearGroup("signals")}>
+          <FilterGroup title="Reasons to get in touch now" active={activeIn("signals")} open={groups.signals} onToggle={() => setGroup("signals")} onClear={() => clearGroup("signals")} chips={chipsFor("signals")}>
             {SIGNAL_OPTIONS.map(([key, name, tip]) => (
               <label key={key} title={tip} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", minHeight: 40 }}>
                 <input type="checkbox" checked={form.signals.includes(key)} onChange={() => setField("signals", toggleIn(form.signals, key))} /> {name}
               </label>
             ))}
           </FilterGroup>
-          <FilterGroup title="Size / accounts type" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")}>
+          <FilterGroup title="Size / accounts type" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")} chips={chipsFor("size")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
               {SIZE_OPTIONS.map(([id, name]) => (
                 <button key={id} type="button" title={`Only ${name} companies`} aria-label={`Size: ${name}`} className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
@@ -1211,7 +1216,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
               ))}
             </div>
           </FilterGroup>
-          <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")}>
+          <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")} chips={chipsFor("company")}>
             {form.legalForm !== "sole" ? (<>
               <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
                 <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
@@ -1242,7 +1247,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             <div style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
               <ExclusionBox label="Exclusion list" value={form.excludeItems} onChange={(v) => setField("excludeItems", v)} placeholder="56101, BN9, 01234567, church, Places of Worship" /></div>
           </FilterGroup>
-          <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")}>
+          <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")} chips={chipsFor("status")}>
             <div style={{ display: "flex", gap: 8 }}>
               <label style={field} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
                 <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="e.g. 5" /></label>
@@ -1251,10 +1256,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             </div>
             {check("includeClosed", "Include closed / dissolved")}
           </FilterGroup>
-          <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")}>
+          <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")} chips={chipsFor("contact")}>
             {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
           </FilterGroup>
-          <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")}>
+          <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")} chips={chipsFor("lists")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[["", "Any"], ["exclude", "Not in my lists"], ["only", "In my lists"]].map(([v, name]) => (
                 <button key={name} type="button" className="ui-chip" aria-pressed={form.saved === v} onClick={() => setField("saved", v)}
