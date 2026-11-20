@@ -380,6 +380,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [companies, setCompanies] = useState([]);
   const [total, setTotal] = useState(0);
   const [capped, setCapped] = useState(false);
+  const excludedRef = useRef([]); // declared before the first line that assigns it: a ref used earlier crashes the page
+  const selKeyRef = useRef("");
   const [excluded, setExcluded] = useState([]);
   excludedRef.current = excluded;
   const [searched, setSearched] = useState(false);
@@ -421,8 +423,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const [areaStep, setAreaStep] = useState(null); // null | {phase: counting|choose|running|done, ...}
   const stopArea = useRef(false);
   const areaRun = useRef(0); // each area scan gets a number; a scan that is no longer the latest never writes to the screen
-  const excludedRef = useRef([]);
-  const selKeyRef = useRef("");
   const [custom, setCustom] = useState(""); // a number typed as "how many"
   // How many companies the list loads at a time; remembered in the browser.
   const [pageSize, setPageSize] = useState(() => {
