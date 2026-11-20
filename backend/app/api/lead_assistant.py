@@ -28,7 +28,7 @@ from app.core.tenancy import current_org
 from app.database import get_db
 from app.models.models import CompanyProfile, EmailCampaign, EmailEnrollment, EmailMailbox, EmailMessage, LeadAccount
 from app.services import assistant_engine as AE
-from app.services.assistant_engine import SLOW_DOWN, clean_reply, make_choice, make_view, order_choices, proposal_reply, too_fast
+from app.services.assistant_engine import SLOW_DOWN, clean_reply, make_choice, make_view, order_choices, proposal_reply, screen_line, too_fast
 from app.services import workflows as WF
 from app.services import journey_assistant as JA
 from app.services import agent_runs, business_records, credits, lead_filters, llm_gateway, phrase_understanding
@@ -116,6 +116,7 @@ class AskIn(BaseModel):
     filters: Dict[str, Any] = {}
     lists: List[Dict[str, Any]] = []  # [{id, name, count}]: the person's own lists
     memory: List[str] = []  # things the person asked the assistant to remember (/remember)
+    workspace: Dict[str, Any] = {}  # the open screen's name, so "this" means the page the person is on
     web_search: bool = False  # the Web search toggle in the chat: only then does the model get the search_web tool
     listed: Optional[Dict[str, Any]] = None  # the companies the last search listed on screen ({total, asked, filters, top}): "save these" saves those
     state: Dict[str, Any] = {}  # what the last turn left behind ({last_total, last_names}), sent back so "those" and "the second one" resolve
@@ -605,6 +606,7 @@ async def _events(body: AskIn, request: Request, db: AsyncSession):
                + f"\nFilters in use now: {json.dumps(body.filters or {})}"
                + f"\nThe person's lists: {', '.join(x['name'] for x in lists) or 'none yet'}"
                + "\n" + await JA.context_line(db)
+               + screen_line(body.workspace)
                + f"\nWeb search switch: {'ON, you may offer search_web' if body.web_search else 'OFF, you have no web search; if the register is not enough, say they can switch Web search on'}")
     last = body.state if isinstance(body.state, dict) else {}
     names = [str(n)[:80] for n in (last.get("last_names") or [])[:TOP] if str(n).strip()]

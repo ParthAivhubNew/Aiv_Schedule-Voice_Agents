@@ -1,7 +1,7 @@
 import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "../../app/Loader";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../leadgen/AssistantPanel";
-import { openWorkflows } from "../../workflows/openWorkflows";
+import { WORKFLOWS_HEADER, openWorkflows, workflowsOpenNow } from "../../workflows/openWorkflows";
 import { createPortal } from "react-dom";
 import {
   Bot,
@@ -3792,6 +3792,7 @@ export function SocialWorkspace({
   const workspaceNow = () => {
     const live = (accounts || []).filter((a) => a && a.status === "connected").map((a) => String(a.platform || "").toLowerCase()).filter((c) => CHANNELS.some((x) => x.id === c));
     return {
+      screen: workflowsOpenNow() ? WORKFLOWS_HEADER[0] : (topTitle?.[0] || ""),
       posts: posts.map((p) => ({ id: p.id, date: p.date, time: p.time, channel: p.channel, headline: p.headline, caption: p.id === focusPostId ? p.caption : "", status: p.status, editedByUser: !!p.editedByUser })),
       pinnedDates,
       channels: [...new Set(live)].length === 1 ? [...new Set(live)] : [], // with several networks connected the AI picks, and the card shows which

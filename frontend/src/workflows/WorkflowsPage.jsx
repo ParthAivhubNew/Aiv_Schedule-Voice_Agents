@@ -5,6 +5,8 @@ import { Loader } from "../app/Loader";
 import { C, FONT_BODY } from "../tokens";
 import { PLUGIN_NAME, STATUS_LABEL, blankWorkflow, chipText, conditionText, when } from "./workflowModel";
 import { setWorkflowsOpen } from "./openWorkflows";
+import { GlobalAssistant } from "../hub/GlobalAssistant";
+import { useConnections } from "../hooks/useConnections";
 import { useFlash } from "../components/useFlash";
 import { failText } from "../components/flash";
 import { Select, WorkflowEditor, editorCss } from "./WorkflowEditor";
@@ -16,7 +18,7 @@ import { Select, WorkflowEditor, editorCss } from "./WorkflowEditor";
 // triggers it; the ready-made examples for that trigger sit under it there, not on the main screen.
 
 const css = `
-.wf{position:fixed;inset:0;z-index:120;background:var(--ui-bg,#F5F6F8);overflow-y:auto;font-family:${FONT_BODY};color:var(--ui-ink,#111827)}
+.wf{position:fixed;inset:0;right:var(--as-w,0px);z-index:120;background:var(--ui-bg,#F5F6F8);overflow-y:auto;font-family:${FONT_BODY};color:var(--ui-ink,#111827)}
 .wf-top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;min-height:56px;padding:8px clamp(12px,4vw,32px);background:var(--ui-surface,#fff);border-bottom:1px solid var(--ui-line,#E3E6EB)}
 .wf-top h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wf-main{width:100%;margin:0;box-sizing:border-box;padding:20px clamp(12px,4vw,32px) 72px;display:grid;gap:16px;align-content:start}
@@ -203,6 +205,8 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
   const [editing, setEditing] = useState(null);
   const [runsFor, setRunsFor] = useState("");
   const [error, setError] = useState("");
+  const { plugins: owned } = useConnections();
+  const chatPlugin = ["leads", "voice", "social"].find((p) => owned[p]) || "";
   const [toast, flash] = useFlash();
   const heading = useRef(null);
   const mainRef = useRef(null);
@@ -274,6 +278,8 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
           <h1 ref={heading} tabIndex={-1} style={{ margin: 0, fontSize: 17, fontWeight: 600, outline: "none" }}>{title}</h1>
           <span style={{ ...muted, flex: 1 }} className="hide-mobile">{inFlow ? "" : "When something happens in Leads, Voice or Social, do something automatically."}</span>
           {!inFlow && canEdit && meta && shown.length ? newButton : null /* an empty page has one create button, in its card */}
+          {/* No app is open behind this page (the home screen), so it carries its own chat: the first app the company has. */}
+          {chatPlugin ? <GlobalAssistant plugin={chatPlugin} /> : null}
         </div>
       )}
       <div className="wf-main" ref={mainRef} tabIndex={-1} style={{ outline: "none" }}>

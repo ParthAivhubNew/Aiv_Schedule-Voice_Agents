@@ -70,7 +70,7 @@ import { BulkActions, CallListSummary, ContactPanel, DetailsBar } from "./CallLi
 import { bulkCallPrompt, filterCalls, rowAsAccount, rowDetails } from "./callListLogic";
 import { PhoneTabBar, SidebarHead, headerTint, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
-import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen } from "../../../workflows/openWorkflows";
+import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen, workflowsOpenNow } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../../components/MobileNav";
@@ -2950,7 +2950,7 @@ export function CallingWorkspace({
               : (titles[page]?.[1] || "")}
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {page !== "assistant" && !pluginLocked && !workflowsOn ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
+            {page !== "assistant" && !pluginLocked ? <AssistantButton label="AI Assistant" open={assistantOpen} onClick={() => setAssistantOpen((o) => !o)} /> : null}
             {accountBar ? cloneElement(accountBar, { onNavigate: onNotificationNavigate, wallet: "voice", app: "Voice", onOpenPlan: () => goPage("subscription") }) : (
               <NotificationBell
                 notifications={notifications}
@@ -4674,7 +4674,7 @@ export function CallingWorkspace({
         </div>
       )}
 
-      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="voice" open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
+      {!pluginLocked && page !== "assistant" ? <AssistantPanel plugin="voice" workspace={() => ({ screen: workflowsOpenNow() ? WORKFLOWS_HEADER[0] : (titles[page]?.[0] || "") })} open={assistantOpen} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); goPage("assistant"); }} /> : null}
 
       {/* In-Browser LiveKit WebRTC Voice Call Modal */}
       <LiveKitBrowserCallModal

@@ -48,6 +48,7 @@ import { Compose, MailView } from "./MailView";
 import { AccountPanel, AccountsView, AddAccountForm, useLeadAccounts } from "./AccountsViews";
 import { FindLeadsView } from "./FindLeadsView";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "./AssistantPanel";
+import { WORKFLOWS_HEADER, workflowsOpenNow } from "../../workflows/openWorkflows";
 import { ListsView, useLeadLists } from "./Lists";
 import { DialogHost } from "./Dialogs";
 import { NewCampaign } from "./CampaignSimple";
@@ -450,7 +451,7 @@ export default function LeadGenerationPlugin({
       </div>
 
       {!isLocked && !embedViews && view !== "assistant" ? (
-        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
+        <AssistantPanel workspace={() => ({ screen: workflowsOpenNow() ? WORKFLOWS_HEADER[0] : (viewTitles[view]?.title || "") })} open={assistantOpen} onClose={() => setAssistantOpen(false)} onGo={goTo} store={store} onImport={goImport} onExpand={() => { setAssistantOpen(false); setView("assistant"); }}
           lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
           onOpenList={() => goTo("lists")} onCampaign={startJourney} onOpenJourney={openJourney} onOpenCompany={openCompany} seed={assistantSeed}
           onShowResults={(filters, meta) => { setIncoming({ id: Date.now(), filters, meta }); setFindOpened(true); setView("find_leads"); if (window.innerWidth <= 820) setAssistantOpen(false); }} />

@@ -10,11 +10,14 @@ import { setPendingDraft } from "../utils/draftHandoff";
 // The assistant outside Leads: a button in the header of Voice and Social that opens the same chat, with the same conversation, as a
 // panel over the page. Anything the chat finds or prepares opens in Leads, where it belongs. Shown only to companies that have Leads.
 
+// Where this button is used the Workflows page is open over the home screen, so that is the screen the chat is told about.
+const screen = () => ({ screen: "Workflows" });
+
 function Dock({ open, onClose, plugin }) {
   if (plugin !== "leads") {
     return (
-      <div style={{ position: "fixed", top: 0, right: 0, zIndex: 80 }}>
-        <AssistantPanel plugin={plugin} open={open} onClose={onClose} />
+      <div style={{ position: "fixed", top: 0, right: 0, zIndex: 130 }}>
+        <AssistantPanel plugin={plugin} workspace={screen} open={open} onClose={onClose} />
       </div>
     );
   }
@@ -27,8 +30,8 @@ function LeadsDock({ open, onClose }) {
   const store = useLeadAccounts(toast, listsStore.reload);
   const go = (view) => { onClose(); navigateHash(`#/leadgen/${view}`); };
   return (
-    <div style={{ position: "fixed", top: 0, right: 0, zIndex: 80 }}>
-      <AssistantPanel open={open} onClose={onClose} store={store}
+    <div style={{ position: "fixed", top: 0, right: 0, zIndex: 130 }}>
+      <AssistantPanel workspace={screen} open={open} onClose={onClose} store={store}
         lists={listsStore.lists.map((l) => ({ id: l.id, name: l.name, count: (l.ids || []).length }))}
         onGo={(view) => go(view === "outreach" ? "outreach" : view || "find_leads")} onImport={() => go("find_leads")}
         onOpenList={() => go("lists")} onCampaign={() => go("outreach")} onShowResults={(filters, meta) => { setPendingDraft({ filters, meta }); go("find_leads"); }} />

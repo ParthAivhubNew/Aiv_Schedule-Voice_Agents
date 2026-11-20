@@ -183,6 +183,7 @@ const STAGES = ["Understanding your request", "Searching the company register", 
 const css = `
 .as-wrap{flex:0 0 400px;width:400px;height:100vh;overflow:hidden;position:relative;z-index:70;animation:as-grow .28s var(--mo-ease,cubic-bezier(.2,.8,.2,1)) both}
 .as-wrap[data-leaving="true"]{animation:as-shrink .22s var(--mo-ease,ease) both}
+:root:has(.wf) .as-wrap:not(.as-page){z-index:130}
 @keyframes as-grow{from{flex-basis:0;width:0;opacity:.4}to{flex-basis:400px;width:400px;opacity:1}}
 @keyframes as-shrink{from{flex-basis:400px;width:400px;opacity:1}to{flex-basis:0;width:0;opacity:0}}
 .as-panel{width:400px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column;background:#fff;border-left:1px solid var(--ui-line,#E3E6EF)}
@@ -390,6 +391,15 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const [render, setRender] = useState(open);
   const [leaving, setLeaving] = useState(false);
   const [input, setInput] = useState("");
+  // While the side panel is out on a wide screen, the page laid over the app (Workflows) stops at its edge instead of covering it.
+  useEffect(() => {
+    if (page || !render) return undefined;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty("--as-w", window.innerWidth > 820 ? "400px" : "0px");
+    set();
+    window.addEventListener("resize", set);
+    return () => { window.removeEventListener("resize", set); root.style.removeProperty("--as-w"); };
+  }, [page, render]);
   const { messages, busy, live, acts, suggest } = useShared(sh);
   const setMessages = settable(sh, "messages");
   const setBusy = settable(sh, "busy");
@@ -505,7 +515,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
     sh.aborter = new AbortController();
     try {
       const body = cfg.leads
-        ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current, listed: listed.current || null }
+        ? { message: text, history: prior, filters: filters.current, lists: (lists || []).map((l) => ({ id: l.id, name: l.name, count: l.count })), memory: memory.map((m) => m.text), web_search: web, state: turn.current, listed: listed.current || null, ...(workspace ? { workspace: workspace() } : {}) }
         : { message: text, history: prior, memory: memory.map((m) => m.text), state: turn.current, ...(workspace ? { workspace: workspace() } : {}) };
       await cfg.ask(body, (ev) => {
         if (mine !== run.current) return;

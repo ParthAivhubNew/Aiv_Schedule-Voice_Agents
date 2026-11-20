@@ -28,7 +28,7 @@ from app.models.models import (CallList, CallLog, CallSchedule, CompanyProfile, 
 from app.core.auth_middleware import current
 from app.services import agent_runs, brand_voice, credits, llm_gateway
 from app.services import workflows as WF
-from app.services.assistant_engine import SLOW_DOWN, Spec, Turn, clean_reply, events, make_choice, make_view, tool, too_fast
+from app.services.assistant_engine import SLOW_DOWN, Spec, Turn, clean_reply, events, make_choice, make_view, screen_line, tool, too_fast
 
 logger = logging.getLogger("plugin_assistant")
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
@@ -525,7 +525,7 @@ def _spec(plugin: str) -> Spec:
 
 async def _stream(plugin: str, body: PluginAskIn, db: AsyncSession, actor: Dict[str, Any]):
     spec = _spec(plugin)
-    context = await _company_line(db)
+    context = await _company_line(db) + screen_line(body.workspace)
     remembered = [str(m).strip()[:300] for m in body.memory[:20] if str(m).strip()]
     if remembered:
         context += "\nThings the person asked you to remember (apply them; they are preferences, not facts):\n- " + "\n- ".join(remembered)
