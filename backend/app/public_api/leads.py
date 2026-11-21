@@ -338,12 +338,16 @@ def _lead(acc: LeadAccount, biz: Optional[BusinessRecord], people: List[Dict[str
             checks["phone"] = {"state": (v.get("phone") or {}).get("state"), "note": (v.get("phone") or {}).get("note") or ""}
     if phone:
         checks["phone"] = {"state": phone.get("status"), "line_type": phone.get("line_type"), "carrier": phone.get("carrier"), "match": phone.get("match")}
-    return {
+    from app.services import data_policy as DP
+
+    gone = DP.restricted_fields(acc, biz)  # Google and Apollo values are never returned to API callers
+    out = {
         "id": acc.id, "name": acc.name, "registration_number": (biz.registration_number if biz else "") or "",
         "status": (biz.status if biz else "") or "", "address": (biz.address if biz else "") or "", "postcode": (biz.postcode if biz else "") or "",
         "industry": acc.industry or "", "website": acc.website or "", "phone": acc.phone or "", "email": acc.email or "",
         "contacts": people, "checks": checks, "source": acc.source or "", "created_at": (acc.created_at.isoformat() + "Z") if acc.created_at else None,
     }
+    return _mask(out, gone)
 
 
 async def job_view(db: AsyncSession, o: PublicObject, org: str, include_results: bool = True, limit: int = 25, offset: int = 0) -> Dict[str, Any]:
@@ -627,16 +631,28 @@ def site_domain(value: str) -> str:
     return v[4:] if v.startswith("www.") else v
 
 
+def _mask(card: Dict[str, Any], gone: set) -> Dict[str, Any]:
+    """A restricted value is returned as null with a `restricted: true` marker beside it."""
+    if gone:
+        card["restricted"] = {f: True for f in sorted(gone)}
+        for f in gone:
+            card[f] = None
+    return card
+
+
 def _company_card(b: BusinessRecord, saved: Optional[LeadAccount]) -> Dict[str, Any]:
+    from app.services import data_policy as DP
+
     people = [{"name": str(o.get("name") or "")[:120], "role": str(o.get("role") or "")[:80]}
               for o in (b.officers or []) if isinstance(o, dict) and o.get("name")][:5]
-    return {
+    out = {
         "id": b.id, "name": b.name, "registration_number": b.registration_number or "", "domain": b.domain or "", "website": b.website or "",
         "phone": b.phone or "", "email": b.email or "", "address": b.address or "", "industry": b.industry or "", "status": b.status or "",
         "category": b.company_category or "", "size": b.size_band or "", "founded": b.incorporation_date or "",
         "about": (b.description or "")[:280], "people": people,
         "saved": {"id": saved.id, "stage": getattr(saved, "stage", "") or ""} if saved else None,
     }
+    return _mask(out, DP.restricted_fields(b))
 
 
 @router.get("/lookup")
@@ -659,7 +675,7 @@ async def company_lookup(request: Request, domain: str = "", name: str = "", db:
         matched_by = "domain" if rows else ""
     if not rows and len(n) >= 2:
         try:
-            found = await BR.search_filtered(db, {"name_contains": n}, limit=3, stats=False, broaden=False)
+            found = await BR.search_filtered(db, {"name_contains": n}, limit=3, stats=False, broaden=False, apply_policy=False)  # a named-company lookup
             rows = list(found["rows"])
             matched_by = "name" if rows else ""
         except ValueError:

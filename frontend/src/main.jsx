@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { Tooltips } from './components/Tooltips';
+import { BrandProvider } from './brand/BrandContext';
 import './app/global.css';
 import { upgradeLegacyHashUrl } from './utils/route';
 
@@ -127,7 +128,9 @@ class RootErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <RootErrorBoundary>
-      <App />
+      <BrandProvider>
+        <App />
+      </BrandProvider>
       <Tooltips />
     </RootErrorBoundary>
   </React.StrictMode>

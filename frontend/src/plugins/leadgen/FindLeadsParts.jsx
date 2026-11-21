@@ -409,6 +409,8 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                       <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                         <div style={{ fontWeight: 600, color: C.ink, display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
                           <span title={c.name} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayName(c.name)}</span>
+                          {c.favourite || c.pinned ? <span title="Pinned favourite" style={{ color: "#F59E0B", marginLeft: 4 }}>★</span> : null}
+                          {c.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                           {legalTag(c.company_category, c.registration_number) ? <span style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(c.company_category, c.registration_number)}</span> : null}
                           <NotesButton companyId={c.id} name={c.name} />
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}

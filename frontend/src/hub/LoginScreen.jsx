@@ -4,6 +4,8 @@ import { Eye, EyeOff, AlertTriangle, CheckCircle2, Mail, ArrowRight, ArrowLeft, 
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
 import { BrandLockup } from "./BrandMark";
+import { useBrand } from "../brand/BrandContext";
+import { PoweredBy } from "../brand/PoweredBy";
 import { AuthShowcase } from "./AuthShowcase";
 import { googleErrorText, googleIdToken } from "./firebaseGoogle";
 import { InstallStepsSheet } from "../components/InstallSteps";
@@ -79,6 +81,8 @@ const TITLES = {
 
 export function LoginScreen({ onLogin }) {
   const installable = useShowInstallSteps();
+  const brand = useBrand();
+  const closed = brand.active; // a brand's people join by invitation: no open sign-up
   const [installOpen, setInstallOpen] = useState(false);
   const [mode, setModeRaw] = useState(initialMode);
   const [config, setConfig] = useState(null); // null until the server says what is on
@@ -128,9 +132,9 @@ export function LoginScreen({ onLogin }) {
 
   // /signup without signup switched on falls back to sign in.
   useEffect(() => {
-    if (mode === "signup" && config && !config.allowSignup) setMode("signin", true);
+    if (mode === "signup" && ((config && !config.allowSignup) || closed)) setMode("signin", true);
      
-  }, [config, mode]);
+  }, [config, mode, closed]);
 
   const finish = (operator) => {
     try {
@@ -177,7 +181,7 @@ export function LoginScreen({ onLogin }) {
         const res = await api.login(username.trim(), password, keep);
         if (res?.operator) finish(res.operator);
       } catch (err) {
-        if (err.code === "bad_credentials" && config?.allowSignup && username.includes("@")) {
+        if (err.code === "bad_credentials" && config?.allowSignup && !closed && username.includes("@")) {
           // Might simply be new here: offer sign-up with what they typed.
           setError({ text: err.message, action: { label: "New here? Create an account", to: "signup" } });
           return;
@@ -282,7 +286,7 @@ export function LoginScreen({ onLogin }) {
             </div>
           ) : (
             <form onSubmit={onSubmit} className="auth-stack" noValidate>
-              {config?.google && config.firebase && (mode === "signin" || mode === "signup") && (
+              {config?.google && config.firebase && brand.signin.google && (mode === "signin" || mode === "signup") && (
                 <>
                   <GoogleButton label={googleBusy ? "Waiting for Google… (click to cancel)" : mode === "signup" ? "Sign up with Google" : "Continue with Google"} onClick={signInWithGoogle} disabled={loading} />
                   <div className="auth-or"><span>or with email</span></div>
@@ -352,7 +356,9 @@ export function LoginScreen({ onLogin }) {
               )}
               {mode === "signin" && (
                 <p className="auth-foot">
-                  {config && !config.allowSignup ? (
+                  {closed ? (
+                    "Ask your administrator for an invitation."
+                  ) : config && !config.allowSignup ? (
                     "Need an account? Ask your admin to add you."
                   ) : (
                     <>
@@ -389,6 +395,7 @@ export function LoginScreen({ onLogin }) {
             <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
             <a href="/data-deletion" target="_blank" rel="noreferrer">Data deletion</a>
           </nav>
+          <PoweredBy align="center" style={{ marginTop: 10 }} />
         </div>
       </main>
     </div>

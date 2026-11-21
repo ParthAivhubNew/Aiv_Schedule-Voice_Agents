@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import company_check, lead_cleaner, next_action, normalise, send_readiness
 from app.services import business_lookup, business_records, site_check
+from app.services import tenant_policy as TP
 from app.services import contact_points as CP
 from app.services import reveals as RV
 from app.services import social_lookup as SL
@@ -301,12 +302,12 @@ _PAGE_TTL = 300.0
 _BROWSE_TTL = 1200.0  # the opening list (no filters) changes slowly; it is also made ready at start-up and every 15 minutes (see warm_browse_pages)
 
 
-def _page_key(filters, sort, limit, offset, drop_terms, default_on=False) -> str:
+def _page_key(filters, sort, limit, offset, drop_terms, default_on=False, policy_key="") -> str:
     import json
 
     # "main-activity": a trade now matches a company's main activity first (see business_records.matching), so pages kept
     # under the older any-activity rule are never served again.
-    return json.dumps(["main-activity-v2", filters, sort, limit, offset, drop_terms, business_records._RANKING[1], default_on], sort_keys=True, default=str)  # default_on: a page opened by default carries a note a typed search does not
+    return json.dumps(["main-activity-v2", filters, sort, limit, offset, drop_terms, business_records._RANKING[1], default_on, policy_key], sort_keys=True, default=str)  # default_on: a page opened by default carries a note a typed search does not
 
 
 async def warm_browse_pages() -> None:
@@ -417,7 +418,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         else:
             import time
 
-            key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms, default_on)
+            policy = await TP.effective(db)  # a brand's policy changes the list: its pages are kept per organisation and policy
+            key = _page_key(shown_filters, body.sort, body.limit, body.offset, body.drop_terms, default_on, policy.cache_key())
             # A "my saved lists" page, or one in this organisation's fit order, depends on the organisation: never shared.
             shareable = not body.exclude_ids and not shown_filters.get("saved") and body.sort != "fit"
             hit = _PAGE_CACHE.get(key) if shareable else None
@@ -899,8 +901,6 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
             _LPG.keep(biz, {"url": place["website"], "site": booking, "kind": "booking", "confirmed": True, "how": "the deeper search lists it for this company at its postcode",
                             "why": f"The deeper search lists this {booking} page for the company at its postcode", "also_seen": {}, "at": datetime.utcnow().isoformat() + "Z"})
             await db.commit()
-        if place and not confirmed.get("website") and not booking:
-            await _suggest_place(db, biz, place, "website")
         if confirmed.get("website"):
             try:
                 # The place ID is kept as the reference. The website (and phone) are kept because the company's own site shows them.
@@ -1172,34 +1172,58 @@ async def _email_from_people(db: AsyncSession, biz: BusinessRecord):
 
 
 def _vouched(place: Optional[Dict[str, Any]], confirmed: Dict[str, Any]) -> Dict[str, Any]:
-    """What the deeper search may keep. Normally only what the company's own site shows. When Google's listing has the same name AND is
-    at the postcode our register holds, it is this company, so its website and UK phone are kept as well."""
+    """What the deeper search may keep, with where each value came from under "sources". What the company's own site shows is kept as
+    "website". Google's own phone and website are never kept (Google's terms): they only led us to the site that was read. Apollo's
+    values at the company's postcode are kept as internal data, marked "apollo"."""
     from app.services import company_contacts as CC
 
     out = dict(confirmed or {})
-    if place and place.get("postcode_match") and place.get("name_match", True):
+    sources = {k: "website" for k in ("website", "phone") if out.get(k)}
+    if place and place.get("via") == "apollo" and place.get("postcode_match") and place.get("name_match", True):
         if not out.get("website") and place.get("website") and not site_check.is_listing_host(place["website"]):
             out["website"] = place["website"]  # a booking platform or directory page is a listing, never the company's website
+            sources["website"] = "apollo"
         if not out.get("phone") and place.get("phone") and CC.is_uk_phone(place["phone"]):
             out["phone"] = place["phone"]
+            sources["phone"] = "apollo"
+    if out:
+        out["sources"] = sources
     return out
+
+
+async def _file_place(db: AsyncSession, ident: Dict[str, Any], place: Dict[str, Any], confirmed: Dict[str, Any]) -> BusinessRecord:
+    """File a deeper-search answer on the shared record. A Google place keeps only its place ID: the phone and website are Google's
+    content, so they never reach a shared column. What the company's own site confirmed is filed as its own source. Apollo keeps its
+    whole answer (internal data, never exported)."""
+    via = place.get("via") or "google_places"
+    source_id = f"{via}:{place['place_id']}"
+    sources = confirmed.get("sources") or {}
+    own = {k: confirmed[k] for k in ("website", "phone") if confirmed.get(k) and sources.get(k, "website") == "website"}
+    kept = {k: confirmed[k] for k in ("website", "phone") if confirmed.get(k) and k not in own}
+    if via == "google_places":
+        shared = await business_records.upsert(db, source_id=source_id, source_type=via, confidence_tier="scraped", data={**ident, "raw": {"place_id": place["place_id"]}})
+    else:
+        data = {**ident, **kept}
+        if place.get("raw"):
+            data["raw"] = place["raw"]  # everything Apollo returned about the company is kept under its own source, not just the two details used
+        shared = await business_records.upsert(db, source_id=source_id, source_type=via, confidence_tier="scraped", data=data)
+    if own:
+        shared = await business_records.upsert(db, source_id=f"website_confirmed:{place['place_id']}", source_type="website_confirmed", confidence_tier="scraped", data={**ident, **own})
+    return shared
 
 
 async def _keep_place(db: AsyncSession, biz: BusinessRecord, place: Dict[str, Any], confirmed: Dict[str, Any]) -> None:
     """Save what the company's own site confirmed from a deeper search. It goes on the company the person is looking at: the shared
     record the search is filed under is matched by name and postcode, and a register row without a registration number would
     otherwise get a second, separate record while its own row stayed empty."""
-    source_id = f"{place.get('via') or 'google_places'}:{place['place_id']}"
-    data = {"name": biz.name, "registration_number": biz.registration_number, "postcode": biz.postcode, "website": confirmed.get("website"),
-            "phone": confirmed.get("phone"), "region": biz.region}
-    if place.get("raw"):
-        data["raw"] = place["raw"]  # everything Apollo returned about the company is kept under its own source, not just the two details used
-    shared = await business_records.upsert(db, source_id=source_id, source_type=place.get("via") or "google_places", confidence_tier="scraped", data=data)
-    if shared.id != biz.id and place.get("raw"):
-        raw = dict(biz.raw_data or {})
-        raw[source_id] = place["raw"]
-        biz.raw_data = raw
+    ident = {"name": biz.name, "registration_number": biz.registration_number, "postcode": biz.postcode, "region": biz.region}
+    shared = await _file_place(db, ident, place, confirmed)
     if shared.id != biz.id:
+        raw = dict(biz.raw_data or {})
+        for key, val in (shared.raw_data or {}).items():
+            if key.split(":")[0] in (place.get("via") or "google_places", "website_confirmed") and key.endswith(place["place_id"]):
+                raw[key] = val  # the same source entries, not Google's content (there is none)
+        biz.raw_data = raw
         if confirmed.get("website") and not (biz.website or "").strip():
             biz.website = _clean(confirmed.get("website"), 300)
             if not biz.domain:
@@ -1259,8 +1283,6 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
         if place and not confirmed.get("phone"):
             logger.info("find-phone: the deeper search matched %r but %s", biz.name,
                         "its listing has no phone" if not place.get("phone") else "the number is not confirmed (no postcode match, and the company's own site does not show it)")
-        if place and not confirmed.get("phone"):
-            await _suggest_place(db, biz, place, "phone")
         if confirmed.get("phone"):
             try:
                 await _keep_place(db, biz, place, confirmed)
@@ -1284,33 +1306,6 @@ async def _find_phone(db: AsyncSession, biz: BusinessRecord, hint: str = "") -> 
     _PAGE_CACHE.clear()
     return {"found": got, "source": source, "charged": charged, "note": note, "company": await RV.mask_one(db, card),
             "options": _options(biz, "phone", got)}
-
-
-async def _suggest_place(db: AsyncSession, biz: BusinessRecord, place: Optional[Dict[str, Any]], kind: str) -> None:
-    """A Google listing for this company's own postcode that could not be confirmed on its own site: offered as a labelled suggestion with its
-    Google Maps page, never filled in. Added to the web lookup's suggestions, not instead of them."""
-    from app.services import company_contacts as CC
-
-    if not place or not place.get("postcode_match") or str(place.get("via") or "google_places") != "google_places":
-        return
-    ref = place.get("place_id") or ""
-    maps = f"https://www.google.com/maps/place/?q=place_id:{ref}" if ref else ""
-    if kind == "website":
-        value = _domain(place.get("website") or "")
-        if not value or site_check.is_listing_host(place.get("website") or ""):
-            return
-        value = "https://" + value
-    else:
-        value = _phone(place.get("phone") or "") if place.get("phone") else ""
-        from app.services.company_contacts import is_uk_phone
-
-        if not value or not is_uk_phone(value):
-            return
-    label = "Google lists this for the company" if place.get("name_match", True) else f"Google lists \"{place.get('name', 'a business')}\" at the company's address"
-    have = list(((biz.raw_data or {}).get("lookup_options") or {}).get(kind) or [])
-    if any(o.get("value") == value for o in have):
-        return
-    await CC._remember_options(db, biz, {kind: [*have, {"value": value, "score": 55, "label": label, "sources": [maps] if maps else []}]})
 
 
 def _options(biz: BusinessRecord, kind: str, got: bool) -> List[Dict[str, Any]]:
@@ -1406,7 +1401,9 @@ async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Dep
             raise HTTPException(status_code=422, detail="That isn't one of the options that were shown. Look again.")
         raw = dict(biz.raw_data or {})
         cw = dict(raw.get("contacts_web") or {})
-        cw.update({"guardrail": True, "source": "web", "verified": False, "by": "pick", "fetched_at": datetime.utcnow().isoformat() + "Z"})
+        chosen = next((o for o in shown if o.get("value") == value), {})
+        from_google = "google" in " ".join([str(chosen.get("label") or ""), *[str(s) for s in chosen.get("sources") or []]]).lower()  # older suggestions came from Google
+        cw.update({"guardrail": True, "source": "google_places" if from_google else "web", "verified": False, "by": "pick", "fetched_at": datetime.utcnow().isoformat() + "Z"})
         cw.setdefault("website", "")
         cw.setdefault("phones", [])
         cw.setdefault("emails", [])
@@ -1731,6 +1728,8 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
     # A company taken from the register starts with what the record holds (contacts masked as on the search pages), not a blank form.
     claimed_seen = await RV.open_for_saved(db, claimed_rows, await RV.opened(db, known_biz))  # saving it opens what the register holds, free
     held_by_biz = {b.id: record_values(b, claimed_seen) for b in claimed_rows}
+    from app.services import data_policy as _DP
+
     quarantined: List[Dict[str, Any]] = []  # imported rows that failed a hard check: not saved, listed with the reason
     warned = 0
     # Company numbers already in use, so a second company with the same number is flagged, not silently saved.
@@ -1819,6 +1818,11 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
             linkedin_url=_clean(item.linkedin_url, 300), import_flags=flags or None,
             business_record_id=item.business_record_id if item.business_record_id in known_biz else None,
         )
+        for _f in ("phone", "website", "email"):  # typed or imported by the person, unless it matches what a shared record holds
+            if getattr(row, _f):
+                _rec = next((b for b in claimed_rows if b.id == row.business_record_id), None)
+                _from = _DP.record_source(_rec, _f, getattr(row, _f), default="") if _rec is not None else ""
+                _set_source(row, _f, _from or ("import" if item.source == "import" else "user"))
         db.add(row)
         added.append(row)
         fresh.add(row.id)
@@ -1846,10 +1850,13 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
             value = _clean(getattr(item, field), limit)
             if value and (overwrite or not (getattr(row, field) or "").strip()):
                 setattr(row, field, value.lower() if field == "email" else value)
+                if field in ("phone", "email"):
+                    _set_source(row, field, "import")
         site = _clean(item.website)
         if site and (overwrite or not (row.website or "").strip()):
             row.domain = _domain(site)
             row.website = site if "://" in site else f"https://{site}"
+            _set_source(row, "website", "import")
         row.custom = ({**(row.custom or {}), **(clean_custom(item.custom) or {})} if overwrite else {**(clean_custom(item.custom) or {}), **(row.custom or {})}) or None
         if row.source == "scout":
             row.source = "import"
@@ -1958,7 +1965,10 @@ async def update_account(account_id: str, body: AccountPatch, db: AsyncSession =
             raise HTTPException(status_code=409, detail=f"{_clean(changes['name'])} in this place is already saved.")
     for field in _FIELDS:
         if field in changes:
+            before = getattr(row, field, "")
             setattr(row, field, _clean(changes[field], 2000 if field == "notes" else 300))
+            if field in ("phone", "website", "email") and (getattr(row, field) or "") != (before or ""):
+                _set_source(row, field, "user")  # typed by the person: theirs to export
     if "website" in changes:
         row.domain = _domain(row.website)
     row.updated_at = datetime.utcnow()
@@ -2040,6 +2050,12 @@ async def bulk_delete_accounts(body: BulkDelete, db: AsyncSession = Depends(get_
     return {"deleted": deleted, "locked": skipped_locked, "not_found": len(ids) - found, "over_cap": over_cap}
 
 
+def _set_source(row: LeadAccount, field: str, source: str) -> None:
+    from app.services import check_fixes
+
+    check_fixes.set_source(row, field, source)
+
+
 async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[BusinessRecord]:
     """Fill empty fields from the shared, cross-organisation BusinessRecord store -- someone else
     may already have looked this company up via Companies House or an earlier search. Free: it's
@@ -2057,8 +2073,15 @@ async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[B
         row.business_record_id = shared.id
         row.industry = row.industry or _clean(shared.industry, 120)
         row.region = row.region or _clean(shared.region, 120)
-        row.phone = _phone(row.phone) or _phone(shared.phone)
-        row.email = row.email or _clean(shared.email, 200).lower()
+        from app.services import check_fixes as _CF, data_policy as _DP
+
+        row.phone = _phone(row.phone)
+        if not row.phone and _phone(shared.phone):
+            row.phone = _phone(shared.phone)
+            _CF.set_source(row, "phone", _DP.record_source(shared, "phone"))
+        if not row.email and _clean(shared.email, 200):
+            row.email = _clean(shared.email, 200).lower()
+            _CF.set_source(row, "email", _DP.record_source(shared, "email"))
         if shared.shared_research and not row.research:
             row.research = shared.shared_research
             row.researched_at = row.updated_at = shared.updated_at or datetime.utcnow()
@@ -2098,21 +2121,26 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
         return _out(row, biz)
     from app.services import web_harness
 
-    # Google's answer is a lead: only what the company's own site confirms is kept (and its address and rating are not stored).
+    # Google's answer is a lead: only what the company's own site confirms is kept (never its address, rating, phone or website).
     confirmed = _vouched(place, await web_harness.confirm_place(row.name, getattr(row, "postcode", "") or "", place))
     if not confirmed:
         biz = await _registry_for(db, account_id)
         return _out(row, biz)
-    row.phone = _phone(row.phone) or _phone(confirmed.get("phone"))
+    from app.services import check_fixes as _CF
+
+    srcs = confirmed.get("sources") or {}
+    row.phone = _phone(row.phone)
+    if not row.phone and _phone(confirmed.get("phone")):
+        row.phone = _phone(confirmed.get("phone"))
+        _CF.set_source(row, "phone", srcs.get("phone", "website"))
     site = _clean(confirmed.get("website"), 300)
-    row.website = row.website or (site or "")
+    if not row.website and site:
+        row.website = site
+        _CF.set_source(row, "website", srcs.get("website", "website"))
     if not row.domain and row.website:
         row.domain = _domain(row.website)
     try:
-        shared_row = await business_records.upsert(
-            db, source_id=f"{place.get('via') or 'google_places'}:{place['place_id']}", source_type=place.get("via") or "google_places", confidence_tier="scraped",
-            data={"name": row.name, "domain": row.domain, "website": row.website, "phone": _phone(confirmed.get("phone"))},
-        )
+        shared_row = await _file_place(db, {"name": row.name, "domain": row.domain}, place, confirmed)
         row.business_record_id = row.business_record_id or shared_row.id
     except ValueError:
         pass
@@ -2219,11 +2247,18 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
     }
     if not row.domain and data.get("domain") and site_check.plausible_site(row.name, data["domain"], strict=True):  # never a register or directory page
         row.domain = _domain(data["domain"])
-        row.website = row.website or (data["domain"] if "://" in data["domain"] else f"https://{row.domain}")
-    row.phone = _phone(row.phone) or _phone(data.get("primaryPhone"))
+        if not row.website:
+            row.website = data["domain"] if "://" in data["domain"] else f"https://{row.domain}"
+            _set_source(row, "website", "web")
+    had_phone = _phone(row.phone)
+    row.phone = had_phone or _phone(data.get("primaryPhone"))
+    if row.phone and not had_phone:
+        _set_source(row, "phone", "web")
     found_email = _clean(data.get("primaryEmail"), 200).lower()
     # A company's general inbox (support@, info@) is not the email of the named person on this record.
     if not (row.contact_name and is_role_inbox(found_email)):
+        if found_email and not row.email:
+            _set_source(row, "email", "web")
         row.email = row.email or found_email
     if people and not row.contact_name:
         row.contact_name, row.contact_title = people[0]["name"], row.contact_title or people[0]["role"]
@@ -2243,10 +2278,13 @@ async def research_into(db: AsyncSession, row: LeadAccount) -> bool:
         # that asks about this same company gets this instantly instead of re-searching for it.
         try:
             overview = row.research.get("overview") if row.research else ""
+            from app.services import data_policy as _DP
+
+            held_back = _DP.restricted_fields(row)  # a value Google or Apollo gave is not re-filed as this search's own finding
             shared_row = await business_records.upsert(
                 db, source_id="llm_web_search", source_type="llm_fallback", confidence_tier="llm_fallback",
-                data={"name": row.name, "domain": row.domain, "website": row.website, "phone": row.phone,
-                      "email": row.email, "region": row.region, "description": overview},
+                data={"name": row.name, "domain": row.domain, "website": "" if "website" in held_back else row.website, "phone": "" if "phone" in held_back else row.phone,
+                      "email": "" if "email" in held_back else row.email, "region": row.region, "description": overview},
             )
             row.business_record_id = row.business_record_id or shared_row.id
             # The full dossier (team, named contacts, sources) is public fact about the business,

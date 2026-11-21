@@ -44,7 +44,7 @@ export function NavItem({ item, current, children: extra }) {
       }}>
       <Icon size={16} strokeWidth={1.75} />
       <span style={{ flex: 1 }}>{item.label}</span>
-      {item.external ? <ExternalLink size={12} aria-hidden="true" style={{ color: "var(--ui-side-muted)", flexShrink: 0, marginLeft: -4 }} /> : null}
+      {item.external ? <ExternalLink size={12} aria-hidden="true" className="ui-nav-external" style={{ color: "var(--ui-side-muted)", flexShrink: 0, marginLeft: -4 }} /> : null}
       {extra}
       {item.count ? <span className={`ui-nav-count${item.countLive ? " ui-nav-count--live" : ""}`}>{item.count}</span> : null}
       {subs.length ? <ChevronRight size={14} strokeWidth={1.75} className="ui-nav-chevron" /> : null}

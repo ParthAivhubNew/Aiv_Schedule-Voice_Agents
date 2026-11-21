@@ -376,7 +376,7 @@ async def _save_results(batch: List[tuple], snapshot: Optional[Dict[str, Dict[st
                     continue
                 # A blank field is filled right away; a value the user gave is only ever offered (see check_fixes).
                 if fix["kind"] == "fill" and not getattr(acc, fix["field"], ""):
-                    check_fixes.set_field(acc, fix["field"], fix["to"])
+                    check_fixes.set_field(acc, fix["field"], fix["to"], fix.get("source") or "check")
                     fix["applied"] = True
             acc.verification = result
             if result.get("record_id") and not acc.business_record_id:

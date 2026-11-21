@@ -2,7 +2,7 @@
 
 An automated or AI-voiced call needs the person's recorded permission (or the number is the user's own). A call made by a person is
 allowed unless the number is on the TPS list and nobody gave permission; a number nobody has screened is allowed with a prompt to
-check TPS first. Screening itself is a provider slot: none is wired yet, so numbers stay "unknown" until one is added.
+check TPS first. Screening is a paid check a person starts (api/tps_check.py); a call itself never triggers one, so an unchecked number stays "unknown" with a prompt to check TPS first.
 """
 from __future__ import annotations
 
@@ -55,14 +55,15 @@ class NotConfiguredProvider(ScreeningProvider):
 
 
 async def provider() -> ScreeningProvider:
-    """Not configured until staff save a platform key named tps_screening; an adapter for the chosen vendor slots in here."""
+    """The saved screening adapter: Provero when staff saved its key (Admin portal, Platform keys), otherwise none, and numbers stay "unknown"."""
     try:
-        from app.services.platform_balances import _platform_key
+        from app.services import provero
 
-        if await _platform_key("tps_screening"):
-            logger.info("A tps_screening key is saved but no screening adapter is installed yet.")
-    except Exception:
-        pass
+        prov = await provero.provider()
+        if prov is not None:
+            return prov  # same shape as ScreeningProvider: name, configured(), screen()
+    except Exception as err:
+        logger.debug(f"[call_permission] screening adapter not loaded: {err}")
     return NotConfiguredProvider()
 
 
@@ -178,13 +179,8 @@ async def decide(db, num: str, kind: str = "ai", now: Optional[datetime] = None)
     if consent:  # they asked to hear from us, which outweighs a listing
         return out
     st = await status(db, num, now)
-    if not st["fresh"]:
-        prov = await provider()
-        if prov.configured():
-            res = (await prov.screen([st["number"]])).get(st["number"])
-            if res:
-                await save_screening(db, st["number"], res.get("tps", "unknown"), bool(res.get("ctps")), prov.name, now)
-                st = await status(db, num, now)
+    # No lookup here: a call must never spend the platform's money on a screening nobody was charged for. Numbers are screened when a person
+    # asks for a check (api/tps_check.py, paid in credits); an unscreened number is flagged "Check TPS first" until then.
     if st["fresh"] and (st["tps_status"] == "listed" or st["ctps"]):
         out.update(allowed=False)
         out["reasons"].append(TPS_LISTED)

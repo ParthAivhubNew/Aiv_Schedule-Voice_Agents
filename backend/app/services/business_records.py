@@ -24,6 +24,8 @@ from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import BusinessRecord, DataSource
+from app.services import fsb_rules as FR
+from app.services import tenant_policy as TP
 
 logger = logging.getLogger("business_records")
 
@@ -956,27 +958,16 @@ def _leave_out_words(items: List[str]) -> list:
 # FSB's exclusion list ("FSB exclusion rules - for developers", 17 November 2026). A company stays only when it is a Companies House company and none of
 # these applies: its type is one of the excluded types, it is on the Charity Commission register, ANY of its SIC codes is one of the excluded codes (exact,
 # not only the first), or its name has an excluded word (a driving school or dance school stays in). Status "Active" exactly is the search's own default.
-FSB_TYPES = ("charitable incorporated organisation", "scottish charitable incorporated organisation", "registered society", "royal charter company",
-             "other company type")
-FSB_SIC = ("84110", "84120", "84130", "84210", "84220", "84230", "84240", "84250", "84300", "85100", "85200", "85310", "85320", "85410", "85421", "85422",
-           "85510", "85520", "85590", "85600", "86101", "86102", "86210", "86220", "86230", "86900", "64110", "64191", "64192", "64910", "64921", "64922",
-           "64929", "82911", "94110", "94120", "94200", "94910", "94920", "94990", "88910", "91011", "52230", "49100", "52212", "50100", "50300", "36000",
-           "37000", "19201", "06100", "53100", "99000")
-FSB_NAME_WORDS = (r"\m(charit[a-z]*|church|parish|mosque|synagogue|temple|casino[a-z]*|credit union|nhs|hospital|school|college|university|academy trust|"
-                  r"shopping centre|bureau de change|tourist information|weighbridge[a-z]*)\M")
-FSB_NAME_KEEP = r"(driving school|dance school)"
+FSB_TYPES = FR.TYPES  # the rule set lives in services/fsb_rules.py; these names stay for existing callers
+FSB_SIC = FR.SIC
+FSB_NAME_WORDS = FR.NAME_WORDS_RX
+FSB_NAME_KEEP = FR.NAME_KEEP_RX
 
 
 def _fsb_exclusions(unregistered_too: bool = False) -> list:
-    """The conditions that leave out everything on the exclusion list (see FSB_TYPES above). The Companies-House-only rule is skipped
+    """The conditions that leave out everything on the exclusion list (see services/fsb_rules.py). The Companies-House-only rule is skipped
     when the person is looking at sole traders, who have no company number."""
-    B = BusinessRecord
-    return ([] if unregistered_too else [func.coalesce(B.registration_number, "").op("~")(_CH_NUMBER)]) + [
-        ~func.lower(func.btrim(func.coalesce(B.company_category, ""))).in_(FSB_TYPES),
-        ~func.coalesce(cast(B.sources, String), "").like('%"ds_charity_commission"%'),  # a record with no sources is not on the charity register
-        ~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(FSB_SIC) + r")\|"),
-        or_(~B.name.op("~*")(FSB_NAME_WORDS), B.name.op("~*")(FSB_NAME_KEEP)),
-    ]
+    return FR.conditions(unregistered_too)
 
 
 SORTS = ("best", "newest", "name", "fit")
@@ -1061,12 +1052,17 @@ async def _count_upto(db: AsyncSession, where, n: int = BROADEN_BELOW) -> int:
     return int((await db.execute(select(func.count()).select_from(capped))).scalar() or 0)
 
 
-async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = None, *, count=None, broaden: bool = True):
+async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = None, *, count=None, broaden: bool = True,
+                   apply_policy: bool = True):
     """(where, count, broadened): the one place that decides which companies a set of filters means, so every list, count
     and summary agrees. A trade matches by main activity; when fewer than BROADEN_BELOW do, side activities are taken in too.
-    `count(db, where)` is the count the caller needs anyway (the capped total), so the usual case costs no extra query."""
+    `count(db, where)` is the count the caller needs anyway (the capped total), so the usual case costs no extra query.
+    The current organisation's brand policy (services/tenant_policy.py) is ANDed in here, whatever the filters say; an organisation
+    without a brand adds nothing. See search_filtered for apply_policy."""
     count = count or _count_upto
     extra = list(extra or [])
+    if apply_policy:
+        extra += (await TP.effective(db)).conditions()
     strict = and_(*_filter_conditions(f), *extra)
     n = await count(db, strict)
     if not broaden or n >= BROADEN_BELOW or not can_broaden(f):
@@ -1141,7 +1137,8 @@ async def opening_page(db: AsyncSession, filters: Dict[str, Any], *, limit: int 
     base = {k: v for k, v in (filters or {}).items() if k != "complete_first"}
     offset = max(0, int(offset or 0))
     skip = set(exclude_ids or [])
-    ids = [i for i in (await complete_ids(db) if sort == "best" else []) if i not in skip]
+    policy = await TP.effective(db)  # the shared list of complete companies is made without any policy, so a policy never reads it
+    ids = [i for i in (await complete_ids(db) if sort == "best" and policy.is_empty else []) if i not in skip]
     if not ids:  # another sort, or the complete companies are not ready: the whole register in the order asked
         out = await search_filtered(db, base, limit=limit, offset=offset, sort=sort, stats=False, exclude_ids=exclude_ids, broaden=False)
         return {**out, "filters": normalize_filters(filters)}
@@ -1318,7 +1315,7 @@ _TOTALS: Dict[str, Any] = {}  # filters -> (when, count); the shared store chang
 _TOTALS_TTL = 600.0
 
 
-async def exact_total(db: AsyncSession, where, f: Dict[str, Any], exclude_ids: Optional[List[str]] = None) -> Optional[int]:
+async def exact_total(db: AsyncSession, where, f: Dict[str, Any], exclude_ids: Optional[List[str]] = None, *, apply_policy: bool = True) -> Optional[int]:
     """The real number of matches when there are more than COUNT_CAP (so the screen can say 5.7 million, not 10,000+).
     Counted with its own short time limit and remembered for a few minutes; None when it takes too long, and the
     screen then shows the capped number as before."""
@@ -1328,6 +1325,8 @@ async def exact_total(db: AsyncSession, where, f: Dict[str, Any], exclude_ids: O
     if exclude_ids or f.get("saved"):
         return None  # a count that depends on this organisation's own lists is never shared through the cache
     key = json.dumps(f, sort_keys=True, default=str)
+    if apply_policy:  # a count under a policy belongs to that organisation and policy only (same value as "" for an organisation without one)
+        key += "|" + (await TP.effective(db)).cache_key()
     hit = _TOTALS.get(key)
     if hit and time.monotonic() - hit[0] < _TOTALS_TTL:
         return hit[1]
@@ -1358,14 +1357,21 @@ async def saved_ids(db: AsyncSession, ids: List[str]) -> set:
 
 async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: int = 25, offset: int = 0,
                           exclude_ids: Optional[List[str]] = None, sort: str = "best", stats: bool = True,
-                          broaden: bool = True, fit: Optional[Tuple[Dict[str, Any], Dict[str, int]]] = None) -> Dict[str, Any]:
+                          broaden: bool = True, fit: Optional[Tuple[Dict[str, Any], Dict[str, int]]] = None,
+                          apply_policy: bool = True) -> Dict[str, Any]:
     """The Apollo-style structured search over the shared store: every filter is an exact,
     explainable condition on a real column (nothing fuzzy or semantic), so the same filters always
     return the same companies and each result can be traced to the field that matched. Needs at
     least one narrowing filter (sector, SIC code, town, postcode or name) -- "every active company
     in the UK" is not a search. Returns the page, the (capped) total, and the normalised filters
     actually applied, so the caller can show them back to the user. `broadened` is True when too few companies have
-    the trade as their main activity and the side-activity ones were taken in too (see matching)."""
+    the trade as their main activity and the side-activity ones were taken in too (see matching).
+
+    The current organisation's brand policy (exclusions, member suppression, geography) is always applied and no filter can switch it off.
+    `apply_policy=False` is ONLY for a specific-company lookup: the caller names one company, by its registration number or by a
+    name the person typed, to read that one company's record (public_api company lookup, the assistant's number lookup, FSB import
+    matching, the monthly change report). A search by trade, town, postcode or any list of companies is never a specific lookup, and
+    must keep the default True, or the policy is bypassed."""
     check_filters(filters)
     f = normalize_filters(filters)
     extra = [BusinessRecord.id.notin_(list(exclude_ids))] if exclude_ids else []
@@ -1383,7 +1389,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     if used == "name" and not has_narrowing(f) and not await name_sort_ready(db):
         used = "newest"  # A to Z over the whole register needs its index: shown newest-first rather than timing out
     t1 = time.monotonic()
-    where, total, broadened = await matching(db, f, extra, count=_capped_count, broaden=broaden)
+    where, total, broadened = await matching(db, f, extra, count=_capped_count, broaden=broaden, apply_policy=apply_policy)
     t2 = time.monotonic()
     rows = (await db.execute(
         select(BusinessRecord).where(where).order_by(*_order(used, f, broadened, fit))
@@ -1402,7 +1408,7 @@ async def search_filtered(db: AsyncSession, filters: Dict[str, Any], *, limit: i
     return out
 
 
-async def search_summary(db: AsyncSession, filters: Dict[str, Any], exclude_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+async def search_summary(db: AsyncSession, filters: Dict[str, Any], exclude_ids: Optional[List[str]] = None, *, apply_policy: bool = True) -> Dict[str, Any]:
     """The figures that sit beside a page of results but are slower to count: the real total (past 10,000), how many are Full,
     Partial and Basic, and how many are already in this organisation's lists. Asked for after the page is on screen, with the
     filters the search actually ran (see /search "query_filters"), so the figures describe the list that is shown."""
@@ -1411,22 +1417,23 @@ async def search_summary(db: AsyncSession, filters: Dict[str, Any], exclude_ids:
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
     extra = [BusinessRecord.id.notin_(list(exclude_ids))] if exclude_ids else []
-    where, total, broadened = await matching(db, f, extra, count=_capped_count)
+    where, total, broadened = await matching(db, f, extra, count=_capped_count, apply_policy=apply_policy)
     out: Dict[str, Any] = {"total": min(total, COUNT_CAP), "total_capped": total > COUNT_CAP, "tiers": None, "saved_total": None, "total_all": None,
                            "broadened": broadened}
     if await ranking_ready(db):
         out.update(await result_stats(db, where, out["total"]))
     if out["total_capped"]:
-        out["total_all"] = await exact_total(db, where, {**f, "_broadened": broadened}, exclude_ids)
+        out["total_all"] = await exact_total(db, where, {**f, "_broadened": broadened}, exclude_ids, apply_policy=apply_policy)
     return out
 
 
 async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str = "", limit: int = 25, offset: int = 0,
-                        sort: str = "best") -> Dict[str, Any]:
+                        sort: str = "best", apply_policy: bool = True) -> Dict[str, Any]:
     """The People tab: the people the registry lists for the companies that match the same filters. Only companies
     whose officers have been read are in it (they are read on demand, see company_contacts), so `fill_ids` names
     the best-ranked matching companies still to read, for the "find people" step. Names are public registry
-    facts; emails and phones are never here, they are found (and charged) per person."""
+    facts; emails and phones are never here, they are found (and charged) per person. The brand policy applies to the companies behind
+    the people exactly as in search_filtered (same apply_policy rule)."""
     from app.services import company_contacts as CC
 
     check_filters(filters)
@@ -1435,7 +1442,7 @@ async def search_people(db: AsyncSession, filters: Dict[str, Any], *, title: str
     limit = max(1, min(int(limit or 25), 100))
     if db.get_bind().dialect.name == "postgresql":
         await db.execute(text("SET LOCAL statement_timeout = '25s'"))
-    base, _, broadened = await matching(db, f)  # the same companies as the Companies tab
+    base, _, broadened = await matching(db, f, apply_policy=apply_policy)  # the same companies as the Companies tab
     with_people = and_(base, B.officers.isnot(None), cast(B.officers, String) != "[]")  # a company read and found to have no officers is not a result
     word = str(title or "").strip().lower()[:60]
     if word:  # a cheap pre-filter on the stored JSON text; the exact role match is made below

@@ -2,9 +2,10 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "./searc
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Download, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
+import { ExportDialog } from "./ExportDialog";
 import { domainOf, ImportView } from "./AccountsViews";
 import { CheckDialog, CheckProgress, useCompanyCheck } from "./CheckCompanies";
 import { personEmail } from "./companyLogic";
@@ -34,6 +35,7 @@ import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
 import { summaryChips } from "./filterSummary";
 import { filterNarrowed } from "./filterNarrowed";
+import { StandingChip } from "../../brand/StandingChip";
 
 // The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
 export const SELECT_ALL_LIMIT = 2000;
@@ -373,7 +375,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp }) {
+function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -400,6 +402,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const lastQuery = useRef(null); // the request behind the results on screen, for "Select all"
   const [selecting, setSelecting] = useState(false);
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
+  const [exportOpen, setExportOpen] = useState(false); // Export to CSV dialog
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
   const [groups, setGroups] = useState({ industry: true });
@@ -1167,6 +1170,27 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
             ))}
           </div>
         ) : null}
+        {onImport ? (
+          <button
+            type="button"
+            className="ui-btn ui-btn--secondary ui-btn--sm"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              height: 36,
+              fontWeight: 600,
+              background: "#FFFFFF",
+              border: "1px solid var(--ui-line, #E2E8F0)",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+            }}
+            title="Import a spreadsheet of customer records"
+            onClick={onImport}
+          >
+            <Upload size={14} /> Import
+          </button>
+        ) : null}
+        <StandingChip />
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
@@ -1520,10 +1544,12 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                   <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealMany(pickedRows)}>Reveal {pickedRows.filter((c) => Object.keys(c.closed || {}).length).length.toLocaleString()}</button>
                 ) : null}
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
+                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Export companies as a spreadsheet" onClick={() => setExportOpen(true)}><Download size={14} /> Export CSV</button>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
               </SelectionBar>
               <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
               {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
+              {exportOpen ? <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} accounts={pickedRows.length ? pickedRows : companies} onToast={notice} /> : null}
               {inArea ? (
                 <div role="status" style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.border}` }}>
                   <MapIcon size={14} aria-hidden="true" /> <span>Showing the {companies.length.toLocaleString()} {companies.length === 1 ? "company" : "companies"} the map found.</span>
@@ -1587,7 +1613,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistan
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

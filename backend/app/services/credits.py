@@ -76,6 +76,9 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "number_check": {"label": "Number check", "unit": "5 numbers", "credits": 1, "wallet": "voice", "charged": True},
     "lead_email_write": {"label": "Personalised email lines (Leads)", "unit": "5 lines", "credits": 1, "wallet": "leadgen", "charged": True},
     "lead_phone_check": {"label": "Phone check (Leads)", "unit": "5 numbers", "credits": 1, "wallet": "leadgen", "charged": True},
+    # TPS/CTPS screening of phone numbers. A number with a result under 28 days old is not charged again.
+    "tps_check": {"label": "TPS/CTPS check", "unit": "5 numbers", "credits": 2, "wallet": "voice", "charged": True},
+    "lead_tps_check": {"label": "TPS/CTPS check (Leads)", "unit": "5 numbers", "credits": 2, "wallet": "leadgen", "charged": True},
 }
 RATES_KEY = "credit_rates"
 
@@ -100,6 +103,8 @@ DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
                                      # configured, left out above
     "number_check": 1.5,            # 5 Telnyx Number Lookups at $0.003 each
     "lead_phone_check": 1.5,        # the same lookups, charged to the Leads wallet
+    "tps_check": 2.7,               # 5 screening checks at about 0.4p (0.53 US cents) each; edit if the vendor price changes
+    "lead_tps_check": 2.7,          # the same checks, charged to the Leads wallet
     "lead_email_write": 1.0,        # five short AI writing calls
     "google_deep_search": 3.5,      # Google Places Text Search + Place Details, combined ($0.035)
     "lead_social": 0.8,             # one Tavily search limited to the network ($0.008)

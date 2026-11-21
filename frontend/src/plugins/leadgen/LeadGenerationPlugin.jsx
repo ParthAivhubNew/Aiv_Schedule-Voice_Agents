@@ -33,8 +33,9 @@ import {
   Bot,
   Users,
   FileSpreadsheet,
+  Upload,
   Workflow,
-  FileText, BookOpen } from "lucide-react";
+  FileText, BookOpen, FileUp, CalendarClock } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
@@ -54,6 +55,13 @@ import { NewCampaign } from "./CampaignSimple";
 import { JourneysView } from "./JourneysView";
 import { InboundFormsView } from "./InboundForms";
 import { RetentionReview } from "./RetentionReview";
+import { MemberList } from "./MemberList";
+import { useBrand } from "../../brand/BrandContext";
+import { ImportMatchView } from "./ImportMatch";
+import { MonthlyChangesView } from "./MonthlyChanges";
+import { ConnectorsView } from "./ConnectorsView";
+import { isFsbAccount } from "../../hub/SidebarAccountBadge";
+import { canUseRecords } from "./importMatchLogic";
 import { returnToList } from "./openList";
 import { CompanyPage } from "./CompanyPage";
 import { ProfileBox } from "./EmailWriter";
@@ -66,7 +74,7 @@ import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/Embe
 
 const SAVED_VIEWS = ["saved_people", "saved_companies", "lists"];
 // Every screen this plugin can show. Any other address under #/leadgen/ gets a "Page not found" instead of a blank page.
-const KNOWN_VIEWS = ["find_leads", "lists", "saved_people", "saved_companies", "account", "company", "outreach", "mail", "mailboxes", "inbound_forms", "retention", "business", "subscription", "assistant"];
+const KNOWN_VIEWS = ["find_leads", "lists", "saved_people", "saved_companies", "account", "company", "outreach", "mail", "mailboxes", "inbound_forms", "import_match", "changes", "retention", "member_list", "business", "subscription", "assistant", "connectors"];
 
 export default function LeadGenerationPlugin({
   operator,
@@ -88,6 +96,7 @@ export default function LeadGenerationPlugin({
   };
 
   const { hasPlan, loading: planLoading } = usePluginAccess("leadgen");
+  const { memberSuppression } = useBrand();
   const isLocked = !planLoading && !hasPlan;
 
   const [view, setView] = useState(() => {
@@ -171,6 +180,11 @@ export default function LeadGenerationPlugin({
   const [openAccount, setOpenAccount] = useState(null); // the saved account shown in the side panel
   useEffect(() => { if (view === "account" && !accountPageId) setView("saved_companies"); }, [view, accountPageId]); // a reload has no company to show
   const [toastMessage, setToastMessage] = useState(null);
+  const [reviewWaiting, setReviewWaiting] = useState(0); // records waiting for a person to confirm; shown beside Import & match
+  useEffect(() => {
+    if (isLocked || embedViews || !canUseRecords(operator)) return;
+    api.getReviewQueue({ status: "open", limit: 1 }).then((r) => setReviewWaiting(r.total || 0)).catch(() => {});
+  }, [isLocked, embedViews, operator]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false); // the AI assistant panel beside the page
   const [journeyId, setJourneyId] = useState(""); // a journey to open on the Journeys page (from the chat)
@@ -272,8 +286,12 @@ export default function LeadGenerationPlugin({
     { id: "outreach", label: "Journeys", icon: Route, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
     { id: "inbound_forms", label: "Forms", icon: FileText, group: "Inbound", title: "Web forms that turn visitors into leads" },
+    ...(isFsbAccount(operator) ? [
+      { id: "connectors", label: "Connectors", short: "Connectors", icon: Plug, group: "Setup", title: "Backend API connectors, data sources and custom AI integrations" },
+    ] : []),
     { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
+    ...(memberSuppression && operator?.is_admin ? [{ id: "member_list", label: "Member list", icon: Users, group: "Setup", title: "Companies that never appear as prospects" }] : []),
     { id: "documentation", label: "Documentation", icon: BookOpen, group: "Setup", external: true },
   ], embedViews);
   const navGroups = ["Outreach", "Inbound", "Setup"].map((label) => ({
@@ -333,8 +351,12 @@ export default function LeadGenerationPlugin({
     outreach: { title: "Journeys", desc: "A path through emails, calls and tasks for each person: set it up once, and it stops when they reply, book or opt out." },
     mail: { title: "Inbox and sent", desc: "Everything your journeys sent and got back: replies, sent emails and the do-not-email list." },
     inbound_forms: { title: "Forms", desc: "Build a web form, share its link, and every answer with a working email becomes a lead in the list you choose." },
+    import_match: { title: "Import & match", desc: "Upload your customer records, match them to the Companies House register, and confirm the ones we are not sure about." },
+    changes: { title: "Monthly changes", desc: "What changed each month at the companies you follow: status, name, address, directors and insolvency notices." },
+    connectors: { title: "Connectors", desc: "Data enrichment sources, CRM integrations and custom AI engine connections." },
     retention: { title: "Review old contacts", desc: "Companies nobody has contacted for 12 months. Keep what you need and delete the rest." },
     mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
+    member_list: { title: "Member list", desc: "Companies on this list never appear as prospects." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails, and who your ideal customer is. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
   };
@@ -353,7 +375,23 @@ export default function LeadGenerationPlugin({
         <PluginHeader assistant={false} accent="#8B5CF6" nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
           {view === "find_leads" && !isLocked && !embedViews ? (
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm phone-gone" title="Bring in your own spreadsheet of companies" onClick={goImport}><FileSpreadsheet size={14} /> Import</button>
+            <button
+              type="button"
+              className="ui-btn ui-btn--secondary ui-btn--sm phone-gone"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontWeight: 600,
+                background: "#FFFFFF",
+                border: "1px solid var(--ui-line, #E2E8F0)",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+              }}
+              title="Import spreadsheet of companies"
+              onClick={goImport}
+            >
+              <Upload size={14} /> Import
+            </button>
           ) : null}
           {!isLocked && !embedViews && view !== "assistant" ? <AssistantButton open={assistantOpen} onClick={() => setAssistantOpen((v) => !v)} /> : null}
           {(view === "lists" || view === "saved_companies" || view === "saved_people") && (
@@ -438,8 +476,12 @@ export default function LeadGenerationPlugin({
 
           {view === "mailboxes" && <MailboxesView outreach={outreach} onViewSent={(id) => { setInboxStart({ sub: "sent", mailboxId: id }); setView("mail"); }} />}
           {view === "inbound_forms" && <InboundFormsView toast={showToast} onOpenLead={async (id) => { await Promise.all([store.reload(), listsStore.reload()]); setWantedLead(id); setView("saved_companies"); }} />}
+          {view === "import_match" && !embedViews && canUseRecords(operator) && <ImportMatchView operator={operator} toast={showToast} onReviewCount={setReviewWaiting} />}
+          {view === "changes" && !embedViews && canUseRecords(operator) && <MonthlyChangesView toast={showToast} />}
+          {view === "connectors" && !embedViews && isFsbAccount(operator) && <ConnectorsView operator={operator} toast={showToast} />}
           {view === "retention" && !embedViews && <RetentionReview toast={showToast} onGo={goTo} />}
           {view === "business" && <ProfileBox page />}
+          {view === "member_list" && memberSuppression && operator?.is_admin && <MemberList toast={showToast} />}
 
           {!KNOWN_VIEWS.includes(view) && (
             <div role="alert" style={{ padding: "48px 16px", display: "grid", gap: 10, justifyItems: "start", maxWidth: 520 }}>

@@ -7,13 +7,16 @@ import { Spinner, TableSkeleton, TopBar } from "../../app/Loader";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { openPhone } from "../../utils/humanCall";
-import { Building2, Check, ChevronDown, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Building2, Check, ChevronDown, Download, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Star, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { ExportDialog } from "./ExportDialog";
+import { EnrichmentBanner, EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
 import { C, FONT_BODY } from "../../tokens";
 import { ImportMapper } from "./ImportMapper";
 import { AddToListDialog } from "./Lists";
+import { TpsCheckDialog } from "./TpsCheckDialog";
 import { applyMapping, quarantineCsv, withPeople } from "./importMapping";
 import { pendingList } from "./openList";
 import { CheckDetails, CheckDialog, DetailChecks, EndedBanner, CheckProgress, LOCK_TIP, VerdictBadge, VERDICTS, VERDICT_ORDER, useCompanyCheck, useLocked } from "./CheckCompanies";
@@ -627,7 +630,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId]);
   const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}`); // ids ticked for the bulk actions; a new filter or list clears them
   const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
+  const [tpsNumbers, setTpsNumbers] = useState(null); // numbers of the ticked companies while the TPS and CTPS check is open
   const [listing, setListing] = useState(false); // the Add to list box is open
+  const [exportOpen, setExportOpen] = useState(false); // Export to CSV dialog
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   const locked = useLocked();
@@ -746,6 +751,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       store.toast(e.message || "Couldn't remove them.");
     }
   };
+  const openTps = () => {
+    const numbers = pickedIds.map((id) => phoneFor(base.find((a) => a.id === id) || {})?.text).filter(Boolean);
+    const missing = pickedIds.length - numbers.length;
+    if (!numbers.length) { store.toast("None of the ticked companies has a phone number yet. Use Get contacts first."); return; }
+    if (missing) store.toast(`${missing.toLocaleString()} ${missing === 1 ? "has" : "have"} no phone and ${missing === 1 ? "was" : "were"} skipped.`);
+    setTpsNumbers(numbers);
+  };
   // The ticked companies become a list of their own, and the campaign is started on it.
   const startCampaign = async () => {
     const withEmail = pickedIds.filter((id) => emailFor(base.find((a) => a.id === id) || {})?.text);
@@ -819,6 +831,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
           ) : null}
           <span id="acc-grid-tools" style={{ display: "contents" }} />{/* the Default / My layout switch and Columns sit here, in this row */}
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Export companies as a CSV spreadsheet" onClick={() => setExportOpen(true)}>
+            <Download size={14} /> Export CSV
+          </button>
           <ViewsMenu current={{ hidden, tab: tabPref, filter: moreFilter }} onToast={store.toast}
             onApply={(v) => {
               saveHidden(v.hidden || []);
@@ -837,6 +852,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           {pickedOnFile.length ? (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealRows(pickedOnFile)}>Reveal {pickedOnFile.length.toLocaleString()}</button>
           ) : null}
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={openTps}
+            title="Check the ticked companies' phone numbers against the TPS and CTPS registers">
+            <ShieldCheck size={14} /> Check TPS/CTPS
+          </button>
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} onClick={() => setListing(true)}
             title="Group these companies in a named list, ready for a journey">
             Add to list
@@ -855,6 +874,9 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
               <Megaphone size={14} /> Start journey
             </button>
           ) : null}
+          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Export ticked companies as CSV" onClick={() => setExportOpen(true)}>
+            <Download size={14} /> Export CSV
+          </button>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} onClick={deleteTicked}
             title="Delete the ticked companies for good. They leave every list and journey.">
             Delete
@@ -877,6 +899,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <div className="fl-co-body">
                     <div style={{ minWidth: 0 }}>
                       <button type="button" className="fl-co-name" onClick={(e) => { stop(e); onOpen(a); }}>{displayName(a.name)}</button>
+                      {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: "#F59E0B", marginLeft: 5 }}>★</span> : null}
+                      {a.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                       {legalTag(a.registry?.company_category, a.registration_number) ? <div className="fl-co-sub">{legalTag(a.registry?.company_category, a.registration_number)}</div> : null}
                     </div>
                     {a.signals?.length ? <SignalTags signals={a.signals} /> : null}
@@ -945,6 +969,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <td style={{ padding: 0, width: 48 }} onClick={(e) => e.stopPropagation()}><label className="row-tick" title="Select this company"><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></label></td>
                   <td>
                     <button type="button" title={a.name} onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{displayName(a.name)}</button>
+                    {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: "#F59E0B", marginLeft: 5 }}>★</span> : null}
+                    {a.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                     {legalTag(a.registry?.company_category, a.registration_number) ? <span style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(a.registry?.company_category, a.registration_number)}</span> : null}
                     <span style={{ marginLeft: 4 }}><NotesButton companyId={a.id} name={a.name} /></span>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
@@ -1058,6 +1084,15 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} mode={checking.mode} onStart={check.start} onClose={() => setChecking(null)} />
       ) : null}
       {listing && listsStore ? <AddToListDialog ids={pickedIds} listsStore={listsStore} onToast={store.toast} onClose={() => setListing(false)} /> : null}
+      {tpsNumbers ? <TpsCheckDialog numbers={tpsNumbers} wallet="leadgen" onClose={() => setTpsNumbers(null)} /> : null}
+      {exportOpen ? (
+        <ExportDialog
+          open={exportOpen}
+          onClose={() => setExportOpen(false)}
+          accounts={pickedIds.length ? base.filter((a) => sel.has(a.id)) : shown}
+          onToast={store.toast}
+        />
+      ) : null}
       {call.dialog}
     </div>
   );
@@ -1631,6 +1666,7 @@ export function ImportView({ store, onGo, onAskAi }) {
   const [progress, setProgress] = useState(null); // { done, total } while a big file is going in
   const [onExisting, setOnExisting] = useState("fill"); // a company already saved: fill its blanks, leave it, or overwrite it from the file
   const [fillFree, setFillFree] = useState(true); // after saving, fill what our own records already know (free)
+  const [enrichModalOpen, setEnrichModalOpen] = useState(false);
 
   const resetFile = () => {
     setFile(null);
@@ -1721,6 +1757,7 @@ export function ImportView({ store, onGo, onAskAi }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <EnrichmentBanner onOpenModal={() => setEnrichModalOpen(true)} />
       <input ref={fileRef} type="file" hidden accept=".xlsx,.xls,.ods,.csv,.tsv,.txt,.json" onChange={(e) => { pick(e.target.files && e.target.files[0]); e.target.value = ""; }} />
       {showMapper ? (
         <ImportMapper
@@ -1814,6 +1851,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
         </div>
       )}
+      <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
     </div>
   );
 }

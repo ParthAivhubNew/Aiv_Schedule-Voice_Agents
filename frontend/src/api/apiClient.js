@@ -246,6 +246,8 @@ export const api = {
   getNumbers: () => apiRequest('/numbers'),
   estimateNumberCheck: (items) => apiRequest('/number-check/estimate', { method: 'POST', body: { items }, timeoutMs: 60000 }),
   runNumberCheck: (items) => apiRequest('/number-check/run', { method: 'POST', body: { items }, timeoutMs: 180000 }),
+  tpsEstimate: (numbers, wallet) => apiRequest('/tps-check/estimate', { method: 'POST', body: { numbers, wallet }, timeoutMs: 60000 }),
+  tpsRun: (numbers, wallet) => apiRequest('/tps-check/run', { method: 'POST', body: { numbers, wallet }, timeoutMs: 180000 }),
   addNumber: (data) => apiRequest('/numbers', { method: 'POST', body: data }),
   updateNumber: (id, data) => apiRequest(`/numbers/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
   assignNumber: (id, operator_ids) => apiRequest(`/numbers/${encodeURIComponent(id)}/assignments`, { method: 'PUT', body: { operator_ids } }),
@@ -457,6 +459,26 @@ export const api = {
   listInboundSubmissions: (id) => apiRequest(`/inbound/forms/${encodeURIComponent(id)}/submissions`),
   approveInboundSubmission: (id) => apiRequest(`/inbound/submissions/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
   blockInboundSubmission: (id) => apiRequest(`/inbound/submissions/${encodeURIComponent(id)}/block`, { method: 'POST' }),
+  // Import & match, review queue and monthly changes (customer records matched to the register)
+  uploadRecordImport: (file) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return apiRequest('/fsb/imports', { method: 'POST', body: form, timeoutMs: 300000 });
+  },
+  listRecordImports: () => apiRequest('/fsb/imports'),
+  getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),
+  getRecordImportRows: (id, { status = '', limit = 50, offset = 0 } = {}) =>
+    apiRequest(`/fsb/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),
+  downloadRecordDuplicates: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/duplicates.csv`, { asBlob: true, timeoutMs: 120000 }),
+  getMatchSettings: () => apiRequest('/fsb/settings'),
+  saveMatchSettings: (auto, review) => apiRequest('/fsb/settings', { method: 'PUT', body: { auto, review } }),
+  getReviewQueue: ({ importId = '', status = 'open', limit = 50, offset = 0 } = {}) =>
+    apiRequest(`/review-queue?import=${encodeURIComponent(importId)}&status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),
+  decideReview: (rowId, decision, companyNumber = '') =>
+    apiRequest(`/review-queue/${encodeURIComponent(rowId)}/decision`, { method: 'POST', body: companyNumber ? { decision, company_number: companyNumber } : { decision } }),
+  listChangeReports: () => apiRequest('/change-reports'),
+  runChangeReport: (start, end) => apiRequest('/change-reports/run', { method: 'POST', body: { start, end }, timeoutMs: 120000 }),
+  downloadChangeReport: (id) => apiRequest(`/change-reports/${encodeURIComponent(id)}/rows.csv`, { asBlob: true, timeoutMs: 120000 }),
   // Working together: Lead Gen + Voice + Social
   getPluginLinks: () => apiRequest('/together/availability'),
   getConnectionRules: () => apiRequest('/together/rules'),

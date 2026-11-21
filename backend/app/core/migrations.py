@@ -389,6 +389,17 @@ async def _seed_google_places_vendor_price(conn: AsyncConnection) -> None:
     ), {"id": f"pp_{uuid.uuid4().hex[:12]}"})
 
 
+async def _seed_provero_tps_vendor_price(conn: AsyncConnection) -> None:
+    """The TPS/CTPS screening vendor's price per check (about 0.4p, 0.0053 US dollars) for the admin vendor-spend estimate; editable like the others."""
+    import uuid
+
+    await conn.execute(text(
+        "INSERT INTO provider_prices (id, provider, model, kind, price_in_usd, price_out_usd, confirmed, created_at, updated_at, updated_by) "
+        "VALUES (:id, 'provero_tps', '', 'lookup', 0.0053, 0, TRUE, now(), now(), 'migration') "
+        "ON CONFLICT (provider, model, kind) DO NOTHING"
+    ), {"id": f"pp_{uuid.uuid4().hex[:12]}"})
+
+
 async def _lead_account_research_history_column(conn: AsyncConnection) -> None:
     """Re-researching a saved account used to throw away what the last run found; this column
     keeps earlier runs so users can look back at more than just the latest one (see models.py)."""
@@ -432,6 +443,10 @@ async def _auth_session_rotation_grace(conn: AsyncConnection) -> None:
 
 async def _auth_session_remember(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS remember BOOLEAN DEFAULT FALSE"))
+
+
+async def _lead_account_field_sources(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE lead_accounts ADD COLUMN IF NOT EXISTS field_sources JSON"))
 
 
 async def _clear_sample_company_profile(conn: AsyncConnection) -> None:
@@ -925,6 +940,11 @@ async def _org_referred_by_partner(conn: AsyncConnection) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_organizations_referred_by_partner_id ON organizations (referred_by_partner_id)"))
 
 
+async def _org_brand(conn: AsyncConnection) -> None:
+    await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS brand_id VARCHAR"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_organizations_brand_id ON organizations (brand_id)"))
+
+
 async def _embed_links_and_ledger_stamps(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE partner_links ADD COLUMN IF NOT EXISTS external_id VARCHAR DEFAULT ''"))
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_partner_links_external_id ON partner_links (external_id)"))
@@ -1017,6 +1037,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_10_24_seed_open_data_sources", _seed_open_data_sources),
     ("2026_10_25_lead_account_research_history_column", _lead_account_research_history_column),
     ("2026_10_26_seed_google_places_vendor_price", _seed_google_places_vendor_price),
+    ("2026_11_21_seed_provero_tps_vendor_price", _seed_provero_tps_vendor_price),
     ("2026_10_27_business_record_shared_research_column", _business_record_shared_research_column),
     ("2026_10_28_social_account_expiry", _social_account_expiry),
     ("2026_10_29_lead_account_verification_column", _lead_account_verification_column),
@@ -1054,6 +1075,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_24_eligibility_and_consent", _eligibility_and_consent),
     ("2026_11_25_icp_and_register_dates", _icp_and_register_dates),
     ("2026_11_26_auth_session_remember", _auth_session_remember),
+    ("2026_11_27_org_brand", _org_brand),
+    ("2026_11_28_lead_account_field_sources", _lead_account_field_sources),
 ]
 
 

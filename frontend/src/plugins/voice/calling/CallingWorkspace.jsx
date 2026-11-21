@@ -65,6 +65,9 @@ import {
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
+import { useBrand } from "../../../brand/BrandContext";
+import { PoweredBy } from "../../../brand/PoweredBy";
+import { SidebarAccountBadge } from "../../../hub/SidebarAccountBadge";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { useEmbedded } from "../../../embed/EmbedContext";
 import { NavItem } from "../../../hub/NavItem";
@@ -93,6 +96,8 @@ import { AiCallPermission } from "./AiCallPermission";
 import { openPhone } from "../../../utils/humanCall";
 import { ImportMapper } from "./ImportMapper";
 import { NumberCheckBar, StatusBadge } from "./NumberCheckBar";
+import { TpsCheckBar } from "./TpsCheckBar";
+import { TpsBadge } from "../../leadgen/TpsCheckDialog";
 import { GetContactsBar } from "./GetContactsBar";
 import { VerdictBadge } from "../../leadgen/CheckCompanies";
 import { LINE, MATCH, filterRows, hasChecks, statusOf } from "./numberCheck";
@@ -975,6 +980,7 @@ export function CallingWorkspace({
   const [sidebarCollapsed, toggleSidebar] = useSidebarCollapse();
   const [logoutTip, logoutNode] = useRailTip();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, credits or log out (the partner owns those)
+  const brand = useBrand();
   const { hasPlan: voiceHasPlan, loading: voicePlanLoading } = usePluginAccess("voice");
   const pluginLocked = !voicePlanLoading && !voiceHasPlan;
   const [fileName, setFileName] = useState("");
@@ -2896,7 +2902,9 @@ export function CallingWorkspace({
             <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: "voice", screen: page }) }} />
           </>
         )}
-        {!embedded && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
+        {!embedded && !brand.hideCredits && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
+        {!embedded && <SidebarAccountBadge operator={operator} collapsed={sidebarCollapsed} />}
+        {!embedded && <PoweredBy dark style={{ padding: "8px 8px 0" }} />}
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
         { id: "list", short: "Call list", icon: List },
@@ -3517,6 +3525,9 @@ export function CallingWorkspace({
                     />
                   ) : null}
                   {rows.length ? (
+                    <TpsCheckBar rows={rows} setRows={setRows} selectedIds={selectedIds} phoneOf={rowPhone} showToast={showToast} />
+                  ) : null}
+                  {rows.length ? (
                     <GetContactsBar rows={rows} setRows={setRows} selectedIds={selectedIds} fileName={fileName} phoneOf={rowPhone} showToast={showToast} leadsOn={leadsLink.available} />
                   ) : null}
                   {availableSheets.length > 1 && (
@@ -3607,6 +3618,7 @@ export function CallingWorkspace({
                               <div style={{ fontSize: 15, fontWeight: 600, color: C.textInk, overflowWrap: "anywhere" }}>{r.company || who || "No name"}</div>
                               {r.company && who ? <div style={{ fontSize: 13, color: C.slate }}>{who}</div> : null}
                               <div style={{ fontSize: 13.5, color: canDial ? C.textInk : C.slateLight, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{phone || "No phone number"}</div>
+                              {phone ? <div style={{ marginTop: 3 }}><TpsBadge status={r.tps?.status} ctps={r.tps?.ctps} checkedAt={r.tps?.checkedAt} /></div> : null}
                               {r.email ? <div style={{ fontSize: 12.5, color: C.slate, overflowWrap: "anywhere" }}>{r.email}</div> : null}
                               <div style={{ fontSize: 12, color: r.lastOutcome ? C.textInk : C.slateLight, marginTop: 4 }}>
                                 {r.lastOutcome || "Not called"}{r.callTimes ? ` · ${r.callTimes} call${r.callTimes === 1 ? "" : "s"}` : ""}
@@ -3679,6 +3691,7 @@ export function CallingWorkspace({
                             </>
                           ) : null}
                           {rows.some((r) => r.lead) ? <th title="What the company check found, the same check as in your Leads lists">Company check</th> : null}
+                          <th title="Whether the number is on the TPS or CTPS register">TPS/CTPS</th>
                           <th title="How many of phone, contact name, company, email and website this contact has">Details</th>
                           <th style={{ textAlign: "right" }}>Calls</th>
                           <th>Last result</th>
@@ -3750,6 +3763,7 @@ export function CallingWorkspace({
                                 </>
                               ) : null}
                               {rows.some((x) => x.lead) ? <td>{r.lead && r.lead.verdict ? <VerdictBadge verification={{ verdict: r.lead.verdict }} /> : <span style={{ color: C.slateLight }}>Not checked</span>}</td> : null}
+                              <td><TpsBadge status={r.tps?.status} ctps={r.tps?.ctps} checkedAt={r.tps?.checkedAt} /></td>
                               <td><DetailsBar d={rowDetails(r, phone)} /></td>
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.callTimes || 0}</td>
                               <td style={{ color: r.lastOutcome ? C.textInk : C.slateLight }}>{r.lastOutcome || "Not called"}</td>

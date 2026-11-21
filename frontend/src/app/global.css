@@ -1227,9 +1227,11 @@ button, input, select, textarea {
   body.sidebar-collapsed .app-sidebar .ui-credits-full,
   body.sidebar-collapsed .app-sidebar .ui-nav-chevron,
   body.sidebar-collapsed .app-sidebar .ui-nav-count,
+  body.sidebar-collapsed .app-sidebar .ui-nav-external,
+  body.sidebar-collapsed .app-sidebar .ui-nav-item > svg:not(:first-child),
   body.sidebar-collapsed .app-sidebar .ui-nav-item > span,
   body.sidebar-collapsed .app-sidebar .ui-switcher-btn--home > span,
-  body.sidebar-collapsed .app-sidebar .ui-switcher-btn:not(.ui-switcher-btn--home) { display: none; }
+  body.sidebar-collapsed .app-sidebar .ui-switcher-btn:not(.ui-switcher-btn--home) { display: none !important; }
   body.sidebar-collapsed .app-sidebar .sb-home-text { display: none !important; }
   body.sidebar-collapsed .app-sidebar .ui-nav-label { height: 1px; margin: 8px 4px; padding: 0; overflow: hidden; font-size: 0; background: var(--ui-side-hover); }
   body.sidebar-collapsed .app-sidebar .ui-nav-item { justify-content: center; padding-left: 0; padding-right: 0; }

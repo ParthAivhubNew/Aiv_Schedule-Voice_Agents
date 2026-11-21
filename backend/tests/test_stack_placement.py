@@ -64,8 +64,9 @@ def test_google_website_on_a_booking_platform_is_not_kept_as_the_website():
     from app.api.lead_accounts import _vouched
 
     place = {"postcode_match": True, "website": "http://mhaychcuts.booksy.com/", "phone": "07704 965949"}
-    assert "website" not in _vouched(place, {})
-    assert _vouched({"postcode_match": True, "website": "https://www.hartsprays.co.uk"}, {})["website"] == "https://www.hartsprays.co.uk"
+    assert "website" not in _vouched({**place, "via": "apollo"}, {})
+    assert _vouched({"postcode_match": True, "via": "apollo", "website": "https://www.hartsprays.co.uk"}, {})["website"] == "https://www.hartsprays.co.uk"
+    assert "website" not in _vouched({"postcode_match": True, "website": "https://www.hartsprays.co.uk"}, {})  # Google's own value is never kept
 
 
 def test_an_unconfirmed_social_listing_is_not_put_under_the_icon():
@@ -199,8 +200,8 @@ def test_another_name_is_confirmed_only_when_its_own_site_names_the_company_or_s
 def test_a_postcode_vouch_needs_the_name_to_match():
     from app.api.lead_accounts import _vouched
 
-    assert "website" not in _vouched({"postcode_match": True, "name_match": False, "website": "https://other-firm.co.uk"}, {})
-    assert _vouched({"postcode_match": True, "name_match": True, "website": "https://hartsprays.co.uk"}, {})["website"] == "https://hartsprays.co.uk"
+    assert "website" not in _vouched({"postcode_match": True, "via": "apollo", "name_match": False, "website": "https://other-firm.co.uk"}, {})
+    assert _vouched({"postcode_match": True, "via": "apollo", "name_match": True, "website": "https://hartsprays.co.uk"}, {})["website"] == "https://hartsprays.co.uk"
 
 
 def test_a_company_card_carries_no_prepared_search_links():
@@ -214,32 +215,6 @@ def test_a_company_card_carries_no_prepared_search_links():
     except Exception:  # a stand-in record may lack columns the card reads; the key is what matters
         return
     assert "closest" not in card
-
-
-def test_a_google_listing_at_the_companys_address_becomes_a_labelled_suggestion(monkeypatch):
-    from app.api import lead_accounts as LA
-    from app.services import company_contacts as CC
-
-    saved = {}
-
-    async def remember(db, biz, options):
-        saved.update(options)
-        return options
-
-    monkeypatch.setattr(CC, "_remember_options", remember)
-
-    class Biz:
-        id, raw_data = "b1", {"lookup_options": {"website": [{"value": "https://web-candidate.co.uk", "score": 43}]}}
-    place = {"postcode_match": True, "name_match": False, "name": "Khedrubje Kadampa Buddhist Centre", "website": "http://www.meditateinhull.org.uk/x?utm=1", "place_id": "ChIJabc", "via": "google_places"}
-    run(LA._suggest_place(None, Biz(), place, "website"))
-    got = saved["website"]
-    assert [o["value"] for o in got] == ["https://web-candidate.co.uk", "https://www.meditateinhull.org.uk"] or got[1]["value"].endswith("meditateinhull.org.uk")
-    assert "at the company's address" in got[1]["label"] and got[1]["sources"] == ["https://www.google.com/maps/place/?q=place_id:ChIJabc"]
-    saved.clear()
-    run(LA._suggest_place(None, Biz(), {**place, "website": "http://mhaychcuts.booksy.com/"}, "website"))
-    assert saved == {}  # a booking page is never a suggested website
-    run(LA._suggest_place(None, Biz(), {**place, "postcode_match": False}, "website"))
-    assert saved == {}  # another address is not offered
 
 
 def test_previous_names_are_searched_and_accepted():

@@ -242,7 +242,7 @@ def people_days(limit: int, share: int, owners: bool) -> float:
     return calls / (REGISTRY_CALLS_PER_5_MIN * 12 * 24 * max(10, min(int(share or 75), 90)) / 100.0)
 
 
-async def start_people_run(db: AsyncSession, source: DataSource, *, limit: int, share: int = 75, owners: bool = False) -> DataSourceRun:
+async def start_people_run(db: AsyncSession, source: DataSource, *, limit: int, share: int = 75, owners: bool = False, priority: str = "") -> DataSourceRun:
     """Creates the run row for the people job (the caller commits, then spawns run_people). Same one-run-at-a-time rule as any source."""
     import uuid
 
@@ -258,7 +258,7 @@ async def start_people_run(db: AsyncSession, source: DataSource, *, limit: int, 
     if current and current.status in ACTIVE_STATUSES:
         raise ValueError(f"A run is already {current.status} for this source -- stop it first.")
     cursor = {"people": True, "job": "people", "limit": limit, "total": limit, "share": max(10, min(int(share or 75), 90)), "owners": bool(owners),
-              "failed": 0, "waiting": ""}
+              "failed": 0, "waiting": "", "priority": parse_priority(priority)}
     run = DataSourceRun(id=f"dsr_{uuid.uuid4().hex[:16]}", source_id=source.id, status="running", cursor=cursor)
     db.add(run)
     source.run_state = "running"
@@ -267,12 +267,35 @@ async def start_people_run(db: AsyncSession, source: DataSource, *, limit: int, 
     return run
 
 
-def _people_todo(skip: set):
-    """The companies still to read: active, with a real registry number, never read, best-ranked first."""
+def parse_priority(raw) -> list:
+    """Postcode districts to read first, from "BN1, bn3 BN5" to ["BN1", "BN3", "BN5"]. Anything that is not a district is refused."""
+    import re
+
+    out: list = []
+    for d in re.split(r"[\s,;]+", str(raw or "").upper()):
+        if not d:
+            continue
+        if not re.fullmatch(r"[A-Z]{1,2}[0-9]{1,2}[A-Z]?", d):
+            raise ValueError(f"\"{d}\" is not a postcode district. Use things like BN1, BN3, SW1A.")
+        if d not in out:
+            out.append(d)
+    if len(out) > 60:
+        raise ValueError("Choose at most 60 districts to read first.")
+    return out
+
+
+def _people_todo(skip: set, districts: Optional[list] = None):
+    """The companies still to read: active, with a real registry number, never read, best-ranked first. With `districts`, only companies in those
+    postcode districts: the job reads them first, then carries on with everyone else."""
     from app.models.models import BusinessRecord as B
 
     q = select(B).where(B.people_checked_at.is_(None), B.confidence_tier == "verified_registry", B.status.ilike("active%"),
                         B.registration_number.op("~")("^[A-Z0-9]{8}$"))
+    if districts:
+        from sqlalchemy import func, or_
+
+        letters = sorted({"".join(c for c in d if c.isalpha())[:2] for d in districts})  # BN, SW: lets the postcode index narrow it before the exact check
+        q = q.where(or_(*[B.postcode.like(f"{p}%") for p in letters]), func.split_part(func.upper(B.postcode), " ", 1).in_(districts))
     if skip:
         q = q.where(B.id.notin_(skip))
     return q.order_by(B.rank_score.desc().nullslast(), B.id)
@@ -303,6 +326,7 @@ async def run_people(run_id: str) -> None:
         pace = people_interval(cursor.get("share") or 75) * (2 if owners else 1)
         done, with_people, none_found, failed = int(run.records_found or 0), int(run.records_new or 0), int(run.records_updated or 0), int(cursor.get("failed") or 0)
         skip: set = set()
+        priority = list(cursor.get("priority") or [])  # districts to read first (for example the BN areas)
         in_a_row = 0
         note = str(cursor.get("note") or "")  # the registry's latest reply that mattered, shown on the page
 
@@ -322,7 +346,11 @@ async def run_people(run_id: str) -> None:
                 live = (await db.execute(select(DataSourceRun).where(DataSourceRun.id == run_id))).scalars().first()
                 if not live or live.status != "running":
                     return  # paused or stopped elsewhere
-                rows = (await db.execute(_people_todo(skip).limit(min(PEOPLE_BATCH, limit - done)))).scalars().all()
+                rows = (await db.execute(_people_todo(skip, priority or None).limit(min(PEOPLE_BATCH, limit - done)))).scalars().all()
+                if not rows and priority:
+                    priority = []  # every company in the chosen districts is read: carry on with the best-ranked companies everywhere
+                    note = f"{datetime.utcnow():%H:%M} UTC: the chosen districts are done, now reading the best-ranked companies everywhere"
+                    continue
                 if not rows:
                     break  # nothing left to read
                 for biz in rows:

@@ -19,6 +19,7 @@ class Organization(Base):
     slug = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, default="active")  # active, inactive, suspended
     referred_by_partner_id = Column(String, nullable=True, index=True)  # the partner whose sign-up page created this account
+    brand_id = Column(String, nullable=True, index=True)  # the white-label brand (and its policy) this account follows; none for a normal customer
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -707,6 +708,21 @@ class StaffUser(Base):
     is_active = Column(Boolean, default=True)
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditLog(Base):
+    """Who changed what, when, for the things a customer must be able to prove: exclusion settings, exports, review decisions, member lists.
+    One row per action, written by services/audit.py. Organisation-scoped like every other tenant table."""
+    __tablename__ = "audit_log"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"aud_{uuid.uuid4().hex[:16]}")
+    actor_id = Column(String, default="", index=True)
+    actor_name = Column(String, default="")
+    action = Column(String, nullable=False, index=True)  # for example "policy.changed", "export.created", "review.accepted"
+    target = Column(String, default="")  # what it was done to: an id, a list name, a number
+    detail = Column(JSON, nullable=True)  # small facts: old and new value, row count. Never secrets.
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class NumberCheck(Base):
@@ -1648,6 +1664,9 @@ class LeadAccount(Base):
     verification = Column(JSON, nullable=True)
     # The user's own extra columns from an imported file: {"column name": "value"} (see clean_custom).
     custom = Column(JSON, nullable=True)
+    # Where each saved phone / website / email came from: {"phone": "website"|"register"|"user"|"import"|"google_places"|"apollo"}.
+    # Drives what may be exported (see services/data_policy.py); a value without an entry predates this column.
+    field_sources = Column(JSON, nullable=True)
     # Identity as the file gave it, normalised on save (see services/normalise.py).
     registration_number = Column(String, default="", index=True)
     postcode = Column(String, default="")
@@ -2656,3 +2675,103 @@ class ApolloCall(Base):
     route = Column(String, default="")  # the request that caused it, e.g. "POST /api/leads/companies/x/find-website"
     status = Column(Integer, nullable=True)  # HTTP status; None when the request got no answer
     outcome = Column(String, default="")  # found, none, key_exhausted, rate_limited, refused, error
+
+
+class Brand(Base):
+    """A white-label brand: the look an organisation shows and the policy it must follow (see services/tenant_policy.py). Platform-level, no
+    org_id: staff manage it. Not the partner program (Partner embeds our screens in their software; a Brand re-skins and governs ours)."""
+    __tablename__ = "brands"
+
+    id = Column(String, primary_key=True, default=lambda: f"brd_{uuid.uuid4().hex[:12]}")
+    name = Column(String, nullable=False)
+    display_name = Column(String, default="")
+    logo_url = Column(String, default="")
+    accent_color = Column(String, default="")
+    theme = Column(JSON, default=dict)
+    powered_by = Column(Boolean, default=True)  # show "Powered by Outreach"
+    hide_credits = Column(Boolean, default=False)
+    status = Column(String, default="active", index=True)  # active | suspended
+    policy = Column(JSON, default=dict)  # validated by services/tenant_policy.clean_policy
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BrandDomain(Base):
+    """A host name that shows one brand's sign-in page and look."""
+    __tablename__ = "brand_domains"
+
+    id = Column(String, primary_key=True, default=lambda: f"bdm_{uuid.uuid4().hex[:12]}")
+    host = Column(String, nullable=False, unique=True, index=True)  # lower case, no port
+    brand_id = Column(String, ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, index=True)
+    verified = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SuppressedCompany(Base):
+    """A company number an organisation's brand policy hides from every search (the member list a body such as FSB uploads)."""
+    __tablename__ = "suppressed_companies"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"sup_{uuid.uuid4().hex[:16]}")
+    company_number = Column(String(8), nullable=False)  # upper case, 8 characters
+    label = Column(String, default="")
+    added_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("org_id", "company_number", name="uq_suppressed_org_number"),)
+
+
+class FsbImport(Base):
+    """One Salesforce Account export an organisation uploaded to be matched to the Companies House register data we hold."""
+    __tablename__ = "fsb_imports"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"fsi_{uuid.uuid4().hex[:16]}")
+    filename = Column(String, default="")
+    status = Column(String, default="uploaded", index=True)  # uploaded | matching | done | failed
+    row_count = Column(Integer, default=0)
+    stats = Column(JSON, nullable=True)  # progress while matching, then the final counts
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    error = Column(Text, default="")
+
+
+class FsbImportRow(Base):
+    """One row of an FSB import and what the matching decided about it. The review queue is the rows with match_status "review"."""
+    __tablename__ = "fsb_import_rows"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"fsr_{uuid.uuid4().hex[:16]}")
+    import_id = Column(String, index=True, nullable=False)
+    source_record_id = Column(String, default="", index=True)  # the Salesforce Account ID
+    name = Column(String, default="")
+    company_number_given = Column(String, default="")
+    postcode = Column(String, default="")
+    address = Column(String, default="")
+    phone = Column(String, default="")
+    website = Column(String, default="")
+    raw = Column(JSON, nullable=True)
+    match_status = Column(String, default="pending", index=True)  # pending | auto | review | none | accepted | rejected | duplicate
+    match_company_number = Column(String, default="", index=True)
+    match_name = Column(String, default="")
+    score = Column(Float, nullable=True)
+    reason = Column(Text, default="")
+    candidates = Column(JSON, nullable=True)  # up to 3: [{"company_number", "score"}], best first
+    duplicate_of = Column(String, nullable=True)  # another row of the same import (exact duplicate, or the look-alike behind a review)
+    decided_by = Column(String, default="")
+    decided_at = Column(DateTime, nullable=True)
+
+
+class ChangeReport(Base):
+    """A monthly (or on-demand) change report for the companies an organisation follows: the counts are kept here, the rows are rebuilt on download."""
+    __tablename__ = "change_reports"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"chr_{uuid.uuid4().hex[:16]}")
+    period = Column(String, nullable=False)  # "YYYY-MM", or "YYYY-MM-DD..YYYY-MM-DD" for a range that is not a whole month
+    summary = Column(JSON, nullable=True)
+    row_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("org_id", "period", name="uq_change_report_org_period"),)

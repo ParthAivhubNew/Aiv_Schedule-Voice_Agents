@@ -77,11 +77,13 @@ def test_a_check_fills_blanks_and_only_offers_a_fix_for_a_value_the_user_gave():
     row = {"phone": "0113 000", "website": "https://old.example", "email": "", "domain": "old.example"}
     deep = {"found": True, "phone": "0113 550 0412", "website": "https://new.example"}
     free = {"phone": {"state": "invalid"}, "website": {"state": "dead"}}
-    fixes = build_fixes(row, deep, free, "ann@new.example")
-    kinds = {f["field"]: f["kind"] for f in fixes}
-    assert kinds == {"phone": "fix", "website": "fix", "email": "fill"}
-    # a working number or site is never offered a replacement
+    found = build_fixes(row, deep, free, "ann@new.example")
+    assert {f["field"]: f["kind"] for f in found} == {"email": "fill"}  # Google's phone and website are never turned into a fix
+    fixes = [*found, {"field": "phone", "from": "0113 000", "to": "0113 550 0412", "kind": "fix", "applied": False, "why": ""},
+             {"field": "website", "from": "https://old.example", "to": "https://new.example", "kind": "fix", "applied": False, "why": ""}]
     assert build_fixes(row, deep, {"phone": {"state": "ok"}, "website": {"state": "live"}}, "") == []
+    fixes = [f for f in fixes if f["field"] != "email"]
+    kinds = {}
 
     acc = SimpleNamespace(phone="0113 000", website="https://old.example", domain="old.example", email="", verification={"fixes": fixes})
     assert len(open_fixes(acc)) == 2

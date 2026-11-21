@@ -1261,6 +1261,15 @@ async def registry_feeds_overview(request: Request, limit: int = 10, offset: int
                         "kind": e.kind, "field": e.field, "old": e.old_value, "new": e.new_value, "link": e.link} for e in events]}
 
 
+@router.get("/registry-health")
+async def registry_health(request: Request):
+    """Whether the Companies House live feed is delivering: {keyPresent, lastEventAt, hoursSinceLastEvent, healthy}. Unhealthy after 24 hours of silence."""
+    from app.services import registry_health as RH
+
+    _who(request)
+    return await RH.registry_feed_health()
+
+
 @router.post("/registry-feeds/keys")
 async def registry_feeds_set_key(body: Dict[str, Any], request: Request):
     """Save the Companies House stream key, or the FCA register key and email. Sealed at rest; never shown again."""
@@ -1410,6 +1419,69 @@ async def platform_keys_clear(body: Dict[str, Any], request: Request):
 
     await refresh_saved_key()
     return out
+
+
+# ── TPS/CTPS screening key (Provero) ───────────────────────────────────────
+@router.get("/tps-screening")
+async def tps_screening_status(request: Request):
+    """Whether the screening key is saved (never the key itself), the last test or failure, and this month's checks."""
+    from datetime import datetime as _dt
+
+    from app.services import provero as PV
+    from app.services.credits import _get_doc
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        doc = await _get_doc(db, PV.SETTING)
+        calls = (await _get_doc(db, f"vendor_calls:{_dt.utcnow().strftime('%Y-%m')}")).get("provero_tps", 0)
+    key = PV.open_blob(doc.get("key", ""))
+    return {"configured": bool(key), "tail": key[-4:] if key else "", "provider": "Provero", "savedAt": doc.get("saved_at", ""),
+            "lastTest": doc.get("last_test") or None, "lastError": doc.get("last_error", ""), "lastErrorAt": doc.get("last_error_at", ""),
+            "checksThisMonth": int(calls or 0), "priceNote": "About 0.4p a check at low volume, less at volume. Prepaid on the vendor's site."}
+
+
+@router.post("/tps-screening/save")
+async def tps_screening_save(body: Dict[str, Any], request: Request):
+    from app.services import provero as PV
+
+    _admin_only(request)
+    key = str(body.get("api_key") or "").strip()
+    if len(key) < 10 or " " in key:
+        raise HTTPException(status_code=400, detail="Paste the API key in full, with no spaces.")
+    async with AsyncSessionLocal() as db:
+        await PV.save_key(db, key)
+        await db.commit()
+    return await tps_screening_status(request)
+
+
+@router.post("/tps-screening/test")
+async def tps_screening_test(request: Request):
+    """One real check of a number reserved for drama use (it costs one check). Saves the answer for the status panel."""
+    from datetime import datetime as _dt
+
+    from app.services import provero as PV
+
+    _admin_only(request)
+    key = await PV.get_key()
+    if not key:
+        raise HTTPException(status_code=400, detail="Save the API key first.")
+    result = await PV.test_key(key)
+    async with AsyncSessionLocal() as db:
+        await PV.note(db, last_test={"ok": result["ok"], "message": result["message"], "at": _dt.utcnow().isoformat() + "Z"},
+                      last_error="" if result["ok"] else ("key" if "refused" in result["message"] else "balance" if "balance" in result["message"] else ""))
+        await db.commit()
+    return result
+
+
+@router.post("/tps-screening/clear")
+async def tps_screening_clear(request: Request):
+    from app.services import provero as PV
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        await PV.clear_key(db)
+        await db.commit()
+    return await tps_screening_status(request)
 
 
 class CopyKeyBody(BaseModel):
@@ -2363,6 +2435,7 @@ class StartRunBody(BaseModel):
     limit: int = 0  # people job: how many companies to read
     share: int = 75  # people job: the share of the registry's rate limit it may use
     owners: bool = False  # people job: also read each company's owners (doubles the calls)
+    priority: str = ""  # people job: postcode districts to read first, e.g. "BN1, BN3"; the job then carries on with everyone else
 
 
 @router.post("/data-sources/{source_id}/start")
@@ -2381,7 +2454,7 @@ async def start_data_source_run(source_id: str, body: StartRunBody, request: Req
         bulk = is_bulk(source)
         try:
             if body.job == "people":
-                run = await DS.start_people_run(db, source, limit=body.limit, share=body.share, owners=body.owners)
+                run = await DS.start_people_run(db, source, limit=body.limit, share=body.share, owners=body.owners, priority=body.priority)
             else:
                 run = await DS.start_run(db, source, body.queries)
         except ValueError as err:

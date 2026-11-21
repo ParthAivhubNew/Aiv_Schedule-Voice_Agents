@@ -84,8 +84,11 @@ async def backups() -> List[Dict[str, Any]]:
 async def keys(lead: str = "") -> List[Tuple[str, str, str]]:
     """[(id, label, key)] in the order they are tried: the main key (or `lead`, when the caller holds its own), then the backups."""
     from app.services import enrichment_service as E
+    from app.services import tenant_policy
     from app.services.secret_box import open_secret
 
+    if not await tenant_policy.source_allowed(None, "apollo"):
+        return []  # the organisation's brand policy restricts Apollo: no key means every lookup reports nothing found
     out: List[Tuple[str, str, str]] = []
     main = (lead or await E.apollo_key() or "").strip()
     if main:

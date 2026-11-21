@@ -308,7 +308,7 @@ async def _deepseek_post(kind: str, path: str, body: Dict[str, Any], key: str, t
 async def search_deepseek(query: str, max_results: int = 5, *, need_content: bool = False) -> List[Dict[str, str]]:
     """DeepSeek's own search endpoint, billed only for a 200 with results, on the DeepSeek balance behind the key already saved.
     Empty when the box is not ticked, no key is saved, or nothing came back."""
-    if not await deepseek_search_enabled():
+    if not await deepseek_search_enabled() or not await _source_allowed("search_engines"):
         return []
     key = await deepseek_key()
     q = (query or "").strip()[:128]
@@ -347,6 +347,13 @@ async def fetch_deepseek(url: str) -> Optional[Dict[str, str]]:
         return None
     await _bump_vendor_call("deepseek_fetch")
     return {"title": str(data.get("title") or ""), "content": str(data.get("content") or "")}
+
+
+async def _source_allowed(source: str) -> bool:
+    """False when the current organisation's brand policy restricts this source (see services/tenant_policy.py)."""
+    from app.services import tenant_policy
+
+    return await tenant_policy.source_allowed(None, source)
 
 
 async def google_places_key() -> str:
@@ -410,6 +417,8 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
     Details) for the best-matching business. Never shown to the user as "Google" -- callers
     label this action "Deep web search" so no API/vendor name reaches the output. None when no
     key is configured or nothing matches; never raises."""
+    if not await _source_allowed("google"):
+        return None  # the organisation's brand policy restricts this source: the same as nothing found
     key = await google_places_key()
     if not key or not query.strip():
         return None
@@ -598,7 +607,7 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
     search and the credits it used."""
     from app.services import tavily_pool
 
-    if not await tavily_pool.keys():
+    if not await _source_allowed("search_engines") or not await tavily_pool.keys():
         return []
     body: Dict[str, Any] = {"query": (query or "").strip()[:400], "max_results": max(1, min(int(max_results), 20)), "search_depth": depth,
                             "country": "united kingdom", "include_usage": True}

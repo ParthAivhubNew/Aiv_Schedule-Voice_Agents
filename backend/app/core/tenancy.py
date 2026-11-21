@@ -51,6 +51,8 @@ TENANT_TABLES: List[str] = [
     "agent_runs", "workflow_runs", "contact_reveals", "person_emails", "lead_notes",
     "inbound_forms", "inbound_form_submissions", "human_calls", "email_approvals", "consent_declarations",
     "call_consents",  # Phase 7a
+    "audit_log", "suppressed_companies",
+    "fsb_imports", "fsb_import_rows", "change_reports",  # FSB import, review queue, monthly change report
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
 # Provider groups every organisation runs on (ours); see ensure_tenancy.

@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { lastList, takePendingList } from "./openList";
 import { GridTools } from "../../components/GridTools";
 import { CardsSkeleton } from "../../app/Loader";
-import { Check, ListChecks, Megaphone, Pencil, Plus, X } from "lucide-react";
+import { Check, Download, ListChecks, Megaphone, Pencil, Plus, ShieldCheck, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import { AccountsView, contactFor, emailFor, MoreMenu, openFixes, phoneFor } from "./AccountsViews";
+import { ExportDialog } from "./ExportDialog";
+import { EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 import { useIcp } from "./FitParts";
 import { listStats } from "./listLogic";
 import { useConnection } from "../../hooks/useConnections";
@@ -109,6 +111,8 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
   const [consentFor, setConsentFor] = useState(""); // id of the list whose consent question is open
+  const [exportTarget, setExportTarget] = useState(null); // { name, accounts } for CSV export dialog
+  const [enrichModalOpen, setEnrichModalOpen] = useState(false);
   const open = lists.find((l) => l.id === openId);
   useEffect(() => { lastList.id = openId; }, [openId]); // so Back from a company opened in this list comes back here, not to all lists
   const rename = async (id, name) => {
@@ -177,6 +181,23 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
               <Megaphone size={14} /> Start journey
             </button>
           ) : null}
+          <button
+            type="button"
+            className="ui-btn ui-btn--ghost ui-btn--sm"
+            onClick={() => setEnrichModalOpen(true)}
+            title="View the 9 statutory APIs and AI models used to enrich contacts in this list"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D" }}
+          >
+            <ShieldCheck size={14} color="#0C8C7D" /> Enrichment sources
+          </button>
+          <button
+            type="button"
+            className="ui-btn ui-btn--secondary ui-btn--sm"
+            onClick={() => setExportTarget({ name: open ? open.name : "All companies", accounts: members })}
+            title="Export companies in this list to a CSV spreadsheet"
+          >
+            <Download size={14} /> Export CSV
+          </button>
           <MoreMenu items={[
             { label: canCall ? "Call this list" : "Call this list · add Voice", disabled: busy || !members.length, title: "Have your AI caller phone them",
               onClick: () => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, !canCall) },
@@ -199,6 +220,15 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
         ) : null}
         <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} moreInHeader />
         {call.dialog}
+        {exportTarget ? (
+          <ExportDialog
+            open={Boolean(exportTarget)}
+            onClose={() => setExportTarget(null)}
+            accounts={exportTarget.accounts}
+            onToast={store.toast}
+          />
+        ) : null}
+        <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
       </div>
     );
   }
@@ -210,6 +240,15 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to check and improve it, fix what is wrong, then start a journey on it.</div>
+        <button
+          type="button"
+          className="ui-btn ui-btn--ghost ui-btn--sm"
+          onClick={() => setEnrichModalOpen(true)}
+          title="View all 9 statutory APIs and AI models used to enrich companies"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D" }}
+        >
+          <ShieldCheck size={14} color="#0C8C7D" /> Enrichment sources
+        </button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {
           const name = await askText({ title: "Name your new list", label: "For example Leeds dentists", confirm: "Create list", maxLength: 80 });
@@ -266,7 +305,17 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{l.stats.source || "–"}</td>
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.updated_at || l.created_at)}</td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
+                      <span style={{ display: "inline-flex", gap: 4 }}>
+                        <button
+                          type="button"
+                          className="ui-btn ui-btn--ghost ui-btn--sm"
+                          title={`Export ${l.name} to CSV`}
+                          onClick={() => setExportTarget({ name: l.name, accounts: l.members })}
+                        >
+                          <Download size={13} /> Export
+                        </button>
+                        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -275,6 +324,15 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           </div>
         </div>
       )}
+      {exportTarget ? (
+        <ExportDialog
+          open={Boolean(exportTarget)}
+          onClose={() => setExportTarget(null)}
+          accounts={exportTarget.accounts}
+          onToast={store.toast}
+        />
+      ) : null}
+      <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
     </div>
   );
 }

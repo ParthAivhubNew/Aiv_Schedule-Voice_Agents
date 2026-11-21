@@ -16,7 +16,13 @@ def _domain(url: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", (url or "").strip().lower()).split("/")[0]
 
 
-def set_field(acc: Any, field: str, value: str) -> None:
+def set_source(acc: Any, field: str, source: str) -> None:
+    """Record where a saved phone / website / email came from. A new dict each time, so the JSON column change is saved."""
+    if field in FIELDS and source and hasattr(acc, "field_sources"):
+        acc.field_sources = {**(acc.field_sources or {}), field: source}
+
+
+def set_field(acc: Any, field: str, value: str, source: str = "") -> None:
     if field == "website":
         from app.services.site_check import is_listing_host
 
@@ -28,6 +34,7 @@ def set_field(acc: Any, field: str, value: str) -> None:
         acc.email = value.strip().lower()
     elif field == "phone":
         acc.phone = value.strip()[:60]
+    set_source(acc, field, source)
 
 
 def open_fixes(acc: Any) -> List[Dict[str, Any]]:
@@ -42,7 +49,7 @@ def accept(acc: Any, fields: Optional[Iterable[str]] = None) -> int:
     n = 0
     for f in fixes:
         if f.get("kind") == "fix" and not f.get("applied") and f.get("field") in wanted:
-            set_field(acc, f["field"], f["to"])
+            set_field(acc, f["field"], f["to"], f.get("source") or "check")
             f["applied"] = True
             n += 1
     if n:

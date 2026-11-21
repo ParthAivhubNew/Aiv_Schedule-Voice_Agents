@@ -69,6 +69,10 @@ from app.api.diagnostics import router as diagnostics_router
 from app.api.voices import router as voices_router
 from app.api.numbers import router as numbers_router
 from app.api.number_check import router as number_check_router
+from app.api.tps_check import router as tps_check_router
+from app.api.org_policy import router as org_policy_router
+from app.api.brands import public_router as brand_public_router, staff_router as brand_staff_router
+from app.api.fsb import router as fsb_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.email_design import router as email_design_router
 from app.api.journeys import router as journeys_router
@@ -620,6 +624,12 @@ async def lifespan(app: FastAPI):
             logger.warning(f"{resumed} company-people run(s) were running when the server stopped; carrying on from where they left off.")
     except Exception as run_err:
         logger.warning(f"Could not recover data-source runs: {run_err}")
+    try:
+        from app.services.fsb_import import recover_after_restart as fsb_recover
+        if await fsb_recover():
+            logger.warning("FSB import(s) were matching when the server stopped; carrying on from where they left off.")
+    except Exception as run_err:
+        logger.warning(f"Could not recover FSB imports: {run_err}")
     from app.services.telnyx_client import refresh_saved_key
     await refresh_saved_key()
     from app.services.platform_mailbox import refresh as refresh_platform_mailbox
@@ -864,6 +874,8 @@ async def lifespan(app: FastAPI):
     billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
     find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
     registry_feeds_task = asyncio.create_task(_registry_feeds_start())
+    from app.services.change_report import monthly_loop as change_report_loop
+    change_report_task = asyncio.create_task(change_report_loop())
     call_schedule_task = asyncio.create_task(_call_schedule_loop())
     human_calls_task = asyncio.create_task(_human_calls_loop())
     from app.services.workflows import workflow_loop
@@ -876,6 +888,7 @@ async def lifespan(app: FastAPI):
     human_calls_task.cancel()
     find_leads_warm_task.cancel()
     registry_feeds_task.cancel()
+    change_report_task.cancel()
     social_results_task.cancel()
     billing_upkeep_task.cancel()
     email_task.cancel()
@@ -1038,6 +1051,11 @@ app.include_router(diagnostics_router, prefix=settings.API_PREFIX)
 app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(number_check_router, prefix=settings.API_PREFIX)
+app.include_router(tps_check_router, prefix=settings.API_PREFIX)
+app.include_router(org_policy_router, prefix=settings.API_PREFIX)
+app.include_router(brand_public_router, prefix=settings.API_PREFIX)
+app.include_router(brand_staff_router, prefix=settings.API_PREFIX)
+app.include_router(fsb_router, prefix=settings.API_PREFIX)  # FSB import, review queue, monthly change report
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(email_design_router, prefix=settings.API_PREFIX)
 app.include_router(journeys_router, prefix=settings.API_PREFIX)

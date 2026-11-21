@@ -258,9 +258,24 @@ async def _send_verification(op: Operator, ret: str = "", partner_name: str = ""
 
 
 # ── Public: what the sign-in page offers ────────────────────────────────────
+async def brand_signin(request: Request) -> Optional[Dict[str, bool]]:
+    """The sign-in methods of the active brand this request's host belongs to, or None for an ordinary host (nothing changes there)."""
+    from app.database import AsyncSessionLocal
+    from app.services import tenant_policy as TP
+
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    async with AsyncSessionLocal() as bdb:
+        brand, _dom = await TP.brand_for_host(bdb, host.split(",")[0])
+    return TP.clean_policy(brand.policy)["signin"] if brand else None
+
+
 @router.get("/signup-config")
-async def signup_config():
+async def signup_config(request: Request):
     ready = firebase_ready()
+    branded = await brand_signin(request)
+    if branded is not None:  # a brand's people join by invitation only
+        ready = ready and bool(branded.get("google"))
+        return {"allowSignup": False, "google": ready, **({"firebase": firebase_config()} if ready else {})}
     return {"allowSignup": signup_allowed(), "google": ready, **({"firebase": firebase_config()} if ready else {})}
 
 
@@ -275,7 +290,7 @@ class SignupBody(BaseModel):
 async def register(db: AsyncSession, request: Request, *, company: str, name: str, email: str, password: str,
                    website: str = "", partner: Any = None, return_url: str = "") -> Dict[str, Any]:
     """Create a company and its owner. Used by the sign-up page and, with a partner, by POST /v1/run auth.signup."""
-    if not signup_allowed():
+    if not signup_allowed() or await brand_signin(request) is not None:
         raise HTTPException(status_code=404, detail="Not found")
     _limit("signup", request)
     if (website or "").strip():
@@ -461,6 +476,9 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, response: Respo
     from app.api.auth import sign_in_as
 
     if not firebase_ready():
+        raise HTTPException(status_code=404, detail="Google sign-in is not set up.")
+    branded = await brand_signin(request)
+    if branded is not None and not branded.get("google"):
         raise HTTPException(status_code=404, detail="Google sign-in is not set up.")
     try:
         g = await _firebase_claims(body.idToken or "")

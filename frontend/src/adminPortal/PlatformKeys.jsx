@@ -8,6 +8,7 @@ import { DataSourceFiles } from "./DataSourceFiles";
 import { DataCompliance } from "./DataCompliance";
 import { ApolloKeys } from "./ApolloKeys";
 import { TavilyKeys } from "./TavilyKeys";
+import { TpsScreening } from "./TpsScreening";
 import { RegistryFeeds } from "./RegistryFeeds";
 import { ConsentDeclarations } from "./ConsentDeclarations";
 import { FitWeights } from "./FitWeights";
@@ -260,6 +261,9 @@ export function PlatformKeys({ canEdit }) {
             Pick which saved LLM key powers prospect research, waterfall enrichment, and company analysis.
           </div>
           <PlatformAi canEdit={canEdit} scope="leadgen" showCatalogue={false} />
+
+          <div style={heading}>TPS and CTPS screening</div>
+          <TpsScreening canEdit={canEdit} />
 
           <div style={heading}>Apollo</div>
           <ApolloKeys canEdit={canEdit} />
@@ -768,6 +772,7 @@ function PeopleJob({ source, canEdit, latest, onStarted }) {
   const [limit, setLimit] = useState(500000);
   const [share, setShare] = useState(75);
   const [owners, setOwners] = useState(false);
+  const [priority, setPriority] = useState("");
   const [status, setStatus] = useState(null);
   const [msg, run] = useAction(() => { onStarted(); adminApi.peopleStatus(source.id).then(setStatus).catch(() => {}); });
   useEffect(() => { adminApi.peopleStatus(source.id).then(setStatus).catch(() => setStatus(null)); }, [source.id, source.runState]);
@@ -808,11 +813,17 @@ function PeopleJob({ source, canEdit, latest, onStarted }) {
           <label style={{ ...label, display: "flex", alignItems: "center", gap: 6, paddingBottom: 6 }}>
             <input type="checkbox" checked={owners} onChange={(e) => setOwners(e.target.checked)} /> Also read owners (doubles the calls)
           </label>
+          <label style={{ ...label, flex: "1 1 220px" }}>Read these postcode districts first (optional)
+            <span style={{ display: "flex", gap: 6 }}>
+              <input value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="BN1, BN3, BN5" style={{ ...input, flex: 1, minWidth: 0 }} />
+              <button type="button" style={btn(false)} onClick={() => setPriority("BN1, BN2, BN3, BN5, BN6, BN7, BN8, BN9, BN10, BN11, BN12, BN13, BN14, BN15, BN16, BN17, BN18, BN20, BN21, BN22, BN23, BN24, BN25, BN26, BN27, BN41, BN42, BN43, BN44, BN50")}>FSB BN areas</button>
+            </span>
+          </label>
           <button type="button" style={btn(true)} disabled={!source.hasKey}
             title={source.hasKey ? "" : "Save this source's API key first"}
             onClick={() => {
               if (window.confirm(`Read directors for up to ${Number(limit).toLocaleString()} companies? About ${days < 1 ? "under a day" : `${days.toFixed(1)} days`} at ${share}% of the limit. You can pause or stop it at any time.`)) {
-                run(() => adminApi.startPeopleJob(source.id, { limit: Number(limit), share, owners }), "Started. Watch the progress here, or under Runs.");
+                run(() => adminApi.startPeopleJob(source.id, { limit: Number(limit), share, owners, priority }), "Started. Watch the progress here, or under Runs.");
               }
             }}>Start reading people</button>
         </div>

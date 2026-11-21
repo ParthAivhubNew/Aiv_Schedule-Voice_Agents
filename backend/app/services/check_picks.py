@@ -126,7 +126,7 @@ def choose(acc: Any, field: str, value: str) -> str:
     value = (value or "").strip()
     if value not in shown:
         raise PickError("That isn't one of the options that were shown.")
-    set_field(acc, field, value)
+    set_field(acc, field, value, pick.get("source") or "user")
     _update(acc, field, {"applied": True, "chosen": value, "chosen_at": datetime.utcnow().isoformat() + "Z"})
     return value
 

@@ -20,6 +20,7 @@ from app.core import permissions as P
 from app.core.auth_middleware import current
 from app.core.tenancy import current_org
 from app.database import get_db
+from app.services import data_policy as DP
 from app.models.models import (
     BusinessRecord,
     CallLog,
@@ -328,12 +329,15 @@ async def inbox(request: Request, limit: int = 40, db: AsyncSession = Depends(ge
 
 
 # ── Export (X-16) ───────────────────────────────────────────────────────────
-def _csv(rows: List[List[Any]]) -> Response:
+def _csv(rows: List[List[Any]], withheld: Optional[int] = None) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
     for r in rows:
         w.writerow([("'" + str(c) if isinstance(c, str) and c and c[:1] in "=+-@" else c) for c in r])  # a cell can never run as a formula
-    return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="contacts.csv"'})
+    headers = {"Content-Disposition": 'attachment; filename="contacts.csv"'}
+    if withheld is not None:
+        headers["X-Withheld-Count"] = str(withheld)
+    return Response(buf.getvalue(), media_type="text/csv", headers=headers)
 
 
 def found_where(a: LeadAccount, rec: Any = None) -> tuple:
@@ -367,14 +371,18 @@ async def export_contacts(request: Request, db: AsyncSession = Depends(get_db)):
     # Phase 7c: where each company came from, so a customer can show the source if asked.
     recs = {r.id: r for r in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_([a.business_record_id for a in leads if a.business_record_id] or [""])))).scalars().all()}
     rows: List[List[Any]] = [["Company", "Contact", "Email", "Phone", "Website", "Stage", "Last call outcome", "Last contacted", "Emails", "Calls", "Meetings", "Posts", "Notes", "Source",
-                              "Where found", "Found on", "Saved by", "Saved on"]]
+                              "Where found", "Found on", "Saved by", "Saved on", "restricted_values_withheld"]]
+    withheld = 0
     for a in leads:
         c = counts.get(a.id, {})
         where, found = found_where(a, recs.get(a.business_record_id or ""))
-        rows.append([a.name, a.contact_name, a.email, a.phone, a.website, a.stage or "new", a.last_call_outcome or "", a.last_contact_at.date().isoformat() if a.last_contact_at else "",
+        gone = DP.restricted_fields(a, recs.get(a.business_record_id or ""))  # Google and Apollo values are never downloaded
+        withheld += len(gone)
+        rows.append([a.name, a.contact_name, "" if "email" in gone else a.email, "" if "phone" in gone else a.phone, "" if "website" in gone else a.website, a.stage or "new", a.last_call_outcome or "", a.last_contact_at.date().isoformat() if a.last_contact_at else "",
                      c.get("email", 0), c.get("call", 0), c.get("meeting", 0), c.get("post", 0), c.get("note", 0), a.source,
-                     where, found, (a.custom or {}).get("saved_by", "") if isinstance(a.custom, dict) else "", a.created_at.date().isoformat() if a.created_at else ""])
-    return _csv(rows)
+                     where, found, (a.custom or {}).get("saved_by", "") if isinstance(a.custom, dict) else "", a.created_at.date().isoformat() if a.created_at else "",
+                     len(gone)])
+    return _csv(rows, withheld)
 
 
 @router.get("/contacts/{contact_id}/export.csv")

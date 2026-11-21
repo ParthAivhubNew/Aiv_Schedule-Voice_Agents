@@ -9,6 +9,7 @@ const REFRESH_KEY = "outreach_refresh_token";
 const OPERATOR_KEY = "aivhub_operator";
 export const AUTH_LOST_EVENT = "outreach-auth-lost";
 export const PASSWORD_CHANGE_EVENT = "outreach-password-change";
+export const SESSION_SET_EVENT = "outreach-session-set"; // a person just signed in: the brand and policy are read for their account
 
 function isInstalledApp() {
   try {
@@ -57,6 +58,9 @@ export function setSession({ access_token, refresh_token, operator } = {}) {
   if (access_token) write(ACCESS_KEY, access_token);
   if (refresh_token) write(REFRESH_KEY, refresh_token);
   if (operator) write(OPERATOR_KEY, JSON.stringify(operator));
+  if (access_token && operator) {
+    try { window.dispatchEvent(new Event(SESSION_SET_EVENT)); } catch (_) { /* no window: nothing is listening */ }
+  }
 }
 
 // Personal data kept in this browser for convenience. It is removed on sign-out so it never outlives the session.

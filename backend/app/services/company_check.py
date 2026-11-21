@@ -625,6 +625,8 @@ async def check_row(row: Dict[str, Any], ctx: "Context") -> Dict[str, Any]:
                      "note": "Confirmed" if found.lower() == (row.get("email") or "").lower() else f"A verified address was found: {found}"}
 
     decision = decide(ev)
+    if ev.get("deep"):
+        ev["deep"] = {k: v for k, v in ev["deep"].items() if k in ("found", "state")}  # the verdict is made; Google's details are not kept
     out = {
         "verdict": decision["verdict"], "reasons": decision["reasons"], "stages": stages,
         "email": email, "phone": free["phone"], "website": dict(free["website"]),
@@ -742,21 +744,8 @@ def build_fixes(row: Dict[str, Any], deep: Optional[Dict[str, Any]], free: Dict[
     def add(field: str, old: str, new: str, why: str) -> None:
         out.append({"field": field, "from": old, "to": new, "kind": "fill" if not old else "fix", "applied": False, "why": why})
 
-    from app.services.site_check import is_listing_host
-
-    deep = deep if deep and deep.get("found") else {}
-    phone, site = (deep.get("phone") or "").strip(), (deep.get("website") or "").strip()
-    if site and is_listing_host(site, row.get("name") or ""):
-        site = ""  # a directory page, not the company's own site
-    cur_phone, cur_site = (row.get("phone") or "").strip(), (row.get("website") or row.get("domain") or "").strip()
-    if phone and not cur_phone:
-        add("phone", "", phone, "Found by the deep web search")
-    elif phone and cur_phone and _digits(phone) != _digits(cur_phone) and (free.get("phone") or {}).get("state") == "invalid":
-        add("phone", cur_phone, phone, "The number you had isn't usable; the deep web search found this one")
-    if site and not cur_site:
-        add("website", "", site, "Found by the deep web search")
-    elif site and cur_site and _host(site) != _host(cur_site) and (free.get("website") or {}).get("state") in ("dead", "parked"):
-        add("website", cur_site, site, "Your website isn't working; the deep web search found this one")
+    # `deep` carries Google's phone and website for the verdict only. They are never turned into a fill or a fix: that would save Google's content.
+    cur_phone = (row.get("phone") or "").strip()
     suggest = ((free.get("phone") or {}).get("suggest") or "").strip()
     if suggest and cur_phone and _digits(suggest) == _digits(cur_phone) and suggest != cur_phone:
         add("phone", cur_phone, suggest, (free["phone"].get("note") or "The phone network confirms this number with its leading 0"))

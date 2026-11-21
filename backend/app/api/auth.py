@@ -271,6 +271,11 @@ async def assert_can_sign_in(db: AsyncSession, op: Operator) -> None:
 
 @router.post("/login")
 async def login(body: LoginBody, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    from app.api.signup import brand_signin
+
+    branded = await brand_signin(request)
+    if branded is not None and not branded.get("password"):
+        raise HTTPException(status_code=403, detail="Password sign-in is not available on this address. Use the sign-in method your administrator gave you.")
     op = await check_credentials(db, body.username, body.password, request)
     out = await sign_in_as(db, op, request, remember=body.remember)
     set_refresh_cookie(response, out["refresh_token"])

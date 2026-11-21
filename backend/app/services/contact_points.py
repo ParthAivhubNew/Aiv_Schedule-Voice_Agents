@@ -128,6 +128,8 @@ def _source_name(key: str) -> str:
     head = key.split(":")[0]
     if head in ("google_places", "apollo"):
         return head
+    if head == "website_confirmed":
+        return "web"
     return "register"
 
 
@@ -148,15 +150,17 @@ def points_of(biz: Any) -> List[Dict[str, str]]:
 
     cw = raw.get("contacts_web") if isinstance(raw.get("contacts_web"), dict) else {}
     conf = "picked" if cw.get("by") == "pick" else "found"
-    add("website", cw.get("website"), "web", conf)
+    cw_source = str(cw.get("source") or "")
+    cw_source = cw_source if cw_source in ("apollo", "google_places") else "web"  # an Apollo or Google value must not pass as read from the company's site
+    add("website", cw.get("website"), cw_source, conf)
     for ph in _strings(cw.get("phones")):
-        add("phone", ph, "web", conf)
+        add("phone", ph, cw_source, conf)
     for em in _strings(cw.get("emails")):
-        add("email", em, "web", conf)
+        add("email", em, cw_source, conf)
     for person in cw.get("team") or []:
         if isinstance(person, dict):
-            add("phone", person.get("phone"), "web", conf, person.get("name", ""))
-            add("email", person.get("email"), "web", conf, person.get("name", ""))
+            add("phone", person.get("phone"), cw_source, conf, person.get("name", ""))
+            add("email", person.get("email"), cw_source, conf, person.get("name", ""))
 
     li = raw.get("linkedin") if isinstance(raw.get("linkedin"), dict) else {}
     if isinstance(li.get("company"), dict):
