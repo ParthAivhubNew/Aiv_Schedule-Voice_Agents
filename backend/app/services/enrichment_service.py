@@ -460,6 +460,41 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
     }
 
 
+async def google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
+    """Live Google details for one place ID, for the "Google" block on a company. Google's content is shown at the moment it is
+    fetched and never stored: no cache here, no caller may save the result. None when there is no key or no answer; never raises."""
+    pid = str(place_id or "").strip()
+    if not pid or not re.fullmatch(r"[A-Za-z0-9_\-]{5,300}", pid):
+        return None  # the ID goes into the URL path: nothing but what Google issues
+    key = await google_places_key()
+    if not key:
+        return None
+    fields = ("displayName,formattedAddress,internationalPhoneNumber,websiteUri,rating,userRatingCount,"
+              "businessStatus,regularOpeningHours.weekdayDescriptions,googleMapsUri")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0)) as client:
+            resp = await client.get(f"https://places.googleapis.com/v1/places/{pid}",
+                                    headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields})
+            await _bump_vendor_call("google_places")
+            if resp.status_code != 200:
+                logger.warning(f"[google_places] details refused ({resp.status_code})")
+                return None
+            p = resp.json() or {}
+    except Exception as err:
+        logger.debug(f"[google_places] details failed: {type(err).__name__}")
+        return None
+    name = (p.get("displayName") or {}).get("text") or ""
+    if not name:
+        return None
+    return {
+        "name": name, "address": p.get("formattedAddress") or "", "phone": p.get("internationalPhoneNumber") or "",
+        "website": p.get("websiteUri") or "", "rating": p.get("rating"), "rating_count": p.get("userRatingCount"),
+        "business_status": p.get("businessStatus") or "",
+        "hours": list((p.get("regularOpeningHours") or {}).get("weekdayDescriptions") or []),
+        "maps_url": p.get("googleMapsUri") or "",
+    }
+
+
 async def apollo_key() -> str:
     """The Apollo key staff saved under Platform Keys -> Leads -> Business Discovery (a key named "Apollo.io"),
     falling back to the APOLLO_API_KEY environment variable."""

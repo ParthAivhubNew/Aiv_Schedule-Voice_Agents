@@ -48,7 +48,7 @@ async function request(path, { method = "GET", body } = {}) {
   }
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : data.detail;
-    throw new Error(detail || `Request failed (${res.status})`);
+    throw Object.assign(new Error(detail || `Request failed (${res.status})`), { status: res.status });
   }
   return data;
 }
@@ -203,5 +203,15 @@ export const adminApi = {
     xhr.onerror = () => reject(new Error("The upload was interrupted. For very large files, put them in the server's imports folder instead."));
     xhr.send(file);
   }),
+  brands: () => request("/brands"),
+  createBrand: (body) => request("/brands", { method: "POST", body }),
+  editBrand: (id, body) => request(`/brands/${q(id)}`, { method: "PATCH", body }),
+  deleteBrand: (id) => request(`/brands/${q(id)}`, { method: "DELETE" }),
+  setBrandPolicy: (id, policy) => request(`/brands/${q(id)}/policy`, { method: "PUT", body: policy }),
+  addBrandDomain: (id, host) => request(`/brands/${q(id)}/domains`, { method: "POST", body: { host } }),
+  removeBrandDomain: (id, domainId) => request(`/brands/${q(id)}/domains/${q(domainId)}`, { method: "DELETE" }),
+  brandOrganizations: () => request("/brand-organizations"),
+  linkBrandOrg: (id, orgId) => request(`/brands/${q(id)}/organizations/${q(orgId)}`, { method: "PUT" }),
+  unlinkBrandOrg: (id, orgId) => request(`/brands/${q(id)}/organizations/${q(orgId)}`, { method: "DELETE" }),
   businessRecords: (search = "", limit = 100, offset = 0) => request(`/business-records?q=${q(search)}&limit=${limit}&offset=${offset}`),
 };

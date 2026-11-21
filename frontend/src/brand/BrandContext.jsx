@@ -3,7 +3,7 @@ import { AUTH_LOST_EVENT, SESSION_SET_EVENT, getAccessToken } from "../api/authS
 import { getHostBrand, getMyBrand, getOrgPolicy } from "./brandApi";
 import { NO_BRAND, buildTitle, resolveBrand } from "./brandLogic";
 
-const BrandContext = createContext({ ...NO_BRAND, loading: false });
+export const BrandContext = createContext({ ...NO_BRAND, loading: false });
 
 // Without a provider (tests, the embedded screens) the app looks exactly as it did before brands.
 export function useBrand() {

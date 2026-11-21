@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -242,6 +242,14 @@ def _registry_contact(biz: Optional[BusinessRecord]) -> Optional[Dict[str, str]]
     return {"name": name, "role": str(first.get("role") or "")} if name else None
 
 
+def _provenance(a: LeadAccount, biz: Optional[BusinessRecord]) -> Dict[str, Any]:
+    """Where each phone, website and email came from, and which are view-only (never exported, never sent to API callers). Values stay in the payload."""
+    from app.services import data_policy
+
+    flags = data_policy.payload_flags(a, biz)
+    return {"field_sources": a.field_sources or {}, "restricted": flags["restricted"], "restricted_note": flags["note"]}
+
+
 def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[set] = None) -> Dict[str, Any]:
     """One saved company as the screens show it. Blank fields are read through the link to its register record (masked for
     this organisation), so what we hold shows from the start and later finds on the record show too. `from_record` names them."""
@@ -280,6 +288,7 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
         "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         "registry": _registry_out(biz) if biz else None,
         "kind": "person" if is_person_account(a) else "company",
+        **_provenance(a, biz),
     }
 
 
@@ -988,6 +997,96 @@ async def company_news(company_id: str, db: AsyncSession = Depends(get_db)):
     out = await CN.news_for(db, biz, (fit or {}).get("score"))
     await db.commit()
     return out
+
+
+GOOGLE_VIEW_FALLBACK_SEARCH = True  # when a company has no stored place ID, one text search finds it (only the ID is kept); False turns that off
+GOOGLE_VIEW_PER_HOUR = 120  # per organisation
+_GOOGLE_VIEW_HITS: Dict[str, List[float]] = {}
+
+
+def _google_view_slot(org: str) -> bool:
+    """True and counted when the organisation is under its hourly limit for live Google views."""
+    import time
+
+    now = time.time()
+    hits = [t for t in _GOOGLE_VIEW_HITS.get(org, []) if now - t < 3600]
+    if len(hits) >= GOOGLE_VIEW_PER_HOUR:
+        _GOOGLE_VIEW_HITS[org] = hits
+        return False
+    hits.append(now)
+    _GOOGLE_VIEW_HITS[org] = hits
+    return True
+
+
+def _stored_place_id(biz: Optional[BusinessRecord]) -> str:
+    for key in (biz.raw_data or {}) if biz else ():
+        if str(key).startswith("google_places:"):
+            return str(key).split(":", 1)[1]
+    return ""
+
+
+@router.get("/companies/{company_id}/google-view")
+async def company_google_view(company_id: str, response: Response, db: AsyncSession = Depends(get_db)):
+    """The live "Google" block on a company: details fetched from Google now, shown, never saved or exported.
+    1 credit once per company per 24 hours, and only when Google answers. company_id is a shared company id or one of this
+    organisation's saved account ids."""
+    from app.core.tenancy import current_org
+    from app.services import credits as K
+    from app.services.enrichment_service import google_place_details
+
+    response.headers["Cache-Control"] = "no-store"
+    biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    acct = None
+    if not biz:
+        acct = (await db.execute(select(LeadAccount).where(LeadAccount.id == company_id))).scalars().first()  # row-level security hides other organisations' accounts
+        if not acct:
+            raise HTTPException(status_code=404, detail="That company isn't in the company store.")
+        if acct.business_record_id:
+            biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == acct.business_record_id))).scalars().first()
+    org = current_org()
+    if not await TP.source_allowed(org, "google"):
+        raise HTTPException(status_code=403, detail="Google details are not available for your organisation.")
+    if not _google_view_slot(org):
+        raise HTTPException(status_code=429, detail="You have opened a lot of Google details this hour. Try again later.")
+    ok, why = await K.can_start(db, "google_view")
+    if not ok:
+        raise HTTPException(status_code=402, detail=why)
+
+    note = "Shown live from Google. It is not stored and cannot be downloaded."
+    empty = {"found": False, "details": None, "attribution": "Google", "note": note, "credits_charged": 0}
+    place_id = _stored_place_id(biz)
+    if not place_id and GOOGLE_VIEW_FALLBACK_SEARCH:
+        name = (biz.name if biz else acct.name) or ""
+        postcode = (getattr(biz, "postcode", "") if biz else "") or getattr(acct, "postcode", "") or ""
+        found = await search_google_places(name, name=name, postcode=postcode)
+        place_id = (found or {}).get("place_id") or ""
+        if place_id and biz:
+            try:  # only the ID is kept, in the same shape as a deeper search files it
+                await _keep_place(db, biz, {"place_id": place_id}, {})
+                await db.commit()
+            except Exception as err:
+                await db.rollback()
+                logger.info("google view: place id not kept for %s: %s", company_id, type(err).__name__)
+    if not place_id:
+        return empty
+    details = await google_place_details(place_id)
+    if not details:
+        return empty
+
+    ref, charged = f"gview:{company_id}", 0
+    try:
+        from app.api.enrichment import _once_db_lock, _once_lock
+
+        async with _once_lock(ref):
+            await _once_db_lock(db, ref)
+            if not await K.charged_recently(db, ref, "google_view", days=1):
+                charged = await K.charge(db, "google_view", 1, ref, "Google details view")
+            await db.commit()
+    except Exception as err:
+        await db.rollback()
+        logger.warning("google view: charge failed: %s", type(err).__name__)
+        raise HTTPException(status_code=402, detail=why or "Your credits have run out. Top up to see Google details.")
+    return {"found": True, "details": details, "attribution": "Google", "note": note, "credits_charged": charged}
 
 
 class PersonEmailIn(BaseModel):

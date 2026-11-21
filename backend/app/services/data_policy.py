@@ -158,3 +158,26 @@ def restricted_fields(obj: Any, record: Any = None) -> Set[str]:
 
 def withheld_count(objs: Iterable[Any], records: Optional[Dict[str, Any]] = None) -> int:
     return sum(len(restricted_fields(o, (records or {}).get(getattr(o, "business_record_id", "") or ""))) for o in objs)
+
+
+def payload_flags(obj: Any, record: Any = None) -> Dict[str, Dict[str, Any]]:
+    """What a screen needs to label a value that is view-only: {"restricted": {field: bool}, "note": {field: tooltip}}.
+
+    A field the account leaves blank but shows from its company record is judged on the record. The value itself is still returned
+    by the API (in-app use is allowed); only exports and the public API leave it out."""
+    own = restricted_fields(obj, record)
+    from_record = restricted_fields(record) if record is not None else set()
+    flags: Dict[str, bool] = {}
+    notes: Dict[str, str] = {}
+    for field in FIELDS:
+        has_own = bool(str(getattr(obj, field, "") or "").strip())
+        hit = field in own or (not has_own and field in from_record)
+        flags[field] = hit
+        if not hit:
+            continue
+        src = source_of_value(getattr(obj, "field_sources", None), field) if has_own else ""
+        if not is_restricted(src):
+            holder = obj if has_own and record is None else (record if record is not None else obj)
+            src = record_source(holder, field, default="google_places")
+        notes[field] = tooltip(src) or TOOLTIP
+    return {"restricted": flags, "note": notes}

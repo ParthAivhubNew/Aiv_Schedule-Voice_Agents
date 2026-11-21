@@ -61,6 +61,8 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     # Same price as a web lookup on purpose: a found field costs 5 whichever step found it, so the client's price never depends on
     # which provider answered. The deep search costs us more per call than the web lookup, so a lower price lost money.
     "google_deep_search": {"label": "Deep web search", "unit": "search", "credits": 5, "wallet": "leadgen", "charged": True},
+    # The live Google block on a company: one Place Details call, charged once per company per 24 hours and only when Google answers.
+    "google_view": {"label": "Google details view", "unit": "view", "credits": 1, "wallet": "leadgen", "charged": True},
     # A LinkedIn, Facebook, X or Instagram page: one web search limited to that site, so it is priced below a website, phone or email.
     "lead_social": {"label": "Social page found", "unit": "page", "credits": 2, "wallet": "leadgen", "charged": True},
     "email_send": {"label": "Email sent", "unit": "email", "credits": 1, "wallet": "leadgen", "charged": True},
@@ -107,7 +109,8 @@ DEFAULT_UNIT_COSTS_USD_CENTS: Dict[str, float] = {
     "lead_tps_check": 2.7,          # the same checks, charged to the Leads wallet
     "lead_email_write": 1.0,        # five short AI writing calls
     "google_deep_search": 3.5,      # Google Places Text Search + Place Details, combined ($0.035)
-    "lead_social": 0.8,             # one Tavily search limited to the network ($0.008)
+    "google_view": 3.5,             # one Place Details call with the contact and atmosphere fields (about $0.035)
+    "lead_social": 0.8,           # one Tavily search limited to the network ($0.008)
 }
 
 

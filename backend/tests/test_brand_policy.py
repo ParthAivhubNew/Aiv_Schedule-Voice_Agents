@@ -44,7 +44,7 @@ def fake_effective(policy):
 def test_clean_policy_fills_defaults_and_drops_unknown_keys():
     p = TP.clean_policy({"exclusions": {"fsb": 1, "extra": ["85200", " 85200 ", "x", "church"], "bogus": 1}, "geo": {"districts": ["bn1", "BN 2", "nope", "BN1"]},
                          "restricted_sources": {"google": True, "yell": True}, "signin": {"google": False}, "evil": {}})
-    assert set(p) == {"exclusions", "member_suppression", "geo", "restricted_sources", "signin"}
+    assert set(p) == {"exclusions", "member_suppression", "geo", "restricted_sources", "signin", "screening"}
     assert p["exclusions"] == {"fsb": True, "extra": ["85200", "church"], "locked": True}
     assert p["geo"]["districts"] == ["BN1", "BN2"]
     assert p["restricted_sources"] == {"google": True, "apollo": False, "search_engines": False}

@@ -8,7 +8,8 @@ Policy shape (Brand.policy, cleaned by clean_policy):
    "member_suppression": bool,
    "geo": {"districts": ["BN1", "BN2"]},
    "restricted_sources": {"google": bool, "apollo": bool, "search_engines": bool},
-   "signin": {"password": bool, "google": bool, "microsoft": bool}}
+   "signin": {"password": bool, "google": bool, "microsoft": bool},
+   "screening": {"block_unscreened": bool}}
 
 `exclusions.locked` true means the server enforces the exclusions on every search and a client filter cannot switch them off. With locked false
 the exclusions are only a starting point for the screens and the server adds nothing.
@@ -34,7 +35,8 @@ _DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
 
 def default_policy() -> Dict[str, Any]:
     return {"exclusions": {"fsb": False, "extra": [], "locked": True}, "member_suppression": False, "geo": {"districts": []},
-            "restricted_sources": {s: False for s in SOURCES}, "signin": {"password": True, "google": True, "microsoft": True}}
+            "restricted_sources": {s: False for s in SOURCES}, "signin": {"password": True, "google": True, "microsoft": True},
+            "screening": {"block_unscreened": False}}
 
 
 def _flag(value: Any, default: bool) -> bool:
@@ -58,6 +60,8 @@ def clean_policy(raw: Any) -> Dict[str, Any]:
     out["restricted_sources"] = {s: _flag(rs.get(s), False) for s in SOURCES}
     si = raw.get("signin") if isinstance(raw.get("signin"), dict) else {}
     out["signin"] = {k: _flag(si.get(k), True) for k in ("password", "google", "microsoft")}
+    sc = raw.get("screening") if isinstance(raw.get("screening"), dict) else {}
+    out["screening"] = {"block_unscreened": _flag(sc.get("block_unscreened"), False)}
     return out
 
 
@@ -153,6 +157,11 @@ class Policy:
         organisations never share an entry."""
         h = self.hash()
         return f"{self.org_id}:{h}" if h else ""
+
+    @property
+    def block_unscreened(self) -> bool:
+        """True when exports must leave out phone numbers without a fresh clear TPS/CTPS result."""
+        return bool(self.data["screening"]["block_unscreened"])
 
     def restricted(self, source: str) -> bool:
         return bool(self.data["restricted_sources"].get(source))

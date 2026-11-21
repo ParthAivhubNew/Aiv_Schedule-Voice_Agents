@@ -136,6 +136,16 @@ def _web_site(biz) -> str:
     return site if site_check.plausible_site(biz.name, site) else ""
 
 
+def _restricted(biz) -> Dict[str, bool]:
+    from app.services import data_policy as DP
+
+    cw = (biz.raw_data or {}).get("contacts_web") or {}
+    web = DP.is_restricted(cw.get("source"))
+    own = DP.restricted_fields(biz)
+    return {"website": "website" in own, "phone": "phone" in own, "email": "email" in own,
+            "web_website": web and bool(cw.get("website")), "web_phone": web and bool(cw.get("phones")), "web_email": web and bool(cw.get("emails"))}
+
+
 def card(biz) -> Dict[str, Any]:
     """One company as the Find Leads table shows it. Every field is copied from the stored record
     (nothing computed by a model), and `tier` says how far to trust it."""
@@ -170,6 +180,9 @@ def card(biz) -> Dict[str, Any]:
         "confirmed_website": str(((biz.raw_data or {}).get("business_confirmed") or {}).get("website") or ""),
         # No website of its own: the company's exact page on a directory or social site, labelled with the site and whether the page was confirmed.
         "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
+
+        # View-only values (Google or Apollo): shown here, never exported. The web_* flags follow the lookup's own source.
+        "restricted": _restricted(biz),
     }
 
 

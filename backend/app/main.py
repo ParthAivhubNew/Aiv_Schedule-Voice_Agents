@@ -73,6 +73,7 @@ from app.api.tps_check import router as tps_check_router
 from app.api.org_policy import router as org_policy_router
 from app.api.brands import public_router as brand_public_router, staff_router as brand_staff_router
 from app.api.fsb import router as fsb_router
+from app.api.exports import router as exports_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.email_design import router as email_design_router
 from app.api.journeys import router as journeys_router
@@ -1056,6 +1057,7 @@ app.include_router(org_policy_router, prefix=settings.API_PREFIX)
 app.include_router(brand_public_router, prefix=settings.API_PREFIX)
 app.include_router(brand_staff_router, prefix=settings.API_PREFIX)
 app.include_router(fsb_router, prefix=settings.API_PREFIX)  # FSB import, review queue, monthly change report
+app.include_router(exports_router, prefix=settings.API_PREFIX)  # admin downloads and the Salesforce update file
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(email_design_router, prefix=settings.API_PREFIX)
 app.include_router(journeys_router, prefix=settings.API_PREFIX)

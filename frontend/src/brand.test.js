@@ -26,6 +26,12 @@ const CLIENT_FILES = [
   // Phase 7: voice compliance and retention
   "plugins/voice/calling/CallPermissions.jsx",
   "plugins/leadgen/RetentionReview.jsx",
+  "plugins/leadgen/MemberList.jsx",
+  "brand/BrandContext.jsx",
+  "brand/brandLogic.js",
+  "brand/brandApi.js",
+  "brand/PoweredBy.jsx",
+  "brand/StandingChip.jsx",
   "utils/callConsent.js",
   "plugins/voice/calling/CallingWorkspace.jsx",
   "plugins/voice/calling/NumberCheckBar.jsx",

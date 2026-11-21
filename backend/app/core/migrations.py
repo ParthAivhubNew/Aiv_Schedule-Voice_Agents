@@ -1007,6 +1007,16 @@ async def _icp_and_register_dates(conn: AsyncConnection) -> None:
 
 
 async def _ensure_fsb_demo_operator(conn: AsyncConnection) -> None:
+    """Makes sure the FSB demo account exists. It runs inside a savepoint: a problem here is logged and skipped, because a failed
+    statement in the startup transaction would otherwise stop the whole app from starting (every migration shares that transaction)."""
+    try:
+        async with conn.begin_nested():
+            await _fsb_demo_operator(conn)
+    except Exception as err:
+        logger.warning(f"FSB demo account was not set up: {err}")
+
+
+async def _fsb_demo_operator(conn: AsyncConnection) -> None:
     """Ensures the dedicated FSB demo account (fsbdemo@outreach.com / Fsb@2026) exists with Admin
     permissions in an active FSB organisation, so it is immediately available on all server deployments
     without needing manual seeding."""
@@ -1051,23 +1061,24 @@ async def _ensure_fsb_demo_operator(conn: AsyncConnection) -> None:
         await conn.execute(
             text(
                 "INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, "
-                "is_active, must_change_password, created_at, updated_at) "
+                "is_active, must_change_password, created_at) "
                 "VALUES ('op_fsbdemo', :org_id, 'fsbdemo', 'fsbdemo@outreach.com', 'FSB Demo Outreach', 'Admin', "
-                ":pw, :act, :mcp, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ":pw, :act, :mcp, CURRENT_TIMESTAMP)"
             ),
             {"org_id": org_id, "pw": pw_hash, "act": True, "mcp": False},
         )
 
-    # 3. Ensure role mapping in operator_roles
+    # 3. Ensure role mapping in operator_roles (own savepoint: a swallowed error alone would leave the transaction aborted)
     try:
-        await conn.execute(
-            text(
-                "INSERT INTO operator_roles (operator_id, role_id) "
-                "SELECT o.id, r.id FROM operators o, roles r "
-                "WHERE o.username = 'fsbdemo' AND r.name = 'Admin' "
-                "ON CONFLICT DO NOTHING"
+        async with conn.begin_nested():
+            await conn.execute(
+                text(
+                    "INSERT INTO operator_roles (operator_id, role_id) "
+                    "SELECT o.id, r.id FROM operators o, roles r "
+                    "WHERE o.username = 'fsbdemo' AND r.name = 'Admin' "
+                    "ON CONFLICT DO NOTHING"
+                )
             )
-        )
     except Exception:
         pass
 
