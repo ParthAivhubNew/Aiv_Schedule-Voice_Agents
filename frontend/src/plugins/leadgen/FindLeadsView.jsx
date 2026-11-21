@@ -2,10 +2,10 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "./searc
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Download, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
-import { ExportDialog } from "./ExportDialog";
+import { FieldMark } from "./SourceMark";
 import { domainOf, ImportView } from "./AccountsViews";
 import { CheckDialog, CheckProgress, useCompanyCheck } from "./CheckCompanies";
 import { personEmail } from "./companyLogic";
@@ -285,7 +285,7 @@ function ContactsPanel({ company }) {
           <div>
             <div style={{ ...text, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Contact details</div>
             {data.stored.website || data.stored.phone || data.stored.email ? (
-              <div style={{ ...muted, fontSize: 12.5 }}>{[data.stored.website, data.stored.phone, data.stored.email].filter(Boolean).join(" · ")} <TierBadge tier={data.stored.tier} /></div>
+              <div style={{ ...muted, fontSize: 12.5 }}>{[data.stored.website, data.stored.phone, data.stored.email].filter(Boolean).join(" · ")} <TierBadge tier={data.stored.tier} />{["website", "phone", "email"].map((f) => <FieldMark key={f} flags={company.restricted} field={f} />)}</div>
             ) : <div style={{ ...muted, fontSize: 12.5 }}>{data.web && data.web.found !== false ? "Not held on the public register. What the web found is below." : "The public register holds no website, phone or email for this company."}</div>}
             {data.web ? (
               data.web.found === false ? <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>The web search found no website, phone or email we could tie to this company, so nothing is shown and nothing was charged.</div> : (
@@ -402,7 +402,6 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const lastQuery = useRef(null); // the request behind the results on screen, for "Select all"
   const [selecting, setSelecting] = useState(false);
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
-  const [exportOpen, setExportOpen] = useState(false); // Export to CSV dialog
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
   const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
   const [groups, setGroups] = useState({ industry: true });
@@ -1544,12 +1543,10 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
                   <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealMany(pickedRows)}>Reveal {pickedRows.filter((c) => Object.keys(c.closed || {}).length).length.toLocaleString()}</button>
                 ) : null}
                 <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Export companies as a spreadsheet" onClick={() => setExportOpen(true)}><Download size={14} /> Export CSV</button>
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
               </SelectionBar>
               <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
               {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
-              {exportOpen ? <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} accounts={pickedRows.length ? pickedRows : companies} onToast={notice} /> : null}
               {inArea ? (
                 <div role="status" style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.border}` }}>
                   <MapIcon size={14} aria-hidden="true" /> <span>Showing the {companies.length.toLocaleString()} {companies.length === 1 ? "company" : "companies"} the map found.</span>

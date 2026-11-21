@@ -1,4 +1,5 @@
 import asyncio
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import AsyncSessionLocal, engine, Base
@@ -28,7 +29,8 @@ async def seed_database():
         
     async with AsyncSessionLocal() as db:
         # Check if already initialized
-        res = await db.execute(select(Operator))
+        # The demo organisation's operator is made by a startup step that runs first; it must not count as "already initialised".
+        res = await db.execute(select(Operator).where(func.coalesce(Operator.org_id, "") != "org_fsb_demo"))
         if res.scalars().first():
             return
 
@@ -52,18 +54,7 @@ async def seed_database():
         )
         db.add(admin)
 
-        fsb_pw = os.getenv("FSB_PASSWORD") or "Fsb@2026"
-        fsb_user = Operator(
-            id="op_fsbdemo",
-            org_id="org_default",
-            username="fsbdemo",
-            name="FSB Demo Outreach",
-            role="Admin",
-            email="fsbdemo@outreach.com",
-            hashed_password=hash_password(fsb_pw),
-            must_change_password=False,
-        )
-        db.add(fsb_user)
+        # The FSB demo account is not seeded here: it lives in its own organisation (services/fsb_demo.py, made by a startup step).
         
         # 2. Default Company Profile
         profile = CompanyProfile(

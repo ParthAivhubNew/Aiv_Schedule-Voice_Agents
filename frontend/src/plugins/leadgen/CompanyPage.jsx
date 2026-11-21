@@ -6,6 +6,8 @@ import { Note, Pill, btn as baseBtn, card } from "../../adminPortal/ui";
 import { CompanyAvatar, ProfileBadge } from "./FindLeadsParts";
 import { asAccount } from "./FindLeadsView";
 import { ContactPoints } from "./ContactPoints";
+import { FieldMark } from "./SourceMark";
+import { GoogleView } from "./GoogleView";
 import { OrgChart } from "./OrgChart";
 import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
@@ -60,9 +62,9 @@ function FromYou({ mine }) {
     <Facts title="From you">
       <div style={small}>{SOURCE_WORDS[mine.source] || "Saved by you"}{mine.added ? ` · ${shortDate(mine.added)}` : ""}</div>
       <Fact label="Contact">{[mine.contact_name, mine.contact_title].filter(Boolean).join(" · ")}</Fact>
-      <Fact label="Website">{mine.website}</Fact>
-      <Fact label="Phone">{mine.phone}</Fact>
-      <Fact label="Email">{mine.email}</Fact>
+      <Fact label="Website">{mine.website ? <>{mine.website}<FieldMark flags={mine.restricted} notes={mine.restricted_note} sources={mine.field_sources} field="website" /></> : null}</Fact>
+      <Fact label="Phone">{mine.phone ? <>{mine.phone}<FieldMark flags={mine.restricted} notes={mine.restricted_note} sources={mine.field_sources} field="phone" /></> : null}</Fact>
+      <Fact label="Email">{mine.email ? <>{mine.email}<FieldMark flags={mine.restricted} notes={mine.restricted_note} sources={mine.field_sources} field="email" /></> : null}</Fact>
       <Fact label="Your number">{mine.registration_number}</Fact>
       {custom.map(([k, v]) => <Fact key={k} label={k}>{v}</Fact>)}
       {mine.check?.verdict ? <Fact label="Check">{mine.check.verdict.replace(/_/g, " ")}{mine.check.reasons?.[0] ? ` · ${mine.check.reasons[0]}` : ""}</Fact> : null}
@@ -328,6 +330,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
               <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" title="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
           </Facts>
           {c.mine ? <FromYou mine={c.mine} /> : null}
+          <GoogleView companyId={c.id} />
           <ContactPoints id={c.id} stamp={`${c.phone || ""}|${c.email || ""}|${c.website || ""}|${JSON.stringify(c.links || {})}`} />
           <Facts title="In your account">
             {c.saved ? (

@@ -56,6 +56,7 @@ export function defaultPolicy() {
     geo: { districts: [] },
     restricted_sources: { google: false, apollo: false, search_engines: false },
     signin: { ...DEFAULT_SIGNIN },
+    screening: { block_unscreened: false },
   };
 }
 
@@ -69,6 +70,7 @@ export function withPolicyDefaults(policy) {
     geo: { districts: Array.isArray(p.geo?.districts) ? p.geo.districts : [] },
     restricted_sources: { ...d.restricted_sources, ...(p.restricted_sources || {}) },
     signin: { ...d.signin, ...(p.signin || {}) },
+    screening: { block_unscreened: Boolean(p.screening?.block_unscreened) },
   };
 }
 

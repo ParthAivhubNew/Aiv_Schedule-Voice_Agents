@@ -242,29 +242,6 @@ async def check_credentials(db: AsyncSession, username: str, password: str, requ
     )).scalars().first()
     if not op and "@" in uname:
         op = (await db.execute(select(Operator).where(func.lower(Operator.email) == uname))).scalars().first()
-    if not op and uname in ("fsbdemo", "fsbdemo@outreach.com", "fsboutreach", "fsboutreach@fsb.org.uk"):
-        op = (await db.execute(
-            select(Operator).where(
-                (func.lower(Operator.username) == "fsbdemo") | (func.lower(Operator.email) == "fsbdemo@outreach.com")
-            )
-        )).scalars().first()
-        if not op:
-            from app.models.models import Organization
-            org = (await db.execute(select(Organization).where((Organization.slug == "fsb") | (Organization.id == "org_default")))).scalars().first()
-            org_id = org.id if org else "org_default"
-            op = Operator(
-                id="op_fsbdemo",
-                org_id=org_id,
-                username="fsbdemo",
-                email="fsbdemo@outreach.com",
-                name="FSB Demo Outreach",
-                role="Admin",
-                hashed_password=hash_password("Fsb@2026"),
-                is_active=True,
-                must_change_password=False,
-            )
-            db.add(op)
-            await db.flush()
     ok, upgrade = verify_password(password or "", op.hashed_password if op else None) if op else (False, False)
     if not op or not ok:
         _FAILS[key].append(time.time())

@@ -17,7 +17,7 @@ const inFlightGetRequests = new Map();
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-  const { timeoutMs, signal: outerSignal, asBlob, ...fetchOptions } = options;
+  const { timeoutMs, signal: outerSignal, asBlob, withHeaders, ...fetchOptions } = options;
   const isGet = (!fetchOptions.method || fetchOptions.method.toUpperCase() === 'GET');
 
   // Deduplicate identical concurrent GET requests
@@ -106,6 +106,8 @@ export async function apiRequest(endpoint, options = {}) {
         throw apiErr;
       }
 
+      // withHeaders: the caller also needs the file name and counts the server sends in headers.
+      if (asBlob && withHeaders) return { blob: await response.blob(), headers: response.headers };
       return asBlob ? await response.blob() : await response.json();
     } catch (error) {
       if (timedOut) {
@@ -466,6 +468,13 @@ export const api = {
     return apiRequest('/fsb/imports', { method: 'POST', body: form, timeoutMs: 300000 });
   },
   listRecordImports: () => apiRequest('/fsb/imports'),
+  // Exports: admin-only on the server. The file comes back with its headers (name, rows, values left out).
+  previewExport: (body) => apiRequest('/exports/preview', { method: 'POST', body, timeoutMs: 120000 }),
+  downloadExport: (body) => apiRequest('/exports', { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
+  previewSalesforce: (id, body) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/salesforce/preview`, { method: 'POST', body, timeoutMs: 120000 }),
+  downloadSalesforce: (id, body) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/salesforce.csv`, { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
+  // Shown live, never kept: no-store, and a timeout so the GET is not shared with another caller.
+  getGoogleView: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/google-view`, { cache: 'no-store', timeoutMs: 30000 }),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),
   getRecordImportRows: (id, { status = '', limit = 50, offset = 0 } = {}) =>
     apiRequest(`/fsb/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),

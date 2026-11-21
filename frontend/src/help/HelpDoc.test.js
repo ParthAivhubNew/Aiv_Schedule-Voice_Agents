@@ -13,7 +13,7 @@ describe("Documentation content model & tree structure", () => {
     expect(ids).toContain("troubleshooting");
   });
 
-  it("Leads contains required sub-pages: Find leads, Lists, Journeys, Mail, Forms, AI Assistant, About your business", () => {
+  it("Leads contains required sub-pages: Find leads, Lists, Journeys, Mail, Forms, AI Assistant, About your business, Connectors", () => {
     const leadsNode = DOCS_TREE.find((n) => n.id === "leads");
     expect(leadsNode).toBeDefined();
     const childIds = leadsNode.children.map((c) => c.id);
@@ -25,6 +25,39 @@ describe("Documentation content model & tree structure", () => {
       "leads-forms",
       "leads-assistant",
       "leads-business",
+      "leads-connectors",
+    ]);
+  });
+
+  it("Voice, Social, and Workflows contain detailed tab sub-pages", () => {
+    const voiceNode = DOCS_TREE.find((n) => n.id === "voice");
+    expect(voiceNode).toBeDefined();
+    expect(voiceNode.children.map((c) => c.id)).toEqual([
+      "voice-calls",
+      "voice-conversations",
+      "voice-schedule",
+      "voice-analytics",
+      "voice-studio",
+      "voice-compliance",
+    ]);
+
+    const socialNode = DOCS_TREE.find((n) => n.id === "social");
+    expect(socialNode).toBeDefined();
+    expect(socialNode.children.map((c) => c.id)).toEqual([
+      "social-calendar",
+      "social-approve",
+      "social-composer",
+      "social-media",
+      "social-connect",
+      "social-results",
+    ]);
+
+    const workflowsNode = DOCS_TREE.find((n) => n.id === "workflows");
+    expect(workflowsNode).toBeDefined();
+    expect(workflowsNode.children.map((c) => c.id)).toEqual([
+      "workflows-builder",
+      "workflows-triggers",
+      "workflows-activity",
     ]);
   });
 

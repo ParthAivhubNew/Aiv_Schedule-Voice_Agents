@@ -606,6 +606,14 @@ async def lifespan(app: FastAPI):
     from app.core.tenancy import ensure_tenancy
     async with engine.begin() as conn:
         await ensure_tenancy(conn)
+    try:
+        from app.services import fsb_demo
+        if not await fsb_demo.ensure_demo_data():  # the startup step failed once (it is only recorded as done): try again
+            async with engine.begin() as conn:
+                await fsb_demo.ensure_demo_account(conn)
+            await fsb_demo.ensure_demo_data()
+    except Exception as demo_err:
+        logger.warning(f"FSB demo credits were not set up: {demo_err}")
     # A brand-new database seeds provider rows into Aivhub; they belong to the platform.
     from app.core.platform import split_platform
     async with engine.begin() as conn:

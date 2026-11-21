@@ -61,7 +61,7 @@ import { ImportMatchView } from "./ImportMatch";
 import { MonthlyChangesView } from "./MonthlyChanges";
 import { ConnectorsView } from "./ConnectorsView";
 import { isFsbAccount } from "../../hub/SidebarAccountBadge";
-import { canUseRecords } from "./importMatchLogic";
+import { canUseRecords, isAdminOperator } from "./importMatchLogic";
 import { returnToList } from "./openList";
 import { CompanyPage } from "./CompanyPage";
 import { ProfileBox } from "./EmailWriter";
@@ -448,9 +448,9 @@ export default function LeadGenerationPlugin({
 
           {view === "saved_people" && <SavedPeople store={store} onOpen={setOpenAccount} onGo={goTo} />}
 
-          {view === "saved_companies" && <AccountsView store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
+          {view === "saved_companies" && <AccountsView canExport={isAdminOperator(operator)} store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
-          {view === "lists" && <ListsView store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
+          {view === "lists" && <ListsView canExport={isAdminOperator(operator)} store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
           {view === "account" && accountPageId && (store.accounts.find((a) => a.id === accountPageId)
             ? <AccountPanel key={accountPageId} page account={store.accounts.find((a) => a.id === accountPageId)} store={store}

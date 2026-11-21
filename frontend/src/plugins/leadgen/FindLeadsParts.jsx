@@ -8,6 +8,7 @@ import { domainOf } from "./AccountsViews";
 import { useLookupPrice, useRatePrice } from "./CreditsChip";
 import { NotesButton } from "./Notes";
 import { FitBadge, SignalTags } from "./FitParts";
+import { FieldMark } from "./SourceMark";
 import { displayName, legalTag } from "./companyLogic";
 import { CARDS_CSS, useNarrow } from "./cardsLayout";
 
@@ -341,9 +342,9 @@ function CompanyCards({ rows, picked, onPick, onOpen, isSaved, onSave, tiers, gr
                 {showFit ? <FitBadge fit={c.fit} /> : null}
                 {c.signals?.length ? <SignalTags signals={c.signals} /> : null}
                 <div className="fl-co-reach" onClick={(e) => e.stopPropagation()}>
-                  <span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span>
-                  <span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span>
-                  {c.website ? <span>{link(c.website)}</span> : null}
+                  <span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /><FieldMark flags={c.restricted} field="phone" /></span>
+                  <span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /><FieldMark flags={c.restricted} field="email" /></span>
+                  {c.website ? <span>{link(c.website)}<FieldMark flags={c.restricted} field="website" /></span> : null}
                 </div>
               </div>
             </article>
@@ -424,9 +425,9 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                   {showFit ? <Cell style={{ maxWidth: 240 }}><FitBadge fit={c.fit} /></Cell> : null}
                   <Cell style={{ maxWidth: 210, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={plainSector(c.industry)}>{plainSector(c.industry) || "–"}</Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}>{[c.region, c.postcode].filter(Boolean).join(" ") || "–"}</Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" quiet first={firstMissing(c) === "website"} onGet={() => onGetContacts?.([c])} listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}</span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /></span></Cell>
-                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:website`}>{link(c.website) || <Reach value="" kind="website" quiet first={firstMissing(c) === "website"} onGet={() => onGetContacts?.([c])} listing={c.listing_page} web={c.confirmed_website || c.web_website} confirmed={Boolean(c.confirmed_website)} closed={(c.closed || {}).website} onOpen={() => onReveal(c, "website")} state={(lookups || {})[`${c.id}:website`]} missed={(c.missed || {}).website} onFind={() => onFindSite(c, "website")} />}<FieldMark flags={c.restricted} field="website" /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:phone`}><Reach value={c.phone} who={c.name} kind="phone" quiet first={firstMissing(c) === "phone"} onGet={() => onGetContacts?.([c])} web={c.confirmed_phone || c.web_phone} confirmed={Boolean(c.confirmed_phone)} closed={(c.closed || {}).phone} onOpen={() => onReveal(c, "phone")} state={(lookups || {})[`${c.id}:phone`]} missed={(c.missed || {}).phone} onFind={() => onFindSite(c, "phone")} /><FieldMark flags={c.restricted} field="phone" /></span></Cell>
+                  <Cell style={{ whiteSpace: "nowrap" }}><span data-reach={`${c.id}:email`}><Reach value={c.email} kind="email" quiet first={firstMissing(c) === "email"} onGet={() => onGetContacts?.([c])} web={c.web_email} closed={(c.closed || {}).email} onOpen={() => onReveal(c, "email")} state={(lookups || {})[`${c.id}:email`]} missed={(c.missed || {}).email} onFind={() => onFindSite(c, "email")} /><FieldMark flags={c.restricted} field="email" /></span></Cell>
                   <Cell style={{ whiteSpace: "nowrap" }}><LinksCell c={c} onFind={onFindSite} onReveal={onReveal} lookups={lookups} /></Cell>
                   <Cell>{c.size_band && c.size_band !== "unknown" ? SIZE_LABEL[c.size_band] || c.size_band : "–"}</Cell>
                   <Cell style={{ textAlign: "right", whiteSpace: "nowrap" }}>

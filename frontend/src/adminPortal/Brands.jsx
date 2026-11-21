@@ -156,6 +156,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
         {[["google", "Google", "Turn off Google-sourced details for this brand."], ["apollo", "Apollo", "Turn off Apollo-sourced details for this brand."], ["search_engines", "Search engines", "Turn off search-engine lookups for this brand."]].map(([k, l, h]) => (
           <Toggle key={k} label={l} help={h} checked={policy.restricted_sources[k]} disabled={off} onChange={(v) => setP("restricted_sources", k, v)} />
         ))}
+        <Toggle label="Block phone numbers that are not cleared by the TPS and CTPS check" help="When on, numbers that have not been checked, or are on either register, are left out of calls and exports for this brand." checked={policy.screening.block_unscreened} disabled={off} onChange={(v) => setP("screening", "block_unscreened", v)} />
         <div style={{ fontSize: 13, fontWeight: 600, margin: "10px 0 4px" }}>Allowed sign-in methods</div>
         {[["password", "Email and password", "People of the brand sign in with a password."], ["google", "Google", "Shows the Google button on the sign-in page."], ["microsoft", "Microsoft", "Shows the Microsoft button when it is set up."]].map(([k, l, h]) => (
           <Toggle key={k} label={l} help={h} checked={policy.signin[k]} disabled={off} onChange={(v) => setP("signin", k, v)} />

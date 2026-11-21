@@ -73,6 +73,18 @@ export function HelpPage({ initialPath = "/help" }) {
     }
   };
 
+  // Auto-expand tree when navigating to a child or parent
+  useEffect(() => {
+    if (activeDoc) {
+      const parent = DOCS_TREE.find(
+        (node) => node.id === activeDoc.id || (node.children && node.children.some((c) => c.id === activeDoc.id))
+      );
+      if (parent && parent.children?.length) {
+        setExpandedTrees((prev) => ({ ...prev, [parent.id]: true }));
+      }
+    }
+  }, [activeDoc?.id]);
+
   const toggleTree = (id) => {
     setExpandedTrees((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -281,49 +293,56 @@ export function HelpPage({ initialPath = "/help" }) {
 
               return (
                 <React.Fragment key={node.id}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      onClick={() => navigateDoc(node.doc.path)}
-                      style={{
-                        all: "unset",
-                        boxSizing: "border-box",
-                        flex: 1,
-                        padding: "7px 10px",
-                        borderRadius: 6,
-                        fontSize: 13.5,
-                        fontWeight: activeDoc?.id === node.id ? 600 : 500,
-                        color: activeDoc?.id === node.id ? C.cobalt : C.textInk,
-                        background: activeDoc?.id === node.id ? C.cobaltSoft : "transparent",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (activeDoc?.id !== node.id) e.currentTarget.style.background = C.paperSoft;
-                      }}
-                      onMouseLeave={(e) => {
-                        if (activeDoc?.id !== node.id) e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      <span style={{ flex: 1 }}>{node.label}</span>
-                    </button>
-                    {hasChildren && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigateDoc(node.doc.path);
+                      if (hasChildren) {
+                        if (activeDoc?.id === node.id) {
                           toggleTree(node.id);
+                        } else {
+                          setExpandedTrees((prev) => ({ ...prev, [node.id]: true }));
+                        }
+                      }
+                    }}
+                    style={{
+                      all: "unset",
+                      boxSizing: "border-box",
+                      width: "100%",
+                      padding: "7px 10px",
+                      borderRadius: 6,
+                      fontSize: 13.5,
+                      fontWeight: activeDoc?.id === node.id ? 600 : 500,
+                      color: activeDoc?.id === node.id ? C.cobalt : C.textInk,
+                      background: activeDoc?.id === node.id ? C.cobaltSoft : "transparent",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      transition: "background-color 0.12s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (activeDoc?.id !== node.id) e.currentTarget.style.background = C.paperSoft;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (activeDoc?.id !== node.id) e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    <span style={{ flex: 1, textAlign: "left" }}>{node.label}</span>
+                    {hasChildren && (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: activeDoc?.id === node.id ? C.cobalt : C.slate,
                         }}
-                        className="ui-icon-btn ui-icon-btn--sm"
-                        aria-label="Toggle group"
-                        style={{ marginLeft: 2 }}
                       >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      </button>
+                      </span>
                     )}
-                  </div>
+                  </button>
 
                   {hasChildren && isExpanded && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 1, paddingLeft: 18, margin: "2px 0 4px" }}>

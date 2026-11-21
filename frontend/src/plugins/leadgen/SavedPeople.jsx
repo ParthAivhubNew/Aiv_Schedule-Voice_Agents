@@ -4,6 +4,7 @@ import { CardsSkeleton } from "../../app/Loader";
 import { GridTools } from "../../components/GridTools";
 import { C, FONT_BODY } from "../../tokens";
 import { phoneFor } from "./AccountsViews";
+import { FieldMark } from "./SourceMark";
 import { StageBadge } from "./LeadActivity";
 import { NotesButton } from "./Notes";
 import { SearchField } from "../../components/SearchField";
@@ -22,7 +23,7 @@ export function peopleOf(accounts) {
       const key = String(name || "").trim().toLowerCase();
       if (!key || seen.has(key)) return;
       seen.add(key);
-      rows.push({ id: `${a.id}:${key}`, account: a, name: String(name).trim(), title: title || "", email: email || "", phone: phone || "", found });
+      rows.push({ id: `${a.id}:${key}`, account: a, name: String(name).trim(), title: title || "", email: email || "", phone: phone || "", found, own: !found });
     };
     if (a.contact_name) add(a.contact_name, a.contact_title, a.email, phoneFor(a)?.text, false);
     const r = a.research || {};
@@ -68,8 +69,8 @@ export function SavedPeople({ store, onOpen, onGo }) {
                   <td style={{ fontWeight: 600, color: C.ink }}>{p.name} <NotesButton companyId={p.account.id} person={p.name} name={p.name} /></td>
                   <td style={{ color: C.slate }}>{p.title || "-"}</td>
                   <td>{p.account.name}</td>
-                  <td style={{ color: p.email ? C.ink : C.slate }}>{p.email || "-"}</td>
-                  <td style={{ color: p.phone ? C.ink : C.slate, whiteSpace: "nowrap" }}>{p.phone || "-"}</td>
+                  <td style={{ color: p.email ? C.ink : C.slate }}>{p.email || "-"}{p.own && p.email ? <FieldMark flags={p.account.restricted} notes={p.account.restricted_note} sources={p.account.field_sources} field="email" /> : null}</td>
+                  <td style={{ color: p.phone ? C.ink : C.slate, whiteSpace: "nowrap" }}>{p.phone || "-"}{p.own && p.phone ? <FieldMark flags={p.account.restricted} notes={p.account.restricted_note} sources={p.account.field_sources} field="phone" /> : null}</td>
                   <td><StageBadge stage={p.account.connection?.stage || "new"} /></td>
                   <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{p.found ? "Found by a company check" : "Saved or imported"}</td>
                 </tr>

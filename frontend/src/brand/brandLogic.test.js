@@ -28,6 +28,8 @@ describe("brandLogic", () => {
     const p = withPolicyDefaults({ signin: { google: false }, geo: { districts: ["BN1"] } });
     expect(p.signin).toEqual({ password: true, google: false, microsoft: true });
     expect(p.geo.districts).toEqual(["BN1"]);
+    expect(p.screening).toEqual({ block_unscreened: false });
+    expect(withPolicyDefaults({ screening: { block_unscreened: true } }).screening.block_unscreened).toBe(true);
   });
   it("builds the title", () => {
     expect(buildTitle("FSB Outreach", "Leads")).toBe("FSB Outreach | Leads");

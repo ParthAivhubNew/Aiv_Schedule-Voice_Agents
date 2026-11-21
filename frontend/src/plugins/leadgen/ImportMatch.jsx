@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Download, FileUp, X } from "lucide-react";
 import { CardsSkeleton } from "../../app/Loader";
+import { SalesforceDialog } from "./SalesforceDialog";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
 import {
@@ -193,6 +194,7 @@ function ImportDetail({ id, toast, onBack, onReview, onChanged }) {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState(null);
+  const [updateFile, setUpdateFile] = useState(false); // the Salesforce update file dialog
   const size = 50;
   const busy = isBusy(imp);
 
@@ -265,8 +267,10 @@ function ImportDetail({ id, toast, onBack, onReview, onChanged }) {
           {doneNow && (counts.review || 0) > 0 ? <button type="button" className="ui-btn ui-btn--primary imx-btn" onClick={() => onReview(id)}>Review {(counts.review || 0).toLocaleString("en-GB")} waiting</button> : null}
           {doneNow ? <button type="button" className="ui-btn ui-btn--secondary imx-btn" onClick={download}><Download size={14} aria-hidden="true" /> Duplicates file</button> : null}
           {doneNow ? <button type="button" className="ui-btn ui-btn--secondary imx-btn" onClick={downloadSalesforce}><Download size={14} aria-hidden="true" /> Export for Salesforce</button> : null}
+          {doneNow ? <button type="button" className="ui-btn ui-btn--secondary imx-btn" onClick={() => setUpdateFile(true)}><Download size={14} aria-hidden="true" /> Download update file</button> : null}
         </div>
       </div>
+      {updateFile ? <SalesforceDialog importId={id} onClose={() => setUpdateFile(false)} /> : null}
       {started ? (
         <div className="ui-card" style={{ overflow: "hidden" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", padding: 14, flexWrap: "wrap" }}>

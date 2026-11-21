@@ -89,7 +89,7 @@ function ListName({ list, editing, onEdit, onSave, onStop, size = 15 }) {
   );
 }
 
-export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }) {
+export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign, canExport = false }) {
   const { lists, loading, reload } = listsStore;
   const { available: canCall } = useConnection("call_leads");
   const call = useCallDialog(store.toast);
@@ -111,7 +111,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState(""); // id of the list whose name is being edited
   const [consentFor, setConsentFor] = useState(""); // id of the list whose consent question is open
-  const [exportTarget, setExportTarget] = useState(null); // { name, accounts } for CSV export dialog
+  const [exportTarget, setExportTarget] = useState(null); // { list_id } of the list being exported (administrators only)
   const [enrichModalOpen, setEnrichModalOpen] = useState(false);
   const open = lists.find((l) => l.id === openId);
   useEffect(() => { lastList.id = openId; }, [openId]); // so Back from a company opened in this list comes back here, not to all lists
@@ -183,21 +183,23 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           ) : null}
           <button
             type="button"
-            className="ui-btn ui-btn--ghost ui-btn--sm"
-            onClick={() => setEnrichModalOpen(true)}
-            title="View the 9 statutory APIs and AI models used to enrich contacts in this list"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D" }}
-          >
-            <ShieldCheck size={14} color="#0C8C7D" /> Enrichment sources
-          </button>
-          <button
-            type="button"
             className="ui-btn ui-btn--secondary ui-btn--sm"
-            onClick={() => setExportTarget({ name: open ? open.name : "All companies", accounts: members })}
-            title="Export companies in this list to a CSV spreadsheet"
+            onClick={() => setEnrichModalOpen(true)}
+            title="See where the data in this list comes from: the official registers and checks we use"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D", borderColor: "#0C8C7D", background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
           >
-            <Download size={14} /> Export CSV
+            <ShieldCheck size={15} color="#0C8C7D" aria-hidden="true" /> Where this data comes from
           </button>
+          {canExport && open ? (
+            <button
+              type="button"
+              className="ui-btn ui-btn--secondary ui-btn--sm"
+              onClick={() => setExportTarget({ list_id: open.id })}
+              title="Export the companies in this list as a spreadsheet"
+            >
+              <Download size={14} /> Export list
+            </button>
+          ) : null}
           <MoreMenu items={[
             { label: canCall ? "Call this list" : "Call this list · add Voice", disabled: busy || !members.length, title: "Have your AI caller phone them",
               onClick: () => call.open({ kind: "list", id: open ? open.id : "all", name: open ? open.name : "All companies" }, !canCall) },
@@ -218,16 +220,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           <ConsentDeclaration key={open.id} listId={open.id} scope="list" count={open.ids.length} onClose={() => setConsentFor("")}
             onDone={(_, msg) => { store.toast?.(msg); store.reload?.(); }} />
         ) : null}
-        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} moreInHeader />
+        <AccountsView store={store} listsStore={listsStore} onOpen={onOpen} onAdd={onAdd} onGo={onGo} onCampaign={onCampaign} scopeIds={scope} listId={open ? open.id : ""} moreInHeader canExport={canExport} />
         {call.dialog}
-        {exportTarget ? (
-          <ExportDialog
-            open={Boolean(exportTarget)}
-            onClose={() => setExportTarget(null)}
-            accounts={exportTarget.accounts}
-            onToast={store.toast}
-          />
-        ) : null}
+        {exportTarget && canExport ? <ExportDialog kind="companies" scope={exportTarget} onClose={() => setExportTarget(null)} /> : null}
         <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
       </div>
     );
@@ -242,12 +237,12 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
         <div style={{ ...muted, flex: "1 1 280px" }}>Every search you save and every file you import becomes a list. Open a list to check and improve it, fix what is wrong, then start a journey on it.</div>
         <button
           type="button"
-          className="ui-btn ui-btn--ghost ui-btn--sm"
+          className="ui-btn ui-btn--secondary ui-btn--sm"
           onClick={() => setEnrichModalOpen(true)}
-          title="View all 9 statutory APIs and AI models used to enrich companies"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D" }}
+          title="See where the data in your lists comes from: the official registers and checks we use"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D", borderColor: "#0C8C7D", background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
         >
-          <ShieldCheck size={14} color="#0C8C7D" /> Enrichment sources
+          <ShieldCheck size={15} color="#0C8C7D" aria-hidden="true" /> Where this data comes from
         </button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {
@@ -306,14 +301,16 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
                     <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{whenShort(l.updated_at || l.created_at)}</td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
                       <span style={{ display: "inline-flex", gap: 4 }}>
-                        <button
-                          type="button"
-                          className="ui-btn ui-btn--ghost ui-btn--sm"
-                          title={`Export ${l.name} to CSV`}
-                          onClick={() => setExportTarget({ name: l.name, accounts: l.members })}
-                        >
-                          <Download size={13} /> Export
-                        </button>
+                        {canExport ? (
+                          <button
+                            type="button"
+                            className="ui-btn ui-btn--ghost ui-btn--sm"
+                            title={`Export ${l.name} as a spreadsheet`}
+                            onClick={() => setExportTarget({ list_id: l.id })}
+                          >
+                            <Download size={13} /> Export
+                          </button>
+                        ) : null}
                         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setOpenId(l.id)}>Open</button>
                       </span>
                     </td>
@@ -324,14 +321,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign }
           </div>
         </div>
       )}
-      {exportTarget ? (
-        <ExportDialog
-          open={Boolean(exportTarget)}
-          onClose={() => setExportTarget(null)}
-          accounts={exportTarget.accounts}
-          onToast={store.toast}
-        />
-      ) : null}
+      {exportTarget && canExport ? <ExportDialog kind="companies" scope={exportTarget} onClose={() => setExportTarget(null)} /> : null}
       <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
     </div>
   );

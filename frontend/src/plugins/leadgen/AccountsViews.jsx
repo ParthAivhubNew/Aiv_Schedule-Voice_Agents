@@ -10,6 +10,7 @@ import { openPhone } from "../../utils/humanCall";
 import { Building2, Check, ChevronDown, Download, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Star, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { ExportDialog } from "./ExportDialog";
+import { FieldMark, SourceList } from "./SourceMark";
 import { EnrichmentBanner, EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -616,7 +617,7 @@ const VERDICT_TIPS = {
 const ACCOUNT_PAGE_SIZES = [10, 25, 50, 100];
 const COMPANY_PIN = ["Company"];
 
-export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "", moreInHeader = false }) {
+export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "", moreInHeader = false, canExport = false }) {
   const narrow = useNarrow();
   const [filter, setFilter] = useState("");
   const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
@@ -632,7 +633,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
   const [tpsNumbers, setTpsNumbers] = useState(null); // numbers of the ticked companies while the TPS and CTPS check is open
   const [listing, setListing] = useState(false); // the Add to list box is open
-  const [exportOpen, setExportOpen] = useState(false); // Export to CSV dialog
+  const [exportOpen, setExportOpen] = useState(false); // Export dialog for the ticked companies (administrators only)
   const [hidden, setHidden] = useState(readHidden); // columns this person chose not to see
   const check = useCompanyCheck({ onToast: store.toast, reload: store.reload });
   const locked = useLocked();
@@ -664,7 +665,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const shownOwn = own.filter((n) => showing(`c:${n}`));
   const fitShown = icp.isSet && showing("fit");
   const order = sortBy || (icp.isSet ? "fit" : "complete");
-  const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "datasource", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   const buckets = { all: [], ready: [], needs: [], other: [], contacted: [] };
   base.forEach((a) => { buckets[bucket(a)].push(a); buckets.all.push(a); });
@@ -831,9 +832,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
           ) : null}
           <span id="acc-grid-tools" style={{ display: "contents" }} />{/* the Default / My layout switch and Columns sit here, in this row */}
-          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Export companies as a CSV spreadsheet" onClick={() => setExportOpen(true)}>
-            <Download size={14} /> Export CSV
-          </button>
           <ViewsMenu current={{ hidden, tab: tabPref, filter: moreFilter }} onToast={store.toast}
             onApply={(v) => {
               saveHidden(v.hidden || []);
@@ -874,9 +872,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
               <Megaphone size={14} /> Start journey
             </button>
           ) : null}
-          <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Export ticked companies as CSV" onClick={() => setExportOpen(true)}>
-            <Download size={14} /> Export CSV
-          </button>
+          {canExport ? (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Export the ticked companies as a spreadsheet" onClick={() => setExportOpen(true)}>
+              <Download size={14} /> Export
+            </button>
+          ) : null}
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ color: C.red }} onClick={deleteTicked}
             title="Delete the ticked companies for good. They leave every list and journey.">
             Delete
@@ -958,6 +958,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                 {showing("quality") ? <th title="How much of the website, phone, email, address, industry, people and size we hold. Hover a row to see what is missing">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
                 {showing("website") ? <th title="The company's own website">Website</th> : null}
+                {showing("datasource") ? <th title="Where the phone, email and website came from: your file, the official register, the company's own website and so on">Data from</th> : null}
                 {showing("source") ? <th title="How and when this company was first saved">First seen via</th> : null}
                 {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
                 <th style={{ width: 1 }} aria-label="Actions" />
@@ -987,6 +988,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       {phoneFor(a) ? (
                         <>
                           {phoneFor(a).text}
+                          <FieldMark flags={a.restricted} notes={a.restricted_note} sources={a.field_sources} field="phone" />
                           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${a.name} in the browser`}
                             onClick={(e) => { e.stopPropagation(); openPhone({ number: phoneFor(a).text, leadId: a.id, name: a.name }); }}><PhoneCall size={13} /></button>
                           {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}> ✓</span> : null}
@@ -1001,6 +1003,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     {emailFor(a) ? (
                       <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{emailFor(a).text}</span>
+                        <FieldMark flags={a.restricted} notes={a.restricted_note} sources={a.field_sources} field="email" />
                         <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ flex: "none" }} title="Write an email to this address" aria-label={`Write an email to ${a.name}`}
                           onClick={(e) => { e.stopPropagation(); writeEmail(emailFor(a).text); }}><Mail size={13} /></button>
                         {emailFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5, flex: "none" }}>&nbsp;· from research</span> : null}
@@ -1036,6 +1039,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     </td>
                   ) : null}
                   {showing("website") ? <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}><SiteLink account={a} /></td> : null}
+                  {showing("datasource") ? <td><SourceList sources={a.field_sources} /></td> : null}
                   {showing("source") ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{firstSeen(a)}</td> : null}
                   {shownOwn.map((n) => (
                     <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1085,14 +1089,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       ) : null}
       {listing && listsStore ? <AddToListDialog ids={pickedIds} listsStore={listsStore} onToast={store.toast} onClose={() => setListing(false)} /> : null}
       {tpsNumbers ? <TpsCheckDialog numbers={tpsNumbers} wallet="leadgen" onClose={() => setTpsNumbers(null)} /> : null}
-      {exportOpen ? (
-        <ExportDialog
-          open={exportOpen}
-          onClose={() => setExportOpen(false)}
-          accounts={pickedIds.length ? base.filter((a) => sel.has(a.id)) : shown}
-          onToast={store.toast}
-        />
-      ) : null}
+      {exportOpen && canExport ? <ExportDialog kind="companies" scope={{ ids: pickedIds }} onClose={() => setExportOpen(false)} /> : null}
       {call.dialog}
     </div>
   );

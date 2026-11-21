@@ -6,6 +6,7 @@ import { LatestNote, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
 import { filledSummary } from "./profileState";
 import { legalTag, niceName } from "./companyLogic";
+import { GoogleView } from "./GoogleView";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
 
 // The Find Leads profile drawer: the same tabs, folding sections and bottom bar as the saved company panel.
@@ -45,6 +46,7 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
           <TabPanel idBase={base} id="overview" value={tab}>
             <Collapsible id="drawer:contacts" defaultOpen title="Contact details" summary={filledSummary([openCo.website || openCo.web_website, openCo.phone || openCo.web_phone, openCo.email || openCo.web_email])}>
               {contacts}
+              <div style={{ marginTop: 10 }}><GoogleView key={openCo.id} companyId={openCo.id} /></div>
             </Collapsible>
             <Collapsible id="drawer:profile" title="How complete" summary={openCo.profile ? "" : "Basic record"}>
               <ProfileBadge profile={openCo.profile} />

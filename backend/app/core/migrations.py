@@ -1007,80 +1007,25 @@ async def _icp_and_register_dates(conn: AsyncConnection) -> None:
 
 
 async def _ensure_fsb_demo_operator(conn: AsyncConnection) -> None:
-    """Makes sure the FSB demo account exists. It runs inside a savepoint: a problem here is logged and skipped, because a failed
-    statement in the startup transaction would otherwise stop the whole app from starting (every migration shares that transaction)."""
+    """Superseded by _ensure_fsb_demo_account: that first version put the demo admin in the platform's own organisation. Kept as a
+    recorded no-op so databases that already applied it do not run it again."""
+
+
+async def _ensure_fsb_demo_account(conn: AsyncConnection) -> None:
+    """Makes sure the FSB demo account exists in its own organisation (see services/fsb_demo.py). It runs inside a savepoint: a problem
+    here is logged and skipped, because a failed statement in the startup transaction would otherwise stop the whole app from starting
+    (every migration shares that transaction)."""
     try:
         async with conn.begin_nested():
-            await _fsb_demo_operator(conn)
+            await _fsb_demo_account(conn)
     except Exception as err:
         logger.warning(f"FSB demo account was not set up: {err}")
 
 
-async def _fsb_demo_operator(conn: AsyncConnection) -> None:
-    """Ensures the dedicated FSB demo account (fsbdemo@outreach.com / Fsb@2026) exists with Admin
-    permissions in an active FSB organisation, so it is immediately available on all server deployments
-    without needing manual seeding."""
-    from app.core.security import hash_password
+async def _fsb_demo_account(conn: AsyncConnection) -> None:
+    from app.services import fsb_demo
 
-    pw_hash = hash_password("Fsb@2026")
-
-    # 1. Ensure FSB organisation exists
-    org_res = await conn.execute(
-        text("SELECT id FROM organizations WHERE slug = 'fsb' OR id = 'org_fsb' OR id = 'org_default' LIMIT 1")
-    )
-    org_row = org_res.first()
-    org_id = org_row[0] if org_row else "org_default"
-    if not org_row:
-        await conn.execute(
-            text(
-                "INSERT INTO organizations (id, name, slug, status, created_at, updated_at) "
-                "VALUES (:id, :name, :slug, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-            ),
-            {"id": "org_default", "name": "Federation of Small Businesses", "slug": "fsb"},
-        )
-        org_id = "org_default"
-
-    # 2. Check if fsbdemo operator exists (by username or email)
-    op_res = await conn.execute(
-        text(
-            "SELECT id FROM operators WHERE LOWER(username) IN ('fsbdemo', 'fsboutreach') "
-            "OR LOWER(email) IN ('fsbdemo@outreach.com', 'fsboutreach@fsb.org.uk') LIMIT 1"
-        )
-    )
-    op_row = op_res.first()
-    if op_row:
-        await conn.execute(
-            text(
-                "UPDATE operators SET username = 'fsbdemo', email = 'fsbdemo@outreach.com', "
-                "hashed_password = :pw, is_active = :act, must_change_password = :mcp, "
-                "name = 'FSB Demo Outreach', role = 'Admin', org_id = :org_id WHERE id = :id"
-            ),
-            {"pw": pw_hash, "org_id": org_id, "id": op_row[0], "act": True, "mcp": False},
-        )
-    else:
-        await conn.execute(
-            text(
-                "INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, "
-                "is_active, must_change_password, created_at) "
-                "VALUES ('op_fsbdemo', :org_id, 'fsbdemo', 'fsbdemo@outreach.com', 'FSB Demo Outreach', 'Admin', "
-                ":pw, :act, :mcp, CURRENT_TIMESTAMP)"
-            ),
-            {"org_id": org_id, "pw": pw_hash, "act": True, "mcp": False},
-        )
-
-    # 3. Ensure role mapping in operator_roles (own savepoint: a swallowed error alone would leave the transaction aborted)
-    try:
-        async with conn.begin_nested():
-            await conn.execute(
-                text(
-                    "INSERT INTO operator_roles (operator_id, role_id) "
-                    "SELECT o.id, r.id FROM operators o, roles r "
-                    "WHERE o.username = 'fsbdemo' AND r.name = 'Admin' "
-                    "ON CONFLICT DO NOTHING"
-                )
-            )
-    except Exception:
-        pass
+    await fsb_demo.ensure_demo_account(conn)
 
 
 STEPS: List[Tuple[str, Step]] = [
@@ -1155,6 +1100,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_27_org_brand", _org_brand),
     ("2026_11_28_lead_account_field_sources", _lead_account_field_sources),
     ("2026_11_29_ensure_fsb_demo_operator", _ensure_fsb_demo_operator),
+    ("2026_11_30_ensure_fsb_demo_account", _ensure_fsb_demo_account),
 ]
 
 
