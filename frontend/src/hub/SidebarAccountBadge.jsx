@@ -8,7 +8,13 @@ export function isFsbAccount(operator) {
   if (!operator) return false;
   const u = String(operator.username || "").toLowerCase().trim();
   const e = String(operator.email || "").toLowerCase().trim();
-  return u === "fsboutreach" || e === "fsboutreach@fsb.org.uk" || e === "fsboutreach";
+  return (
+    u === "fsbdemo" ||
+    u === "fsboutreach" ||
+    e === "fsbdemo@outreach.com" ||
+    e === "fsboutreach@fsb.org.uk" ||
+    e.startsWith("fsbdemo@")
+  );
 }
 
 // Crisp inline FSB Logo mark

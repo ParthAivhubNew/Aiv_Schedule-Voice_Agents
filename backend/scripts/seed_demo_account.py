@@ -26,10 +26,10 @@ from app.core.security import hash_password
 from app.core.accounts import ensure_system_roles, assign_roles
 from app.services import credits as K
 
-DEMO_USERNAME = "fsboutreach"
+DEMO_USERNAME = "fsbdemo"
 DEMO_PASSWORD = "Fsb@2026"
-DEMO_EMAIL = "fsboutreach@fsb.org.uk"
-DEMO_NAME = "FSB Outreach"
+DEMO_EMAIL = "fsbdemo@outreach.com"
+DEMO_NAME = "FSB Demo Outreach"
 DEFAULT_ORG_ID = "org_default"
 
 

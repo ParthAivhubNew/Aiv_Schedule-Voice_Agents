@@ -60,10 +60,12 @@ describe("Support and Documentation in the sidebars", () => {
   });
 
   it("isFsbAccount identifies dedicated FSB account and rejects all others", () => {
+    expect(isFsbAccount({ username: "fsbdemo" })).toBe(true);
+    expect(isFsbAccount({ username: "FSBDEMO" })).toBe(true);
+    expect(isFsbAccount({ email: "fsbdemo@outreach.com" })).toBe(true);
+    expect(isFsbAccount({ username: "fsbdemo", email: "fsbdemo@outreach.com" })).toBe(true);
     expect(isFsbAccount({ username: "fsboutreach" })).toBe(true);
-    expect(isFsbAccount({ username: "FSBOUTREACH" })).toBe(true);
     expect(isFsbAccount({ email: "fsboutreach@fsb.org.uk" })).toBe(true);
-    expect(isFsbAccount({ username: "fsboutreach", email: "fsboutreach@fsb.org.uk" })).toBe(true);
 
     expect(isFsbAccount({ username: "op1", email: "user@example.com", org_name: "Acme Corp" })).toBe(false);
     expect(isFsbAccount({ username: "other", org_name: "Federation of Small Businesses" })).toBe(false);

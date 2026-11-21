@@ -54,12 +54,12 @@ async def seed_database():
 
         fsb_pw = os.getenv("FSB_PASSWORD") or "Fsb@2026"
         fsb_user = Operator(
-            id="op_fsboutreach",
+            id="op_fsbdemo",
             org_id="org_default",
-            username="fsboutreach",
-            name="FSB Outreach",
+            username="fsbdemo",
+            name="FSB Demo Outreach",
             role="Admin",
-            email="fsboutreach@fsb.org.uk",
+            email="fsbdemo@outreach.com",
             hashed_password=hash_password(fsb_pw),
             must_change_password=False,
         )
