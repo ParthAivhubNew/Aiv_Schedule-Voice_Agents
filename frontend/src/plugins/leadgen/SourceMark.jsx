@@ -39,6 +39,13 @@ export const SOURCE_LABELS = {
 };
 const FIELD_NAMES = { phone: "Phone", email: "Email", website: "Website" };
 
+// True when any of the company's phone, email or website came from Google. Reads the saved source first, then the tooltip the server wrote.
+export function hasGoogleData(a) {
+  const sources = a?.field_sources || {};
+  const notes = a?.restricted_note || {};
+  return Object.keys(FIELD_NAMES).some((f) => isGoogle(sources[f]) || (a?.restricted?.[f] && /^From Google/i.test(notes[f] || "")));
+}
+
 // One line per field the company holds a source for, e.g. [{field: "Phone", label: "Company website"}]. Empty when nothing is recorded.
 export function sourceRows(sources) {
   return Object.keys(FIELD_NAMES)

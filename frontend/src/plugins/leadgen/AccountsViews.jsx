@@ -10,7 +10,7 @@ import { openPhone } from "../../utils/humanCall";
 import { Building2, Check, ChevronDown, Download, Eye, Lightbulb, Megaphone, ExternalLink, FileSpreadsheet, Mail, MoreHorizontal, PhoneCall, Plus, Search, ShieldCheck, Sparkles, Star, Trash2, Upload, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { ExportDialog } from "./ExportDialog";
-import { FieldMark, SourceList } from "./SourceMark";
+import { FieldMark, hasGoogleData, SourceList } from "./SourceMark";
 import { EnrichmentBanner, EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -622,14 +622,15 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const [filter, setFilter] = useState("");
   const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
   const [moreFilter, setMoreFilter] = useState("");
+  const [googleOnly, setGoogleOnly] = useState(false); // the "Google data" pill: only companies whose details came from Google
   const [picksOnly, setPicksOnly] = useState(() => { try { const go = sessionStorage.getItem("aivhub_open_picks") === "1"; if (go) sessionStorage.removeItem("aivhub_open_picks"); return go; } catch { return false; } }); // the bell's Review opens here
   useEffect(() => { const open = () => setPicksOnly(true); window.addEventListener("aivhub:open-picks", open); return () => window.removeEventListener("aivhub:open-picks", open); }, []);
   const [pageSize, setPageSize] = useState(() => {
     try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
   const [pageNo, setPageNo] = useState(0);
-  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId]);
-  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}`); // ids ticked for the bulk actions; a new filter or list clears them
+  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId, googleOnly]);
+  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}|${googleOnly}`); // ids ticked for the bulk actions; a new filter or list clears them
   const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
   const [tpsNumbers, setTpsNumbers] = useState(null); // numbers of the ticked companies while the TPS and CTPS check is open
   const [listing, setListing] = useState(false); // the Add to list box is open
@@ -690,6 +691,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const flags = duplicateFlags(base);
   const matching = inTab
     .filter(activeChip ? activeChip[2] : () => true)
+    .filter((a) => !googleOnly || hasGoogleData(a))
     .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
   // A filter chosen elsewhere (the check results) opens the tab that holds the companies it finds.
   const focusFilter = (id) => {
@@ -814,6 +816,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             Needs your choice {pickRows.length.toLocaleString()}
           </button>
         ) : null}
+        <button type="button" aria-pressed={googleOnly} title="Show only companies whose phone, email or website came from Google"
+          onClick={() => setGoogleOnly((v) => !v)}
+          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? "#1D4ED8" : "#93B4F5"}`, background: googleOnly ? "#1D4ED8" : "#EFF5FF", color: googleOnly ? "#fff" : "#1D4ED8", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+          Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
+        </button>
         {available.length ? (
           <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
             <option value="">More filters</option>
@@ -821,6 +828,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           </select>
         ) : null}
       </div>
+      {googleOnly ? (
+        <div role="status" style={{ ...text, fontSize: 13, color: "#1E3A8A", background: "#EFF5FF", border: "1px solid #93B4F5", borderRadius: 8, padding: "8px 12px" }}>
+          Showing only companies with Google data ({matching.length.toLocaleString()}). You can see and use it here, but it can't be downloaded. Open a company to see its live Google details.
+        </div>
+      ) : null}
       <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => focusFilter(`v_${k}`)}
         onRecheck={() => setChecking({ ids: base.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
 
@@ -943,6 +955,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <label className="row-tick" title="Select every company on this page"><input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" /></label>
                 </th>
                 <th>Company</th>
+                {showing("datasource") ? <th title="Where the phone, email and website came from: your file, the official register, the company's own website and so on">Data from</th> : null}
+                {showing("source") ? <th title="How and when this company was first saved">First seen via</th> : null}
                 {fitShown ? (
                   <th aria-sort={order === "fit" ? "descending" : "none"} style={{ whiteSpace: "nowrap" }}>
                     <button type="button" className="ui-link" title={order === "fit" ? "Sorted by best fit. Click to sort by most complete" : "Sort by best fit"}
@@ -958,8 +972,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                 {showing("quality") ? <th title="How much of the website, phone, email, address, industry, people and size we hold. Hover a row to see what is missing">Complete</th> : null}
                 {showing("check") ? <th title="Whether the company, its website and its email look real">Check</th> : null}
                 {showing("website") ? <th title="The company's own website">Website</th> : null}
-                {showing("datasource") ? <th title="Where the phone, email and website came from: your file, the official register, the company's own website and so on">Data from</th> : null}
-                {showing("source") ? <th title="How and when this company was first saved">First seen via</th> : null}
                 {shownOwn.map((n) => <th key={n} style={{ whiteSpace: "nowrap" }}>{n}</th>)}
                 <th style={{ width: 1 }} aria-label="Actions" />
               </tr>
@@ -982,6 +994,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       </div>
                     ) : null}
                   </td>
+                  {showing("datasource") ? <td><SourceList sources={a.field_sources} /></td> : null}
+                  {showing("source") ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{firstSeen(a)}</td> : null}
                   {fitShown ? <td style={{ maxWidth: 260 }}><FitBadge fit={a.fit} /></td> : null}
                   {showing("phone") ? (
                     <td style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
@@ -1039,8 +1053,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     </td>
                   ) : null}
                   {showing("website") ? <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}><SiteLink account={a} /></td> : null}
-                  {showing("datasource") ? <td><SourceList sources={a.field_sources} /></td> : null}
-                  {showing("source") ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{firstSeen(a)}</td> : null}
                   {shownOwn.map((n) => (
                     <td key={n} title={a.custom?.[n] || ""} style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {a.custom?.[n] || <span style={{ color: C.slateLight }}>—</span>}
