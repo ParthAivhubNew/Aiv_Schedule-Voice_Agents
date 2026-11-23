@@ -8,7 +8,7 @@ vi.mock("../../brand/brandApi", () => ({ getOrgPolicy: () => new Promise(() => {
 
 import { AdminCrown } from "../../components/AdminCrown";
 import { AccessNotice } from "./AccessNotice";
-import { DataAccessBody, UserCard, previewLine, NO_LIMIT_LINE, AREAS_HELP, EMPTY_LINE, HEADING_LINE } from "./DataAccess";
+import { DataAccessBody, UserCard, cleanArea, previewLine, NO_LIMIT_LINE, AREAS_HELP, EMPTY_LINE, HEADING_LINE } from "./DataAccess";
 import { accessFlags, noticeLines, isOutsideAccess, limitedLine, CONTACT_LINE, EXPORT_OFF_LINE } from "./accessLogic";
 import { GoogleViewBody, GOOGLE_OFF_LINE } from "./GoogleView";
 
@@ -53,10 +53,9 @@ describe("DataAccess", () => {
     expect(h).toContain("FSB Operator");
     expect(h).not.toContain(">FSB Admin<");
     expect(h).toContain("Controls which apps they can use");
-    expect(h).toContain('aria-pressed="true"');
-    expect(h).toContain('aria-pressed="false"');
-    expect(h).toContain("Select all");
-    expect(h).toContain("Clear");
+    expect(h).toContain('aria-label="Remove BN1"'); // a chosen area is a chip that can be removed
+    expect(h).toContain("Add a district, e.g. LS1, M1 or EC2A"); // any UK district or area can be typed in
+    expect(h).toContain("Clear all");
     expect(h).toContain("Can export data");
     expect(h).toContain("Can open live Google details");
     expect(h).toContain("On until you switch it off");
@@ -71,7 +70,11 @@ describe("DataAccess", () => {
   });
   it("words the preview and shows it and server errors", () => {
     expect(previewLine({ companies: 1240, districts: ["BN1", "BN3", "BN5"] })).toBe("1,240 companies in 3 areas");
-    expect(previewLine({ companies: 5, districts: [] })).toBe("5 companies in all FSB areas");
+    expect(previewLine({ companies: 5, districts: [] })).toBe("5 companies in all postcodes");
+    expect(cleanArea(" ls 1 ")).toBe("LS1");
+    expect(cleanArea("m")).toBe("M");
+    expect(cleanArea("EC2A")).toBe("EC2A");
+    expect(cleanArea("nonsense")).toBe("");
     expect(previewLine({ companies: 1, districts: ["BN1"] })).toBe("1 company in 1 area");
     const h = html(<UserCard user={person} roles={roles} allowed={["BN1"]} onSaved={noop} initialPreview={{ companies: 12, districts: ["BN1"] }} initialError="That area is outside the areas this organisation can use." />);
     expect(h).toContain("12 companies in 1 area");

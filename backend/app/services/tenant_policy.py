@@ -144,7 +144,10 @@ class Policy:
             return []
         from app.services import business_records as BR
 
-        return [or_(*[BR._postcode_match(d) for d in self.user_districts])]
+        from app.models.models import BusinessRecord
+
+        # a whole area (LS) is LS1 to LS99 only: a bare prefix would also take LE1 for the area L
+        return [or_(*[BusinessRecord.postcode.op("~")("^" + d + "[0-9]") if d.isalpha() else BR._postcode_match(d) for d in self.user_districts])]
 
     def suppression_condition(self, org_id: Optional[str] = None) -> Any:
         """Leaves out the company numbers this organisation uploaded as its member list; None when the policy has no member suppression."""

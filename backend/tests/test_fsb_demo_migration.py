@@ -60,8 +60,7 @@ async def test_the_brand_carries_the_fsb_policy(db):
     await run_step()
     policy = (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()
     assert policy == TP.clean_policy(D.DEMO_POLICY)
-    assert policy["geo"]["districts"] == sorted(["BN1", "BN2", "BN3", *[f"BN{n}" for n in range(5, 19)], *[f"BN{n}" for n in range(20, 28)],
-                                                 *[f"BN{n}" for n in range(41, 45)], "BN50"]) and len(policy["geo"]["districts"]) == 30
+    assert policy["geo"]["districts"] == []  # FSB is national: no postcode lock
     assert policy["exclusions"] == {"fsb": True, "extra": [], "locked": True} and policy["member_suppression"] is True
     assert policy["restricted_sources"] == {"google": True, "apollo": True, "search_engines": True}
     assert policy["signin"] == {"password": True, "google": False, "microsoft": True} and policy["screening"] == {"block_unscreened": True}
@@ -220,7 +219,7 @@ async def test_the_fsb_policy_applies_to_the_demo_org_end_to_end_and_to_nobody_e
     TP.invalidate()
     wide = {"postcode_prefixes": ["BN", "LS"], "status": "any"}
     demo = await _names(db, wide, "org_fsb_demo")
-    assert demo == ["Acme Plumbing Ltd", "Lewes Roofing Ltd", "Worthing Joinery Ltd"]  # ordinary BN companies only
+    assert demo == ["Acme Plumbing Ltd", "Leeds Plumbing Ltd", "Lewes Roofing Ltd", "Worthing Joinery Ltd"]  # ordinary companies in every postcode; the charity and school are out
     assert await _names(db, {"postcode_prefixes": ["BN1"], "status": "any"}, "org_fsb_demo") == ["Acme Plumbing Ltd"]  # the BN1 charity is not there
     assert await _names(db, {"postcode_prefixes": ["BN3"], "status": "any"}, "org_fsb_demo") == []  # nor the BN3 school
     assert await _names(db, {**wide, "fsb_exclusions": False}, "org_fsb_demo") == demo  # a client filter cannot switch it off
@@ -228,5 +227,28 @@ async def test_the_fsb_policy_applies_to_the_demo_org_end_to_end_and_to_nobody_e
     assert {"Hope Charity Ltd", "Hove Primary School Ltd", "Leeds Plumbing Ltd", "Gone Ltd"} <= set(plain) and len(plain) == 7
     with org_scope("org_fsb_demo"):
         pol = await TP.effective(db, "org_fsb_demo")
-        assert not pol.is_empty and len(pol.geo_districts) == 30 and pol.block_unscreened and pol.restricted("google")
+        assert not pol.is_empty and pol.geo_districts == [] and pol.block_unscreened and pol.restricted("google")
         assert (await TP.effective(db, "org_plain")).is_empty
+
+
+async def run_geo_step():
+    from app.database import engine
+
+    async with engine.begin() as conn:
+        await M._fsb_all_postcodes(conn)
+
+
+async def test_an_older_bn_only_lock_is_cleared_but_a_lock_staff_chose_is_left_alone(db):
+    import json
+
+    await run_step()
+    old = json.dumps({**TP.clean_policy(D.DEMO_POLICY), "geo": {"districts": D.BN_DISTRICTS}})
+    await db.execute(text("UPDATE brands SET policy = CAST(:p AS JSON) WHERE name = 'FSB'"), {"p": old})
+    await db.commit()
+    await run_geo_step()
+    assert (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()["geo"]["districts"] == []
+    mine = json.dumps({**TP.clean_policy(D.DEMO_POLICY), "geo": {"districts": ["LS1"]}})
+    await db.execute(text("UPDATE brands SET policy = CAST(:p AS JSON) WHERE name = 'FSB'"), {"p": mine})
+    await db.commit()
+    await run_geo_step()
+    assert (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()["geo"]["districts"] == ["LS1"]

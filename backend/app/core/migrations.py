@@ -1022,6 +1022,17 @@ async def _ensure_fsb_demo_account(conn: AsyncConnection) -> None:
         logger.warning(f"FSB demo account was not set up: {err}")
 
 
+async def _fsb_all_postcodes(conn: AsyncConnection) -> None:
+    """FSB covers every postcode: clears the BN-only lock the first demo brand carried (savepointed, never stops the startup)."""
+    try:
+        async with conn.begin_nested():
+            from app.services import fsb_demo
+
+            await fsb_demo.open_up_postcodes(conn)
+    except Exception as err:
+        logger.warning(f"FSB postcode lock was not cleared: {err}")
+
+
 async def _fsb_demo_account(conn: AsyncConnection) -> None:
     from app.services import fsb_demo
 
@@ -1111,6 +1122,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_29_ensure_fsb_demo_operator", _ensure_fsb_demo_operator),
     ("2026_11_30_ensure_fsb_demo_account", _ensure_fsb_demo_account),
     ("2026_12_01_operator_data_scope", _operator_data_scope),
+    ("2026_12_02_fsb_all_postcodes", _fsb_all_postcodes),
     ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # renames fsbdemo to fsbadmin in place; adds the normal user when its password is set
 ]
 

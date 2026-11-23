@@ -26,9 +26,9 @@ EXPORT_OFF = "Export is switched off for your account. Ask your administrator to
 GOOGLE_OFF = "Google details are switched off for your account. Ask your administrator to turn them on."
 LOOKUP_FAILED = "Couldn't check your access. Try again."
 OUT_OF_LOCK = "That area is outside the areas this organisation can use."
-BAD_DISTRICT = "Use postcode districts such as BN1 or BN27."
+BAD_DISTRICT = "Use postcode districts such as BN1 or LS27, or a whole area such as LS."
 MAX_DISTRICTS = 200
-_DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
+_DISTRICT = re.compile(r"[A-Z]{1,2}(\d[A-Z\d]?)?")  # a district (LS1) or a whole postcode area (LS)
 
 
 class AccessDenied(Exception):
@@ -158,7 +158,10 @@ def _in_district(postcode: Any, d: str) -> bool:
     p = str(postcode or "").strip().upper()
     if not p.startswith(d):
         return False
-    return not (d[-1:].isdigit() and p[len(d):len(d) + 1].isdigit())
+    nxt = p[len(d):len(d) + 1]
+    if d.isalpha():
+        return nxt.isdigit()  # the area L is L1 to L99, never LE1 or LS1
+    return not (d[-1:].isdigit() and nxt.isdigit())
 
 
 def visible(scope: Scope, record_or_postcode: Any, *more: Any) -> bool:
@@ -173,6 +176,8 @@ def visible(scope: Scope, record_or_postcode: Any, *more: Any) -> bool:
 
 
 def district_sql(column: Any, d: str) -> Any:
+    if d.isalpha():
+        return column.op("~")("^" + d + "[0-9]")  # a whole area: LS1 to LS99, never LSA or LE1
     like = column.like(f"{d}%")
     return and_(like, ~column.op("~")("^" + re.escape(d) + "[0-9]")) if d[-1:].isdigit() else like
 

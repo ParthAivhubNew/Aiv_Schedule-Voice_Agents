@@ -70,7 +70,7 @@ const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "C
 const CHAT_CSS = `
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
 .fl-filters.ui-card{background:#F1F3F7;border-color:#E1E5EC}
-.fl-filters .fl-pin{background:#F1F3F7}
+.fl-filters .fl-pin{background:#F1F3F7;border-bottom-color:#C5CBD6}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
@@ -1329,7 +1329,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
               ))}
             </div>
           </FilterGroup>
-          <div style={{ position: "sticky", bottom: 0, background: "#F1F3F7", borderTop: "1px solid #E1E5EC", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
+          <div style={{ position: "sticky", bottom: 0, background: "#F1F3F7", borderTop: "1px solid #C5CBD6", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
               <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
             </button>

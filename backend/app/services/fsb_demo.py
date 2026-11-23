@@ -44,7 +44,7 @@ BN_DISTRICTS: List[str] = (["BN1", "BN2", "BN3"] + [f"BN{n}" for n in range(5, 1
 DEMO_POLICY: Dict[str, Any] = {
     "exclusions": {"fsb": True, "extra": [], "locked": True},
     "member_suppression": True,
-    "geo": {"districts": BN_DISTRICTS},
+    "geo": {"districts": []},  # FSB is national: no area lock. An admin limits a person to chosen districts in Data access
     "restricted_sources": {"google": True, "apollo": True, "search_engines": True},
     "signin": {"password": True, "google": False, "microsoft": True},
     "screening": {"block_unscreened": True},
@@ -97,6 +97,19 @@ async def _ensure_brand(conn: AsyncConnection) -> str:
             "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"), {"i": brand_id, "n": BRAND_NAME, "p": json.dumps(clean_policy(DEMO_POLICY))})
     await conn.execute(text("UPDATE organizations SET brand_id = :b WHERE id = :o AND (brand_id IS NULL OR brand_id = '')"), {"b": brand_id, "o": ORG_ID})
     return brand_id
+
+
+async def open_up_postcodes(conn: AsyncConnection) -> None:
+    """FSB covers every postcode. The first version of the demo brand locked it to the 30 BN districts: clear that lock, but only when it
+    is still exactly that list (a lock staff chose themselves is left alone)."""
+    row = (await conn.execute(text("SELECT id, policy FROM brands WHERE name = :n ORDER BY created_at LIMIT 1"), {"n": BRAND_NAME})).first()
+    if not row:
+        return
+    policy = row[1] if isinstance(row[1], dict) else json.loads(row[1] or "{}")
+    geo = (policy.get("geo") or {}).get("districts") or []
+    if sorted(geo) == sorted(BN_DISTRICTS):
+        policy["geo"] = {**(policy.get("geo") or {}), "districts": []}
+        await conn.execute(text("UPDATE brands SET policy = CAST(:p AS JSON), updated_at = CURRENT_TIMESTAMP WHERE id = :i"), {"p": json.dumps(policy), "i": row[0]})
 
 
 async def _admin_role(conn: AsyncConnection) -> Optional[str]:
