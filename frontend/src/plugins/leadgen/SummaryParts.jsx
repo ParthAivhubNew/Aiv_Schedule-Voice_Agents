@@ -6,6 +6,8 @@ import { Spinner } from "../../app/Loader";
 import { creditWord, useLeadCredits } from "./CreditsChip";
 import { FitBadge } from "./FitParts";
 import { nextTarget, summaryRows } from "./summaryLogic";
+import { AccessNotice } from "./AccessNotice";
+import { isOutsideAccess } from "./accessLogic";
 
 // The Summary tab of the company drawer and the saved-company panel: the fit, who to contact, the best email and phone with where
 // each came from, and the one next step.
@@ -18,17 +20,17 @@ const asked = new Map(); // company id -> profile promise, so the tab asks the s
 
 // The company profile for one company, read once when the Summary tab is first shown for it.
 export function useCompanyProfile(id, active) {
-  const [state, setState] = useState({ id: "", data: null, error: "" });
+  const [state, setState] = useState({ id: "", data: null, error: "", denied: false });
   const [tick, setTick] = useState(0); // bumped after a pick, so the profile is read again
   useEffect(() => {
     if (!id || !active) return undefined;
     let live = true;
     if (!asked.has(id)) asked.set(id, api.companyProfile(id).then((r) => r.company || r));
-    asked.get(id).then((data) => { if (live) setState({ id, data, error: "" }); }).catch((e) => { asked.delete(id); if (live) setState({ id, data: null, error: e.message || "Couldn't load the summary." }); });
+    asked.get(id).then((data) => { if (live) setState({ id, data, error: "" }); }).catch((e) => { asked.delete(id); if (live) setState({ id, data: null, error: e.message || "Couldn't load the summary.", denied: isOutsideAccess(e) }); });
     return () => { live = false; };
   }, [id, active, tick]);
   const mine = state.id === id;
-  return { profile: mine ? state.data : null, loading: Boolean(id && active && !(mine && (state.data || state.error))), error: mine ? state.error : "", reload: () => setTick((n) => n + 1) };
+  return { profile: mine ? state.data : null, loading: Boolean(id && active && !(mine && (state.data || state.error))), error: mine ? state.error : "", denied: mine ? state.denied : false, reload: () => setTick((n) => n + 1) };
 }
 
 function NewsLine({ companyId }) {
@@ -125,12 +127,13 @@ export function FindContactButton({ store, account }) {
 }
 
 // profile: the server's company profile or null; account: the saved company or null; onGoTab switches the tab the next step points at.
-export function SummaryTab({ profile, account, loading, error, onGoTab, companyId, onPicked }) {
+export function SummaryTab({ profile, account, loading, error, denied = false, onGoTab, companyId, onPicked }) {
   const rows = summaryRows({ profile, account });
   const next = rows.next;
   const target = nextTarget(next);
   const saved = Boolean(account);
   const icpSet = profile ? profile.icp_set : rows.fit != null;
+  if (denied) return <div style={{ paddingTop: 6 }}><AccessNotice message={error} /></div>; // outside this account's areas: the notice replaces the content
   return (
     <div style={{ display: "flex", flexDirection: "column", paddingTop: 6 }}>
       {error ? <div role="alert" style={{ ...muted, color: C.red, padding: "8px 0" }}>{error}</div> : null}

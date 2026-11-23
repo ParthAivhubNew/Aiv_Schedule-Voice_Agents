@@ -51,7 +51,7 @@ TENANT_TABLES: List[str] = [
     "agent_runs", "workflow_runs", "contact_reveals", "person_emails", "lead_notes",
     "inbound_forms", "inbound_form_submissions", "human_calls", "email_approvals", "consent_declarations",
     "call_consents",  # Phase 7a
-    "audit_log", "suppressed_companies",
+    "audit_log", "suppressed_companies", "operator_data_scope",
     "fsb_imports", "fsb_import_rows", "change_reports",  # FSB import, review queue, monthly change report
 ]
 # Tables that keep one row per organisation under a fixed id (e.g. id "default").
@@ -103,6 +103,31 @@ def actor_scope(operator_id: str) -> Iterator[None]:
         yield
     finally:
         _current_actor.reset(token)
+
+
+# The signed-in PERSON whose personal data limits apply to this request (see services/data_access.py). Unlike the actor above it is never
+# set for developer API keys, so a key keeps its current behaviour. The holder is a per-request dict: the limits are read once per request.
+_scope_operator: contextvars.ContextVar[str] = contextvars.ContextVar("scope_operator", default="")
+_scope_holder: contextvars.ContextVar = contextvars.ContextVar("scope_holder", default=None)
+
+
+def scope_operator() -> str:
+    return _scope_operator.get() or ""
+
+
+def scope_holder():
+    return _scope_holder.get()
+
+
+@contextmanager
+def scope_actor(operator_id: str) -> Iterator[None]:
+    t1 = _scope_operator.set(operator_id or "")
+    t2 = _scope_holder.set({})
+    try:
+        yield
+    finally:
+        _scope_holder.reset(t2)
+        _scope_operator.reset(t1)
 
 
 # The request being served ("POST /api/leads/companies/x/find-website"), so work that reaches a paid vendor can say which action caused it.

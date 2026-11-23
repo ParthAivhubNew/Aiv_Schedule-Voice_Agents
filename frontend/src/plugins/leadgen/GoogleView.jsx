@@ -4,6 +4,9 @@ import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { getOrgPolicy } from "../../brand/brandApi";
 import { announceCreditsChanged } from "./CreditsChip";
+import { accessFlags } from "./accessLogic";
+
+export const GOOGLE_OFF_LINE = "Live Google details are switched off for your account. Ask your administrator.";
 
 // Details read live from Google when the person asks. They live in this component's state only: closing the card drops them.
 
@@ -81,6 +84,7 @@ export function GoogleCard({ result, onClose }) {
 // The drawing, apart from the loading, so each state can be shown on its own.
 export function GoogleViewBody({ policy, phase, result, error, onShow, onClose }) {
   if (!googleAllowed(policy)) return null;
+  if (accessFlags(null, policy).googleOff) return <div style={muted} role="status">{GOOGLE_OFF_LINE}</div>;
   return (
     <div style={{ display: "grid", gap: 8 }} aria-label="Google details">
       {phase !== "done" ? (

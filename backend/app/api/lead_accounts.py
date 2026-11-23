@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_search, _charge_leads
@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import company_check, lead_cleaner, next_action, normalise, send_readiness
 from app.services import business_lookup, business_records, site_check
+from app.services import data_access as DA
 from app.services import tenant_policy as TP
 from app.services import contact_points as CP
 from app.services import reveals as RV
@@ -296,6 +297,7 @@ async def _account(db: AsyncSession, account_id: str) -> LeadAccount:
     row = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
     if not row:
         raise HTTPException(status_code=404, detail="That account is not in your saved accounts.")
+    await DA.guard_account(db, row)  # outside this person's areas: 403 with a clear message
     return row
 
 
@@ -436,7 +438,8 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
                 cached = hit[1]
                 mine = await business_records.saved_ids(db, [c["id"] for c in cached["companies"]])
                 shown = await _overlay_held(db, await ICP.attach_to_cards(db, await RV.mask(db, cached["companies"]), fit_ctx))
-                return {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown], "icp_set": bool(fit_ctx)}
+                return await DA.with_notice(db, {**cached, "companies": [{**c, "saved": c["id"] in mine} for c in shown], "icp_set": bool(fit_ctx)},
+                                            shown_filters, cached.get("total"))
             def run(f):
                 opening = bool(f.get("complete_first"))
                 sort = body.sort if body.sort in business_records.SORTS else "best"
@@ -492,7 +495,7 @@ async def search_companies(body: SearchIn, db: AsyncSession = Depends(get_db)):
         if len(_PAGE_CACHE) > 200:
             _PAGE_CACHE.clear()
         _PAGE_CACHE[key] = (time.monotonic(), {**answer, "companies": cards}, _PAGE_TTL)
-    return answer
+    return await DA.with_notice(db, answer, shown_filters, answer.get("total"))  # access_notice only when a personal area limit hid what was asked for
 
 
 @router.post("/search/summary")
@@ -657,6 +660,8 @@ async def company_logo(company_id: str, db: AsyncSession = Depends(get_db)):
     from app.services import lead_filters, logos
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="Not found.")
     card = lead_filters.card(biz)
@@ -793,6 +798,8 @@ async def company_contacts(company_id: str, body: ContactsIn, db: AsyncSession =
     from app.services import company_contacts as CC, lead_filters
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     registry_checked = False
@@ -847,6 +854,8 @@ async def find_company_website(company_id: str, body: FindIn = FindIn(), db: Asy
     from app.services import company_contacts as CC, lead_filters
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     from app.services import site_check
@@ -973,6 +982,8 @@ async def company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
     from app.services import company_contacts as CC, company_profile as CP
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     if CP.is_registry_company(biz) and CC.people_stale(biz):  # a read that saves: free and idempotent, it only fills the registry's people the first time
@@ -990,6 +1001,8 @@ async def company_news(company_id: str, db: AsyncSession = Depends(get_db)):
     from app.services import company_news as CN, company_profile as CP, fit_score as FS, icp as ICP
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     ctx = await ICP.context(db)
@@ -1044,6 +1057,9 @@ async def company_google_view(company_id: str, response: Response, db: AsyncSess
         if acct.business_record_id:
             biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == acct.business_record_id))).scalars().first()
     org = current_org()
+    if biz is not None or acct is not None:
+        await DA.guard_account(db, acct, biz) if acct is not None else await DA.guard(db, biz)
+    await DA.require_google(db)  # 403 google_off when an admin switched Google details off for this person
     if not await TP.source_allowed(org, "google"):
         raise HTTPException(status_code=403, detail="Google details are not available for your organisation.")
     if not _google_view_slot(org):
@@ -1104,6 +1120,8 @@ async def find_person_email(company_id: str, body: PersonEmailIn, db: AsyncSessi
     from app.services.enrichment_waterfall import lookup_person_waterfall
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     kept = await PE.kept_one(db, biz.id, body.name)
@@ -1135,6 +1153,8 @@ async def company_add_to_journey(company_id: str, body: JourneyIn, db: AsyncSess
     from app.services import company_contacts as CC, journeys as J, lead_filters
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     camp = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == body.journey_id))).scalars().first()
@@ -1432,6 +1452,8 @@ class RevealIn(BaseModel):
 async def reveal_contact(company_id: str, body: RevealIn, db: AsyncSession = Depends(get_db)):
     """Open a website, phone or email our registry holds. Free, once; it stays visible to this organisation after that."""
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     card = lead_filters_card(biz)
@@ -1474,6 +1496,8 @@ async def choose_contact(company_id: str, body: ChooseIn, db: AsyncSession = Dep
     from app.services import company_contacts as CC, contact_choices as CH, linkedin_lookup as LI
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     value = (body.value or "").strip()
@@ -1536,6 +1560,8 @@ async def company_contact_points(company_id: str, db: AsyncSession = Depends(get
     website the register holds stays hidden until it is opened (free, once), the same as in the company row. `shared_with` lists other
     company records holding the same page, phone or email: usually the same company saved twice."""
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     points = await CP.for_company(db, company_id)
@@ -1573,6 +1599,8 @@ async def find_linkedin(company_id: str, body: LinkedinIn = LinkedinIn(), db: As
     from app.services import linkedin_lookup as LI
 
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     person = {"first_name": body.first_name.strip(), "last_name": body.last_name.strip()} if (body.first_name or body.last_name) else None
@@ -1631,6 +1659,8 @@ async def find_social(company_id: str, body: SocialIn, db: AsyncSession = Depend
     if body.network not in ("linkedin", *SL.NETWORKS):
         raise HTTPException(status_code=422, detail="Choose LinkedIn, Facebook or X.")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == company_id))).scalars().first()
+    if biz is not None:
+        await DA.guard(db, biz)  # a company outside this person's areas is refused, with a clear message
     if not biz:
         raise HTTPException(status_code=404, detail="That company isn't in the company store.")
     await _can_research(db)
@@ -1656,6 +1686,9 @@ async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_
     q = select(LeadAccount).order_by(LeadAccount.created_at.desc())
     if retention:  # only the companies the 12-month retention sweep flagged
         q = q.where(LeadAccount.retention_flagged_at.isnot(None))
+    cond = DA.account_condition(await DA.current_scope(db))
+    if cond is not None:
+        q = q.where(cond)  # only the saved companies inside this person's areas
     rows = (await db.execute(q)).scalars().all()
     # Companies saved before the automatic register check existed: read from our own register copy now (free), so they say Verified
     # instead of "Not checked" without any click. Once done, nothing is left to do on later visits.
@@ -1685,7 +1718,12 @@ async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_
 
     fit_ctx = await ICP.context(db)
     scored = await ICP.score_accounts(db, rows, registry_by_id, fit_ctx)
-    return {"accounts": [{**_out(a, registry_by_id.get(a.business_record_id), seen), **scored[a.id]} for a in rows], "icp_set": bool(fit_ctx)}
+    answer = {"accounts": [{**_out(a, registry_by_id.get(a.business_record_id), seen), **scored[a.id]} for a in rows], "icp_set": bool(fit_ctx)}
+    if cond is not None:  # say so when the personal area limit hid some of the saved companies
+        every = int((await db.execute(select(func.count()).select_from(LeadAccount))).scalar() or 0)
+        if every > len(rows) and not retention:
+            answer["access_notice"] = DA.OUTSIDE_NOTICE
+    return answer
 
 
 async def _outs(db: AsyncSession, rows: List[LeadAccount]) -> List[Dict[str, Any]]:

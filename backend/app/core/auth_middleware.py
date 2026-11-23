@@ -351,9 +351,9 @@ class AuthMiddleware:
                 if need and not P.allows(emb["perms"], need[0], need[1]):
                     return await _deny(scope, receive, send, 403, "You do not have access to this.", code="forbidden", section=need[0])
                 scope.setdefault("state", {})["auth"] = emb
-                from app.core.tenancy import actor_scope, org_scope
+                from app.core.tenancy import actor_scope, org_scope, scope_actor
 
-                with org_scope(emb["org_id"]), EM.partner_scope(emb["partner_id"]), actor_scope(emb.get("operator_id") or ""):
+                with org_scope(emb["org_id"]), EM.partner_scope(emb["partner_id"]), actor_scope(emb.get("operator_id") or ""), scope_actor(emb.get("operator_id") or ""):
                     return await self.app(scope, receive, send)
 
         claims = decode_token(token, "access") if token else None
@@ -389,9 +389,9 @@ class AuthMiddleware:
 
         scope.setdefault("state", {})["auth"] = ctx
         # Every database session in this request runs inside the user's organisation.
-        from app.core.tenancy import actor_scope, org_scope, route_scope
+        from app.core.tenancy import actor_scope, org_scope, route_scope, scope_actor
 
-        with org_scope(ctx["org_id"]), actor_scope(ctx["operator_id"]), route_scope(method, path):
+        with org_scope(ctx["org_id"]), actor_scope(ctx["operator_id"]), scope_actor(ctx["operator_id"]), route_scope(method, path):
             return await self.app(scope, receive, send)
 
 

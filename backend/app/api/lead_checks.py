@@ -70,6 +70,9 @@ async def check_one(account_id: str, db: AsyncSession = Depends(get_db)) -> Dict
     row = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
     if not row:
         raise HTTPException(status_code=404, detail="That account is not in your saved accounts.")
+    from app.services import data_access as DA
+
+    await DA.guard_account(db, row)
     started = await job.start(db, [row], True, False, True)
     if started.get("error"):
         raise HTTPException(status_code=402 if "credits" in started["error"].lower() else 409, detail=started["error"])
@@ -142,6 +145,9 @@ async def answer_pick(account_id: str, body: PickIn, db: AsyncSession = Depends(
     acc = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
     if not acc or body.field not in check_picks.FIELDS:
         raise HTTPException(status_code=404, detail="That company or field isn't here any more.")
+    from app.services import data_access as DA
+
+    await DA.guard_account(db, acc)
     try:
         if body.skip:
             check_picks.skip(acc, body.field)

@@ -48,9 +48,16 @@ async def test_admin_only_and_preview_counts(db):
     _, tok_op = await make_user(db, "oper", "Operator", org_id="org_ex1")
     await _seed(db, "org_ex1")
     body = {"kind": "companies", "scope": {"ids": ["la_a", "la_b", "la_g"]}}
+    async with _client(tok_op) as c:  # an ordinary user may export until an admin switches it off for them (services/data_access.py)
+        assert (await c.post("/api/exports/preview", json=body)).status_code == 200
+    async with _client(tok_admin) as c:
+        op_id = (await c.get("/api/org/data-access")).json()["users"]
+        op_id = next(u["id"] for u in op_id if u["username"] == "oper")
+        assert (await c.put(f"/api/org/data-access/{op_id}", json={"allow_export": False})).status_code == 200
     async with _client(tok_op) as c:
-        assert (await c.post("/api/exports/preview", json=body)).status_code == 403
-        assert (await c.post("/api/exports", json={**body, "format": "wide"})).status_code == 403
+        for path, payload in (("/api/exports/preview", body), ("/api/exports", {**body, "format": "wide"})):
+            r = await c.post(path, json=payload)
+            assert r.status_code == 403 and r.json()["code"] == "export_off"
     async with _client(tok_admin) as c:
         p = (await c.post("/api/exports/preview", json=body)).json()
         assert p["rows"] == 3 and p["withheld"] == 2 and p["withheld_fields"] == {"phone": 1, "website": 0, "email": 1}
@@ -188,7 +195,7 @@ async def test_salesforce_long_file(db):
     _, mgr = await make_user(db, "mg", "Manager", org_id="org_sf")
     await _fixture_import(db, "org_sf")
     async with _client(op) as c:
-        assert (await c.post("/api/fsb/imports/fsi_t/salesforce.csv", json={})).status_code == 403
+        assert (await c.post("/api/fsb/imports/fsi_t/salesforce.csv", json={})).status_code == 200  # export is on by default for everyone but can be switched off per user
     async with _client(mgr) as c:
         p = (await c.post("/api/fsb/imports/fsi_t/salesforce/preview", json={})).json()
         assert p["rows"] == 2 and p["withheld"] == 2 and p["popup"]  # Restricted: Google phone and website left out
@@ -210,7 +217,7 @@ async def test_salesforce_long_file(db):
         assert (await c.post("/api/fsb/imports/nope/salesforce.csv", json={})).status_code == 404
     with org_scope("org_sf"):
         audit = (await db.execute(AuditLog.__table__.select().where(AuditLog.action == "export.salesforce"))).all()
-    assert len(audit) == 2 and audit[0].detail["rows"] == 2
+    assert len(audit) == 3 and audit[0].detail["rows"] == 2  # the operator's own download is audited too
 
 
 async def test_salesforce_blocks_unscreened_phones_when_the_policy_asks(db):

@@ -8,6 +8,8 @@ import { asAccount } from "./FindLeadsView";
 import { ContactPoints } from "./ContactPoints";
 import { FieldMark } from "./SourceMark";
 import { GoogleView } from "./GoogleView";
+import { AccessNotice } from "./AccessNotice";
+import { isOutsideAccess } from "./accessLogic";
 import { OrgChart } from "./OrgChart";
 import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
@@ -136,6 +138,7 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
 export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, backLabel = "Back to results" }) {
   const [c, setC] = useState(null);
   const [err, setErr] = useState("");
+  const [denied, setDenied] = useState(false); // the server said this company is outside the account's areas
   const [tab, setTab] = useProfileTab("company", PAGE_TABS.map(([k]) => k), "overview");
   const notesApi = useNotes({ companyId: id });
   const [busy, setBusy] = useState("");
@@ -148,7 +151,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
   const [li, setLi] = useState(""); // "busy" while the company's LinkedIn lookup runs
 
   const load = useCallback(async () => {
-    try { const r = await api.companyProfile(id); setC(r.company); setErr(""); } catch (e) { setErr(e.message || "Couldn't open this company."); }
+    try { const r = await api.companyProfile(id); setC(r.company); setErr(""); setDenied(false); } catch (e) { setErr(e.message || "Couldn't open this company."); setDenied(isOutsideAccess(e)); }
   }, [id]);
   useEffect(() => { setC(null); setFound({}); setMsg({ text: "", error: false }); load(); }, [id, load]);
 
@@ -156,7 +159,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
     return (
       <div style={{ display: "grid", gap: 12 }}>
         <button type="button" title={backLabel} style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> {backLabel}</button>
-        {err ? <Note error>{err}</Note> : <div role="status" style={{ ...card, display: "flex", gap: 10, alignItems: "center" }}><Spinner size={16} /> Reading what we hold, and the register's people. This takes a few seconds the first time.</div>}
+        {err && denied ? <AccessNotice message={err} /> : err ? <Note error>{err}</Note> : <div role="status" style={{ ...card, display: "flex", gap: 10, alignItems: "center" }}><Spinner size={16} /> Reading what we hold, and the register's people. This takes a few seconds the first time.</div>}
       </div>
     );
   }

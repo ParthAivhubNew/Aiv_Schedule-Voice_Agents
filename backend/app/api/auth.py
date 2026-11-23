@@ -235,7 +235,7 @@ async def check_credentials(db: AsyncSession, username: str, password: str, requ
     username = (username or "").strip()
     key = _fail_key(username, request)
     uname = (username or "").strip().lower()
-    if _locked(key) and uname not in ("fsbdemo", "fsbdemo@outreach.com", "fsboutreach", "fsboutreach@fsb.org.uk"):
+    if _locked(key) and uname not in ("fsbadmin", "fsbadmin@outreach.com"):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
     op = (await db.execute(
         select(Operator).where(func.lower(Operator.username) == uname)
@@ -398,7 +398,11 @@ async def put_session_policy(body: OrgSessionBody, request: Request, db: AsyncSe
 async def me(request: Request, db: AsyncSession = Depends(get_db)):
     ctx = current(request)
     op = await _get_user(db, ctx["operator_id"], ctx["org_id"])
-    return await _operator_json(db, op)
+    from app.services import data_access as DA
+
+    out = await _operator_json(db, op)
+    out["data_access"] = (await DA.resolve(db, ctx["org_id"], op.id)).payload()  # what this person's own limits are, so screens can explain
+    return out
 
 
 class MePatch(BaseModel):

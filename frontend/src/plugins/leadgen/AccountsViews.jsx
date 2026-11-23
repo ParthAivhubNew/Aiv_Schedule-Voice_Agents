@@ -70,6 +70,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [accessNotice, setAccessNotice] = useState(""); // the server's note when the list was narrowed to this account's areas
   const [researching, setResearching] = useState({}); // account id -> true while its research runs
   const [improving, setImproving] = useState({}); // account id -> { steps, done, result } for the Improve button
 
@@ -77,6 +78,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
     try {
       const r = await api.listLeadAccounts();
       setAccounts(r.accounts || []);
+      setAccessNotice(r.access_notice || "");
       setError("");
     } catch (e) {
       setError(e.message || "Couldn't load your saved accounts.");
@@ -179,7 +181,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
   };
 
   return {
-    accounts, loading, error, researching, improving, improve, clearImprove: (id) => setImproving((m) => { const n = { ...m }; delete n[id]; return n; }), reload, toast: onToast,
+    accounts, loading, error, accessNotice, researching, improving, improve, clearImprove: (id) => setImproving((m) => { const n = { ...m }; delete n[id]; return n; }), reload, toast: onToast,
     // Saves new accounts; ones already saved are skipped by the server.
     // Every save lands in a list (Unsorted unless a name is given); a company already saved is not copied,
     // it is just added to that list too.

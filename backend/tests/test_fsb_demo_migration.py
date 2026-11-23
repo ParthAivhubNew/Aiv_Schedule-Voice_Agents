@@ -48,10 +48,10 @@ async def test_a_fresh_database_gets_the_org_the_brand_and_the_operator_in_it(db
     assert org[:3] == ("Federation of Small Businesses (demo)", "fsb-demo", "active") and org[3]
     brand = (await db.execute(text("SELECT name, display_name, powered_by, hide_credits, status FROM brands WHERE id = :b"), {"b": org[3]})).first()
     assert tuple(brand) == ("FSB", "Federation of Small Businesses", True, True, "active")
-    op = (await db.execute(text("SELECT org_id, role, is_active, email, must_change_password FROM operators WHERE username = 'fsbdemo'"))).all()
-    assert [tuple(r) for r in op] == [("org_fsb_demo", "Admin", True, "fsbdemo@outreach.com", False)]  # one account, not in org_default
+    op = (await db.execute(text("SELECT org_id, role, is_active, email, must_change_password FROM operators WHERE username = 'fsbadmin'"))).all()
+    assert [tuple(r) for r in op] == [("org_fsb_demo", "Admin", True, "fsbadmin@outreach.com", False)]  # one account, not in org_default
     admin = (await db.execute(text("SELECT r.name, r.org_id FROM operator_roles o JOIN roles r ON r.id = o.role_id JOIN operators p ON p.id = o.operator_id "
-                                   "WHERE p.username = 'fsbdemo'"))).all()
+                                   "WHERE p.username = 'fsbadmin'"))).all()
     assert [tuple(r) for r in admin] == [("Admin", "org_fsb_demo")]
     assert (await db.execute(text("SELECT count(*) FROM operators WHERE org_id = 'org_default'"))).scalar() == 0
 
@@ -74,7 +74,7 @@ async def test_the_demo_login_works_with_the_default_password_and_lands_in_the_d
     from app.core.security import decode_token
 
     assert decode_token(ok.json()["access_token"], "access").get("org") == "org_fsb_demo"
-    by_name = await anon.post("/api/auth/login", json={"username": "fsbdemo", "password": D.DEFAULT_PASSWORD})
+    by_name = await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": D.DEFAULT_PASSWORD})
     assert by_name.status_code == 200
     assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "wrong"})).status_code == 401
 
@@ -87,7 +87,7 @@ async def test_the_password_comes_from_the_environment_and_the_default_is_only_a
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="fsb_demo"):
         await run_step()
-    assert "Another-Secret-77" not in caplog.text and "is not set" not in caplog.text
+    assert "Another-Secret-77" not in caplog.text and "FSB_DEMO_PASSWORD is not set" not in caplog.text
     assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "Another-Secret-77"})).status_code == 200
     assert (await anon.post("/api/auth/login", json=LOGIN)).status_code == 401
 
@@ -106,19 +106,19 @@ async def test_a_real_user_with_a_similar_name_or_email_is_never_modified(db):
     await run_step()
     after = await snapshot(db)
     assert real(after) == first and len(first) == 4
-    assert [r[1] for r in after["operators"] if r[2] == "fsbdemo"] == ["org_fsb_demo"]
+    assert [r[1] for r in after["operators"] if r[2] == "fsbadmin"] == ["org_fsb_demo"]
 
 
 async def test_an_address_held_by_another_user_is_not_taken_over(db, anon):
     from app.core.security import hash_password
 
     await db.execute(text("INSERT INTO operators (id, org_id, username, name, role, email, hashed_password, is_active) "
-                          "VALUES ('op_owner', 'org_default', 'owner', 'Owner', 'Admin', 'fsbdemo@outreach.com', :p, TRUE)"), {"p": hash_password("Owner-pass-123")})
+                          "VALUES ('op_owner', 'org_default', 'owner', 'Owner', 'Admin', 'fsbadmin@outreach.com', :p, TRUE)"), {"p": hash_password("Owner-pass-123")})
     await db.commit()
     await run_step()
-    row = (await db.execute(text("SELECT email, org_id FROM operators WHERE username = 'fsbdemo'"))).first()
+    row = (await db.execute(text("SELECT email, org_id FROM operators WHERE username = 'fsbadmin'"))).first()
     assert tuple(row) == (None, "org_fsb_demo")
-    assert (await anon.post("/api/auth/login", json={"username": "fsbdemo", "password": D.DEFAULT_PASSWORD})).status_code == 200
+    assert (await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": D.DEFAULT_PASSWORD})).status_code == 200
     assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "Owner-pass-123"})).status_code == 200
 
 
@@ -136,7 +136,7 @@ async def test_the_older_demo_account_in_org_default_moves_into_the_demo_org(db,
     await assign_roles(db, old, [roles["Admin"].id])
     await db.commit()
     await run_step()
-    ops = (await db.execute(text("SELECT id, org_id FROM operators WHERE username = 'fsbdemo'"))).all()
+    ops = (await db.execute(text("SELECT id, org_id FROM operators WHERE username = 'fsbadmin'"))).all()
     assert [tuple(r) for r in ops] == [("op_fsboutreach", "org_fsb_demo")]
     assert (await db.execute(text("SELECT r.org_id FROM operator_roles o JOIN roles r ON r.id = o.role_id WHERE o.operator_id = 'op_fsboutreach'"))).scalars().all() == ["org_fsb_demo"]
     assert (await db.execute(text("SELECT data::text FROM app_settings WHERE id = 'leadlists:org_default'"))).scalar()  # org_default keeps its data

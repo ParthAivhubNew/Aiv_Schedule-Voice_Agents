@@ -32,6 +32,7 @@ import {
   Plug,
   Bot,
   Users,
+  Shield,
   FileSpreadsheet,
   Upload,
   Workflow,
@@ -56,6 +57,9 @@ import { JourneysView } from "./JourneysView";
 import { InboundFormsView } from "./InboundForms";
 import { RetentionReview } from "./RetentionReview";
 import { MemberList } from "./MemberList";
+import { DataAccess } from "./DataAccess";
+import { AccessNotice } from "./AccessNotice";
+import { accessFlags, EXPORT_OFF_LINE } from "./accessLogic";
 import { useBrand } from "../../brand/BrandContext";
 import { ImportMatchView } from "./ImportMatch";
 import { MonthlyChangesView } from "./MonthlyChanges";
@@ -74,7 +78,7 @@ import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/Embe
 
 const SAVED_VIEWS = ["saved_people", "saved_companies", "lists"];
 // Every screen this plugin can show. Any other address under #/leadgen/ gets a "Page not found" instead of a blank page.
-const KNOWN_VIEWS = ["find_leads", "lists", "saved_people", "saved_companies", "account", "company", "outreach", "mail", "mailboxes", "inbound_forms", "import_match", "changes", "retention", "member_list", "business", "subscription", "assistant", "connectors"];
+const KNOWN_VIEWS = ["find_leads", "lists", "saved_people", "saved_companies", "account", "company", "outreach", "mail", "mailboxes", "inbound_forms", "import_match", "changes", "retention", "member_list", "data_access", "business", "subscription", "assistant", "connectors"];
 
 export default function LeadGenerationPlugin({
   operator,
@@ -97,6 +101,8 @@ export default function LeadGenerationPlugin({
 
   const { hasPlan, loading: planLoading } = usePluginAccess("leadgen");
   const { memberSuppression } = useBrand();
+  const access = accessFlags(operator, null);
+  const showDataAccess = isAdminOperator(operator); // the screen and its menu item are for admins only
   const isLocked = !planLoading && !hasPlan;
 
   const [view, setView] = useState(() => {
@@ -292,6 +298,7 @@ export default function LeadGenerationPlugin({
     { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
     ...(memberSuppression && operator?.is_admin ? [{ id: "member_list", label: "Member list", icon: Users, group: "Setup", title: "Companies that never appear as prospects" }] : []),
+    ...(showDataAccess ? [{ id: "data_access", label: "Data access", icon: Shield, group: "Setup", title: "Choose what each person can see and do" }] : []),
     { id: "documentation", label: "Documentation", icon: BookOpen, group: "Setup", external: true },
   ], embedViews);
   const navGroups = ["Outreach", "Inbound", "Setup"].map((label) => ({
@@ -356,6 +363,7 @@ export default function LeadGenerationPlugin({
     connectors: { title: "Connectors", desc: "Data enrichment sources, CRM integrations and custom AI engine connections." },
     retention: { title: "Review old contacts", desc: "Companies nobody has contacted for 12 months. Keep what you need and delete the rest." },
     mailboxes: { title: "Email accounts", desc: "Connect the email accounts you send from, warm them up, and keep their sender reputation healthy." },
+    data_access: { title: "Data access", desc: "Choose what each person in your organisation can see and do. Admins always see everything." },
     member_list: { title: "Member list", desc: "Companies on this list never appear as prospects." },
     business: { title: "About your business", desc: "What the AI may say about you when it writes emails, and who your ideal customer is. It is your company profile, shared with your other Outreach tools." },
     subscription: { title: "Plan & credits", desc: "Your Leads plan and credits. Change plan, top up, or cancel." },
@@ -429,7 +437,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} onOpenCompany={openCompany} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView access={access} store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} onOpenCompany={openCompany} /></div>
           )}
 
 
@@ -448,9 +456,12 @@ export default function LeadGenerationPlugin({
 
           {view === "saved_people" && <SavedPeople store={store} onOpen={setOpenAccount} onGo={goTo} />}
 
-          {view === "saved_companies" && <AccountsView canExport={isAdminOperator(operator)} store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
+          {(view === "saved_companies" || view === "lists") ? <AccessNotice message={store.accessNotice || listsStore.accessNotice} /> : null}
+          {(view === "saved_companies" || view === "lists") && access.exportOff ? <p role="status" style={{ margin: "0 0 10px", fontSize: 13, color: "#4B5260" }}>{EXPORT_OFF_LINE}</p> : null}
 
-          {view === "lists" && <ListsView canExport={isAdminOperator(operator)} store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
+          {view === "saved_companies" && <AccountsView canExport={isAdminOperator(operator) || !access.exportOff} store={store} listsStore={listsStore} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onGo={goTo} onCampaign={startJourney} onOpenJourney={openJourney} />}
+
+          {view === "lists" && <ListsView canExport={isAdminOperator(operator) || !access.exportOff} store={store} listsStore={listsStore} onGo={goTo} onOpen={setOpenAccount} onAdd={() => setShowAddModal(true)} onCampaign={startJourney} onOpenJourney={openJourney} />}
 
           {view === "account" && accountPageId && (store.accounts.find((a) => a.id === accountPageId)
             ? <AccountPanel key={accountPageId} page account={store.accounts.find((a) => a.id === accountPageId)} store={store}
@@ -482,8 +493,9 @@ export default function LeadGenerationPlugin({
           {view === "retention" && !embedViews && <RetentionReview toast={showToast} onGo={goTo} />}
           {view === "business" && <ProfileBox page />}
           {view === "member_list" && memberSuppression && operator?.is_admin && <MemberList toast={showToast} />}
+          {view === "data_access" && showDataAccess && <DataAccess />}
 
-          {!KNOWN_VIEWS.includes(view) && (
+          {(!KNOWN_VIEWS.includes(view) || (view === "data_access" && !showDataAccess)) && (
             <div role="alert" style={{ padding: "48px 16px", display: "grid", gap: 10, justifyItems: "start", maxWidth: 520 }}>
               <h2 style={{ margin: 0, fontSize: 20 }}>Page not found</h2>
               <p style={{ margin: 0, color: "#4B5260" }}>There is no page at this address. It may have moved, or the link may be mistyped.</p>

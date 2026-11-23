@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.models.models import BusinessRecord, CompanyContactPoint, FsbImportRow, LeadAccount, PersonEmail, PhoneScreening
 from app.services import call_permission as CPERM
 from app.services import contact_points as CP
+from app.services import data_access as DA
 from app.services import data_policy as DP
 from app.services.timezone_service import normalize_phone
 
@@ -84,6 +85,7 @@ class Tally:
         self.unscreened = 0  # exportable phones with no fresh result
         self.listed = 0  # exportable phones on TPS or CTPS
         self.screening_blocked = 0  # phones left out by the brand's screening rule
+        self.outside = 0  # companies left out because they are outside the person's own areas
 
     @property
     def withheld(self) -> int:
@@ -97,7 +99,8 @@ class Tally:
         return {"rows": rows, "withheld": self.withheld, "withheld_fields": dict(self.fields), "restricted_sources": sorted(self.sources),
                 "popup": DP.EXPORT_POPUP if self.restricted_count > 0 else "", "unscreened_phones": self.unscreened, "listed_phones": self.listed,
                 "screening_blocked": self.screening_blocked,
-                "screening_note": ("Phone numbers without a clear TPS/CTPS result are left out of the file." if self.screening_blocked else "")}
+                "screening_note": ("Phone numbers without a clear TPS/CTPS result are left out of the file." if self.screening_blocked else ""),
+                **({"access_notice": DA.OUTSIDE_NOTICE, "outside_areas": self.outside} if self.outside else {})}
 
 
 def _restricted_source(obj: Any, record: Any, field: str, value: str) -> str:
@@ -164,15 +167,35 @@ def _contact_value(obj: Any, record: Any, field: str, tally: Tally, tps: Dict[st
     return value, src, status, 0
 
 
-async def build(db, kind: str, scope: Dict[str, Any], fields: Optional[List[str]]) -> Tuple[List[Dict[str, Any]], Tally, List[str]]:
-    """The records of a file: [{"ids": {...}, "values": [(field, value, source, tps)], "left_out": n}], what was left out, and the columns."""
+async def export_scope(db, operator_id: Optional[str] = None) -> DA.Scope:
+    """The personal limits a file is built under. A job that runs later passes the operator id it was started by; with no person known at all
+    the file is refused when anyone in the organisation has a personal limit (it could not be built safely)."""
+    from app.core.tenancy import current_org, scope_operator
+
+    if operator_id:
+        return await DA.resolve(db, current_org(), operator_id)
+    if scope_operator():
+        return await DA.current_scope(db)
+    if await DA.org_has_personal_limits(db, current_org()):
+        raise DA.AccessDenied(403, "We couldn't tell who is asking for this file, so nothing was exported. Sign in again and try once more.", "outside_access")
+    return DA.OPEN
+
+
+async def build(db, kind: str, scope: Dict[str, Any], fields: Optional[List[str]], operator_id: Optional[str] = None) -> Tuple[List[Dict[str, Any]], Tally, List[str]]:
+    """The records of a file: [{"ids": {...}, "values": [(field, value, source, tps)], "left_out": n}], what was left out, and the columns.
+    Companies outside the person's own areas are left out (and counted in tally.outside); the preview and the file take the same path."""
     from app.services import tenant_policy as TP
 
     cols = clean_fields(fields, kind)
+    me = await export_scope(db, operator_id)
     accounts = await _accounts(db, scope)
     recs = await _records(db, accounts)
-    block = (await TP.effective(db)).block_unscreened
     tally = Tally()
+    if me.limited:
+        kept = [a for a in accounts if DA.visible(me, a, *([recs[a.business_record_id]] if a.business_record_id in recs else []))]
+        tally.outside = len(accounts) - len(kept)
+        accounts = kept
+    block = (await TP.effective(db)).block_unscreened
     phones: List[str] = []
     for a in accounts:
         phones.append(a.phone or "")
@@ -296,9 +319,11 @@ def _label(rec: BusinessRecord, field: str, value: str) -> str:
     return "website" if DP._norm(field, value) in mine else "register"
 
 
-async def salesforce(db, import_id: str, fields: Optional[List[str]], fmt: str) -> Tuple[List[List[Any]], Tally, int]:
-    """(rows including the header, what was left out, how many import rows had a change)."""
+async def salesforce(db, import_id: str, fields: Optional[List[str]], fmt: str, operator_id: Optional[str] = None) -> Tuple[List[List[Any]], Tally, int]:
+    """(rows including the header, what was left out, how many import rows had a change). Companies outside the person's areas are left out."""
     from app.services import tenant_policy as TP
+
+    me = await export_scope(db, operator_id)
 
     cols = [f for f in SF_FIELDS if not fields or f in fields]
     bad = [f for f in (fields or []) if f not in SF_FIELDS]
@@ -322,9 +347,16 @@ async def salesforce(db, import_id: str, fields: Optional[List[str]], fmt: str) 
     for i in range(0, len(ids), CHUNK):
         for p in (await db.execute(select(CompanyContactPoint).where(CompanyContactPoint.business_record_id.in_(ids[i:i + CHUNK])))).scalars().all():
             found_at[(p.business_record_id, p.kind, p.norm)] = p.found_at
+    tally = Tally()
+    if me.limited:
+        for n in numbers:
+            held = [x for x in (recs.get(n), accts.get(n)) if x is not None]
+            if held and not DA.visible(me, *held):
+                recs.pop(n, None)
+                accts.pop(n, None)
+                tally.outside += 1
     candidates = [recs[n].phone if n in recs else "" for n in numbers] + [(accts[n].phone if n in accts else "") for n in numbers]
     tps = await tps_map(db, candidates)
-    tally = Tally()
     long_rows: List[List[Any]] = []
     wide_rows: List[List[Any]] = []
     changed_rows = 0

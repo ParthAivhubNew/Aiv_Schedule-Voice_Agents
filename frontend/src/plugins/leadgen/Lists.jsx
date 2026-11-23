@@ -37,10 +37,13 @@ function whenShort(iso) {
 
 export function useLeadLists(onToast) {
   const [lists, setLists] = useState([]);
+  const [accessNotice, setAccessNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const reload = useCallback(async () => {
     try {
-      setLists((await api.listLeadLists()).lists || []);
+      const r = await api.listLeadLists();
+      setLists(r.lists || []);
+      setAccessNotice(r.access_notice || "");
     } catch (e) {
       onToast?.(e.message || "Couldn't load your lists.");
     } finally {
@@ -52,7 +55,7 @@ export function useLeadLists(onToast) {
     window.addEventListener(LISTS_CHANGED, reload);
     return () => window.removeEventListener(LISTS_CHANGED, reload);
   }, [reload]);
-  return { lists, loading, reload };
+  return { lists, accessNotice, loading, reload };
 }
 
 // The companies in a list, and how many of them have an email we could send to.

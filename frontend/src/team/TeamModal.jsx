@@ -7,6 +7,7 @@ import { Avatar } from "../hub/Avatar";
 import { C, FONT_DISPLAY, FONT_BODY, FONT_MONO } from "../tokens";
 import { api } from "../api/apiClient";
 import { useFlash } from "../components/useFlash";
+import { AdminCrown } from "../components/AdminCrown";
 
 export const LEVEL_LABELS = { none: "No access", view: "View only", full: "Full access" };
 const LEVELS = ["none", "view", "full"];
@@ -125,7 +126,7 @@ function UsersTab({ me, roles, sections, flash }) {
                 <Avatar user={u} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: C.textInk }}>
-                    {u.name} {isMe && <span style={{ fontSize: 11, color: C.slateLight }}>(you)</span>}
+                    {u.name}<AdminCrown operator={{ is_admin: u.is_admin || (u.roles || []).some((r) => r.is_admin) }} /> {isMe && <span style={{ fontSize: 11, color: C.slateLight }}>(you)</span>}
                     {!u.is_active && <span style={{ fontSize: 11, color: C.red, marginLeft: 6 }}>Disabled</span>}
                     {u.must_change_password && u.is_active && <span style={{ fontSize: 11, color: C.amber, marginLeft: 6 }}>Temporary password</span>}
                   </div>

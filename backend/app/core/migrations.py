@@ -1028,6 +1028,15 @@ async def _fsb_demo_account(conn: AsyncConnection) -> None:
     await fsb_demo.ensure_demo_account(conn)
 
 
+async def _operator_data_scope(conn: AsyncConnection) -> None:
+    """One row per user the admin narrowed (areas, export, Google). A missing row means no personal limit. create_all makes the table on a
+    fresh database; this covers one that predates it. Row-level security is added by ensure_tenancy (the table is in TENANT_TABLES)."""
+    await conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS operator_data_scope ("
+        "operator_id VARCHAR PRIMARY KEY REFERENCES operators(id) ON DELETE CASCADE, org_id VARCHAR, districts JSON NOT NULL DEFAULT '[]', "
+        "allow_export BOOLEAN NOT NULL DEFAULT TRUE, allow_google BOOLEAN NOT NULL DEFAULT TRUE, updated_by VARCHAR DEFAULT '', updated_at TIMESTAMP)"))
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -1101,6 +1110,8 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_28_lead_account_field_sources", _lead_account_field_sources),
     ("2026_11_29_ensure_fsb_demo_operator", _ensure_fsb_demo_operator),
     ("2026_11_30_ensure_fsb_demo_account", _ensure_fsb_demo_account),
+    ("2026_12_01_operator_data_scope", _operator_data_scope),
+    ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # renames fsbdemo to fsbadmin in place; adds the normal user when its password is set
 ]
 
 

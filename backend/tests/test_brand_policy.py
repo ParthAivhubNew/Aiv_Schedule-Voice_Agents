@@ -454,4 +454,6 @@ async def test_me_brand_reports_flags_without_the_policy(db):
         from app.api import org_policy as OP
 
         summary = await OP.my_policy(mk("org_f"), db)
-    assert summary["memberSuppression"] is True and summary["geoDistricts"] == 2 and "districts" not in str(summary)
+    assert summary["memberSuppression"] is True and summary["geoDistricts"] == 2
+    assert "districts" not in str({k: v for k, v in summary.items() if k != "data_access"})  # the person's own limits (data_access) are theirs to see; the org's list is not
+    assert summary["data_access"] == {"limited": False, "districts": [], "allow_export": True, "allow_google": True}

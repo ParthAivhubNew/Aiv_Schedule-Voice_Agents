@@ -36,6 +36,8 @@ import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, 
 import { summaryChips } from "./filterSummary";
 import { filterNarrowed } from "./filterNarrowed";
 import { StandingChip } from "../../brand/StandingChip";
+import { AccessNotice } from "./AccessNotice";
+import { isOutsideAccess, limitedLine } from "./accessLogic";
 
 // The most rows one "Select all" ticks across pages; the server holds the same cap (lead_accounts.SELECT_ALL_CAP).
 export const SELECT_ALL_LIMIT = 2000;
@@ -67,6 +69,8 @@ const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "C
 // Find Leads layout and control styles.
 const CHAT_CSS = `
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
+.fl-filters.ui-card{background:#F1F3F7;border-color:#E1E5EC}
+.fl-filters .fl-pin{background:#F1F3F7}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
@@ -375,7 +379,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport }) {
+function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -413,6 +417,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   const fillTried = useRef("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [accessNotice, setAccessNotice] = useState(""); // set by the server when this account's areas narrowed or refused the search
   // Phones: which pane shows. Search holds the Filters drop-down; Results holds the companies.
   const [pane, setPane] = useState("chat");
 
@@ -616,6 +621,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     supersedeArea(); // no area now: an area scan still reading must not write over this list
     setBusy(true);
     setError("");
+    setAccessNotice("");
     const myRun = ++runId.current;
     // The last results stay (dimmed) while the next page loads, so the screen never goes empty; if the search fails, only the
     // error shows, not results that belong to something else.
@@ -624,7 +630,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     try {
       r = await api.searchCompanies({ ...query, limit: pageRef.current, offset });
     } catch (err) {
-      if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setCompanies([]); setTotal(0); setTiers(null); setError(err.message || "The search didn't finish. Try again."); setBusy(false); });
+      if (myRun === runId.current) searchHold.settle(() => { if (myRun !== runId.current) return; setCompanies([]); setTotal(0); setTiers(null); if (isOutsideAccess(err)) { setAccessNotice(err.message); } else { setError(err.message || "The search didn't finish. Try again."); } setBusy(false); });
       return;
     }
     if (myRun !== runId.current) return; // cancelled while it was running
@@ -638,6 +644,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
       lastQuery.current = query;
       setSelKey(JSON.stringify([query.filters, query.sort, query.drop_terms]));
       setTiers(r.tiers || null);
+      setAccessNotice(r.access_notice || "");
       setRanked(r.ranked !== false);
       setSavedTotal(r.saved_total ?? null);
       setTotal(r.total_all ?? r.total);
@@ -752,6 +759,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     runSig.current = searchKey(formToFilters(f), offset, null, { tab: "people", sort: sortOverride || sort, title: f.title || "" });
     setBusy(true);  // a new search replaces one still running (the older answer is dropped by the run id)
     setError("");
+    setAccessNotice("");
     const myRun = ++runId.current;
     setPeople([]);
     setCompanies([]);
@@ -760,10 +768,14 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
     try {
       r = await api.searchPeople({ filters: formToFilters(f), limit: pageRef.current, offset, title: f.title || "", sort: sortOverride || sort });
     } catch (err) {
-      if (myRun === runId.current) { setError(err.message || "The search didn't finish. Try again."); setBusy(false); }
+      if (myRun === runId.current) {
+        if (isOutsideAccess(err)) setAccessNotice(err.message); else setError(err.message || "The search didn't finish. Try again.");
+        setBusy(false);
+      }
       return;
     }
     if (myRun !== runId.current) return;
+    setAccessNotice(r.access_notice || "");
     setPeople(r.people);
     setPeopleTotal(r.companies_total);
     setPeopleOf(r.companies_matching ?? null);
@@ -1349,6 +1361,8 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
           }}>Use {Object.values(didYouMean).join(", ")}</button>
         </div>
       ) : null}
+      {access && access.limited && access.districts.length ? <div style={{ ...muted, fontSize: 12.5 }}>{limitedLine(access.districts)}</div> : null}
+      <AccessNotice message={accessNotice} />
       {error ? (
         <div role="alert" style={{ ...muted, color: C.red, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {error}
@@ -1600,7 +1614,7 @@ function FindLeadsSearch({ store, listsStore, incoming, onAskAssistant, onOpenCo
   );
 }
 
-export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistant, importAsk, onOpenCompany }) {
+export function FindLeadsView({ access, store, listsStore, onGo, incoming, onAskAssistant, importAsk, onOpenCompany }) {
   const [sub, setSub] = useState("search");
   useEffect(() => { if (importAsk) setSub("import"); }, [importAsk]);
   return (
@@ -1610,7 +1624,7 @@ export function FindLeadsView({ store, listsStore, onGo, incoming, onAskAssistan
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch access={access} store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

@@ -1,5 +1,6 @@
 import React from "react";
 import { FONT_BODY } from "../tokens";
+import { AdminCrown } from "../components/AdminCrown";
 
 export const FSB_WEBSITE_URL = "https://account.fsb.org.uk/";
 
@@ -8,11 +9,10 @@ export function isFsbAccount(operator) {
   if (!operator) return false;
   const u = String(operator.username || "").toLowerCase().trim();
   const e = String(operator.email || "").toLowerCase().trim();
+  // fsbadmin and fsbuser are the current demo accounts; fsbdemo and fsboutreach are the older ones.
   return (
-    u === "fsbdemo" ||
-    u === "fsboutreach" ||
-    e === "fsbdemo@outreach.com" ||
-    e === "fsboutreach@fsb.org.uk" ||
+    ["fsbadmin", "fsbuser", "fsbdemo", "fsboutreach"].includes(u) ||
+    ["fsbadmin@outreach.com", "fsbuser@outreach.com", "fsbdemo@outreach.com", "fsboutreach@fsb.org.uk"].includes(e) ||
     e.startsWith("fsbdemo@")
   );
 }
@@ -129,7 +129,7 @@ export function SidebarAccountBadge({ operator, collapsed = false }) {
             textOverflow: "ellipsis",
           }}
         >
-          FSB Account
+          FSB Account<AdminCrown operator={operator} size={11} />
         </span>
       </div>
     </a>

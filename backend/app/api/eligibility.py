@@ -41,6 +41,9 @@ async def _account(db: AsyncSession, lead_id: str) -> LeadAccount:
     row = await db.get(LeadAccount, lead_id)
     if row is None:
         raise HTTPException(status_code=404, detail="That company is not in your saved companies.")
+    from app.services import data_access as DA
+
+    await DA.guard_account(db, row)  # outside this person's areas: 403 with a clear message
     return row
 
 

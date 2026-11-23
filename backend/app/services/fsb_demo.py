@@ -1,4 +1,4 @@
-"""The FSB demo account: its own organisation, linked to the "FSB" brand, with an Admin called fsbdemo.
+"""The FSB demo account: its own organisation, linked to the "FSB" brand, with an Admin called fsbadmin and a normal user called fsbuser.
 
 Nothing here touches the platform's own organisation (org_default) or any other customer. The account is found by its organisation and
 username, or (to move the one older versions created in org_default) by its id plus the demo e-mail address; no other operator is ever changed.
@@ -21,8 +21,17 @@ ORG_ID = "org_fsb_demo"
 ORG_NAME = "Federation of Small Businesses (demo)"
 ORG_SLUG = "fsb-demo"
 BRAND_NAME = "FSB"
-USERNAME = "fsbdemo"
-EMAIL = "fsbdemo@outreach.com"
+USERNAME = "fsbadmin"
+EMAIL = "fsbadmin@outreach.com"
+OLD_USERNAME = "fsbdemo"  # the admin's name before the rename; the row in org_fsb_demo is renamed in place, never duplicated
+OLD_EMAIL = "fsbdemo@outreach.com"
+USER_USERNAME = "fsbuser"
+USER_EMAIL = "fsbuser@outreach.com"
+USER_NAME = "FSB User"
+USER_ROLE = "FSB Operator"
+USER_ROLE_ID = "role_org_fsb_demo_fsb_operator"
+USER_ROLE_LEVELS: Dict[str, str] = {"leadgen": "full", "calling": "full", "scheduler": "full", "email": "full", "calcom": "view", "company": "view",
+                                    "connections": "none", "team": "none", "analytics": "none", "process_logs": "none"}
 OPERATOR_NAME = "FSB Demo Outreach"
 LEGACY_OPERATOR_IDS = ("op_fsboutreach", "op_fsbdemo")  # ids older versions gave the demo account
 DEFAULT_PASSWORD = "Fsb@2026"
@@ -40,6 +49,18 @@ DEMO_POLICY: Dict[str, Any] = {
     "signin": {"password": True, "google": False, "microsoft": True},
     "screening": {"block_unscreened": True},
 }
+
+
+DEFAULT_USER_PASSWORD = "FsbUser@2026"
+
+
+def user_password() -> Optional[str]:
+    """FSB_DEMO_USER_PASSWORD, or the published demo default when it is unset or blank (logged as a warning, never the value)."""
+    pw = os.environ.get("FSB_DEMO_USER_PASSWORD")
+    if pw:
+        return pw
+    logger.warning("FSB_DEMO_USER_PASSWORD is not set: the normal FSB demo user uses the default demo password. Set the variable on any server that is not a throwaway.")
+    return DEFAULT_USER_PASSWORD
 
 
 def demo_password() -> str:
@@ -101,20 +122,29 @@ async def _ensure_operator(conn: AsyncConnection, admin_role_id: Optional[str]) 
     # An address another person holds is left alone: the demo account then signs in by username only.
     taken = (await conn.execute(text("SELECT 1 FROM operators WHERE lower(email) = :e AND id <> :me"), {"e": EMAIL, "me": own or ""})).first()
     legacy = None
+    renamed = None
+    fields_username = USERNAME
     if not own:
-        legacy = (await conn.execute(text(
-            "SELECT id FROM operators WHERE lower(email) = :e AND (id = ANY(:ids) OR lower(username) = :u) "
-            "ORDER BY (id = 'op_fsboutreach') DESC, id LIMIT 1"), {"e": EMAIL, "ids": list(LEGACY_OPERATOR_IDS), "u": USERNAME})).scalar()
-    op_id = own or legacy
+        # The same row, found by its old name inside the demo organisation: renamed in place (same id), unless another person already holds the new name.
+        renamed = (await conn.execute(text("SELECT id FROM operators WHERE org_id = :o AND lower(username) = :u"), {"o": ORG_ID, "u": OLD_USERNAME})).scalar()
+        if renamed and (await conn.execute(text("SELECT 1 FROM operators WHERE lower(username) = :u AND id <> :me"), {"u": USERNAME, "me": renamed})).first():
+            logger.warning("FSB demo account: the username fsbadmin belongs to another user, so the demo admin keeps its old username.")
+            fields_username = OLD_USERNAME
+        if not renamed:
+            legacy = (await conn.execute(text(
+                "SELECT id FROM operators WHERE lower(email) IN (:e, :old) AND (id = ANY(:ids) OR lower(username) IN (:u, :ou)) "
+                "ORDER BY (id = 'op_fsboutreach') DESC, id LIMIT 1"),
+                {"e": EMAIL, "old": OLD_EMAIL, "ids": list(LEGACY_OPERATOR_IDS), "u": USERNAME, "ou": OLD_USERNAME})).scalar()
+    op_id = own or renamed or legacy
     held = (await conn.execute(text("SELECT hashed_password FROM operators WHERE id = :i"), {"i": op_id})).scalar() if op_id else None
     # A password that already matches is not re-hashed, so running this again changes nothing.
     pw = held if held and verify_password(password, held)[0] else hash_password(password)
-    fields = {"pw": pw, "o": ORG_ID, "u": USERNAME, "n": OPERATOR_NAME}
+    fields = {"pw": pw, "o": ORG_ID, "u": fields_username, "n": OPERATOR_NAME}
     if op_id:
         # Moving the older demo account keeps its id and its e-mail, so the same login lands in the demo organisation.
         await conn.execute(text("UPDATE operators SET org_id = :o, username = :u, name = :n, role = 'Admin', hashed_password = :pw, is_active = TRUE, "
                                 "must_change_password = FALSE, email_verified = TRUE WHERE id = :id"), {**fields, "id": op_id})
-        if not own:
+        if not own and not taken and fields_username == USERNAME:
             await conn.execute(text("UPDATE operators SET email = :e WHERE id = :id"), {"e": EMAIL, "id": op_id})
     else:
         op_id = "op_fsbdemo"
@@ -125,10 +155,46 @@ async def _ensure_operator(conn: AsyncConnection, admin_role_id: Optional[str]) 
             "VALUES (:id, :o, :u, :e, :n, 'Admin', :pw, TRUE, FALSE, TRUE, CURRENT_TIMESTAMP)"),
             {**fields, "id": op_id, "e": None if taken else EMAIL})
         if taken:
-            logger.warning("FSB demo account: the demo e-mail address belongs to another user, so the demo signs in by the username fsbdemo only.")
+            logger.warning("FSB demo account: the demo e-mail address belongs to another user, so the demo signs in by the username fsbadmin only.")
     if admin_role_id:
         await conn.execute(text("DELETE FROM operator_roles WHERE operator_id = :i"), {"i": op_id})
         await conn.execute(text("INSERT INTO operator_roles (operator_id, role_id) VALUES (:i, :r)"), {"i": op_id, "r": admin_role_id})
+    return op_id
+
+
+async def _ensure_user_role(conn: AsyncConnection) -> str:
+    """The FSB Operator role of the demo organisation (made once; an admin's later edit of its levels is never overwritten)."""
+    await conn.execute(text(
+        "INSERT INTO roles (id, org_id, name, description, is_admin, is_system, levels, created_at, updated_at) "
+        "VALUES (:i, :o, :n, :d, FALSE, TRUE, CAST(:l AS JSON), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING"),
+        {"i": USER_ROLE_ID, "o": ORG_ID, "n": USER_ROLE, "d": "Finds leads, calls, posts and sends email. No users, roles, keys or analytics.", "l": json.dumps(USER_ROLE_LEVELS)})
+    return (await conn.execute(text("SELECT id FROM roles WHERE org_id = :o AND name = :n"), {"o": ORG_ID, "n": USER_ROLE})).scalar()
+
+
+async def _ensure_user(conn: AsyncConnection) -> Optional[str]:
+    """The normal demo user fsbuser. Its password is FSB_DEMO_USER_PASSWORD or the demo default; an existing one is never changed (password, name, roles, scope)."""
+    from app.core.security import hash_password
+
+    existing = (await conn.execute(text("SELECT id FROM operators WHERE org_id = :o AND lower(username) = :u"), {"o": ORG_ID, "u": USER_USERNAME})).scalar()
+    if existing:
+        has_role = (await conn.execute(text("SELECT 1 FROM operator_roles WHERE operator_id = :i"), {"i": existing})).first()
+        if not has_role:
+            await conn.execute(text("INSERT INTO operator_roles (operator_id, role_id) VALUES (:i, :r)"), {"i": existing, "r": await _ensure_user_role(conn)})
+        return existing
+    password = user_password()
+    if (await conn.execute(text("SELECT 1 FROM operators WHERE lower(username) = :u"), {"u": USER_USERNAME})).first():
+        logger.warning("FSB demo account: the username fsbuser belongs to a user outside the demo organisation, so it was not created.")
+        return None
+    taken = (await conn.execute(text("SELECT 1 FROM operators WHERE lower(email) = :e"), {"e": USER_EMAIL})).first()
+    role_id = await _ensure_user_role(conn)
+    op_id = "op_fsbuser"
+    if (await conn.execute(text("SELECT 1 FROM operators WHERE id = :i"), {"i": op_id})).first():
+        op_id = f"op_fsbuser_{uuid.uuid4().hex[:8]}"
+    await conn.execute(text(
+        "INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, is_active, must_change_password, email_verified, created_at) "
+        "VALUES (:id, :o, :u, :e, :n, :r, :pw, TRUE, FALSE, TRUE, CURRENT_TIMESTAMP)"),
+        {"id": op_id, "o": ORG_ID, "u": USER_USERNAME, "e": None if taken else USER_EMAIL, "n": USER_NAME, "r": USER_ROLE, "pw": hash_password(password)})
+    await conn.execute(text("INSERT INTO operator_roles (operator_id, role_id) VALUES (:i, :r)"), {"i": op_id, "r": role_id})
     return op_id
 
 
@@ -139,7 +205,13 @@ async def ensure_demo_account(conn: AsyncConnection) -> Dict[str, str]:
     brand_id = await _ensure_brand(conn)
     role_id = await _admin_role(conn)
     op_id = await _ensure_operator(conn, role_id)
-    return {"org_id": ORG_ID, "brand_id": brand_id, "operator_id": op_id}
+    user_id = None
+    try:
+        async with conn.begin_nested():  # the normal user is optional: its failure must not undo the admin
+            user_id = await _ensure_user(conn)
+    except Exception as err:
+        logger.warning(f"FSB demo account: the normal demo user was not set up: {err}")
+    return {"org_id": ORG_ID, "brand_id": brand_id, "operator_id": op_id, "user_id": user_id or ""}
 
 
 async def ensure_demo_data() -> bool:

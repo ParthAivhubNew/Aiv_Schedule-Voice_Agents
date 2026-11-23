@@ -475,6 +475,10 @@ export const api = {
   downloadSalesforce: (id, body) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/salesforce.csv`, { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
   // Shown live, never kept: no-store, and a timeout so the GET is not shared with another caller.
   getGoogleView: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/google-view`, { cache: 'no-store', timeoutMs: 30000 }),
+  // Per-person data access (admins only)
+  getDataAccess: () => apiRequest('/org/data-access'),
+  setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
+  previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),
   getRecordImportRows: (id, { status = '', limit = 50, offset = 0 } = {}) =>
     apiRequest(`/fsb/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),

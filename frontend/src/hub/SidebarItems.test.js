@@ -66,12 +66,23 @@ describe("Support and Documentation in the sidebars", () => {
     expect(isFsbAccount({ username: "fsbdemo", email: "fsbdemo@outreach.com" })).toBe(true);
     expect(isFsbAccount({ username: "fsboutreach" })).toBe(true);
     expect(isFsbAccount({ email: "fsboutreach@fsb.org.uk" })).toBe(true);
+    expect(isFsbAccount({ username: "fsbadmin" })).toBe(true);
+    expect(isFsbAccount({ username: "fsbuser" })).toBe(true);
+    expect(isFsbAccount({ email: "fsbadmin@outreach.com" })).toBe(true);
+    expect(isFsbAccount({ email: "FSBUSER@outreach.com" })).toBe(true);
 
     expect(isFsbAccount({ username: "op1", email: "user@example.com", org_name: "Acme Corp" })).toBe(false);
     expect(isFsbAccount({ username: "other", org_name: "Federation of Small Businesses" })).toBe(false);
     expect(isFsbAccount({ username: "admin", org_name: "FSB" })).toBe(false);
     expect(isFsbAccount(null)).toBe(false);
     expect(isFsbAccount({})).toBe(false);
+  });
+
+  it("SidebarAccountBadge shows the crown only for an admin", () => {
+    const admin = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbadmin", is_admin: true } }));
+    const user = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbuser", is_admin: false } }));
+    expect(admin).toContain("Administrator");
+    expect(user).not.toContain("Administrator");
   });
 
   it("SidebarAccountBadge draws FSB logo and company name only for FSB accounts, linking to website", () => {

@@ -17,6 +17,7 @@ import { C, FONT_BODY, FONT_MONO } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
 import { Avatar } from "./Avatar";
+import { AdminCrown } from "../components/AdminCrown";
 import { InstallStepsSheet } from "../components/InstallSteps";
 import { useShowInstallSteps } from "../components/installState";
 
@@ -69,7 +70,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
         {compact ? null : (
         <div style={{ textAlign: "left" }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.textInk, lineHeight: 1.2 }}>
-            {operator?.name}
+            {operator?.name}<AdminCrown operator={operator} size={13} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
             <span style={{
@@ -107,7 +108,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.borderLight}`, marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
             <Avatar user={operator} size={44} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{operator?.name}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.textInk }}>{operator?.name}<AdminCrown operator={operator} /></div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 1 }}>{operator?.profile?.job_title || `@${operator?.username}`}</div>
               <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.slate, marginTop: 3, overflowWrap: "anywhere" }}>
                 {operator?.email || `${operator?.username}@aivhub.io`}

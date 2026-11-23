@@ -8,7 +8,8 @@ On the server, like the scripts in scratch/fsb_bid_scripts (copy make_fsb_test_f
   docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py
   docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py --reset
 
-The login password is FSB_DEMO_PASSWORD (the default demo password when it is unset). --reset removes only what this script made in the demo
+The admin (fsbadmin) password is FSB_DEMO_PASSWORD (the default demo password when it is unset). The normal user (fsbuser, role FSB Operator) is made only
+with the password FSB_DEMO_USER_PASSWORD (the default demo password when it is unset), and an existing fsbuser is never changed. --reset removes only what this script made in the demo
 organisation (its import and rows, its report, its list and the companies it saved), then seeds again. Nothing outside org_fsb_demo is touched.
 """
 from __future__ import annotations
@@ -204,7 +205,8 @@ async def main() -> None:
     print(" FSB DEMO ACCOUNT READY")
     print("=" * 60)
     print(f" Organisation : {D.ORG_NAME} ({who['org_id']}), brand {D.BRAND_NAME} ({who['brand_id']})")
-    print(f" Sign in      : {D.EMAIL} (or {D.USERNAME}); password from FSB_DEMO_PASSWORD" + ("" if os.environ.get("FSB_DEMO_PASSWORD") is not None else " (unset: default demo password)"))
+    print(f" Admin sign in: {D.EMAIL} (or {D.USERNAME}); password from FSB_DEMO_PASSWORD" + ("" if os.environ.get("FSB_DEMO_PASSWORD") is not None else " (unset: default demo password)"))
+    print(f" User sign in : {D.USER_EMAIL} (or {D.USER_USERNAME}), role {D.USER_ROLE}; " + ("password from FSB_DEMO_USER_PASSWORD" + ("" if os.environ.get("FSB_DEMO_USER_PASSWORD") else " (unset: default demo password)") if who.get("user_id") else "NOT created: another user holds the username fsbuser"))
     print(f" Import       : {result.get('import')}, status {result.get('status')}, rows by outcome {result.get('counts')}")
     print(f" Change report: {result.get('report')}")
     print(f" List         : {result.get('list')}")

@@ -2721,6 +2721,20 @@ class SuppressedCompany(Base):
     __table_args__ = (UniqueConstraint("org_id", "company_number", name="uq_suppressed_org_number"),)
 
 
+class OperatorDataScope(Base):
+    """A person's own limits inside the organisation's policy: postcode districts (empty = no personal area limit), and whether they may
+    export or use Google values. No row means no limit and both allowed. Admins are never narrowed (checked when it is read)."""
+    __tablename__ = "operator_data_scope"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    operator_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"), primary_key=True)
+    districts = Column(JSON, nullable=False, default=list)
+    allow_export = Column(Boolean, nullable=False, default=True)
+    allow_google = Column(Boolean, nullable=False, default=True)
+    updated_by = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 class FsbImport(Base):
     """One Salesforce Account export an organisation uploaded to be matched to the Companies House register data we hold."""
     __tablename__ = "fsb_imports"

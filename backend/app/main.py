@@ -4,6 +4,8 @@ load_dotenv()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from app.services.data_access import AccessDenied as DataAccessDenied
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
@@ -74,6 +76,7 @@ from app.api.org_policy import router as org_policy_router
 from app.api.brands import public_router as brand_public_router, staff_router as brand_staff_router
 from app.api.fsb import router as fsb_router
 from app.api.exports import router as exports_router
+from app.api.data_access import router as data_access_router
 from app.api.email_outreach import router as email_outreach_router
 from app.api.email_design import router as email_design_router
 from app.api.journeys import router as journeys_router
@@ -922,6 +925,12 @@ app = FastAPI(
     openapi_url="/openapi.json" if expose_docs else None,
 )
 
+@app.exception_handler(DataAccessDenied)
+async def _data_access_denied(request: Request, err: DataAccessDenied):
+    """A person's own data limits refused something: {"detail": message, "code": code} so the screen can show the message as it is."""
+    return JSONResponse(status_code=err.status, content={"detail": err.detail, "code": err.code})
+
+
 class SecurityHeadersMiddleware:
     """Injects essential security hardening headers on all HTTP responses."""
     def __init__(self, app):
@@ -1066,6 +1075,7 @@ app.include_router(brand_public_router, prefix=settings.API_PREFIX)
 app.include_router(brand_staff_router, prefix=settings.API_PREFIX)
 app.include_router(fsb_router, prefix=settings.API_PREFIX)  # FSB import, review queue, monthly change report
 app.include_router(exports_router, prefix=settings.API_PREFIX)  # admin downloads and the Salesforce update file
+app.include_router(data_access_router, prefix=settings.API_PREFIX)  # per-user areas and export/Google switches (admins)
 app.include_router(email_outreach_router, prefix=settings.API_PREFIX)
 app.include_router(email_design_router, prefix=settings.API_PREFIX)
 app.include_router(journeys_router, prefix=settings.API_PREFIX)

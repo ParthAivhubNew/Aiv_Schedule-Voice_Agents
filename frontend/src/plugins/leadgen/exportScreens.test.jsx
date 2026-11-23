@@ -158,7 +158,7 @@ describe("wiring", () => {
     expect(src("CompanyPage.jsx")).toContain("<GoogleView");
     expect(src("FindLeadsParts.jsx")).toContain("<FieldMark flags={c.restricted}");
     expect(src("SavedPeople.jsx")).toContain("FieldMark");
-    expect(src("LeadGenerationPlugin.jsx")).toContain("canExport={isAdminOperator(operator)}");
+    expect(src("LeadGenerationPlugin.jsx")).toContain("canExport={isAdminOperator(operator) || !access.exportOff}");
   });
   it("keeps Google details out of storage and logs", () => {
     expect(src("GoogleView.jsx")).not.toMatch(/localStorage|sessionStorage|console\./);

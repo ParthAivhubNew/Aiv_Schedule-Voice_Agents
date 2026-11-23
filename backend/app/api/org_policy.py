@@ -92,7 +92,11 @@ def parse_numbers(raw: bytes, filename: str = "") -> Tuple[List[Tuple[str, str]]
 @router.get("/policy")
 async def my_policy(request: Request, db: AsyncSession = Depends(get_db)):
     ctx = current(request)
-    return (await TP.effective(db, ctx["org_id"])).summary()
+    from app.services import data_access as DA
+
+    out = (await TP.org_effective(db, ctx["org_id"])).summary()
+    out["data_access"] = (await DA.resolve(db, ctx["org_id"], ctx["operator_id"])).payload() if ctx.get("operator_id") and ctx.get("type") != "api_key" else DA.OPEN.payload()
+    return out
 
 
 @router.get("/member-suppression")

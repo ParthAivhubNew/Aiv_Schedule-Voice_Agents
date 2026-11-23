@@ -83,6 +83,16 @@ class Policy:
         self.brand_id = brand_id
         self.data = clean_policy(data) if brand_id else default_policy()
         self.gen = (_GEN_ALL[0], _GEN.get(org_id, 0))
+        self.user_districts: List[str] = []  # one person's own area limit (services/data_access.py); only ever set on a per-request copy
+
+    def for_user(self, districts: List[str]) -> "Policy":
+        """A copy of this policy with one person's areas ANDed in. The shared (cached) policy object is never changed."""
+        import copy
+
+        mine = copy.copy(self)
+        mine.data = copy.deepcopy(self.data)
+        mine.user_districts = sorted(set(districts))
+        return mine
 
     # -- what changes a search --------------------------------------------------
     @property
@@ -101,7 +111,7 @@ class Policy:
     @property
     def is_empty(self) -> bool:
         """True when this policy adds nothing to a search (the case for every organisation without a brand)."""
-        return not (self._exclusions_on or self.geo_districts or self.suppression_on)
+        return not (self._exclusions_on or self.geo_districts or self.suppression_on or self.user_districts)
 
     def exclusion_conditions(self) -> list:
         if not self._exclusions_on:
@@ -124,6 +134,14 @@ class Policy:
 
         return [or_(*[BR._postcode_match(d) for d in self.geo_districts])]
 
+    def user_conditions(self) -> list:
+        """The person's own areas, ANDed with the organisation's geography lock (both must hold)."""
+        if not self.user_districts:
+            return []
+        from app.services import business_records as BR
+
+        return [or_(*[BR._postcode_match(d) for d in self.user_districts])]
+
     def suppression_condition(self, org_id: Optional[str] = None) -> Any:
         """Leaves out the company numbers this organisation uploaded as its member list; None when the policy has no member suppression."""
         if not self.suppression_on:
@@ -137,7 +155,7 @@ class Policy:
         """Every search condition of this policy, ready to AND in. [] for an empty policy."""
         if self.is_empty:
             return []
-        out = self.exclusion_conditions() + self.geo_conditions()
+        out = self.exclusion_conditions() + self.geo_conditions() + self.user_conditions()
         sup = self.suppression_condition(org_id)
         if sup is not None:
             out.append(sup)
@@ -149,7 +167,7 @@ class Policy:
             return ""
         ex = self.data["exclusions"]
         basis = {"fsb": bool(ex["fsb"]) and self._exclusions_on, "extra": sorted(ex["extra"]) if self._exclusions_on else [], "geo": self.geo_districts,
-                 "members": self.suppression_on, "gen": list(self.gen)}
+                 "members": self.suppression_on, "gen": list(self.gen), "user": self.user_districts}
         return hashlib.sha1(json.dumps(basis, sort_keys=True).encode()).hexdigest()[:12]
 
     def cache_key(self) -> str:
@@ -201,6 +219,22 @@ async def _load(db, org_id: str) -> Policy:
 
 
 async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
+    """The Policy for the current request: the organisation's (see org_effective, cached) with the signed-in person's own areas added when they
+    have a personal limit. The per-person copy is built per request and never stored in the cache. It raises data_access.AccessDenied (503)
+    when the person's limits cannot be read: a failed lookup never falls back to showing everything."""
+    pol = await org_effective(db_or_none, org_id)
+    from app.core.tenancy import current_org, scope_operator
+
+    if scope_operator() and (not org_id or org_id == current_org()):
+        from app.services import data_access as DA
+
+        scope = await DA.current_scope(db_or_none)
+        if scope.limited:
+            return pol.for_user(list(scope.districts))
+    return pol
+
+
+async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
     """The Policy of an organisation (default: the current one), remembered for 60 seconds. If it cannot be read the last known policy is used,
     else an empty one is returned unremembered and the problem is logged."""
     if not org_id:

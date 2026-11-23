@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -141,10 +141,31 @@ async def _with_unsorted(db: AsyncSession, lists: List[Dict[str, Any]]) -> List[
     return lists + [{"id": VIRTUAL_ID, "name": "Not in any list" if taken else UNSORTED, "ids": loose, "virtual": True}]
 
 
+async def _within_areas(db: AsyncSession, lists: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    """The lists as this person may see them: companies outside their own areas are left out (and counted). Nothing changes for a person
+    with no personal area limit. The stored lists are never altered, only the copy that is returned."""
+    from app.services import data_access as DA
+
+    if not (await DA.current_scope(db)).limited:
+        return lists, 0
+    every = list(dict.fromkeys(i for l in lists for i in l.get("ids", [])))
+    kept, _ = await DA.visible_account_ids(db, every)
+    keep = set(kept)
+    out, dropped = [], 0
+    for l in lists:
+        shown = [i for i in l.get("ids", []) if i in keep]
+        dropped += len(l.get("ids", [])) - len(shown)
+        out.append({**l, "ids": shown})
+    return out, dropped
+
+
 @router.get("")
 async def all_lists(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.services import data_access as DA
+
     lists = await _clean(db, await _load(db))
-    return {"lists": await _with_unsorted(db, lists)}
+    shown, dropped = await _within_areas(db, await _with_unsorted(db, lists))
+    return {"lists": shown, **({"access_notice": DA.OUTSIDE_NOTICE} if dropped else {})}
 
 
 @router.post("")
@@ -203,7 +224,11 @@ async def change(list_id: str, body: ListPatch, db: AsyncSession = Depends(get_d
     rows = {r.id: r for r in (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(shown)))).scalars().all()} if shown else {}
     already_items = [{"id": i, "name": rows[i].name, "website": rows[i].website or "", "phone": rows[i].phone or "", "email": rows[i].email or "",
                       "contact": rows[i].contact_name or "", "place": rows[i].region or ""} for i in shown if i in rows]
-    return {"list": hit, "added": len([i for i in wanted if i in real and i not in before]),
+    from app.services import data_access as DA
+
+    shown_list, dropped = await _within_areas(db, [hit])
+    hit = shown_list[0]
+    return {"list": hit, **({"access_notice": DA.OUTSIDE_NOTICE} if dropped else {}), "added": len([i for i in wanted if i in real and i not in before]),
             "already": len(already_ids), "missing": len([i for i in wanted if i not in real]), "already_items": already_items}
 
 
