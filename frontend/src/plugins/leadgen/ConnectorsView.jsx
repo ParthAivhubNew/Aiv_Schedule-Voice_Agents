@@ -1539,7 +1539,7 @@ export function ConnectorsView({ operator, toast }) {
           <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#DCFCE7", color: "#15803D" }}>{connectedItems.length}</span>
         </h2>
         {connectedItems.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(215px, 1fr))", gap: 12 }}>{connectedItems.map(renderCard)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(215px, calc((100% - 48px) / 5)), 1fr))", gap: 12 }}>{connectedItems.map(renderCard)}</div>
         ) : (
           <p style={{ ...text, fontSize: 13, color: C.slate, margin: 0 }}>Nothing is connected here yet. Pick one below or add your own.</p>
         )}
@@ -1562,7 +1562,7 @@ export function ConnectorsView({ operator, toast }) {
           <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#F1F5F9", color: C.slate }}>{availableItems.length}</span>
         </h2>
         {availableItems.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(215px, 1fr))", gap: 12 }}>{availableItems.map(renderCard)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(215px, calc((100% - 48px) / 5)), 1fr))", gap: 12 }}>{availableItems.map(renderCard)}</div>
         ) : null}
       </section>
 
