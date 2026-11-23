@@ -32,7 +32,8 @@ export const ADMIN_CSS = `
 .adm-namebtn:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; border-radius: 4px; }
 .adm-rolecard { border-bottom: 1px solid ${C.borderLight}; }
 .adm-rolecard .adm-roleitem { border-bottom: 0; }
-.adm-rolecard .adm-actions { padding: 0 14px 10px; }
+.adm-rolecard { position: relative; }
+.adm-rolecard .adm-actions { position: absolute; left: 14px; bottom: 10px; }
 .adm-rolecard { background: #fff; }
 .adm-rolecard[data-selected="true"] { background: ${C.cobaltSoft}; box-shadow: inset 3px 0 0 ${C.cobalt}; }
 .adm-icon:focus-visible, .adm-tab:focus-visible, .adm-chip:focus-visible, .adm-roleitem:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }
@@ -43,7 +44,7 @@ export const ADMIN_CSS = `
 .adm-chip { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid ${C.border}; background: #fff; font: 500 12.5px 'Inter', sans-serif; color: ${C.textInk}; cursor: pointer; }
 .adm-chip[aria-pressed="true"] { background: ${C.cobaltSoft}; border-color: ${C.cobalt}; color: ${C.cobaltDeep}; font-weight: 600; }
 .adm-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
-.adm-roleitem { display: block; width: 100%; text-align: left; padding: 10px 14px 6px; min-height: 44px; border: 0; border-bottom: 0; background: transparent; cursor: pointer; font-family: 'Inter', sans-serif; }
+.adm-roleitem { display: block; width: 100%; text-align: left; padding: 10px 14px 46px; min-height: 44px; border: 0; border-bottom: 0; background: transparent; cursor: pointer; font-family: 'Inter', sans-serif; }
 .adm-seg { display: inline-flex; border: 1px solid ${C.border}; border-radius: 8px; overflow: hidden; }
 .adm-seg button { min-height: 44px; min-width: 52px; padding: 0 10px; border: 0; background: #fff; font: 500 12.5px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; }
 .adm-seg button + button { border-left: 1px solid ${C.border}; }
