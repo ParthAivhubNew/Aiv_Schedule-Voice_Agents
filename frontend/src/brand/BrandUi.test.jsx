@@ -44,7 +44,7 @@ describe("brand consumers", () => {
 describe("wiring", () => {
   it("has the menu item, the view and the login hooks", () => {
     const plugin = src("../plugins/leadgen/LeadGenerationPlugin.jsx");
-    expect(plugin).toMatch(/id: "member_list", label: "Member list"[^\n]*group: "Setup"/);
+    expect(plugin).not.toContain('id: "member_list", label:'); // hidden from the menu on purpose; the screen is kept
     expect(plugin).toContain("<MemberList");
     const login = src("../hub/LoginScreen.jsx");
     expect(login).toContain("useBrand()");

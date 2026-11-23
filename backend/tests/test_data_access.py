@@ -114,14 +114,27 @@ async def test_the_opening_list_does_not_use_the_shared_complete_companies(db):
     assert TP._CACHE[ORG][1].user_districts == []  # the organisation's cached policy was never changed
 
 
-async def test_a_district_outside_the_org_lock_is_refused(db):
+async def test_an_admin_can_give_any_postcode_district_and_the_area_lock_is_lifted_for_admins_and_listed_people(db):
+    from app.core.tenancy import scope_actor
+
     w = await world(db)
     async with client(w["adm"]) as a:
         r = await a.put(f"/api/org/data-access/{w['u1'].id}", json={"districts": ["BN1", "LS1"]})
-        assert r.status_code == 400 and r.json()["detail"] == "That area is outside the areas this organisation can use."
-        r = await a.put(f"/api/org/data-access/{w['u1'].id}", json={"districts": ["nonsense"]})
+        assert r.status_code == 200 and r.json()["districts"] == ["BN1", "LS1"]  # LS1 is outside the BN lock and is allowed
+        assert (await a.get("/api/org/data-access")).json()["any_district"] is True
+    adm_id = (await db.execute(select(Operator.id).where(Operator.username == "adm"))).scalar()
+    u1_id = w["u1"].id  # read before the rollback expires the object
+    await db.rollback()
+    for who, want in ((adm_id, []), (u1_id, ["BN1", "LS1"])):
+        with org_scope(ORG):
+            with scope_actor(who):
+                pol = await TP.effective(db)
+        assert pol.geo_districts == [] and pol.user_districts == want  # the BN lock does not apply to an admin or to a person with their own list
+    assert (await TP.org_effective(db, ORG)).geo_districts  # the organisation's own lock is still there for everyone else
+    async with client(w["adm"]) as a:
+        r = await a.put(f"/api/org/data-access/{u1_id}", json={"districts": ["nonsense"]})
         assert r.status_code == 400
-        ok = await limit(a, w["u1"].id, districts=["bn1", "BN 2"])
+        ok = await limit(a, u1_id, districts=["bn1", "BN 2"])
         assert ok["districts"] == ["BN1", "BN2"]
 
 

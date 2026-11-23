@@ -240,6 +240,7 @@ export const api = {
   getUsers: () => apiRequest('/auth/users'),
   createUser: (data) => apiRequest('/auth/users', { method: 'POST', body: data }),
   updateUser: (id, data) => apiRequest(`/auth/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+  deleteUser: (id) => apiRequest(`/auth/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   resetUserPassword: (id) => apiRequest(`/auth/users/${encodeURIComponent(id)}/reset-password`, { method: 'POST' }),
   getRoles: () => apiRequest('/auth/roles'),
   createRole: (data) => apiRequest('/auth/roles', { method: 'POST', body: data }),
@@ -477,6 +478,7 @@ export const api = {
   getGoogleView: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/google-view`, { cache: 'no-store', timeoutMs: 30000 }),
   // Per-person data access (admins only)
   getDataAccess: () => apiRequest('/org/data-access'),
+  getPlatformProvided: () => apiRequest('/connections/platform-provided'),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),

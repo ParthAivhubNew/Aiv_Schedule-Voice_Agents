@@ -149,6 +149,19 @@ async def test_admin_manages_users_and_keeps_one_admin(client, anon, db):
     assert analyst["levels"]["analytics"] == "view" and analyst["levels"]["team"] == "none"
 
 
+async def test_admin_deletes_a_user_with_guards(client, db):
+    by = {r["name"]: r["id"] for r in (await client.get("/api/auth/roles")).json()}
+    new = (await client.post("/api/auth/users", json={"username": "gone", "name": "Gone", "role_ids": [by["Viewer"]]})).json()
+    row = next(u for u in (await client.get("/api/auth/users")).json() if u["id"] == new["id"])
+    assert row["member_since"] and "last_login_at" in row and row["is_active"] is True
+    me = (await client.get("/api/auth/me")).json()
+    r = await client.delete(f"/api/auth/users/{me['id']}")
+    assert r.status_code == 400 and "own account" in r.json()["detail"]
+    assert (await client.delete("/api/auth/users/op_nobody")).status_code == 404
+    assert (await client.delete(f"/api/auth/users/{new['id']}")).status_code == 200
+    assert all(u["id"] != new["id"] for u in (await client.get("/api/auth/users")).json())
+
+
 async def _ws(path, query=b""):
     """Run a WebSocket connect through the auth middleware; returns what it sent back."""
     from app.core.auth_middleware import AuthMiddleware

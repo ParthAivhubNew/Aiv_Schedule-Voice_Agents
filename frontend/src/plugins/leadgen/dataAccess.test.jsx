@@ -90,9 +90,10 @@ describe("navigation wiring", () => {
   const plugin = src("LeadGenerationPlugin.jsx");
   it("lists Data access in Setup for admins only and never renders it otherwise", () => {
     expect(plugin).toMatch(/showDataAccess = isAdminOperator\(operator\)/);
-    expect(plugin).toMatch(/showDataAccess \? \[\{ id: "data_access", label: "Data access", icon: Shield, group: "Setup"/);
+    expect(plugin).toMatch(/showDataAccess \? \[\{ id: "administration", label: "Administration", icon: Shield, group: "Setup"/);
+    expect(plugin).not.toContain('id: "data_access", label:');
     expect(plugin).toMatch(/view === "data_access" && showDataAccess && <DataAccess/);
-    expect(plugin).toContain('view === "data_access" && !showDataAccess');
+    expect(plugin).toContain('(view === "data_access" || view === "administration") && !showDataAccess');
   });
 });
 

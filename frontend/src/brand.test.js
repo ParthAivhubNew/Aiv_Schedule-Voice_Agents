@@ -108,9 +108,15 @@ const CLIENT_FILES = [
   "help/content/workflows.js",
   "help/content/account.js",
   "help/content/troubleshooting.js",
+  "plugins/leadgen/admin/AdministrationView.jsx",
+  "plugins/leadgen/admin/UserManagement.jsx",
+  "plugins/leadgen/admin/RoleManagement.jsx",
+  "plugins/leadgen/admin/adminUi.jsx",
+  "plugins/leadgen/admin/adminLogic.js",
 ];
 
 const PAYMENT_SUPPLIERS = /\bstripe\b/i;
+const ALLOWED_NAMES = { "plugins/leadgen/ConnectorsView.jsx": /\b(openai|deepseek)\b/gi };
 
 // Words a person can read: string literals that contain a space, and text between JSX tags.
 function visibleText(source) {
@@ -130,7 +136,10 @@ describe("client screens do not name the platform's suppliers", () => {
   for (const file of CLIENT_FILES) {
     it(file, () => {
       const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-      const hits = visibleText(source).filter(([, text]) => SUPPLIERS.test(text) || PAYMENT_SUPPLIERS.test(text)).map(([line, text]) => `${file}:${line} ${text.trim().slice(0, 80)}`);
+      // The owner asked for ChatGPT (OpenAI) and DeepSeek to be named in the Leads Connectors key list (2026-11-23).
+      // This exception covers exactly those two names in exactly this file; every other supplier is still refused there.
+      const allowed = ALLOWED_NAMES[file];
+      const hits = visibleText(source).map(([line, text]) => [line, allowed ? text.replace(allowed, "") : text]).filter(([, text]) => SUPPLIERS.test(text) || PAYMENT_SUPPLIERS.test(text)).map(([line, text]) => `${file}:${line} ${text.trim().slice(0, 80)}`);
       expect(hits).toEqual([]);
     });
   }

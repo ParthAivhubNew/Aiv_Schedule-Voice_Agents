@@ -79,7 +79,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)) -> Dict
     roles = (await db.execute(select(Role).where(Role.org_id == org).order_by(Role.name))).scalars().all()
     by_op = await _roles_by_operator(db, org)
     scopes = {s.operator_id: s for s in (await db.execute(select(OperatorDataScope).where(OperatorDataScope.org_id == org))).scalars().all()}
-    return {"districts_allowed": await _lock(db, org), "roles": [{"id": r.id, "name": r.name, "is_admin": bool(r.is_admin)} for r in roles],
+    return {"districts_allowed": await _lock(db, org), "any_district": True, "roles": [{"id": r.id, "name": r.name, "is_admin": bool(r.is_admin)} for r in roles],
             "users": [_user(o, by_op.get(o.id, []), scopes.get(o.id)) for o in ops]}
 
 
@@ -98,9 +98,7 @@ async def change(operator_id: str, body: AccessPatch, request: Request, db: Asyn
             districts = DA.clean_districts(body.districts)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
-        lock = await _lock(db, org)
-        if lock and any(not DA.within(d, lock) for d in districts):
-            raise HTTPException(status_code=400, detail=DA.OUT_OF_LOCK)
+        # any postcode district is allowed: the admin decides, and the organisation's own area lock is only the default for people with no list
     new_role: Optional[Role] = None
     if body.role_id is not None:
         new_role = (await db.execute(select(Role).where(Role.id == body.role_id, Role.org_id == org))).scalars().first()

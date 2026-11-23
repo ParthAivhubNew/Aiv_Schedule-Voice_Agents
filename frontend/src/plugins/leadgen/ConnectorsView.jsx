@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../tokens";
+import { api } from "../../api/apiClient";
 import {
   AirtableLogo,
   AwsS3Logo,
@@ -397,7 +398,42 @@ const BASE_DATA_CONNECTORS = [
 ];
 
 // Default AI Connectors — verified production AI models powering Leads intelligence
+// The four provider keys behind the AI and search work. Their status is read from the server (platformKey is the
+// name it uses); the key itself is never shown. A key saved by the platform is shared by every organisation.
+const KEY_CONNECTORS = [
+  { id: "key_openai", platformKey: "openai", name: "ChatGPT (OpenAI key)", logo: CustomLlmLogo, badge: "AI key",
+    use: "The AI that reads and writes: company summaries, email drafts and scoring." },
+  { id: "key_deepseek", platformKey: "deepseek", name: "DeepSeek (API key)", logo: CustomLlmLogo, badge: "AI key",
+    use: "A second AI that reads and writes, and can also run web searches for company details." },
+  { id: "key_tavily", platformKey: "tavily", name: "Tavily (search key)", logo: WebCrawlerLogo, badge: "Search key",
+    use: "Web search for company details such as websites, phone numbers and contacts." },
+  { id: "key_apollo", platformKey: "apollo", name: "Apollo (key)", logo: DirectorMatchLogo, badge: "Data key",
+    use: "Contact and company data, such as people at a company and their work emails." },
+].map((k) => ({
+  id: k.id,
+  platformKey: k.platformKey,
+  name: k.name,
+  category: "Provider keys",
+  badge: k.badge,
+  defaultStatus: "none",
+  LogoComponent: k.logo,
+  desc: k.use,
+  task: k.use,
+  endpoint: "",
+  docsUrl: "",
+  auth: "Key kept sealed on the server",
+  frequency: "Used whenever a search or a write needs it",
+  recordsCount: "Not shown here",
+}));
+
+const KEY_STATUS_LABEL = {
+  own: "Connected",
+  platform: "Using the platform's key",
+  none: "Not connected",
+};
+
 const BASE_AI_CONNECTORS = [
+  ...KEY_CONNECTORS,
   {
     id: "lead_fit_ai",
     name: "Outreach Lead Scoring AI",
@@ -835,6 +871,24 @@ export function ConnectorsView({ operator, toast }) {
     }
   });
 
+  // Where each provider key comes from, read from the server: "own", "platform" or "none". Never the key.
+  const [keySources, setKeySources] = useState(null);
+  const [keySourcesError, setKeySourcesError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api
+      .getPlatformProvided()
+      .then((res) => {
+        if (alive) setKeySources(res || {});
+      })
+      .catch(() => {
+        if (alive) setKeySourcesError("Could not check the provider keys. Try again later.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const toggleConnection = (connId, targetState) => {
     const next = { ...statusOverrides, [connId]: targetState };
     setStatusOverrides(next);
@@ -896,6 +950,10 @@ export function ConnectorsView({ operator, toast }) {
     const userCustom = customConnectors.filter((c) => c.partition === partition);
 
     const merged = [...userCustom, ...baseList].map((item) => {
+      if (item.platformKey) {
+        const source = keySources ? keySources[item.platformKey] || "none" : "checking";
+        return { ...item, keySource: source, status: source === "own" ? "connected" : "key_" + source, isCustomized: false };
+      }
       const liveStatus = statusOverrides[item.id] || item.defaultStatus || "available";
       const userConfig = configOverrides[item.id] || {};
       const isCustomized = Boolean(configOverrides[item.id]);
@@ -903,7 +961,7 @@ export function ConnectorsView({ operator, toast }) {
     });
 
     return merged;
-  }, [partition, customConnectors, statusOverrides, configOverrides]);
+  }, [partition, customConnectors, statusOverrides, configOverrides, keySources]);
 
   // Categories
   const categories = useMemo(() => {
@@ -1202,6 +1260,10 @@ export function ConnectorsView({ operator, toast }) {
         </div>
       </div>
 
+      <div role="status" aria-live="polite" style={{ ...text, fontSize: 12.5, color: C.red, display: keySourcesError ? "block" : "none" }}>
+        {keySourcesError}
+      </div>
+
       {/* Grid of Connectors (5 Columns desktop, matching reference image) */}
       <div
         style={{
@@ -1317,7 +1379,13 @@ export function ConnectorsView({ operator, toast }) {
                         letterSpacing: ".03em",
                       }}
                     >
-                      {isConnected ? "Connected" : "Available"}
+                      {item.platformKey
+                        ? item.keySource === "checking"
+                          ? "Checking"
+                          : KEY_STATUS_LABEL[item.keySource]
+                        : isConnected
+                          ? "Connected"
+                          : "Available"}
                     </span>
                     {item.isCustomized ? (
                       <span
@@ -1479,6 +1547,7 @@ export function ConnectorsView({ operator, toast }) {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {selectedConnector.platformKey ? null : (
                 <button
                   type="button"
                   className={`ui-btn ui-btn--sm ${isEditing ? "ui-btn--primary" : "ui-btn--secondary"}`}
@@ -1493,6 +1562,7 @@ export function ConnectorsView({ operator, toast }) {
                   <Settings2 size={13} />
                   {isEditing ? "View Details" : "Edit Configuration"}
                 </button>
+                )}
                 <button
                   type="button"
                   className="ui-btn ui-btn--ghost ui-btn--sm"
@@ -1509,7 +1579,33 @@ export function ConnectorsView({ operator, toast }) {
 
             {/* Body */}
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16, maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>
-              {isEditing ? (
+              {selectedConnector.platformKey ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, ...text }}>
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      background: selectedConnector.keySource === "none" ? "#F8FAFC" : "#F0FDF4",
+                      border: `1px solid ${selectedConnector.keySource === "none" ? C.border : "#BBF7D0"}`,
+                      color: selectedConnector.keySource === "none" ? C.textInk : "#166534",
+                    }}
+                  >
+                    Status: {selectedConnector.keySource === "checking" ? "Checking" : KEY_STATUS_LABEL[selectedConnector.keySource]}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{selectedConnector.desc}</div>
+                  <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
+                    {selectedConnector.keySource === "platform"
+                      ? "Provided by the platform. Your searches and writing use the platform's key, so there is nothing for you to paste or pay for here."
+                      : selectedConnector.keySource === "own"
+                        ? "Your organisation has its own key saved. It is kept sealed and never shown in full. To change or test it, open Connections & AI in settings."
+                        : "No key is available yet. Ask your account manager to switch it on, or add your own under Connections & AI in settings."}
+                  </div>
+                </div>
+              ) : isEditing ? (
                 /* Edit Mode */
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div

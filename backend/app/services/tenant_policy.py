@@ -85,13 +85,17 @@ class Policy:
         self.gen = (_GEN_ALL[0], _GEN.get(org_id, 0))
         self.user_districts: List[str] = []  # one person's own area limit (services/data_access.py); only ever set on a per-request copy
 
-    def for_user(self, districts: List[str]) -> "Policy":
-        """A copy of this policy with one person's areas ANDed in. The shared (cached) policy object is never changed."""
+    def for_user(self, districts: List[str], lift_geo: bool = False) -> "Policy":
+        """A copy of this policy with one person's areas added. The shared (cached) policy object is never changed.
+        lift_geo drops the organisation's own area lock on the copy: an admin sees every postcode, and a person with their own list of areas
+        gets exactly those (the admin chose them, wherever they are)."""
         import copy
 
         mine = copy.copy(self)
         mine.data = copy.deepcopy(self.data)
         mine.user_districts = sorted(set(districts))
+        if lift_geo:
+            mine.data["geo"]["districts"] = []
         return mine
 
     # -- what changes a search --------------------------------------------------
@@ -229,8 +233,10 @@ async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
         from app.services import data_access as DA
 
         scope = await DA.current_scope(db_or_none)
+        if scope.admin:
+            return pol.for_user([], lift_geo=True) if pol.geo_districts else pol
         if scope.limited:
-            return pol.for_user(list(scope.districts))
+            return pol.for_user(list(scope.districts), lift_geo=True)
     return pol
 
 

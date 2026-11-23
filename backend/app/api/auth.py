@@ -789,6 +789,27 @@ async def reset_password(user_id: str, request: Request, db: AsyncSession = Depe
     return {"temporary_password": temp, "emailed": emailed}
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = await _require_admin_or_team(request)
+    op = await _get_user(db, user_id, ctx["org_id"])
+    if op.id == ctx["operator_id"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+    was_admin, _, _ = await effective_access(db, op)
+    if was_admin:
+        if not ctx["is_admin"]:
+            raise HTTPException(status_code=403, detail="Only admins can delete an admin.")
+        await _keep_one_admin(db, ctx["org_id"], op.id)
+    name, username = op.name, op.username
+    for model in (AuthSession, OperatorGrant, OperatorRole):
+        await db.execute(delete(model).where(model.operator_id == op.id))
+    await db.delete(op)
+    await db.commit()
+    forget(op.id)
+    await _security_notice(db, ctx, f"{name} ({username}) was deleted by {ctx.get('name') or 'an admin'}.", skip=user_id)
+    return {"ok": True}
+
+
 # ── Sharing one section (e.g. Analytics) ────────────────────────────────────
 class ShareBody(BaseModel):
     section: str

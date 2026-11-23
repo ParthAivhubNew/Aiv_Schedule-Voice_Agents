@@ -564,6 +564,55 @@ async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
     return uses
 
 
+_PLATFORM_PROVIDER_WORDS = {"openai": "openai", "deepseek": "deepseek", "tavily": "tavily", "apollo": "apollo"}
+
+
+async def _provider_key_present(word: str) -> bool:
+    """True when a saved connection for this provider holds a key, in whichever organisation is in scope."""
+    from app.core.tenancy import current_org
+
+    for c in await _provider_rows():
+        # Platform rows can be readable from any organisation: only count the ones in scope.
+        if (c.org_id or current_org()) != current_org():
+            continue
+        cfg = open_config(c.config if isinstance(c.config, dict) else {})
+        if word in f"{c.name or ''} {cfg.get('provider') or ''}".lower() and config_get_secret(cfg, "api_key", "apiKey", "auth_token"):
+            return True
+    return False
+
+
+async def _provider_rows() -> list:
+    from app.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as s:
+        return list((await s.execute(select(Connection))).scalars().all())
+
+
+@router.get("/platform-provided")
+async def platform_provided():
+    """Which of ChatGPT (OpenAI), DeepSeek, Tavily and Apollo this organisation can use, and where the key comes from:
+    "own" (saved by this organisation), "platform" (the platform's key, shared) or "none". Never returns a key."""
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import current_org, org_scope
+    from app.services import enrichment_service as E
+
+    out: Dict[str, str] = {}
+    platform = platform_org_id()
+    for name, word in _PLATFORM_PROVIDER_WORDS.items():
+        if current_org() != platform and await _provider_key_present(word):
+            out[name] = "own"
+            continue
+        with org_scope(platform):
+            has = await _provider_key_present(word)
+        if not has:
+            fallback = {"tavily": E.tavily_key, "apollo": E.apollo_key, "deepseek": E.deepseek_key}.get(name)
+            has = bool(fallback and await fallback())
+            if name == "openai":
+                has = bool(getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY"))
+        out[name] = "platform" if has else "none"
+    return out
+
+
 @router.get("/usage")
 async def connection_usage(id: Optional[str] = None, layer: Optional[str] = None, provider: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Shown before Remove: which features use this key."""

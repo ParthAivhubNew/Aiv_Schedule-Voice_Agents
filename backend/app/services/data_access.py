@@ -48,6 +48,7 @@ class Scope:
     districts: Tuple[str, ...] = ()
     allow_export: bool = True
     allow_google: bool = True
+    admin: bool = False  # an admin sees every postcode: the organisation's own area lock is lifted for them
 
     @property
     def limited(self) -> bool:
@@ -58,6 +59,7 @@ class Scope:
 
 
 OPEN = Scope()
+ADMIN = Scope(admin=True)
 
 
 def clean_districts(raw: Any) -> List[str]:
@@ -93,7 +95,7 @@ async def _read(db, org_id: str, operator_id: str) -> Scope:
     is_admin = (await db.execute(select(OperatorRole.operator_id).join(Role, Role.id == OperatorRole.role_id)
                                  .where(OperatorRole.operator_id == operator_id, Role.is_admin.is_(True)).limit(1))).first()
     if is_admin:
-        return OPEN
+        return ADMIN
     row = (await db.execute(select(OperatorDataScope.districts, OperatorDataScope.allow_export, OperatorDataScope.allow_google)
                             .where(OperatorDataScope.operator_id == operator_id, OperatorDataScope.org_id == org_id))).first()
     if not row:
