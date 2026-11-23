@@ -2055,6 +2055,9 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
 
     await _EL.classify(db, added + updated)  # free: our own register copy only, so every saved company has its email group at once
     await db.commit()
+    from app.services import auto_tps as _AT
+
+    _AT.kick()  # saved numbers are screened in the background; this request does not wait
     from app.core.tenancy import current_org
     from app.services import connections as _C
 
@@ -2356,6 +2359,9 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     await _apply_shared_record(db, row)
     found = await research_into(db, row)
     await db.commit()
+    from app.services import auto_tps as _AT
+
+    _AT.kick()  # a number research found is screened in the background
     if found:
         await _charge_leads(db, 1, f"Researched {row.name}")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None

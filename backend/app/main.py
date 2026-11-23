@@ -162,6 +162,20 @@ async def _credits_settle_loop():
             logger.warning(f"[Credits] Settle cycle failed: {loop_err}")
 
 
+async def _auto_tps_loop():
+    """Screen the phone numbers on saved companies against the TPS and CTPS registers (see services/auto_tps.py)."""
+    from app.services import auto_tps
+    auto_tps.AUTO_KICK = True
+    while True:
+        try:
+            await asyncio.sleep(180)
+            await auto_tps.sweep_all_orgs()
+        except asyncio.CancelledError:
+            raise
+        except Exception as loop_err:
+            logger.warning(f"[Auto TPS] Cycle failed: {loop_err}")
+
+
 # Monthly phone number rental and release-on-unpaid-rental are handled inside
 # app.services.credits.settle() (reuses the existing 5-minute settle loop below instead of a
 # second, duplicate billing loop — see its comments for why).
@@ -892,9 +906,11 @@ async def lifespan(app: FastAPI):
     human_calls_task = asyncio.create_task(_human_calls_loop())
     from app.services.workflows import workflow_loop
     workflow_task = asyncio.create_task(workflow_loop())
+    auto_tps_task = asyncio.create_task(_auto_tps_loop())
 
     yield
 
+    auto_tps_task.cancel()
     workflow_task.cancel()
     call_schedule_task.cancel()
     human_calls_task.cancel()
@@ -1070,6 +1086,8 @@ app.include_router(voices_router, prefix=settings.API_PREFIX)
 app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(tps_check_router, prefix=settings.API_PREFIX)
+from app.api.auto_tps import router as auto_tps_router
+app.include_router(auto_tps_router, prefix=settings.API_PREFIX)  # the admin switch for automatic phone screening
 app.include_router(org_policy_router, prefix=settings.API_PREFIX)
 app.include_router(brand_public_router, prefix=settings.API_PREFIX)
 app.include_router(brand_staff_router, prefix=settings.API_PREFIX)
