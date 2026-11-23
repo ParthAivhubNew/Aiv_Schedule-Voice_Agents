@@ -481,6 +481,8 @@ const KEY_CONNECTORS = [
     use: "Web search for company details such as websites, phone numbers and contacts." },
   { id: "key_apollo", platformKey: "apollo", name: "Apollo (key)", logo: DirectorMatchLogo, badge: "Data key",
     use: "Contact and company data, such as people at a company and their work emails." },
+  { id: "key_google_places", platformKey: "google_places", name: "Google Places (key)", logo: GoogleCloudLogo, badge: "Data key",
+    use: "Business listings: opening details, phone numbers and websites for companies without a register entry." },
 ].map((k) => ({
   id: k.id,
   platformKey: k.platformKey,

@@ -610,6 +610,8 @@ async def platform_provided():
             if name == "openai":
                 has = bool(getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY"))
         out[name] = "platform" if has else "none"
+    # Business-place lookups: only the platform holds this key, there is no key an organisation saves itself.
+    out["google_places"] = "platform" if await E.google_places_key() else "none"
     return out
 
 

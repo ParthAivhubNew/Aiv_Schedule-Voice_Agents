@@ -27,9 +27,10 @@ async def test_each_provider_reads_own_platform_or_none(db, monkeypatch):
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("APOLLO_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_PLACES_API_KEY", raising=False)
     from app.config import settings
 
-    for attr in ("OPENAI_API_KEY", "TAVILY_API_KEY", "DEEPSEEK_API_KEY"):
+    for attr in ("OPENAI_API_KEY", "TAVILY_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_PLACES_API_KEY"):
         monkeypatch.setattr(settings, attr, "", raising=False)
     platform = platform_org_id()
     _, token = await make_user(db, "keys_admin", "Admin", org_id="org_default")
@@ -45,5 +46,5 @@ async def test_each_provider_reads_own_platform_or_none(db, monkeypatch):
         res = await c.get("/api/connections/platform-provided")
     assert res.status_code == 200
     body = res.json()
-    assert body == {"openai": "none", "deepseek": "own", "tavily": "platform", "apollo": "none"}
+    assert body == {"openai": "none", "deepseek": "own", "tavily": "platform", "apollo": "none", "google_places": "none"}
     assert "sk-" not in res.text and "tvly" not in res.text
