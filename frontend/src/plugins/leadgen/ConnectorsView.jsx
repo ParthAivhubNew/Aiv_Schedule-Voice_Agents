@@ -64,8 +64,26 @@ const letterLogo = (letters) =>
       </svg>
     );
   };
-const ExperianLogo = letterLogo("Ex");
-const MarketLocationLogo = letterLogo("ML");
+function ExperianLogo({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="Experian" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="7" fill="#26478D" />
+      <path d="M16 6.5c-5.2 0-9.5 4.2-9.5 9.5s4.3 9.5 9.5 9.5c3.3 0 6.1-1.6 7.8-4.1l-3.2-1.9c-1 1.4-2.7 2.3-4.6 2.3-2.6 0-4.8-1.7-5.5-4.1h13.7c.1-.6.2-1.2.2-1.7 0-5.300-4.200-9.500-8.400-9.500zm-5.400 7.600c.7-2.400 2.800-4.100 5.400-4.100s4.700 1.700 5.400 4.100h-10.800z" fill="#fff" />
+      <circle cx="25.5" cy="8" r="2.2" fill="#C2185B" />
+    </svg>
+  );
+}
+function MarketLocationLogo({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="Market Location" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="7" fill="#0F766E" />
+      <path d="M16 5.500c-4.700 0-8.500 3.700-8.500 8.300 0 6 8.500 13.200 8.500 13.200s8.500-7.200 8.500-13.200c0-4.600-3.800-8.300-8.500-8.300z" fill="#fff" />
+      <rect x="11.800" y="15" width="2.400" height="4.500" rx=".6" fill="#0F766E" />
+      <rect x="15" y="11.500" width="2.400" height="8" rx=".6" fill="#0F766E" />
+      <rect x="18.200" y="13.500" width="2.400" height="6" rx=".6" fill="#0F766E" />
+    </svg>
+  );
+}
 
 // Shown in the connector panel for the two connectors that are not switched on. Nothing here is connected, tested or charged.
 export const NOT_CONNECTED_TEXT = "This connector isn't switched on for your account yet. Ask your administrator or Aivhub to connect it.";
@@ -1036,7 +1054,7 @@ export function ConnectorsView({ operator, toast }) {
       if (item.notConnected) return { ...item, status: "not_connected", isCustomized: false };
       if (item.platformKey) {
         const source = keySources ? keySources[item.platformKey] || "none" : "checking";
-        return { ...item, keySource: source, status: source === "own" ? "connected" : "key_" + source, isCustomized: false };
+        return { ...item, keySource: source, status: source === "own" || source === "platform" ? "connected" : "key_" + source, isCustomized: false };
       }
       const liveStatus = statusOverrides[item.id] || item.defaultStatus || "available";
       const userConfig = configOverrides[item.id] || {};
