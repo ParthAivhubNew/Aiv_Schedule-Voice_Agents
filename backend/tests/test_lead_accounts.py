@@ -101,7 +101,7 @@ async def test_research_fills_only_empty_fields_and_pays_per_find(db, monkeypatc
         assert got["research"]["overview"] == "Independent opticians in Leeds."
         # researched for its town, from the page it was found on; another office's number kept apart
         assert calls[-1] == ("Briggate Opticians", "Leeds", "https://briggateoptics.example/leeds")
-        assert got["research"]["other_offices"] == [{"town": "York", "phone": "01904 496 0000"}]
+        assert got["research"]["other_offices"] == [{"town": "York", "phone": "01904 496 0000", "phone_screening": None}]
         assert "pitch" not in str(got["research"])  # the Voice sales line is not kept
         assert got["researched_at"]
         with org_scope("org_acme"):

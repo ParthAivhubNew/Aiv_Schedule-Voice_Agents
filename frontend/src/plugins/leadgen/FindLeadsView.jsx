@@ -33,7 +33,7 @@ import { SearchField } from "../../components/SearchField";
 import { nameAsKeywordTown } from "./companyLogic";
 import { SavedSearches } from "./SavedSearches";
 import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "./savedSearchLogic";
-import { summaryChips } from "./filterSummary";
+import { DATA_FROM_OPTIONS, TPS_OPTIONS, summaryChips } from "./filterSummary";
 import { filterNarrowed } from "./filterNarrowed";
 import { StandingChip } from "../../brand/StandingChip";
 import { AccessNotice } from "./AccessNotice";
@@ -52,16 +52,18 @@ const CHECK_TIPS = {
   includeClosed: "Also show companies that have closed or been dissolved",
   noCharities: "Leave out charities and companies on the charity register",
   excludeItems: "Type what to leave out, separated by commas. SIC codes (56101, or just 56 for every code starting with it), postcode districts (BN9), company numbers (01234567) and words in the name or trade (church, casino) are all understood",
+  tpsChecked: "Only companies with a phone number that has a TPS or CTPS result on file. Numbers nobody has checked yet are left out",
+  googleData: "Only companies where at least one phone, email or website came from Google. You can use it in Outreach, but it can't be downloaded",
   legalForm: "Registered companies have a Companies House number. Sole traders are not on that register, so this finds the records we hold with no company number: sole traders, partnerships, and businesses we could not match to a company",
 };
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
 const SIZE_OPTIONS = [["micro", "Micro"], ["small", "Small"], ["medium_large", "Medium / large"], ["dormant", "Dormant"]];
-const EMPTY_FORM = { name: "", sector: "", sic: "", industryTypes: [], town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [], keep: {} };
+export const EMPTY_FORM = { name: "", sector: "", sic: "", industryTypes: [], town: "", postcode: "", sizes: [], minAge: "", maxAge: "", includeClosed: false, includeNonBusiness: false, includeSecondary: false, hasWebsite: false, hasPhone: false, hasEmail: false, tpsChecked: false, tpsStatus: "", googleData: false, dataFrom: [], category: "", types: [], noCharities: false, excludeItems: "", legalForm: "", recordSources: [], notSector: "", notTown: "", notCategory: "", saved: "", title: "", nearPostcode: "", nearMiles: "5", near: null, nearError: "", signals: [], keep: {} };
 const FIRST_KEY = "aivhub_find_first";
-const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "industryTypes", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail"], lists: ["saved"], person: ["title"] };
-const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
+export const GROUP_KEYS = { name: ["name"], industry: ["sector", "sic", "industryTypes", "notSector", "includeSecondary", "includeNonBusiness"], location: ["town", "postcode", "notTown", "nearPostcode", "near", "nearError"], signals: ["signals"], size: ["sizes"], company: ["category", "types", "noCharities", "excludeItems", "legalForm", "recordSources", "notCategory", "googleData", "dataFrom"], status: ["minAge", "maxAge", "includeClosed"], contact: ["hasWebsite", "hasPhone", "hasEmail", "tpsChecked", "tpsStatus"], lists: ["saved"], person: ["title"] };
+export const isOn = (form, k) => (k === "nearPostcode" || k === "nearError" ? false : k === "tpsStatus" ? false : k === "near" ? Boolean(form.near?.districts?.length) : Array.isArray(form[k]) ? form[k].length > 0 : typeof form[k] === "boolean" ? form[k] : String(form[k] || "").trim() !== "");
 const FORM_OPTIONS = [["", "Any"], ["company", "Registered company"], ["sole", "Sole trader / no company number"]];
 const SOURCE_OPTIONS = [["food", "Food hygiene register"], ["care", "Care register"], ["other", "Imported or web-found"]];
 const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "CIC"], ["guarantee", "By guarantee"], ["partnership", "Partnership"]];
@@ -104,7 +106,7 @@ const keptFrom = (fl) => {
   return keep;
 };
 
-function formToFilters(f) {
+export function formToFilters(f) {
   const out = { ...(f.keep || {}) };
   // One box for industry words and company names: each word is matched against both.
   if (String(f.name || "").trim()) out.name_contains = f.name.trim();
@@ -128,6 +130,11 @@ function formToFilters(f) {
   if (f.includeSecondary) out.include_secondary_activity = true;
   if (f.hasPhone) out.has_phone = true;
   if (f.hasEmail) out.has_email = true;
+  // A TPS result choice already means "checked", so the server gets one key, not two.
+  if (f.tpsStatus) out.tps_status = f.tpsStatus;
+  else if (f.tpsChecked) out.tps_checked = true;
+  if (f.googleData) out.has_google_data = true;
+  if ((f.dataFrom || []).length) out.data_from = f.dataFrom;
   if (splitList(f.notSector).length) out.not_keyword = splitList(f.notSector);
   if (splitList(f.notTown).length) out.not_towns = splitList(f.notTown);
   if (splitList(f.notCategory).length) out.not_company_category = splitList(f.notCategory);
@@ -142,7 +149,7 @@ function appliedWords(f) {
   return [f.sector, f.town, f.postcode ? `postcode ${f.postcode}` : ""].map((s) => String(s || "").trim()).filter(Boolean).join(" · ");
 }
 
-function filtersToForm(fl) {
+export function filtersToForm(fl) {
   return {
     name: fl.name_contains || "", sector: [...(fl.keyword || []), ...(fl.sector || [])].join(", "), sic: (fl.sic_codes || []).join(", "), industryTypes: fl.industry_types || [],
     types: fl.company_types || [], noCharities: !!fl.exclude_charities, excludeItems: (fl.exclude_items || []).join(", "), legalForm: fl.legal_form || "", recordSources: fl.record_sources || [], town: (fl.towns || []).map((t) => t.replace(/\b\w/g, (m) => m.toUpperCase())).join(", "),
@@ -150,6 +157,7 @@ function filtersToForm(fl) {
     minAge: fl.min_age_years != null ? String(fl.min_age_years) : "", maxAge: fl.max_age_years != null ? String(fl.max_age_years) : "",
     includeClosed: String(fl.status || "").toLowerCase() === "any", category: fl.company_category || "",
     includeNonBusiness: !!fl.include_non_business, includeSecondary: !!fl.include_secondary_activity, hasWebsite: !!fl.has_website, hasPhone: !!fl.has_phone, hasEmail: !!fl.has_email,
+    tpsChecked: !!(fl.tps_checked || fl.tps_status), tpsStatus: fl.tps_status || "", googleData: !!fl.has_google_data, dataFrom: fl.data_from || [],
     notSector: (fl.not_keyword || []).join(", "), notTown: (fl.not_towns || []).join(", "), notCategory: (fl.not_company_category || []).join(", "),
     saved: fl.saved || "", title: "",
     near: fl.near || null, nearPostcode: fl.near?.postcode || "", nearMiles: fl.near ? String(fl.near.miles) : "5", nearError: "", signals: fl.signals || [],
@@ -1304,6 +1312,17 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
               </div>
             ) : null}
             {form.legalForm !== "sole" ? check("noCharities", "Leave out charities") : null}
+            {check("googleData", "Includes Google data")}
+            <div style={field} title="Only companies with a phone, email or website that came from any of the sources ticked">
+              <span style={label}>Data from</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DATA_FROM_OPTIONS.map(([id, name]) => {
+                  const on = (form.dataFrom || []).includes(id);
+                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Data from: ${name}`} onClick={() => setField("dataFrom", on ? form.dataFrom.filter((x) => x !== id) : [...(form.dataFrom || []), id])}
+                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
+                })}
+              </div>
+            </div>
             <label style={field} title="Leave out these legal forms, for example Registered Society or Royal Charter Company"><span style={label}>Leave out types</span>
               <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP, Registered Society" /></label>
             <div style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
@@ -1320,6 +1339,17 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
           </FilterGroup>
           <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")} chips={chipsFor("contact")}>
             {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
+            <label title={CHECK_TIPS.tpsChecked} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.tpsChecked} onChange={(e) => setForm((f) => ({ ...f, tpsChecked: e.target.checked, tpsStatus: e.target.checked ? f.tpsStatus : "" }))} /> Phone checked against TPS/CTPS
+            </label>
+            {form.tpsChecked ? (
+              <div role="group" aria-label="TPS result" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {TPS_OPTIONS.map(([id, name]) => (
+                  <button key={name} type="button" className="ui-chip" aria-pressed={form.tpsStatus === id} onClick={() => setField("tpsStatus", id)}
+                    style={form.tpsStatus === id ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
+                ))}
+              </div>
+            ) : null}
           </FilterGroup>
           <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")} chips={chipsFor("lists")}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

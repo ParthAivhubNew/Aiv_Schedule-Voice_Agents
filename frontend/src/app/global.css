@@ -402,6 +402,20 @@ button, input, select, textarea {
   white-space: nowrap;
   transition: background-color 0.12s, color 0.12s;
 }
+
+/* Support: the one bordered button in the menu, so it reads as a button and not another page. */
+.ui-nav-item.ui-nav-support {
+  height: 38px;
+  margin: 6px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ui-side-strong);
+  font-weight: 600;
+  border-radius: 10px;
+}
+.ui-nav-item.ui-nav-support:hover { background: rgba(255, 255, 255, 0.11); border-color: rgba(255, 255, 255, 0.4); }
+.ui-nav-item.ui-nav-support:focus-visible { outline: 2px solid var(--ui-side-active-icon); outline-offset: 2px; }
+.ui-nav-item.ui-nav-support svg { color: var(--ui-side-active-icon); }
 .ui-nav-item svg { color: var(--ui-side-muted); flex-shrink: 0; }
 .ui-nav-item:hover:not(:disabled) { background: var(--ui-side-hover); color: var(--ui-side-strong); }
 .ui-nav-item[aria-current="page"] { background: var(--ui-side-active); color: var(--ui-side-strong); }

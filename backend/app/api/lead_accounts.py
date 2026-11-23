@@ -28,6 +28,7 @@ from app.services import contact_points as CP
 from app.services import reveals as RV
 from app.services import social_lookup as SL
 from app.services.person_record import is_person_account, is_role_inbox
+from app.services.timezone_service import normalize_phone
 from app.services.enrichment_service import _host_of, enrich_prospect_intelligence, looks_like_person_name, search_deeper, search_google_places
 
 logger = logging.getLogger("lead_accounts")
@@ -291,6 +292,56 @@ def _out(a: LeadAccount, biz: Optional[BusinessRecord] = None, seen: Optional[se
         "kind": "person" if is_person_account(a) else "company",
         **_provenance(a, biz),
     }
+
+
+def _research_people(card: Dict[str, Any]) -> List[Dict[str, Any]]:
+    r = card.get("research") if isinstance(card.get("research"), dict) else {}
+    return [t for key in ("team", "people") for t in (r.get(key) or []) if isinstance(t, dict)]
+
+
+def _research_offices(card: Dict[str, Any]) -> List[Dict[str, Any]]:
+    r = card.get("research") if isinstance(card.get("research"), dict) else {}
+    return [o for o in (r.get("other_offices") or []) if isinstance(o, dict)]
+
+
+def _research_phones(card: Dict[str, Any]) -> List[str]:
+    r = card.get("research") if isinstance(card.get("research"), dict) else {}
+    return [p for p in (r.get("phones") or []) if isinstance(p, str)]
+
+
+def card_numbers(card: Dict[str, Any]) -> List[str]:
+    """Every phone number held on one card: its own, each extra number research found, each person's and each other office's."""
+    nums = [card.get("phone") or ""] + _research_phones(card) + [t.get("phone") or "" for t in _research_people(card)] + [o.get("phone") or "" for o in _research_offices(card)]
+    return [str(n) for n in nums if n]
+
+
+async def with_screening(db: AsyncSession, cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Adds the shared TPS/CTPS result (null, or {status, ctps, checked_at}) to every number on each card, from one bulk read:
+    `phone_screening` for the company's own phone, `research.phones_screening` (one entry per `research.phones` entry, same order), and
+    `phone_screening` on each team member, person and other office that has a phone. Cards are changed in place and returned."""
+    from app.services import call_permission as CPERM
+
+    found = await CPERM.screening_map(db, [n for c in cards for n in card_numbers(c)])
+
+    def look(raw: Any) -> Optional[Dict[str, Any]]:
+        return found.get(normalize_phone(str(raw))) if raw else None
+
+    def mark(items: Any) -> Any:
+        return [({**t, "phone_screening": look(t.get("phone"))} if isinstance(t, dict) else t) for t in items]
+
+    for c in cards:
+        c["phone_screening"] = look(c.get("phone"))
+        r = c.get("research")
+        if isinstance(r, dict):
+            extra = {k: mark(r[k]) for k in ("team", "people", "other_offices") if isinstance(r.get(k), list)}
+            if isinstance(r.get("phones"), list):
+                extra["phones_screening"] = [look(p) if isinstance(p, str) else None for p in r["phones"]]
+            c["research"] = {**r, **extra}
+    return cards
+
+
+async def _screened(db: AsyncSession, card: Dict[str, Any]) -> Dict[str, Any]:
+    return (await with_screening(db, [card]))[0]
 
 
 async def _account(db: AsyncSession, account_id: str) -> LeadAccount:
@@ -1718,7 +1769,8 @@ async def list_accounts(retention: bool = False, db: AsyncSession = Depends(get_
 
     fit_ctx = await ICP.context(db)
     scored = await ICP.score_accounts(db, rows, registry_by_id, fit_ctx)
-    answer = {"accounts": [{**_out(a, registry_by_id.get(a.business_record_id), seen), **scored[a.id]} for a in rows], "icp_set": bool(fit_ctx)}
+    cards = [{**_out(a, registry_by_id.get(a.business_record_id), seen), **scored[a.id]} for a in rows]
+    answer = {"accounts": await with_screening(db, cards), "icp_set": bool(fit_ctx)}
     if cond is not None:  # say so when the personal area limit hid some of the saved companies
         every = int((await db.execute(select(func.count()).select_from(LeadAccount))).scalar() or 0)
         if every > len(rows) and not retention:
@@ -1732,7 +1784,7 @@ async def _outs(db: AsyncSession, rows: List[LeadAccount]) -> List[Dict[str, Any
     biz = {b.id: b for b in (await db.execute(select(BusinessRecord).where(BusinessRecord.id.in_(ids)))).scalars().all()} if ids else {}
     seen = await RV.opened(db, biz.keys())
     seen = await RV.open_for_saved(db, biz.values(), seen)
-    return [_out(r, biz.get(r.business_record_id), seen) for r in rows]
+    return await with_screening(db, [_out(r, biz.get(r.business_record_id), seen) for r in rows])
 
 
 @router.get("/accounts/{account_id}/registry")
@@ -2238,7 +2290,7 @@ async def quick_check_account(account_id: str, db: AsyncSession = Depends(get_db
     row = await _account(db, account_id)
     shared = await _apply_shared_record(db, row)
     biz = shared or await _registry_for(db, account_id)
-    return _out(row, biz)
+    return await _screened(db, _out(row, biz))
 
 
 @router.post("/accounts/{account_id}/deep-search")
@@ -2249,20 +2301,20 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     back to that store so the next lookup for this company is free."""
     row = await _account(db, account_id)
     if (row.verification or {}).get("verdict") == "problem" or is_person_account(row):
-        return _out(row, await _registry_for(db, account_id))  # the company has ended, or this is a person: nothing found would be about a company
+        return await _screened(db, _out(row, await _registry_for(db, account_id)))  # the company has ended, or this is a person: nothing found would be about a company
     await _apply_shared_record(db, row)
     await _can_deep_search(db)
     place = await search_deeper(f"{row.name} {row.region}".strip(), name=row.name, postcode=getattr(row, "postcode", "") or "", domain=getattr(row, "domain", "") or "")
     if not place:
         biz = await _registry_for(db, account_id)
-        return _out(row, biz)
+        return await _screened(db, _out(row, biz))
     from app.services import web_harness
 
     # Google's answer is a lead: only what the company's own site confirms is kept (never its address, rating, phone or website).
     confirmed = _vouched(place, await web_harness.confirm_place(row.name, getattr(row, "postcode", "") or "", place))
     if not confirmed:
         biz = await _registry_for(db, account_id)
-        return _out(row, biz)
+        return await _screened(db, _out(row, biz))
     from app.services import check_fixes as _CF
 
     srcs = confirmed.get("sources") or {}
@@ -2285,7 +2337,7 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     await db.commit()
     await _charge_deep_search(db, f"Deep web search: {row.name}")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return _out(row, biz)
+    return await _screened(db, _out(row, biz))
 
 
 @router.post("/accounts/{account_id}/research")
@@ -2307,7 +2359,7 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     if found:
         await _charge_leads(db, 1, f"Researched {row.name}")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return _out(row, biz)
+    return await _screened(db, _out(row, biz))
 
 
 _UK_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b", re.I)

@@ -116,3 +116,18 @@ export function tpsByKey(rows) {
   for (const r of rows || []) m.set(tpsKey(r.number), { status: r.status, ctps: !!r.ctps, checkedAt: r.checked_at || null });
   return m;
 }
+
+// The line shown BEFORE anything is spent: "3 numbers to check, 7 already checked, cost 2 credits." Numbers checked in the last 28 days and
+// numbers outside the UK are free; the UK ones are counted apart so the sums add up.
+export function previewParts(est, total) {
+  const toCheck = Number(est?.to_check) || 0;
+  const notUk = (est?.rows || []).filter((r) => r.status === "not_uk").length;
+  const already = Math.max(0, total - toCheck - notUk);
+  return { toCheck, already, notUk, credits: Number(est?.credits) || 0 };
+}
+
+export function previewLine(est, total) {
+  const { toCheck, already, notUk, credits } = previewParts(est, total);
+  const n = (v) => v.toLocaleString();
+  return `${n(toCheck)} ${toCheck === 1 ? "number" : "numbers"} to check, ${n(already)} already checked, cost ${creditsWord(credits)}.${notUk ? ` ${n(notUk)} ${notUk === 1 ? "is" : "are"} not UK ${notUk === 1 ? "number" : "numbers"} and ${notUk === 1 ? "is" : "are"} left out.` : ""}`;
+}

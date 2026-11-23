@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck, X } from "lucide-react";
 import { C } from "../../tokens";
-import { TPS_CHUNK, badgeTip, creditsWord, dateWord, estimateTps, runTpsChecks, summarise, tpsLabel, uniqueNumbers } from "./tpsCheck";
+import { TPS_CHUNK, badgeTip, creditsWord, dateWord, estimateTps, previewLine, runTpsChecks, summarise, tpsLabel, uniqueNumbers } from "./tpsCheck";
 
 const TONES = {
   bad: { color: "var(--ui-bad)", bg: "var(--ui-bad-soft)" },
@@ -38,15 +38,11 @@ export function TpsEstimateView({ est, total }) {
   if (!est.ready) {
     return <div role="alert" style={{ fontSize: 13.5, color: C.textInk }}>TPS and CTPS checking is not switched on yet. Ask your administrator.</div>;
   }
-  const free = Math.max(0, total - est.to_check);
   const lacking = est.enforced && est.credits > est.balance;
   return (
     <div style={{ display: "grid", gap: 8, fontSize: 13.5, color: C.textInk, lineHeight: 1.5 }}>
-      <div>
-        {total.toLocaleString()} {total === 1 ? "number" : "numbers"}, {est.to_check.toLocaleString()} {est.to_check === 1 ? "needs" : "need"} a check
-        {free ? " (the rest were checked in the last 28 days or are not UK numbers, and are free)" : ""}.
-      </div>
-      <div>Cost {creditsWord(est.credits)}. You have {creditsWord(est.balance)}.</div>
+      <div>{previewLine(est, total)}</div>
+      <div>You have {creditsWord(est.balance)}. Numbers checked in the last 28 days are free, and nothing is spent until you press Check numbers.</div>
       {lacking ? <div role="alert" style={{ color: C.red }}>You don't have enough credits for this check. Add credits under Plan &amp; credits, then try again.</div> : null}
       {est.to_check > TPS_CHUNK ? <div style={{ color: C.slate }}>It runs in batches of {TPS_CHUNK.toLocaleString()}, one after another.</div> : null}
     </div>

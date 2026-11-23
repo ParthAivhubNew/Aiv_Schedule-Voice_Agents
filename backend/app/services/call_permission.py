@@ -79,6 +79,24 @@ async def status(db, num: str, now: Optional[datetime] = None) -> Dict[str, Any]
             "screened_at": row.screened_at.isoformat() + "Z" if row and row.screened_at else None, "provider": row.provider if row else ""}
 
 
+SCREEN_CHUNK = 500
+
+
+async def screening_map(db, numbers) -> Dict[str, Dict[str, Any]]:
+    """{normalised number: {status, ctps, checked_at}} for the numbers that hold a screening result, from one query per 500 numbers.
+    A number nobody screened, or whose row says "unknown" with no CTPS flag, is absent. Nothing else of the row (provider) is returned."""
+    wanted = sorted({n for n in (normalize_phone(x) for x in numbers) if n})
+    out: Dict[str, Dict[str, Any]] = {}
+    for i in range(0, len(wanted), SCREEN_CHUNK):
+        rows = (await db.execute(select(PhoneScreening).where(PhoneScreening.number.in_(wanted[i:i + SCREEN_CHUNK])))).scalars().all()
+        for row in rows:
+            if row.tps_status not in ("clear", "listed") and not row.ctps:
+                continue
+            out[row.number] = {"status": row.tps_status if row.tps_status in ("clear", "listed") else "unknown", "ctps": bool(row.ctps),
+                               "checked_at": row.screened_at.isoformat() + "Z" if row.screened_at else None}
+    return out
+
+
 async def save_screening(db, num: str, tps_status: str, ctps: bool = False, provider_name: str = "", now: Optional[datetime] = None) -> None:
     n = normalize_phone(num)
     row = await db.get(PhoneScreening, n)

@@ -11,6 +11,9 @@ import {
   filterUsers, formatDate, formatLastLogin, grantedCount, grantedLine, groupSections, groupState, nextSort, paginate, peopleLine,
   roleChips, roleIdsAfterAdd, roleIdsAfterMove, roleListLine, roleTone, searchGroups, setGroupLevel, setLevel, showingLine, sortUsers, userStatus, sameLevels,
 } from "./adminLogic";
+import { isActiveItem, roleOffBody, toggleLabel } from "./adminLogic";
+import { AccessEditor, ADMIN_SEES_ALL_LINE, useAccessDraft } from "./AccessEditor";
+import { ACCESS_OFF_LINE, announceAccessOff, isAccessOff } from "../../../api/authStore";
 import { AdministrationBody, NOT_ADMIN_LINE } from "./AdministrationView";
 import { EMPTY_USERS, NO_USERS_YET, UserDrawer, UserManagementBody } from "./UserManagement";
 import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
@@ -165,18 +168,164 @@ describe("User management", () => {
   it("sets the drawer fields and labels", () => {
     const h = html(<UserDrawer user={users[1]} roles={roles} me={users[0]} onClose={noop} onSaved={noop} />);
     expect(h).toContain('role="dialog"');
-    expect(h).toContain("Edit Sam Lee");
+    expect(h).toContain("Sam Lee&#x27;s profile");
     expect(h).toContain('for="adm-f-name"');
+    expect(h).toContain('for="adm-f-email"');
+    expect(h).toContain("Roles");
     expect(h).toContain("Active (");
-    expect(h).toContain("Open Data access");
+    expect(h).not.toContain("Open Data access");
+    expect(h).toContain("Loading data access"); // the saved access arrives from the server
     const add = html(<UserDrawer user={null} roles={roles} me={users[0]} onClose={noop} onSaved={noop} />);
     expect(add).toContain("Add user");
     expect(add).toContain("Username");
     expect(add).toContain("Create user");
     const own = html(<UserDrawer user={users[0]} roles={roles} me={users[0]} onClose={noop} onSaved={noop} />);
     expect(own).toContain("You cannot disable your own account.");
-    expect(own).not.toContain("Open Data access");
+    expect(own).toContain(ADMIN_SEES_ALL_LINE);
+    expect(own).not.toContain("Only these postcodes");
+    expect(own).toContain('for="adm-f-name"');
     expect(html(<UserDrawer user={null} roles={roles} me={users[0]} onClose={noop} onSaved={noop} initialTemp={{ value: "Temp-123", who: "Neo", emailed: false }} />)).toContain("Temp-123");
+  });
+});
+
+const access = { districts: ["BN1"], allow_export: true, allow_google: false };
+const trio = (h, name, on) => {
+  expect(h).toContain(`aria-label="${on ? "Switch off" : "Switch on"} ${name}"`);
+  expect(h).toContain(`title="${on ? "Switch off" : "Switch on"} ${name}"`);
+  expect(h).toContain(`aria-label="Edit ${name}"`);
+  expect(h).toContain(`title="Edit ${name}"`);
+  expect(h).toContain(`aria-label="Delete ${name}"`);
+};
+
+describe("switching off and on", () => {
+  it("words the labels and the confirm", () => {
+    expect(toggleLabel("Senior Management", true)).toBe("Switch off Senior Management");
+    expect(toggleLabel("Senior Management", false)).toBe("Switch on Senior Management");
+    expect(isActiveItem({})).toBe(true);
+    expect(isActiveItem({ is_active: false })).toBe(false);
+    expect(roleOffBody(7)).toBe("7 people will be switched off unless they have another active role.");
+    expect(roleOffBody(1)).toContain("1 person will be switched off");
+  });
+  it("gives every user row the same three buttons, in the right colours", () => {
+    const h = html(<UserManagementBody users={users} roles={roles} me={users[0]} onAdd={noop} onEdit={noop} onDelete={noop} onToggle={noop} />);
+    trio(h, "Sam Lee", true);
+    trio(h, "Zed Off", false);
+    expect(h).toContain("adm-icon--off");
+    expect(h).toContain("adm-icon--on");
+    expect(h).toContain("adm-icon--del");
+    expect(h).toMatch(/aria-label="Switch off Ada Boss"[^>]*disabled/); // not your own account
+    expect(h.match(/class="adm-row-off"/g)).toHaveLength(1); // only the inactive person is dimmed
+    expect(h).toContain(">inactive<");
+  });
+  it("opens the profile from the name", () => {
+    const h = html(<UserManagementBody users={users} roles={roles} me={users[0]} onAdd={noop} onEdit={noop} onDelete={noop} onToggle={noop} />);
+    expect(h).toMatch(/class="adm-namebtn" title="Open Sam Lee&#x27;s profile"[^>]*>Sam Lee</);
+  });
+  it("gives every role card the same three buttons, a count line and an Inactive chip", () => {
+    const list = [rAdmin, { ...rOp, users: 7 }, { ...rCustom, is_active: false }];
+    const h = html(<RoleManagementBody roles={list} sections={sections} users={users} selectedId="r2" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMove={noop} />);
+    trio(h, "Operator", true);
+    trio(h, "Analyst", false);
+    expect(h).toContain("2 granted · 7 users");
+    expect(h).toContain(">Inactive<");
+    expect(h).toContain("adm-roleitem-off");
+    expect(h.match(/class="adm-rolecard adm-roleitem-off"/g)).toHaveLength(1);
+    expect(h.match(/aria-label="Delete Operator"/g)).toHaveLength(1); // one set of buttons, not two
+  });
+  it("lets an inactive role still be edited", () => {
+    const h = html(<RoleManagementBody roles={[{ ...rCustom, is_active: false }]} sections={sections} users={users} selectedId="r3" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMove={noop} />);
+    expect(h).toContain("Role Analyst");
+    expect(h).not.toMatch(/aria-label="Edit Analyst"[^>]*disabled/);
+  });
+  it("calls the real endpoints with only is_active", () => {
+    expect(src("RoleManagement.jsx")).toContain("api.updateRole(role.id, { is_active: !on })");
+    expect(src("UserManagement.jsx")).toContain("api.updateUser(u.id, { is_active: !on })");
+  });
+});
+
+describe("User profile", () => {
+  const view = (u, extra = {}) => html(<UserDrawer user={u} roles={roles} me={users[0]} onClose={noop} onSaved={noop} initialAccess={access} initialAllowed={["BN1", "BN3"]} {...extra} />);
+  it("holds details, roles, active and the full data access editor", () => {
+    const h = view(users[1]);
+    expect(h).toContain('for="adm-f-name"');
+    expect(h).toContain('for="adm-f-email"');
+    expect(h).toContain("Roles");
+    expect(h).toContain("Active (");
+    expect(h).toContain("Data access");
+    expect(h).toContain("All postcodes");
+    expect(h).toContain("Only these postcodes");
+    expect(h).toContain('aria-label="Remove BN1"');
+    expect(h).toContain("Add a district, e.g. LS1, M1 or EC2A");
+    expect(h).toContain("Can export data");
+    expect(h).toContain("Can open live Google details");
+    expect(h).toContain("What will they see?");
+    expect(h).toContain(">Save<");
+  });
+  it("shows an admin as seeing everything, with the details still editable", () => {
+    const h = view(users[0]);
+    expect(h).toContain("Admins see everything");
+    expect(h).not.toContain("Only these postcodes");
+    expect(h).not.toContain("Can export data");
+    expect(h).toContain('for="adm-f-name"');
+    expect(h).toContain("Roles");
+  });
+  it("is saved in one go, with a status for each part", () => {
+    const s = src("UserManagement.jsx");
+    expect(s).toContain("api.updateUser(user.id, body)");
+    expect(s).toContain("api.setDataAccess(user.id, next)");
+    expect(s).toContain("Data access was not.");
+    expect(s).toContain("Details: ");
+    expect(s).toMatch(/role="status" aria-live="polite"/);
+  });
+});
+
+describe("shared AccessEditor", () => {
+  it("renders from a draft and is the editor behind both screens", () => {
+    function Probe() {
+      const draft = useAccessDraft(access, "u2");
+      return <AccessEditor draft={draft} allowed={[]} idBase="probe" />;
+    }
+    const h = html(<Probe />);
+    expect(h).toContain("Only these postcodes");
+    expect(h).toContain("Can export data");
+    expect(h).toContain('id="probe-export"');
+    expect(src("UserManagement.jsx")).toContain("<AccessEditor");
+    expect(readFileSync(new URL("../DataAccess.jsx", import.meta.url), "utf8")).toContain("<AccessEditor");
+    expect(readFileSync(new URL("../DataAccess.jsx", import.meta.url), "utf8")).not.toContain("setDistricts");
+  });
+});
+
+describe("access switched off", () => {
+  it("recognises the refusal in both body shapes", () => {
+    expect(isAccessOff({ code: "access_off", detail: ACCESS_OFF_LINE })).toBe(true);
+    expect(isAccessOff({ detail: { code: "access_off", message: "x" } })).toBe(true);
+    expect(isAccessOff({ code: "outside_access" })).toBe(false);
+    expect(isAccessOff(null)).toBe(false);
+  });
+  it("keeps the server sentence for the sign-in screen and ends the session", () => {
+    const store = {};
+    const events = [];
+    const mem = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+    vi.stubGlobal("sessionStorage", mem);
+    vi.stubGlobal("localStorage", mem);
+    vi.stubGlobal("window", { dispatchEvent: (e) => events.push(e.type), matchMedia: () => ({ matches: false }), navigator: {} });
+    try {
+      announceAccessOff({ code: "access_off", detail: "Your access has been switched off. Ask your administrator." });
+      expect(store.aivhub_signout_reason).toBe("access_off");
+      expect(store.aivhub_signout_message).toBe(ACCESS_OFF_LINE);
+      expect(events).toContain("outreach-auth-lost");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it("is wired into the request layer and the sign-in screen", () => {
+    const api = readFileSync(new URL("../../../api/apiClient.js", import.meta.url), "utf8");
+    expect(api).toContain("isAccessOff(peek)");
+    expect(api).toContain("announceAccessOff(peek)");
+    const login = readFileSync(new URL("../../../hub/LoginScreen.jsx", import.meta.url), "utf8");
+    expect(login).toContain('"access_off"');
+    expect(login).toContain("aivhub_signout_message");
+    expect(login).toContain("err.message"); // a refused sign-in shows the server's sentence
   });
 });
 

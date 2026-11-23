@@ -3,6 +3,7 @@ import { Spinner } from "../app/Loader";
 import { Eye, EyeOff, AlertTriangle, CheckCircle2, Mail, ArrowRight, ArrowLeft, Smartphone } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
+import { ACCESS_OFF_LINE } from "../api/authStore";
 import { BrandLockup } from "./BrandMark";
 import { useBrand } from "../brand/BrandContext";
 import { PoweredBy } from "../brand/PoweredBy";
@@ -93,11 +94,17 @@ export function LoginScreen({ onLogin }) {
   const [name, setName] = useState("");
   const [trap, setTrap] = useState("");
   const [resetToken, setResetToken] = useState("");
-  const [error, setError] = useState(null); // { text, action? }
+  const [error, setError] = useState(() => {
+    try {
+      if (sessionStorage.getItem("aivhub_signout_reason") === "access_off") return { text: sessionStorage.getItem("aivhub_signout_message") || ACCESS_OFF_LINE, code: "access_off" };
+    } catch (_) { /* no message */ }
+    return null;
+  }); // { text, action? }
   const [info, setInfo] = useState(() => {
     try {
       const why = sessionStorage.getItem("aivhub_signout_reason");
       sessionStorage.removeItem("aivhub_signout_reason");
+      if (why === "access_off") sessionStorage.removeItem("aivhub_signout_message"); // shown as the error above
       if (why === "idle") return "You were signed out because you were away for a while. Sign in to carry on.";
       if (why === "max") return "You were signed out after a long session, for your security. Sign in again to carry on.";
     } catch (_) { /* no message */ }

@@ -98,7 +98,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
       {!embedded && (
         <>
-          <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: appId }) }} />
+          <NavItem item={{ id: "support", className: "ui-nav-support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: appId }) }} />
         </>
       )}
       {wallet && !embedded && !hideCredits ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}

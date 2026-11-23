@@ -1,6 +1,7 @@
 import React from "react";
+import { Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 import { C, FONT_BODY } from "../../../tokens";
-import { roleTone } from "./adminLogic";
+import { roleTone, toggleLabel } from "./adminLogic";
 
 export const text = { fontFamily: FONT_BODY };
 export const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
@@ -18,6 +19,18 @@ export const ADMIN_CSS = `
 .adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; color: ${C.slate}; }
 .adm-icon:hover:not(:disabled) { background: ${C.paperSoft}; color: ${C.textInk}; }
 .adm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+.adm-icon--off, .adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; color: ${C.amber}; }
+.adm-icon--on, .adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; color: ${C.green}; }
+.adm-icon--edit, .adm-icon--edit:hover:not(:disabled) { background: ${C.paperSoft}; color: ${C.textInk}; }
+.adm-icon--del, .adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; color: ${C.red}; }
+.adm-row-off td:not([data-label="Actions"]) { opacity: 0.65; }
+.adm-roleitem-off .adm-roleitem-main { opacity: 0.65; }
+.adm-namebtn { background: none; border: 0; padding: 0; min-height: 44px; font: 600 13px 'Inter', sans-serif; color: ${C.textInk}; text-align: left; cursor: pointer; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: transparent; }
+.adm-namebtn:hover { text-decoration-color: currentColor; }
+.adm-namebtn:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; border-radius: 4px; }
+.adm-rolecard { border-bottom: 1px solid ${C.borderLight}; }
+.adm-rolecard .adm-roleitem { border-bottom: 0; }
+.adm-rolecard .adm-actions { padding: 0 10px 8px; }
 .adm-icon:focus-visible, .adm-tab:focus-visible, .adm-chip:focus-visible, .adm-roleitem:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }
 .adm-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid ${C.border}; }
 .adm-tab { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; background: none; border: 0; border-bottom: 2px solid transparent; font: 500 13px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; white-space: nowrap; }
@@ -75,5 +88,24 @@ export function PageHead({ title, sub, action }) {
       </div>
       {action}
     </div>
+  );
+}
+
+export function InactiveChip() {
+  return <span style={{ ...text, display: "inline-block", fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 6, background: C.paperSoft, color: C.slate, border: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>Inactive</span>;
+}
+
+// The three icon buttons on every role card and user row: switch off or on, edit, delete.
+// A reason string in toggleOff or deleteOff disables that button and becomes its title.
+export function ItemActions({ name, active, onToggle, onEdit, onDelete, toggleOff = "", deleteOff = "" }) {
+  const label = toggleLabel(name, active);
+  return (
+    <span className="adm-actions">
+      <button type="button" className={`adm-icon ${active ? "adm-icon--off" : "adm-icon--on"}`} aria-label={label} title={toggleOff || label} disabled={!!toggleOff} onClick={onToggle}>
+        {active ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+      </button>
+      <button type="button" className="adm-icon adm-icon--edit" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></button>
+      <button type="button" className="adm-icon adm-icon--del" aria-label={`Delete ${name}`} title={deleteOff || `Delete ${name}`} disabled={!!deleteOff} onClick={onDelete}><Trash2 size={16} aria-hidden="true" /></button>
+    </span>
   );
 }

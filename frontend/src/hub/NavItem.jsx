@@ -35,7 +35,7 @@ export function NavItem({ item, current, children: extra }) {
 
   const [tip, tipNode] = useRailTip();
   const button = (
-    <button type="button" className="ui-nav-item" {...tip(item.count ? `${item.label} · ${item.count}` : item.label, item.title || item.label)} onClick={item.onClick} aria-current={active ? "page" : undefined}
+    <button type="button" className={`ui-nav-item${item.className ? ` ${item.className}` : ""}`} {...tip(item.count ? `${item.label} · ${item.count}` : item.label, item.title || item.label)} onClick={item.onClick} aria-current={active ? "page" : undefined}
       aria-haspopup={subs.length ? "menu" : undefined} aria-expanded={subs.length ? open : undefined} data-locked={item.locked ? "true" : undefined}
       onKeyDown={(e) => {
         if (!subs.length) return;

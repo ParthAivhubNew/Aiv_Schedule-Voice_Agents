@@ -508,7 +508,9 @@ FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
                "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources", "exclude_items", "industry_types",
                # Phase 4: radius, register signals; Phase 7d: website signals
-               "near", "signals", "site")
+               "near", "signals", "site",
+               # which source gave the phone, email or website, and whether the number has a TPS/CTPS result
+               "tps_checked", "tps_status", "has_google_data", "data_from")
 COUNT_CAP = 10_000
 # A trade search returns companies whose MAIN activity is the trade. When fewer than this many do, the search also takes
 # companies that list the trade only as a side activity (a later SIC code), and says so ("broadened").
@@ -611,7 +613,12 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if 0 <= value <= MAX_AGE_YEARS:  # also rejects nan and inf, which would crash the date sum
             out[key] = value
-    for key in ("has_website", "has_email", "has_phone", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
+    if str((filters or {}).get("tps_status") or "").strip().lower() in TPS_STATUSES:  # On TPS / Not on TPS: a result is needed to say either
+        out["tps_status"] = str(filters["tps_status"]).strip().lower()
+    picked = [v for v in dict.fromkeys(x.lower() for x in _as_list((filters or {}).get("data_from"))) if v in DATA_FROM]
+    if picked:
+        out["data_from"] = picked
+    for key in ("has_website", "has_email", "has_phone", "tps_checked", "has_google_data", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
                 "exclude_charities", "fsb_exclusions"):
         if (filters or {}).get(key):
             out[key] = True
@@ -766,6 +773,10 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(_legal_form(f["legal_form"]))
     if f.get("record_sources"):
         conds.append(_record_source(f["record_sources"]))
+    if f.get("tps_checked") or f.get("tps_status"):
+        conds.append(_tps_screened(f.get("tps_status") or ""))
+    if f.get("has_google_data") or f.get("data_from"):
+        conds.append(_data_from(["google"] if f.get("has_google_data") else [], f.get("data_from") or []))
     if f.get("fsb_exclusions"):
         conds += _fsb_exclusions(unregistered_too=f.get("legal_form") == "sole")
     if f.get("exclude_items"):
@@ -887,6 +898,45 @@ def _record_source(picked: List[str]) -> Any:
     if "other" in picked:
         parts.append(and_(*[~src.like(f'%"{RECORD_SOURCES[k]}"%') for k in ("food", "care")]))
     return or_(*parts)
+
+
+TPS_STATUSES = ("clear", "listed")
+# Where a phone, email or website on a company came from, as the contact list (company_contact_points) records it. "website" (read from the company's
+# own site) is not here: the list files a value its own site confirmed under "web", so the two cannot be told apart.
+DATA_FROM = {"register": ("register",), "web": ("web", "research"), "google": ("google_places",), "enrichment": ("apollo",)}
+
+
+def _tps_screened(status: str = "") -> Any:
+    """The company has a phone that holds a TPS/CTPS result (any result but "unknown"); with a status, a phone with that result: listed is
+    on TPS or CTPS. Read through the contact list, whose `norm` is indexed (a UK number as digits without 0 or 44; the screening row's number
+    is "+44" plus those), so the lookup starts from the screened numbers, a small table, not from every company."""
+    from app.models.models import CompanyContactPoint as P, PhoneScreening as S
+
+    hit = or_(S.tps_status.in_(("clear", "listed")), S.ctps.is_(True))
+    if status == "listed":
+        hit = or_(S.tps_status == "listed", S.ctps.is_(True))
+    elif status == "clear":
+        hit = and_(S.tps_status == "clear", func.coalesce(S.ctps, False).is_(False))
+    return select(P.id).where(P.business_record_id == BusinessRecord.id, P.kind == "phone", S.number.like("+44%"),
+                              P.norm == func.substr(S.number, 4), hit).exists()
+
+
+def _data_from(also: List[str], picked: List[str]) -> Any:
+    """At least one phone, email or website on the company was given by one of these sources (ORed), and by Google too when `also` says so.
+    Google values are never in a shared column (see data_policy), so this reads the contact list, which keeps the source of each value."""
+    from app.models.models import CompanyContactPoint as P
+
+    def one(label: str) -> Any:
+        names = DATA_FROM[label]
+        src = P.source.in_(names)
+        if label == "register":
+            src = or_(src, and_(P.source == "record", P.confidence == "register"))
+        return select(P.id).where(P.business_record_id == BusinessRecord.id, P.kind.in_(("phone", "email", "website")), src).exists()
+
+    parts = [one(k) for k in dict.fromkeys(picked)]
+    conds = [or_(*parts)] if parts else []
+    conds += [one(k) for k in also]
+    return and_(*conds)
 
 
 _SIC_ITEM = re.compile(r"\d{2,5}")
@@ -1072,7 +1122,9 @@ async def matching(db: AsyncSession, f: Dict[str, Any], extra: Optional[list] = 
     return (wide, m, True) if m > n else (strict, n, False)
 
 
-NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals")
+# The source and TPS filters are as selective as a trade or a town, and the opening list (complete_ids) is made without any filter, so they must count here.
+NARROWING = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "name_contains", "near", "signals",
+             "tps_checked", "tps_status", "has_google_data", "data_from")
 # Main SIC divisions that are not trading: education, health, social work, membership and religious bodies, public bodies, dormant and non-trading.
 NON_COMMERCIAL_SIC = r"^(84|85|86|87|88|91|94|97|98|99|74990)"
 NON_COMMERCIAL_CATEGORY = r"(charit|community interest|industrial|unincorporated|royal charter)"

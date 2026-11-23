@@ -2899,7 +2899,7 @@ export function CallingWorkspace({
         <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
         {!embedded && (
           <>
-            <NavItem item={{ id: "support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: "voice", screen: page }) }} />
+            <NavItem item={{ id: "support", className: "ui-nav-support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: "voice", screen: page }) }} />
           </>
         )}
         {!embedded && !brand.hideCredits && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}

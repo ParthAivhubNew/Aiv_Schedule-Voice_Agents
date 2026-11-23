@@ -72,13 +72,34 @@ async def ensure_role_for(db: AsyncSession, operator: Operator) -> None:
     await db.flush()
 
 
-async def effective_access(db: AsyncSession, operator: Operator) -> Tuple[bool, Dict[str, str], List[Role]]:
-    """(is_admin, section levels, roles) for this user."""
+ACCESS_OFF_MESSAGE = "Your access has been switched off. Ask your administrator."
+
+
+def role_on(role: Role) -> bool:
+    return role.is_active is not False
+
+
+async def access_detail(db: AsyncSession, operator: Operator) -> Tuple[bool, Dict[str, str], List[Role], bool]:
+    """(is_admin, section levels, active roles, switched_off). Switched off = has roles and every one is inactive.
+    An inactive role counts for nothing: not its levels, not its admin flag."""
     roles = await roles_of(db, operator.id)
-    is_admin = any(r.is_admin for r in roles)
+    active = [r for r in roles if role_on(r)]
+    off = bool(roles) and not active
+    is_admin = any(r.is_admin for r in active)
     grants = await grants_of(db, operator.id)
-    perms = merge([r.levels or {} for r in roles] + [grants], is_admin=is_admin)
-    return is_admin, perms, roles
+    perms = merge([r.levels or {} for r in active] + [grants], is_admin=is_admin)
+    return is_admin, perms, active, off
+
+
+async def effective_access(db: AsyncSession, operator: Operator) -> Tuple[bool, Dict[str, str], List[Role]]:
+    """(is_admin, section levels, active roles) for this user."""
+    is_admin, perms, active, _ = await access_detail(db, operator)
+    return is_admin, perms, active
+
+
+async def is_switched_off(db: AsyncSession, operator: Operator) -> bool:
+    roles = await roles_of(db, operator.id)
+    return bool(roles) and not any(role_on(r) for r in roles)
 
 
 async def admins_in(db: AsyncSession, org_id: str, exclude: Optional[str] = None) -> List[Operator]:
@@ -87,7 +108,7 @@ async def admins_in(db: AsyncSession, org_id: str, exclude: Optional[str] = None
         select(Operator)
         .join(OperatorRole, OperatorRole.operator_id == Operator.id)
         .join(Role, Role.id == OperatorRole.role_id)
-        .where(Role.is_admin.is_(True), Role.org_id == org_id)
+        .where(Role.is_admin.is_(True), Role.is_active.is_(True), Role.org_id == org_id)
     )
     ops = (await db.execute(q)).scalars().unique().all()
     return [o for o in ops if o.is_active is not False and o.id != exclude]

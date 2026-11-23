@@ -151,3 +151,14 @@ export function roleIdsAfterMove(user, fromId, toId) {
   const ids = userRoles(user).map((r) => r.id).filter((id) => id !== fromId);
   return ids.includes(toId) ? ids : [...ids, toId];
 }
+
+// ── Switching off ────────────────────────────────────────────────────────
+// A role or a person is on unless the server says is_active is false.
+export const isActiveItem = (x) => !!x && x.is_active !== false;
+export const toggleLabel = (name, active) => `${active ? "Switch off" : "Switch on"} ${name}`;
+export function roleOffBody(n) {
+  const k = Number(n) || 0;
+  if (k === 0) return "Nobody has this role yet, so nobody loses access.";
+  return `${plural(k, "person", "people")} will be switched off unless they have another active role.`;
+}
+export const USER_OFF_BODY = "They are signed out and lose access until you switch them on again.";

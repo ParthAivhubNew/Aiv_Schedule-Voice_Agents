@@ -1,24 +1,14 @@
-import { useSyncExternalStore } from "react";
+import { openSupportWidget } from "./supportWidget";
 
-// Opens the Support panel from anywhere (the hub, a plugin's sidebar, the assistant).
-// `plugin` says which app the person is in; `screen` says which page they were on.
-export const OPEN_EVENT = "aivhub:open-support";
+// Support is the AIV Support widget only. When it is not ready the person is told, instead of nothing happening.
+export const SUPPORT_UNAVAILABLE_EVENT = "aivhub:support-unavailable";
+export const SUPPORT_UNAVAILABLE_LINE = "Support isn't available right now. Try again in a moment, or email support@aivhub.com.";
 
-export function openSupport(context = {}) {
+export function openSupport() {
+  if (openSupportWidget()) return;
   try {
-    window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: context }));
+    window.dispatchEvent(new CustomEvent(SUPPORT_UNAVAILABLE_EVENT));
   } catch (_) {
-    // a browser without custom events just does not open it
+    // a browser without custom events shows nothing
   }
 }
-
-let isOpen = false;
-const listeners = new Set();
-export function setSupportOpen(on) {
-  if (isOpen === on) return;
-  isOpen = on;
-  listeners.forEach((fn) => fn());
-}
-export const subscribeSupportOpen = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
-export const supportOpenNow = () => isOpen;
-export const useSupportOpen = () => useSyncExternalStore(subscribeSupportOpen, supportOpenNow, () => false);

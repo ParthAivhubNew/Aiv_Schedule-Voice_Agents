@@ -143,6 +143,26 @@ export function announceAuthLost() {
   } catch (_) {}
 }
 
+export const ACCESS_OFF_LINE = "Your access has been switched off. Ask your administrator.";
+
+// True when a refused request says this person's access was switched off (403, code access_off).
+export function isAccessOff(body) {
+  if (!body || typeof body !== "object") return false;
+  const d = body.detail;
+  return body.code === "access_off" || (!!d && typeof d === "object" && d.code === "access_off");
+}
+
+// Back to sign-in, with the server's sentence waiting for the sign-in screen to show.
+export function announceAccessOff(body) {
+  const d = body && body.detail;
+  const sentence = typeof d === "string" ? d : d && typeof d === "object" && d.message ? d.message : ACCESS_OFF_LINE;
+  try {
+    sessionStorage.setItem("aivhub_signout_reason", "access_off");
+    sessionStorage.setItem("aivhub_signout_message", sentence);
+  } catch (_) { /* the screen then shows the default sentence */ }
+  announceAuthLost();
+}
+
 export function announcePasswordChange() {
   try {
     window.dispatchEvent(new Event(PASSWORD_CHANGE_EVENT));

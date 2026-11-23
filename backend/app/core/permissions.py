@@ -113,6 +113,7 @@ _PATH_RULES: List[Tuple[re.Pattern, Optional[str]]] = [
     (re.compile(r"^/leads(/|$)"), "leadgen"),
     (re.compile(r"^/exports(/|$)"), "leadgen"),  # downloads follow the Leads section; the handlers add the per-user export switch
     (re.compile(r"^/org/data-access(/|$)"), "team"),  # per-user areas and switches: Users & roles (handlers also require an admin)
+    (re.compile(r"^/org/activity$"), "team"),  # admin activity history: Users & roles (the handler also requires an admin)
     (re.compile(r"^/inbound(/|$)"), "leadgen"),
     (re.compile(r"^/human-calls(/|$)"), "calling"),
     (re.compile(r"^/voice/call-permissions(/|$)"), "calling"),

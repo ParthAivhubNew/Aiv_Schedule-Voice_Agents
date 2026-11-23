@@ -1,6 +1,6 @@
 import JobDock from "./hub/JobDock";
 import HumanCallHost from "./hub/HumanCallHost";
-import { SupportHub } from "./hub/SupportHub";
+import { SupportWidgetBridge } from "./hub/SupportWidgetBridge";
 import { HelpPage } from "./help/HelpPage";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
@@ -1069,7 +1069,7 @@ function MainApp({ onSignedOut }) {
       <ConnectionsSettingsModal isOpen={showConnections} onClose={() => setShowConnections(false)} initialTab={connectionsTab} />
 
       <InstallPrompt />
-      <SupportHub />
+      <SupportWidgetBridge operator={operator} />
     </OrgSettingsProvider>
   );
 }

@@ -1,6 +1,9 @@
 """Check phone numbers against the TPS and CTPS registers. Numbers with a result under 28 days old are free and answered from our own record;
 the rest are screened and charged to the organisation: 2 credits per 5 numbers that got an answer (the rate card sets the price).
 
+Numbers come as a list, or as saved account ids (`account_ids`): then every number on those accounts is gathered (the company's own, each one research
+found, each person's and each other office's), tidied and de-duplicated. Nothing here runs unless a person asks for it.
+
 POST /tps-check/estimate   what a check would do and cost, before anything is spent
 POST /tps-check/run        screen what needs it, save the answers, charge for the answered numbers
 """
@@ -14,6 +17,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.brand import scrub
@@ -32,11 +36,32 @@ UK = "+44"
 
 class CheckBody(BaseModel):
     numbers: List[str] = Field(default_factory=list)
+    account_ids: List[str] = Field(default_factory=list)  # saved accounts whose every number is added to `numbers`
     wallet: str = "voice"  # "voice" or "leadgen": whose credits pay
 
 
 def _item(wallet: str) -> str:
     return "lead_tps_check" if wallet == "leadgen" else "tps_check"
+
+
+async def _with_account_numbers(db: AsyncSession, body: CheckBody) -> List[str]:
+    """`numbers` plus every number held on the named accounts the caller may see (the org's own rows only; others are skipped)."""
+    out = list(body.numbers)
+    ids = list(dict.fromkeys(body.account_ids))[:2000]
+    if not ids:
+        return out
+    from app.api.lead_accounts import card_numbers
+    from app.models.models import LeadAccount
+    from app.services import data_access as DA
+
+    rows = (await db.execute(select(LeadAccount).where(LeadAccount.id.in_(ids)))).scalars().all()
+    for row in rows:
+        try:
+            await DA.guard_account(db, row)
+        except HTTPException:
+            continue
+        out.extend(card_numbers({"phone": row.phone, "research": row.research if isinstance(row.research, dict) else {}}))
+    return out
 
 
 def credits_for(count: int, rate: float) -> float:
@@ -82,10 +107,11 @@ def summary(rows: List[Dict[str, Any]]) -> Dict[str, int]:
 
 @router.post("/estimate")
 async def estimate(body: CheckBody, db: AsyncSession = Depends(get_db)):
-    if len(body.numbers) > 5000:
+    if len(body.numbers) > 5000 or len(body.account_ids) > 2000:
         raise HTTPException(status_code=400, detail="That list is too long to check in one go.")
     item = _item(body.wallet)
-    rows, todo = await _plan(db, body.numbers)
+    numbers = await _with_account_numbers(db, body)
+    rows, todo = await _plan(db, numbers)
     rate = (await K.rates(db)).get(item, {}).get("credits", 2)
     prov = await CP.provider()
     return {"ready": prov.configured(), "rows": rows, "to_check": len(todo), "credits": credits_for(len(todo), rate),
@@ -98,7 +124,8 @@ async def run(body: CheckBody, db: AsyncSession = Depends(get_db)):
     """Screens the numbers that have no fresh result and returns one answer per number. A number that could not be checked comes back as
     "unknown" and is not charged."""
     item = _item(body.wallet)
-    rows, todo = await _plan(db, body.numbers)
+    numbers = await _with_account_numbers(db, body)
+    rows, todo = await _plan(db, numbers)
     if len(todo) > MAX_PER_RUN:
         raise HTTPException(status_code=400, detail=f"Check up to {MAX_PER_RUN} numbers at a time.")
     prov = await CP.provider()
@@ -134,5 +161,5 @@ async def run(body: CheckBody, db: AsyncSession = Depends(get_db)):
                     await db.commit()
                 except Exception:
                     await db.rollback()
-        rows, _ = await _plan(db, body.numbers)
+        rows, _ = await _plan(db, numbers)
     return {"rows": rows, "summary": summary(rows), "credits_charged": charged, "note": note}

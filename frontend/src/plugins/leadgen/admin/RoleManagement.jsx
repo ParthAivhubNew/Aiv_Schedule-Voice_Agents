@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, HelpCircle, Pencil, Plus, Search, Trash2, Users, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, HelpCircle, Plus, Search, Users, ShieldCheck } from "lucide-react";
 import { CardsSkeleton } from "../../../app/Loader";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { AdminCrown } from "../../../components/AdminCrown";
-import { askConfirm } from "../Dialogs";
+import { addPeopleChanges, confirmTwice, deleteRoleChanges, movePersonChanges, newRoleChanges, roleLevelChanges, roleMetaChanges, switchRoleChanges } from "./confirmChange";
 import {
-  LEVELS, LEVEL_NAMES, grantedCount, grantedLine, groupSections, groupState, levelOf, peopleIn, peopleLine, peopleNotIn,
+  LEVELS, LEVEL_NAMES, grantedCount, grantedLine, groupSections, groupState, isActiveItem, levelOf, peopleIn, peopleLine, peopleNotIn,
   plural, roleIdsAfterAdd, roleIdsAfterMove, roleListLine, sameLevels, searchGroups, setGroupLevel, setLevel, userRoles,
 } from "./adminLogic";
-import { ADMIN_CSS, Live, PageHead, card, field, muted, text } from "./adminUi";
+import { ADMIN_CSS, InactiveChip, ItemActions, Live, PageHead, card, field, muted, text } from "./adminUi";
 
 export const ROLES_TITLE = "Role management";
 export const ROLES_SUB = "Who each role is, what it can do, and who is in it.";
@@ -118,7 +118,7 @@ export function PeoplePanel({ role, roles, users, busy, onAdd, onMove, initialAd
           ))}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { setAdding(false); setPicked([]); }}>Cancel</button>
-            <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={!picked.length || busy} onClick={async () => { await onAdd(others.filter((u) => picked.includes(u.id))); setPicked([]); setAdding(false); }}>Add {picked.length ? plural(picked.length, "person", "people") : ""}</button>
+            <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={!picked.length || busy} onClick={async () => { const done = await onAdd(others.filter((u) => picked.includes(u.id))); if (done === false) return; setPicked([]); setAdding(false); }}>Add {picked.length ? plural(picked.length, "person", "people") : ""}</button>
           </div>
         </fieldset>
       ) : null}
@@ -171,27 +171,24 @@ function MetaForm({ role, onSave, onCancel, busy }) {
 }
 
 // The right-hand side for one role: its name and count, the Save Changes button, and the two sub-tabs.
-export function RolePanel({ role, roles, sections, users, busy, onSaveLevels, onSaveMeta, onDelete, onAddPeople, onMove, initialTab = "permissions" }) {
+export function RolePanel({ role, roles, sections, users, busy, onSaveLevels, onSaveMeta, onAddPeople, onMove, editing = false, onEditing = () => {}, initialTab = "permissions" }) {
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(role.levels || {});
-  const [editing, setEditing] = useState(false);
   const dirty = !role.is_admin && !sameLevels(draft, role.levels || {}, sections);
   const granted = role.is_admin ? sections.length : grantedCount(draft, sections);
   return (
     <section style={{ ...card, padding: 14, display: "grid", gap: 12 }} aria-label={`Role ${role.name}`}>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ ...text, margin: 0, fontSize: 16, color: C.textInk, overflowWrap: "anywhere" }}>{role.name}</h3>
+          <h3 style={{ ...text, margin: 0, fontSize: 16, color: C.textInk, overflowWrap: "anywhere" }}>{role.name}{isActiveItem(role) ? null : <> <InactiveChip /></>}</h3>
           <div style={muted}>{grantedLine(granted)}{role.description ? ` · ${role.description}` : ""}</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button type="button" className="adm-icon" aria-label={`Edit ${role.name}`} title="Edit name and description" onClick={() => setEditing(!editing)}><Pencil size={16} aria-hidden="true" /></button>
-          <button type="button" className="adm-icon" aria-label={`Delete ${role.name}`} title={role.is_system ? SYSTEM_ROLE_LINE : "Delete role"} disabled={role.is_system} onClick={() => onDelete(role)}><Trash2 size={16} aria-hidden="true" /></button>
           <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={!dirty || busy} onClick={() => onSaveLevels(role, draft)}>Save Changes</button>
         </div>
       </div>
       {role.is_system ? <div style={muted}>{SYSTEM_ROLE_LINE}</div> : null}
-      {editing ? <MetaForm role={role} busy={busy} onCancel={() => setEditing(false)} onSave={async (m) => { await onSaveMeta(role, m); setEditing(false); }} /> : null}
+      {editing ? <MetaForm role={role} busy={busy} onCancel={() => onEditing(false)} onSave={async (m) => { const done = await onSaveMeta(role, m); if (done !== false) onEditing(false); }} /> : null}
       <div className="adm-tabs" role="tablist" aria-label="Role sections">
         <button type="button" role="tab" id="adm-rt-people" aria-selected={tab === "people"} aria-controls="adm-rp-people" className="adm-tab" onClick={() => setTab("people")}><Users size={14} aria-hidden="true" /> People</button>
         <button type="button" role="tab" id="adm-rt-perm" aria-selected={tab === "permissions"} aria-controls="adm-rp-perm" className="adm-tab" onClick={() => setTab("permissions")}><ShieldCheck size={14} aria-hidden="true" /> Permissions</button>
@@ -206,10 +203,11 @@ export function RolePanel({ role, roles, sections, users, busy, onSaveLevels, on
 }
 
 // The page, apart from the loading and saving, so each state can be shown on its own.
-export function RoleManagementBody({ roles, sections = [], users = [], error = "", notice = "", busy = false, selectedId, onSelect, onNew, onRetry, onSaveLevels, onSaveMeta, onDelete, onAddPeople, onMove, creating = false, onCreate, onCancelCreate, initialTab }) {
+export function RoleManagementBody({ roles, sections = [], users = [], error = "", notice = "", busy = false, selectedId, onSelect, onNew, onRetry, onSaveLevels, onSaveMeta, onDelete, onToggle, onAddPeople, onMove, creating = false, onCreate, onCancelCreate, initialTab }) {
   const loading = roles === null || roles === undefined;
   const list = roles || [];
   const selected = list.find((r) => r.id === selectedId) || list[0];
+  const [editId, setEditId] = useState("");
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <style>{ADMIN_CSS}</style>
@@ -223,14 +221,27 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
           <div className="adm-split">
             <nav style={{ ...card, overflow: "hidden" }} aria-label="Roles">
               <div style={{ ...text, padding: "12px 14px", fontSize: 14, fontWeight: 700, color: C.textInk, borderBottom: `1px solid ${C.border}` }}>Roles</div>
-              {list.map((r) => (
-                <button key={r.id} type="button" className="adm-roleitem" aria-current={selected && selected.id === r.id ? "true" : undefined} onClick={() => onSelect(r.id)}>
-                  <span style={{ ...text, display: "block", fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{r.name}{r.is_admin ? <AdminCrown operator={{ is_admin: true }} /> : null}</span>
-                  <span style={{ ...muted, fontSize: 12 }}>{roleListLine(r, sections)}</span>
-                </button>
-              ))}
+              {list.map((r) => {
+                const on = isActiveItem(r);
+                return (
+                  <div key={r.id} className={`adm-rolecard${on ? "" : " adm-roleitem-off"}`}>
+                    <button type="button" className="adm-roleitem" aria-current={selected && selected.id === r.id ? "true" : undefined} onClick={() => onSelect(r.id)}>
+                      <span className="adm-roleitem-main" style={{ display: "block" }}>
+                        <span style={{ ...text, display: "block", fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{r.name}{r.is_admin ? <AdminCrown operator={{ is_admin: true }} /> : null}</span>
+                        <span style={{ ...muted, fontSize: 12 }}>{roleListLine(r, sections)}</span>
+                      </span>
+                      {on ? null : <span style={{ display: "inline-block", marginTop: 4 }}><InactiveChip /></span>}
+                    </button>
+                    <ItemActions name={r.name} active={on}
+                      onToggle={() => onToggle(r)}
+                      onEdit={() => { onSelect(r.id); setEditId(r.id); }}
+                      onDelete={() => onDelete(r)}
+                      deleteOff={r.is_system ? SYSTEM_ROLE_LINE : ""} />
+                  </div>
+                );
+              })}
             </nav>
-            {selected ? <RolePanel key={selected.id} role={selected} roles={list} sections={sections} users={users} busy={busy} onSaveLevels={onSaveLevels} onSaveMeta={onSaveMeta} onDelete={onDelete} onAddPeople={onAddPeople} onMove={onMove} initialTab={initialTab} /> : null}
+            {selected ? <RolePanel key={selected.id} role={selected} roles={list} sections={sections} users={users} busy={busy} onSaveLevels={onSaveLevels} onSaveMeta={onSaveMeta} editing={editId === selected.id} onEditing={(v) => setEditId(v ? selected.id : "")} onAddPeople={onAddPeople} onMove={onMove} initialTab={initialTab} /> : null}
           </div>
         )
       ) : null}
@@ -260,7 +271,7 @@ export function RoleManagement() {
 
   const run = async (fn, done) => {
     setBusy(true); setError(""); setNotice("");
-    try { await fn(); await load(); if (done) setNotice(done); } catch (e) { setError(e.message || "Something went wrong."); } finally { setBusy(false); }
+    try { await fn(); await load(); if (done) setNotice(done); return true; } catch (e) { setError(e.message || "Something went wrong."); return false; } finally { setBusy(false); }
   };
   const body = (role, patch) => ({ name: role.name, description: role.description || "", is_admin: !!role.is_admin, levels: role.levels || {}, ...patch });
 
@@ -269,18 +280,45 @@ export function RoleManagement() {
       roles={roles} sections={sections} users={users} error={error} notice={notice} busy={busy}
       selectedId={selectedId} onSelect={setSelectedId} onRetry={load}
       onNew={() => setCreating(true)} creating={creating} onCancelCreate={() => setCreating(false)}
-      onCreate={(m) => run(async () => {
+      onCreate={async (m) => {
+        const sure = await confirmTwice({ title: `Create the role ${m.name.trim()}?`, changes: newRoleChanges(m), subject: m.name.trim(), summary: `Create the role ${m.name.trim()}` });
+        if (!sure) return false;
+        return run(async () => {
         const res = await api.createRole({ ...m, levels: Object.fromEntries(sections.map((s) => [s.key, "none"])) });
         setCreating(false); if (res && res.id) setSelectedId(res.id);
-      }, `Role ${m.name.trim()} created.`)}
-      onSaveLevels={(role, levels) => run(() => api.updateRole(role.id, body(role, { levels })), `${role.name} saved.`)}
-      onSaveMeta={(role, m) => run(() => api.updateRole(role.id, body(role, m)), `${role.name} saved.`)}
+      }, `Role ${m.name.trim()} created.`);
+      }}
+      onSaveLevels={async (role, levels) => {
+        const sure = await confirmTwice({ title: `Save permissions for ${role.name}?`, changes: roleLevelChanges(role.levels, levels, sections), subject: role.name });
+        if (!sure) return false;
+        return run(() => api.updateRole(role.id, body(role, { levels })), `${role.name} saved.`);
+      }}
+      onSaveMeta={async (role, m) => {
+        const sure = await confirmTwice({ title: `Save changes to ${role.name}?`, changes: roleMetaChanges(role, m), subject: role.name });
+        if (!sure) return false;
+        return run(() => api.updateRole(role.id, body(role, m)), `${role.name} saved.`);
+      }}
+      onToggle={async (role) => {
+        const on = isActiveItem(role);
+        const ok = await confirmTwice({ title: `${on ? "Switch off" : "Switch on"} ${role.name}?`, changes: switchRoleChanges(role, !on), danger: on, summary: `${on ? "Switch off" : "Switch on"} the role ${role.name}` });
+        if (!ok) return;
+        await run(() => api.updateRole(role.id, { is_active: !on }), `${role.name} switched ${on ? "off" : "on"}.`);
+      }}
       onDelete={async (role) => {
-        const ok = await askConfirm({ title: `Delete the role ${role.name}?`, body: role.users ? `${plural(role.users, "person", "people")} still ${role.users === 1 ? "has" : "have"} it. Move them first.` : "This cannot be undone.", confirm: "Delete", danger: true });
+        const ok = await confirmTwice({ title: `Delete the role ${role.name}?`, changes: deleteRoleChanges(role), danger: true, confirmLabel: "Yes, delete", summary: `Delete the role ${role.name}` });
         if (ok) { setSelectedId(""); await run(() => api.deleteRole(role.id), `Role ${role.name} deleted.`); }
       }}
-      onAddPeople={(role, list) => run(async () => { for (const u of list) await api.updateUser(u.id, { role_ids: roleIdsAfterAdd(u, role.id) }); }, `${plural(list.length, "person", "people")} added to ${role.name}.`)}
-      onMove={(role, u, toId) => run(() => api.updateUser(u.id, { role_ids: roleIdsAfterMove(u, role.id, toId) }), `${u.name} moved.`)}
+      onAddPeople={async (role, list) => {
+        const sure = await confirmTwice({ title: `Add people to ${role.name}?`, changes: addPeopleChanges(role, list), subject: role.name });
+        if (!sure) return false;
+        return run(async () => { for (const u of list) await api.updateUser(u.id, { role_ids: roleIdsAfterAdd(u, role.id) }); }, `${plural(list.length, "person", "people")} added to ${role.name}.`);
+      }}
+      onMove={async (role, u, toId) => {
+        const to = (roles || []).find((x) => x.id === toId);
+        const sure = await confirmTwice({ title: `Move ${u.name}?`, changes: movePersonChanges(role, u, to ? to.name : "another role"), subject: u.name });
+        if (!sure) return false;
+        return run(() => api.updateUser(u.id, { role_ids: roleIdsAfterMove(u, role.id, toId) }), `${u.name} moved.`);
+      }}
     />
   );
 }

@@ -20,8 +20,8 @@ describe("estimate view", () => {
   });
   it("shows counts, cost and balance", () => {
     const out = html(<TpsEstimateView est={est()} total={10} />);
-    expect(out).toContain("need");
-    expect(out).toContain("Cost 2 credits. You have 10 credits.");
+    expect(out).toContain("3 numbers to check, 7 already checked, cost 2 credits.");
+    expect(out).toContain("You have 10 credits.");
     expect(out).toContain("free");
   });
   it("warns when credits are too low", () => {

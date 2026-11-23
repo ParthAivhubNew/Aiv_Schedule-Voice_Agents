@@ -213,7 +213,7 @@ async def load_context(operator_id: str, session_id: str) -> Optional[Dict[str, 
 
     from sqlalchemy.future import select
 
-    from app.core.accounts import effective_access, org_of
+    from app.core.accounts import access_detail, org_of
     from app.database import AsyncSessionLocal
     from app.models.models import AuthSession, Operator
 
@@ -237,8 +237,9 @@ async def load_context(operator_id: str, session_id: str) -> Optional[Dict[str, 
         )).scalars().all()
         if session_id not in live:
             return None
-        is_admin, perms, roles = await effective_access(db, op)
+        is_admin, perms, roles, access_off = await access_detail(db, op)
         ctx = {
+            "access_off": access_off,
             "operator_id": op.id,
             "username": op.username,
             "name": op.name,
@@ -362,6 +363,8 @@ class AuthMiddleware:
             return await _deny(scope, receive, send, 401, "Sign in required.")
 
         rel = api_path(path)
+        if ctx.get("access_off") and rel != "/auth/logout":  # every role of this person is switched off
+            return await _deny(scope, receive, send, 403, "Your access has been switched off. Ask your administrator.", code="access_off")
         if ctx["must_change_password"] and not re.search(r"^/auth/(me|me/notifications|change-password|logout)$", rel):
             return await _deny(scope, receive, send, 403, "Choose a new password first.", code="password_change_required")
 

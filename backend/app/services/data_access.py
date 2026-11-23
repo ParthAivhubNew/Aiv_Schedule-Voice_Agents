@@ -93,7 +93,7 @@ async def _read(db, org_id: str, operator_id: str) -> Scope:
     from app.models.models import OperatorDataScope, OperatorRole, Role
 
     is_admin = (await db.execute(select(OperatorRole.operator_id).join(Role, Role.id == OperatorRole.role_id)
-                                 .where(OperatorRole.operator_id == operator_id, Role.is_admin.is_(True)).limit(1))).first()
+                                 .where(OperatorRole.operator_id == operator_id, Role.is_admin.is_(True), Role.is_active.is_(True)).limit(1))).first()
     if is_admin:
         return ADMIN
     row = (await db.execute(select(OperatorDataScope.districts, OperatorDataScope.allow_export, OperatorDataScope.allow_google)

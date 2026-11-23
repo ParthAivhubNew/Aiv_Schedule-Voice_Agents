@@ -61,7 +61,7 @@ async def _roles_by_operator(db: AsyncSession, org_id: str) -> Dict[str, List[Ro
 
 
 def _user(op: Operator, roles: List[Role], scope: Optional[OperatorDataScope]) -> Dict[str, Any]:
-    return {"id": op.id, "name": op.name, "username": op.username, "email": op.email or "", "is_admin": any(r.is_admin for r in roles),
+    return {"id": op.id, "name": op.name, "username": op.username, "email": op.email or "", "is_admin": any(r.is_admin and r.is_active is not False for r in roles),
             "active": op.is_active is not False, "roles": [{"id": r.id, "name": r.name} for r in roles],
             "districts": list(scope.districts or []) if scope else [], "allow_export": scope.allow_export is not False if scope else True,
             "allow_google": scope.allow_google is not False if scope else True}
@@ -79,7 +79,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)) -> Dict
     roles = (await db.execute(select(Role).where(Role.org_id == org).order_by(Role.name))).scalars().all()
     by_op = await _roles_by_operator(db, org)
     scopes = {s.operator_id: s for s in (await db.execute(select(OperatorDataScope).where(OperatorDataScope.org_id == org))).scalars().all()}
-    return {"districts_allowed": await _lock(db, org), "any_district": True, "roles": [{"id": r.id, "name": r.name, "is_admin": bool(r.is_admin)} for r in roles],
+    return {"districts_allowed": await _lock(db, org), "any_district": True, "roles": [{"id": r.id, "name": r.name, "is_admin": bool(r.is_admin), "is_active": r.is_active is not False} for r in roles],
             "users": [_user(o, by_op.get(o.id, []), scopes.get(o.id)) for o in ops]}
 
 
@@ -89,7 +89,7 @@ async def change(operator_id: str, body: AccessPatch, request: Request, db: Asyn
     org = ctx["org_id"]
     op = await _operator(db, org, operator_id)
     roles = (await _roles_by_operator(db, org)).get(op.id, [])
-    target_is_admin = any(r.is_admin for r in roles)
+    target_is_admin = any(r.is_admin and r.is_active is not False for r in roles)
     if target_is_admin:
         raise HTTPException(status_code=400, detail="Admins always see everything, so their access can't be limited or their role changed here.")
     districts: Optional[List[str]] = None
@@ -130,8 +130,9 @@ async def change(operator_id: str, body: AccessPatch, request: Request, db: Asyn
     await db.flush()
     new = {"districts": list(row.districts or []), "allow_export": row.allow_export is not False, "allow_google": row.allow_google is not False,
            "roles": [new_role.name] if new_role is not None else old["roles"]}
-    await audit.record(db, "data_access.changed", target=op.id, detail={"user": op.username, "old": old, "new": new},
-                       actor_id=ctx.get("operator_id") or "", actor_name=str(ctx.get("name") or ctx.get("username") or ""))
+    if old != new:
+        await audit.record(db, "access.updated", target=op.id, detail={"user": op.username, "name": op.name, "old": old, "new": new},
+                           actor_id=ctx.get("operator_id") or "", actor_name=str(ctx.get("name") or ctx.get("username") or ""))
     await db.commit()
     TP.invalidate(org)  # every count and page remembered under the old limits is dropped
     from app.core import auth_middleware

@@ -65,8 +65,13 @@ describe("DataAccess", () => {
   it("says there is no personal limit when no area is chosen", () => {
     const h = html(<UserCard user={{ ...person, districts: [] }} roles={roles} allowed={["BN1"]} onSaved={noop} />);
     expect(h).toContain(NO_LIMIT_LINE);
-    expect(h).toContain(esc(AREAS_HELP));
-    expect(html(<UserCard user={person} roles={roles} allowed={["BN1"]} onSaved={noop} />)).not.toContain(NO_LIMIT_LINE);
+    expect(h).toContain("All postcodes");
+    expect(h).toContain("Only these postcodes");
+    expect(h).not.toContain("Add a district, e.g. LS1"); // the box to add districts appears only after "Only these postcodes"
+    const limited = html(<UserCard user={person} roles={roles} allowed={["BN1"]} onSaved={noop} />);
+    expect(limited).not.toContain(NO_LIMIT_LINE);
+    expect(limited).toContain(esc(AREAS_HELP));
+    expect(limited).toContain('aria-checked="true"');
   });
   it("words the preview and shows it and server errors", () => {
     expect(previewLine({ companies: 1240, districts: ["BN1", "BN3", "BN5"] })).toBe("1,240 companies in 3 areas");

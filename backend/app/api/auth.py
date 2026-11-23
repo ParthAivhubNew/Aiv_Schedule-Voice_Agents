@@ -22,11 +22,14 @@ from app.core.accounts import (
     effective_access,
     ensure_role_for,
     ensure_system_roles,
+    ACCESS_OFF_MESSAGE,
+    is_switched_off,
     org_of,
     roles_of,
 )
 from app.core.auth_middleware import current, forget
-from app.services import session_policy
+from app.services import audit, session_policy
+from app.services.data_access import AccessDenied
 from app.core.security import (
     REFRESH_TTL_S,
     create_access_token,
@@ -113,6 +116,15 @@ class RoleBody(BaseModel):
     description: str = ""
     is_admin: bool = False
     levels: Dict[str, str] = {}
+
+
+class RolePatch(BaseModel):
+    """Any subset of the role's fields; is_active switches the role on or off (admins only)."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_admin: Optional[bool] = None
+    levels: Optional[Dict[str, str]] = None
+    is_active: Optional[bool] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -268,6 +280,8 @@ async def assert_can_sign_in(db: AsyncSession, op: Operator) -> None:
         raise HTTPException(status_code=403, detail={"message": "Confirm your email first: open the link we sent you.", "code": "email_not_verified"})
     if org and org.status == "suspended":
         raise HTTPException(status_code=403, detail="This organisation is suspended. Contact support.")
+    if await is_switched_off(db, op):
+        raise AccessDenied(403, ACCESS_OFF_MESSAGE, "access_off")
 
 
 @router.post("/login")
@@ -295,6 +309,8 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember:
     if org and org.status == "suspended":
         raise HTTPException(status_code=403, detail="This organisation is suspended. Contact support.")
     await ensure_role_for(db, op)
+    if await is_switched_off(db, op):
+        raise AccessDenied(403, ACCESS_OFF_MESSAGE, "access_off")
     # The very first sign-in is marked so the home screen can greet them as new; the next sign-in clears it.
     stored = dict(op.profile or {})
     if op.last_login_at is None:
@@ -328,6 +344,8 @@ async def refresh(request: Request, response: Response, body: Optional[RefreshBo
     op = (await db.execute(select(Operator).where(Operator.id == ses.operator_id))).scalars().first()
     if not op or op.is_active is False:
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
+    if await is_switched_off(db, op):
+        raise AccessDenied(403, ACCESS_OFF_MESSAGE, "access_off")
     # A shortened maximum applies to sign-ins already open, not only new ones.
     max_s = (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600
     if not ses.remember and ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:
@@ -607,7 +625,7 @@ async def list_roles(request: Request, db: AsyncSession = Depends(get_db)):
         {
             "id": r.id, "name": r.name, "description": r.description or "", "is_admin": bool(r.is_admin),
             "is_system": bool(r.is_system), "levels": P.merge([r.levels or {}], bool(r.is_admin)),
-            "users": int(counts.get(r.id, 0)),
+            "users": int(counts.get(r.id, 0)), "is_active": r.is_active is not False,
         }
         for r in roles
     ]
@@ -630,32 +648,85 @@ async def create_role(body: RoleBody, request: Request, db: AsyncSession = Depen
     role = Role(id=f"role_{uuid.uuid4().hex[:12]}", org_id=ctx["org_id"], name=name, description=body.description,
                 is_admin=body.is_admin, is_system=False, levels=_clean_levels(body.levels))
     db.add(role)
+    await audit.record(db, "role.created", target=role.id,
+                       detail={"name": name, "description": body.description or "", "is_admin": bool(body.is_admin),
+                               "levels": {k: v for k, v in (role.levels or {}).items() if v != P.NONE}},
+                       actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     await db.commit()
     forget()
     return {"id": role.id}
 
 
+async def _active_roles(db: AsyncSession, operator_id: str, without: str = "") -> List[Role]:
+    return [r for r in await roles_of(db, operator_id) if r.is_active is not False and r.id != without]
+
+
+async def _check_role_switch_off(db: AsyncSession, ctx: Dict[str, Any], role: Role) -> None:
+    """Refuses a switch-off that would leave the organisation, or the person doing it, without a way in as admin."""
+    if role.is_system and role.is_admin:
+        raise HTTPException(status_code=400, detail="You can't switch this off: the Admin role must stay on.")
+    if role.is_admin:
+        left = [o for o in await admins_in(db, ctx["org_id"])
+                if any(r.is_admin for r in await _active_roles(db, o.id, without=role.id))]
+        if not left:
+            raise HTTPException(status_code=400, detail="You can't switch this off: it would leave no active admin.")
+        if not any(r.is_admin for r in await _active_roles(db, ctx["operator_id"], without=role.id)):
+            raise HTTPException(status_code=400, detail="You can't switch this off: it is your only way in as an admin.")
+    if not await _active_roles(db, ctx["operator_id"], without=role.id):
+        raise HTTPException(status_code=400, detail="You can't switch this off: it would lock you out.")
+
+
 @router.put("/roles/{role_id}")
-async def update_role(role_id: str, body: RoleBody, request: Request, db: AsyncSession = Depends(get_db)):
+async def update_role(role_id: str, body: RolePatch, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = await _require_admin_or_team(request)
     role = (await db.execute(select(Role).where(Role.id == role_id, Role.org_id == ctx["org_id"]))).scalars().first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found.")
-    if (role.is_admin or body.is_admin) and not ctx["is_admin"]:
+    # Only the provided fields change, so {"is_active": false} alone switches a role off.
+    is_admin_new = role.is_admin if body.is_admin is None else body.is_admin
+    if (role.is_admin or is_admin_new) and not ctx["is_admin"]:
         raise HTTPException(status_code=403, detail="Only admins can change admin roles.")
-    if role.is_admin and not body.is_admin:
+    if body.is_active is not None and not ctx["is_admin"]:
+        raise HTTPException(status_code=403, detail="Only admins can switch roles on or off.")
+    if role.is_admin and not is_admin_new:
         holders = [o.id for o in await admins_in(db, ctx["org_id"])]
-        still = [h for h in holders if any(r.is_admin and r.id != role.id for r in await roles_of(db, h))]
+        still = [h for h in holders if any(r.is_admin and r.id != role.id for r in await _active_roles(db, h))]
         if not still:
             raise HTTPException(status_code=400, detail="This is the last admin role in use. Keep it admin.")
-    if not role.is_system:
+    old_active = role.is_active is not False
+    old_description, old_is_admin = role.description, bool(role.is_admin)
+    if body.is_active is not None and old_active and not body.is_active:
+        await _check_role_switch_off(db, ctx, role)
+    changes: Dict[str, Any] = {}
+    old_name = role.name
+    if body.name is not None and not role.is_system:
         role.name = body.name.strip() or role.name
-    role.description = body.description
-    role.is_admin = body.is_admin
-    role.levels = _clean_levels(body.levels)
+    if body.description is not None:
+        role.description = body.description
+    role.is_admin = is_admin_new
+    if body.levels is not None:
+        old_levels = P.merge([role.levels or {}], False)
+        role.levels = _clean_levels(body.levels)
+        moved = {k: {"from": old_levels.get(k, P.NONE), "to": v} for k, v in role.levels.items() if old_levels.get(k, P.NONE) != v}
+        if moved:
+            changes["levels"] = moved
+    if role.name != old_name:
+        changes["name"] = {"from": old_name, "to": role.name}
+    if body.description is not None and (body.description or "") != (old_description or ""):
+        changes["description"] = {"from": old_description or "", "to": body.description or ""}
+    if bool(role.is_admin) != old_is_admin:
+        changes["is_admin"] = {"from": old_is_admin, "to": bool(role.is_admin)}
+    if changes:
+        await audit.record(db, "role.updated", target=role.id, detail={"name": role.name, "changes": changes},
+                           actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
+    if body.is_active is not None and old_active != bool(body.is_active):
+        role.is_active = bool(body.is_active)
+        await audit.record(db, "role.activated" if body.is_active else "role.deactivated", target=role.id,
+                           detail={"name": role.name, "old": old_active, "new": bool(body.is_active)},
+                           actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     await db.commit()
     forget()
-    return {"ok": True}
+    return {"ok": True, "is_active": role.is_active is not False}
 
 
 @router.delete("/roles/{role_id}")
@@ -669,6 +740,8 @@ async def delete_role(role_id: str, request: Request, db: AsyncSession = Depends
     in_use = (await db.execute(select(func.count()).select_from(OperatorRole).where(OperatorRole.role_id == role.id))).scalar()
     if in_use:
         raise HTTPException(status_code=400, detail=f"{in_use} user(s) still have this role. Move them first.")
+    await audit.record(db, "role.deleted", target=role.id, detail={"name": role.name},
+                       actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     await db.delete(role)
     await db.commit()
     return {"ok": True}
@@ -717,6 +790,9 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
     db.add(op)
     await db.flush()
     await assign_roles(db, op, role_ids)
+    await audit.record(db, "user.created", target=op.id,
+                       detail={"name": op.name, "username": op.username, "email": op.email or "", "roles": [r.name for r in roles]},
+                       actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     await db.commit()
     out = await _operator_json(db, op)
     out["temporary_password"] = temp  # shown once to the admin
@@ -732,12 +808,21 @@ async def update_user(user_id: str, body: UserPatch, request: Request, db: Async
     was_admin, _, _ = await effective_access(db, op)
     if was_admin and not ctx["is_admin"]:
         raise HTTPException(status_code=403, detail="Only admins can change an admin.")
+    changes: Dict[str, Any] = {}
     if body.name is not None and body.name.strip():
+        if op.name != body.name.strip():
+            changes["name"] = {"from": op.name, "to": body.name.strip()}
         op.name = body.name.strip()
     if body.email is not None:
+        if (op.email or "") != (body.email.strip() or ""):
+            changes["email"] = {"from": op.email or "", "to": body.email.strip()}
         op.email = body.email.strip() or None
     if body.role_ids is not None:
         roles = await _check_role_ids(db, body.role_ids, ctx["org_id"])
+        before = [r.name for r in await roles_of(db, op.id)]
+        after = [r.name for r in roles]
+        if set(before) != set(after):
+            changes["roles"] = {"added": [n for n in after if n not in before], "removed": [n for n in before if n not in after]}
         becomes_admin = any(r.is_admin for r in roles)
         if becomes_admin and not ctx["is_admin"]:
             raise HTTPException(status_code=403, detail="Only admins can make someone admin.")
@@ -756,7 +841,14 @@ async def update_user(user_id: str, body: UserPatch, request: Request, db: Async
                 ses.revoked_at = datetime.utcnow()
         if op.is_active is not False and not body.is_active:
             disabled_notice = True
+        if (op.is_active is not False) != bool(body.is_active):
+            await audit.record(db, "user.activated" if body.is_active else "user.deactivated", target=op.id,
+                               detail={"username": op.username, "old": op.is_active is not False, "new": bool(body.is_active)},
+                               actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
         op.is_active = body.is_active
+    if changes:
+        await audit.record(db, "user.updated", target=op.id, detail={"name": op.name, "username": op.username, "changes": changes},
+                           actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     if body.grants is not None:
         await db.execute(delete(OperatorGrant).where(OperatorGrant.operator_id == op.id))
         for section, level in body.grants.items():
@@ -801,6 +893,8 @@ async def delete_user(user_id: str, request: Request, db: AsyncSession = Depends
             raise HTTPException(status_code=403, detail="Only admins can delete an admin.")
         await _keep_one_admin(db, ctx["org_id"], op.id)
     name, username = op.name, op.username
+    await audit.record(db, "user.deleted", target=op.id, detail={"name": name, "username": username, "roles": [r.name for r in await roles_of(db, op.id)]},
+                       actor_id=ctx["operator_id"], actor_name=ctx.get("name", ""))
     for model in (AuthSession, OperatorGrant, OperatorRole):
         await db.execute(delete(model).where(model.operator_id == op.id))
     await db.delete(op)

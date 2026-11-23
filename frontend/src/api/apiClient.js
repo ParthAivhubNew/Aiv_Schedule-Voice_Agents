@@ -1,6 +1,8 @@
 import {
   announceAuthLost,
   announcePasswordChange,
+  announceAccessOff,
+  isAccessOff,
   getAccessToken,
   withToken,
   refreshSession,
@@ -80,6 +82,7 @@ export async function apiRequest(endpoint, options = {}) {
       if (response.status === 403 && !isAuthCall) {
         const peek = await response.clone().json().catch(() => ({}));
         if (peek && peek.code === "password_change_required") announcePasswordChange();
+        else if (isAccessOff(peek)) announceAccessOff(peek);
       }
 
       if (!response.ok) {

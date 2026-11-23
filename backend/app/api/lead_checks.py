@@ -65,7 +65,7 @@ async def check_one(account_id: str, db: AsyncSession = Depends(get_db)) -> Dict
     asked of the phone network). Used by Improve this company, so one button leaves the company fully checked."""
     import asyncio
 
-    from app.api.lead_accounts import _out, _registry_for
+    from app.api.lead_accounts import _out, _registry_for, _screened
 
     row = (await db.execute(select(LeadAccount).where(LeadAccount.id == account_id))).scalars().first()
     if not row:
@@ -83,7 +83,7 @@ async def check_one(account_id: str, db: AsyncSession = Depends(get_db)) -> Dict
         except asyncio.TimeoutError:
             pass  # still running: the list picks up the result when it lands
     await db.refresh(row)
-    return _out(row, await _registry_for(db, account_id))
+    return await _screened(db, _out(row, await _registry_for(db, account_id)))
 
 
 class AcceptIn(BaseModel):

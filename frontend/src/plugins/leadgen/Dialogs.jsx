@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 
@@ -19,9 +19,9 @@ export function askList({ title, confirm = "Add" }) {
   return new Promise((resolve) => host({ kind: "list", title, confirm, resolve }));
 }
 
-export function askConfirm({ title, body = "", confirm = "Yes", danger = false }) {
+export function askConfirm({ title, body = "", confirm = "Yes", danger = false, cancel = "Cancel" }) {
   if (!host) return Promise.resolve(window.confirm(`${title}${body ? `\n\n${body}` : ""}`));
-  return new Promise((resolve) => host({ kind: "confirm", title, body, confirm, danger, resolve }));
+  return new Promise((resolve) => host({ kind: "confirm", title, body, confirm, danger, cancel, resolve }));
 }
 
 export function DialogHost() {
@@ -44,6 +44,12 @@ function DialogBox({ d, done }) {
     if (d.kind !== "list") return;
     api.listLeadLists().then((r) => setLists((r && r.lists) || [])).catch(() => setLists([]));
   }, [d.kind]);
+  const okRef = useRef(null);
+  useEffect(() => {
+    const prev = typeof document !== "undefined" ? document.activeElement : null;
+    if (!isText && okRef.current) okRef.current.focus();
+    return () => { if (prev && prev.focus && document.contains(prev)) prev.focus(); };
+  }, [isText]);
   const typed = value.trim();
   const same = (lists || []).find((l) => l.name.trim().toLowerCase() === typed.toLowerCase());
   const shown = (lists || []).filter((l) => !typed || l.name.toLowerCase().includes(typed.toLowerCase()));
@@ -66,7 +72,7 @@ function DialogBox({ d, done }) {
       <div role="dialog" aria-modal="true" aria-label={d.title} onClick={(e) => e.stopPropagation()} className="ui-card"
         style={{ width: "min(100%, 420px)", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{d.title}</div>
-        {!isText && d.body ? <div style={{ ...text, fontSize: 13.5, color: C.slate, lineHeight: 1.5 }}>{d.body}</div> : null}
+        {!isText && d.body ? <div style={{ ...text, fontSize: 13.5, color: C.slate, lineHeight: 1.5, whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{d.body}</div> : null}
         {d.kind === "list" ? (
           <>
             <label style={{ display: "flex", flexDirection: "column", gap: 4, ...text, fontSize: 12.5, color: C.slate }}>
@@ -94,8 +100,8 @@ function DialogBox({ d, done }) {
           </label>
         ) : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button type="button" className="ui-btn ui-btn--ghost" title="Close without doing it" onClick={cancel}>Cancel</button>
-          <button type="button" className={`ui-btn ${d.danger ? "ui-btn--danger" : "ui-btn--primary"}`} disabled={isText && !value.trim()} title={isText ? "Save what you typed" : "Go ahead"} onClick={accept}>{d.kind === "list" && typed ? (same ? `${d.confirm} to ${same.name.length > 22 ? same.name.slice(0, 21) + "…" : same.name}` : "Make list and add") : d.confirm}</button>
+          <button type="button" className="ui-btn ui-btn--ghost" title="Close without doing it" onClick={cancel}>{d.cancel || "Cancel"}</button>
+          <button type="button" ref={okRef} className={`ui-btn ${d.danger ? "ui-btn--danger" : "ui-btn--primary"}`} disabled={isText && !value.trim()} title={isText ? "Save what you typed" : "Go ahead"} onClick={accept}>{d.kind === "list" && typed ? (same ? `${d.confirm} to ${same.name.length > 22 ? same.name.slice(0, 21) + "…" : same.name}` : "Make list and add") : d.confirm}</button>
         </div>
       </div>
     </div>

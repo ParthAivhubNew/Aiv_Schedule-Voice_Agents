@@ -86,6 +86,7 @@ class Role(Base):
     is_admin = Column(Boolean, default=False)
     is_system = Column(Boolean, default=False)
     levels = Column(JSON, default=dict)  # section -> none | view | full
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")  # off: the role grants nothing
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

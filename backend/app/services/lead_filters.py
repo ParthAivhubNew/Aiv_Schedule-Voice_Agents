@@ -80,7 +80,8 @@ _SEARCH_HINT = re.compile(
 
 
 # Filters the model's schema has no field for: the person's own picks are kept when it returns the full set without them.
-_CARRY = ("industry_types", "near", "signals", "saved", "record_sources", "fsb_exclusions", "site")
+_CARRY = ("industry_types", "near", "signals", "saved", "record_sources", "fsb_exclusions", "site",
+          "tps_checked", "tps_status", "has_google_data", "data_from")
 
 
 async def interpret(db: AsyncSession, message: str, current: Optional[Dict[str, Any]] = None, *, scope: str = "leadgen", force: bool = False) -> Dict[str, Any]:
@@ -230,6 +231,15 @@ def describe(filters: Dict[str, Any]) -> List[str]:
     for key, label in (("has_website", "Has website"), ("has_email", "Has email"), ("has_phone", "Has phone")):
         if filters.get(key):
             chips.append(label)
+    if filters.get("tps_status"):
+        chips.append("Phone is on TPS or CTPS" if filters["tps_status"] == "listed" else "Phone is not on TPS or CTPS")
+    elif filters.get("tps_checked"):
+        chips.append("Phone checked against TPS/CTPS")
+    if filters.get("has_google_data"):
+        chips.append("Includes Google data")
+    if filters.get("data_from"):
+        names = {"register": "Official register", "web": "Web search", "google": "Google", "enrichment": "Enrichment data"}
+        chips.append("Data from: " + ", ".join(names.get(k, k) for k in filters["data_from"]))
     if filters.get("include_secondary_activity"):
         chips.append("Including side activities")
     for key, label in (("not_keyword", "Not about"), ("not_towns", "Not in"), ("not_company_category", "Not type")):

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Plus, Search, X } from "lucide-react";
 import { CardsSkeleton } from "../../../app/Loader";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { Avatar } from "../../../hub/Avatar";
 import { AdminCrown } from "../../../components/AdminCrown";
-import { askConfirm } from "../Dialogs";
-import { PAGE_SIZES, filterUsers, formatDate, formatLastLogin, isAdminUser, nextSort, paginate, plural, roleChips, showingLine, sortUsers, userRoles, userStatus } from "./adminLogic";
-import { ADMIN_CSS, Live, PageHead, RoleChip, StatusChip, card, field, muted, text } from "./adminUi";
+import { confirmTwice, deleteUserChanges, isAskingTwice, newUserChanges, switchUserChanges, userChanges, accessChanges } from "./confirmChange";
+import { AccessEditor, ADMIN_SEES_ALL_HELP, ADMIN_SEES_ALL_LINE, NEED_AREAS_LINE, useAccessDraft } from "./AccessEditor";
+import { PAGE_SIZES, filterUsers, formatDate, formatLastLogin, isActiveItem, isAdminUser, nextSort, paginate, plural, roleChips, showingLine, sortUsers, userRoles, userStatus } from "./adminLogic";
+import { ADMIN_CSS, ItemActions, Live, PageHead, RoleChip, StatusChip, card, field, muted, text } from "./adminUi";
 
 export const USERS_TITLE = "User management";
 export const USERS_SUB = "Manage users, roles and areas across your organisation.";
@@ -33,7 +34,7 @@ function SortHead({ col, sort, onSort }) {
 }
 
 // The list, apart from the loading, so each state can be shown on its own.
-export function UserManagementBody({ users, roles = [], me, error = "", notice = "", onRetry, onAdd, onEdit, onDelete, initial = {} }) {
+export function UserManagementBody({ users, roles = [], me, error = "", notice = "", onRetry, onAdd, onEdit, onDelete, onToggle, initial = {} }) {
   const [query, setQuery] = useState(initial.query || "");
   const [roleId, setRoleId] = useState(initial.roleId || "all");
   const [sort, setSort] = useState(initial.sort || { key: "created", dir: "desc" });
@@ -91,12 +92,12 @@ export function UserManagementBody({ users, roles = [], me, error = "", notice =
                   const isMe = !!me && u.id === me.id;
                   const rs = userRoles(u);
                   return (
-                    <tr key={u.id}>
+                    <tr key={u.id} className={isActiveItem(u) ? undefined : "adm-row-off"}>
                       <td>
                         <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
                           <Avatar user={u} size={32} />
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{u.name}<AdminCrown operator={{ is_admin: isAdminUser(u) }} />{isMe ? <span style={{ ...muted, fontSize: 11.5, marginLeft: 6 }}>(you)</span> : null}</div>
+                            <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}><button type="button" className="adm-namebtn" title={`Open ${u.name}'s profile`} onClick={() => onEdit(u)}>{u.name}</button><AdminCrown operator={{ is_admin: isAdminUser(u) }} />{isMe ? <span style={{ ...muted, fontSize: 11.5, marginLeft: 6 }}>(you)</span> : null}</div>
                             <div style={{ ...muted, fontSize: 12, overflowWrap: "anywhere" }}>{u.email || `@${u.username}`}</div>
                           </div>
                         </div>
@@ -106,10 +107,9 @@ export function UserManagementBody({ users, roles = [], me, error = "", notice =
                       <td data-label="Last login">{formatLastLogin(u.last_login_at)}</td>
                       <td data-label="Status"><StatusChip status={userStatus(u)} /></td>
                       <td data-label="Actions">
-                        <span className="adm-actions">
-                          <button type="button" className="adm-icon" aria-label={`Edit ${u.name}`} title="Edit" onClick={() => onEdit(u)}><Pencil size={16} aria-hidden="true" /></button>
-                          <button type="button" className="adm-icon" aria-label={`Delete ${u.name}`} title={isMe ? "You cannot delete your own account" : "Delete"} disabled={isMe} onClick={() => onDelete(u)}><Trash2 size={16} aria-hidden="true" /></button>
-                        </span>
+                        <ItemActions name={u.name} active={isActiveItem(u)}
+                          onToggle={() => onToggle(u)} onEdit={() => onEdit(u)} onDelete={() => onDelete(u)}
+                          toggleOff={isMe ? "You cannot switch off your own account" : ""} deleteOff={isMe ? "You cannot delete your own account" : ""} />
                       </td>
                     </tr>
                   );
@@ -151,51 +151,113 @@ function RoleChecks({ roles, ids, onToggle, idBase }) {
   );
 }
 
-// Add a user, or edit one: roles, active or not, and a way to the areas they may see.
-export function UserDrawer({ user, roles, me, onClose, onSaved, onOpenDataAccess, initialTemp = null }) {
+export const PROFILE_ACCESS_ERROR = "Couldn't load this person's data access.";
+
+// Add a user, or open a profile: details, roles, active or not, and data access, saved together.
+export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = null, initialAccess = null, initialAllowed = [] }) {
   const adding = !user;
   const [form, setForm] = useState({ name: user ? user.name : "", username: "", email: user ? user.email || "" : "" });
   const [ids, setIds] = useState(user ? userRoles(user).map((r) => r.id) : []);
   const [active, setActive] = useState(user ? user.is_active !== false : true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [parts, setParts] = useState({ user: "", access: "" });
   const [temp, setTemp] = useState(initialTemp);
   const [copied, setCopied] = useState("");
+  const [access, setAccess] = useState(initialAccess); // the saved copy: { districts, allow_export, allow_google }
+  const [allowed, setAllowed] = useState(initialAllowed);
+  const [accessState, setAccessState] = useState(initialAccess ? "ready" : "loading"); // loading | ready | failed
   const first = useRef(null);
   const isMe = !!user && !!me && user.id === me.id;
-  const toggle = (id) => setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+  const seesAll = !adding && isAdminUser(user);
+  const showAccess = !adding && !seesAll;
+  const clear = () => { setStatus(""); setError(""); setParts({ user: "", access: "" }); };
+  const draft = useAccessDraft(access, user ? user.id : "", { onTouch: clear });
+  const detailChanges = adding ? [] : userChanges(user, { name: form.name, email: form.email, roleIds: ids, active: isMe ? undefined : active }, roles);
+  const accessLines = showAccess && accessState === "ready" ? accessChanges(access, draft) : [];
+  const profileChanges = [...detailChanges, ...accessLines];
+  const profileDanger = !isMe && !active && user && user.is_active !== false;
+  const toggle = (id) => { clear(); setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])); };
+
+  const loadAccess = useCallback(async () => {
+    setAccessState("loading");
+    try {
+      const d = await api.getDataAccess();
+      const mine = (d.users || []).find((x) => x.id === user.id);
+      if (!mine) throw new Error(PROFILE_ACCESS_ERROR);
+      setAccess({ districts: mine.districts || [], allow_export: mine.allow_export !== false, allow_google: mine.allow_google !== false });
+      setAllowed(d.districts_allowed || []);
+      setParts((p) => ({ ...p, access: "" }));
+      setAccessState("ready");
+    } catch (e) {
+      setParts((p) => ({ ...p, access: e.message || PROFILE_ACCESS_ERROR }));
+      setAccessState("failed");
+    }
+  }, [user]);
+  useEffect(() => { if (showAccess && !initialAccess) loadAccess(); }, [showAccess, initialAccess, loadAccess]);
 
   useEffect(() => {
     const prev = typeof document !== "undefined" ? document.activeElement : null;
     if (first.current) first.current.focus();
-    const key = (e) => { if (e.key === "Escape") onClose(); };
+    const key = (e) => { if (e.key === "Escape" && !isAskingTwice()) onClose(); };
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("keydown", key); if (prev && prev.focus) prev.focus(); };
   }, [onClose]);
 
   const submit = async (e) => {
     e.preventDefault();
-    setBusy(true); setError("");
-    try {
-      if (adding) {
-        const operator = roles.find((r) => r.name === "Operator");
-        const role_ids = ids.length ? ids : [operator && operator.id].filter(Boolean);
+    clear();
+    if (adding) {
+      const operator = roles.find((r) => r.name === "Operator");
+      const role_ids = ids.length ? ids : [operator && operator.id].filter(Boolean);
+      const sure = await confirmTwice({ title: `Add the user ${form.name.trim()}?`, changes: newUserChanges(form, role_ids, roles), subject: form.name.trim() });
+      if (!sure) return;
+      setBusy(true);
+      try {
         const res = await api.createUser({ name: form.name.trim(), username: form.username.trim().toLowerCase(), email: form.email.trim() || null, role_ids });
         setTemp({ value: res.temporary_password, who: res.name, emailed: !!res.emailed });
         onSaved(`${res.name} added.`);
-      } else {
-        if (!ids.length) { setError("Everyone needs at least one role."); setBusy(false); return; }
-        const body = { name: form.name.trim() || user.name, email: form.email.trim(), role_ids: ids };
+      } catch (err) {
+        setError(err.message || "Couldn't save. Try again.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (!ids.length) { setError("Everyone needs at least one role."); return; }
+    if (showAccess && accessState === "ready" && draft.needsAreas) { setError(NEED_AREAS_LINE); return; }
+    const name = form.name.trim() || user.name;
+    const sure = await confirmTwice({ title: `Save changes to ${name}?`, changes: profileChanges, subject: name, danger: profileDanger });
+    if (!sure) return;
+    setBusy(true);
+    const errs = { user: "", access: "" };
+    if (detailChanges.length) {
+      try {
+        const body = { name, email: form.email.trim(), role_ids: ids };
         if (!isMe) body.is_active = active;
         await api.updateUser(user.id, body);
-        onSaved(`${form.name.trim() || user.name} saved.`);
-        onClose();
+      } catch (err) {
+        errs.user = err.message || "Couldn't save the details.";
       }
-    } catch (err) {
-      setError(err.message || "Couldn't save. Try again.");
-    } finally {
-      setBusy(false);
     }
+    let accessSaved = false;
+    if (showAccess && accessState === "ready" && accessLines.length) {
+      try {
+        const next = draft.body();
+        await api.setDataAccess(user.id, next);
+        setAccess({ districts: next.districts, allow_export: next.allow_export, allow_google: next.allow_google });
+        accessSaved = true;
+      } catch (err) {
+        errs.access = err.message || "Couldn't save data access.";
+      }
+    }
+    setBusy(false);
+    if (!errs.user && !errs.access) { onSaved(`${name} saved.`); onClose(); return; }
+    setParts(errs);
+    if (errs.user && errs.access) setStatus("Nothing was saved.");
+    else if (errs.user) setStatus(accessSaved ? "Data access was saved. The details were not." : "The details were not saved.");
+    else { setStatus("The details were saved. Data access was not."); onSaved(`${name}: details saved.`); }
   };
 
   const copy = () => {
@@ -206,7 +268,7 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, onOpenDataAccess
     <div className="adm-drawer-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="adm-drawer" role="dialog" aria-modal="true" aria-labelledby="adm-drawer-title">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 id="adm-drawer-title" style={{ ...text, margin: 0, fontSize: 17, color: C.textInk }}>{adding ? "Add user" : `Edit ${user.name}`}</h3>
+          <h3 id="adm-drawer-title" style={{ ...text, margin: 0, fontSize: 17, color: C.textInk, overflowWrap: "anywhere" }}>{adding ? "Add user" : `${user.name}'s profile`}</h3>
           <button type="button" className="adm-icon" aria-label="Close" onClick={onClose}><X size={18} aria-hidden="true" /></button>
         </div>
         {temp ? (
@@ -224,7 +286,7 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, onOpenDataAccess
           <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gap: 4 }}>
               <label htmlFor="adm-f-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Full name</label>
-              <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => { clear(); setForm({ ...form, name: e.target.value }); }} />
             </div>
             {adding ? (
               <div style={{ display: "grid", gap: 4 }}>
@@ -234,26 +296,44 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, onOpenDataAccess
             ) : null}
             <div style={{ display: "grid", gap: 4 }}>
               <label htmlFor="adm-f-email" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Email{adding ? " (optional)" : ""}</label>
-              <input id="adm-f-email" type="email" style={field} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <input id="adm-f-email" type="email" style={field} value={form.email} onChange={(e) => { clear(); setForm({ ...form, email: e.target.value }); }} />
             </div>
             <RoleChecks roles={roles} ids={ids} onToggle={toggle} idBase="adm-role" />
             {!adding ? (
               <label htmlFor="adm-f-active" style={{ ...text, display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 14, cursor: isMe ? "not-allowed" : "pointer" }}>
-                <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => setActive(e.target.checked)} style={{ width: 20, height: 20 }} />
+                <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => { clear(); setActive(e.target.checked); }} style={{ width: 20, height: 20 }} />
                 <span>Active ({active ? "On" : "Off"}){isMe ? <span style={muted}> You cannot disable your own account.</span> : null}</span>
               </label>
             ) : null}
-            {!adding && !isAdminUser(user) ? (
-              <div style={{ ...card, padding: 12, display: "grid", gap: 6 }}>
-                <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Areas this person can see</div>
-                <div style={muted}>Postcode areas, export and live Google details are set in Data access.</div>
-                <div><button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={() => { onClose(); onOpenDataAccess && onOpenDataAccess(); }}>Open Data access</button></div>
-              </div>
+            {seesAll ? (
+              <section style={{ ...card, padding: 12, display: "grid", gap: 4 }} aria-label="Data access">
+                <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>{ADMIN_SEES_ALL_LINE}</div>
+                <div style={muted}>{ADMIN_SEES_ALL_HELP}</div>
+              </section>
             ) : null}
+            {showAccess ? (
+              <section style={{ ...card, padding: 12, display: "grid", gap: 10 }} aria-label="Data access">
+                <h4 style={{ ...text, margin: 0, fontSize: 14, color: C.textInk }}>Data access</h4>
+                {accessState === "ready" ? <AccessEditor draft={draft} allowed={allowed} idBase={`adm-da-${user.id}`} disabled={busy} /> : null}
+                {accessState === "loading" ? <div role="status" aria-live="polite" style={muted}>Loading data access…</div> : null}
+                {accessState === "failed" ? (
+                  <div style={{ display: "grid", gap: 8, justifyItems: "start" }}>
+                    <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div>
+                    <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={loadAccess}>Try again</button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            <div role="status" aria-live="polite" style={{ display: "grid", gap: 4 }}>
+              {status ? <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{status}</div> : null}
+              {busy ? <div style={muted}>Saving…</div> : null}
+            </div>
             {error ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{error}</div> : null}
+            {parts.user ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Details: {parts.user}</div> : null}
+            {parts.access && accessState !== "failed" ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div> : null}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
               <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onClose}>Cancel</button>
-              <button type="submit" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={busy}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
+              <button type="submit" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={busy || (!adding && profileChanges.length === 0)}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
             </div>
           </form>
         )}
@@ -262,7 +342,7 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, onOpenDataAccess
   );
 }
 
-export function UserManagement({ operator, onOpenDataAccess }) {
+export function UserManagement({ operator }) {
   const [users, setUsers] = useState(null);
   const [roles, setRoles] = useState([]);
   const [error, setError] = useState("");
@@ -280,7 +360,7 @@ export function UserManagement({ operator, onOpenDataAccess }) {
   useEffect(() => { load(); }, [load]);
 
   const remove = async (u) => {
-    const ok = await askConfirm({ title: `Delete ${u.name}?`, body: "They are signed out and lose access. This cannot be undone.", confirm: "Delete", danger: true });
+    const ok = await confirmTwice({ title: `Delete ${u.name}?`, changes: deleteUserChanges(u), danger: true, confirmLabel: "Yes, delete", summary: `Delete ${u.name}` });
     if (!ok) return;
     setNotice(""); setError("");
     try {
@@ -291,12 +371,25 @@ export function UserManagement({ operator, onOpenDataAccess }) {
       setError(e.message || "Couldn't delete that user.");
     }
   };
+  const toggle = async (u) => {
+    const on = isActiveItem(u);
+    const ok = await confirmTwice({ title: `${on ? "Switch off" : "Switch on"} ${u.name}?`, changes: switchUserChanges(u, !on), danger: on, summary: `${on ? "Switch off" : "Switch on"} ${u.name}` });
+    if (!ok) return;
+    setNotice(""); setError("");
+    try {
+      await api.updateUser(u.id, { is_active: !on });
+      setNotice(`${u.name} switched ${on ? "off" : "on"}.`);
+      await load();
+    } catch (e) {
+      setError(e.message || "Couldn't change that.");
+    }
+  };
   const closeDrawer = useCallback(() => setDrawer(null), []);
 
   return (
     <>
-      <UserManagementBody users={users} roles={roles} me={operator} error={error} notice={notice} onRetry={load} onAdd={() => setDrawer("add")} onEdit={setDrawer} onDelete={remove} />
-      {drawer ? <UserDrawer user={drawer === "add" ? null : drawer} roles={roles} me={operator} onClose={closeDrawer} onSaved={(m) => { setNotice(m); load(); }} onOpenDataAccess={onOpenDataAccess} /> : null}
+      <UserManagementBody users={users} roles={roles} me={operator} error={error} notice={notice} onRetry={load} onAdd={() => setDrawer("add")} onEdit={setDrawer} onDelete={remove} onToggle={toggle} />
+      {drawer ? <UserDrawer user={drawer === "add" ? null : drawer} roles={roles} me={operator} onClose={closeDrawer} onSaved={(m) => { setNotice(m); load(); }} /> : null}
     </>
   );
 }

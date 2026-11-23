@@ -336,7 +336,7 @@ async def test_role_change_replaces_the_non_admin_roles_and_every_change_is_audi
         assert (await a.put(f"/api/org/data-access/{w['u1'].id}", json={"role_id": roles["Admin"]})).status_code == 400
         assert (await a.put(f"/api/org/data-access/{w['u1'].id}", json={"role_id": "role_nope"})).status_code == 404
     with org_scope(ORG):
-        rows = (await db.execute(select(AuditLog).where(AuditLog.action == "data_access.changed"))).scalars().all()
+        rows = (await db.execute(select(AuditLog).where(AuditLog.action == "access.updated"))).scalars().all()
         links = (await db.execute(select(OperatorRole.role_id).where(OperatorRole.operator_id == w["u1"].id))).scalars().all()
     assert links == [roles["Viewer"]]
     assert len(rows) == 1 and rows[0].target == w["u1"].id

@@ -13,7 +13,7 @@ import {
 import { C } from "../tokens";
 import { BrandLockup } from "../hub/BrandMark";
 import { openSupport } from "../hub/openSupport";
-import { SupportHub } from "../hub/SupportHub";
+import { SupportWidgetBridge } from "../hub/SupportWidgetBridge";
 import { ALL_DOCS, DOCS_TREE, findDocByPath, searchDocs } from "./content";
 import { DocRenderer } from "./DocRenderer";
 
@@ -457,7 +457,7 @@ export function HelpPage({ initialPath = "/help" }) {
       </div>
 
       {/* Embedded Support Hub so clicking "Report an issue" opens the panel right here */}
-      <SupportHub />
+      <SupportWidgetBridge />
 
       <style>{`
         @media (max-width: 820px) {

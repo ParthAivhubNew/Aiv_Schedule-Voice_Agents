@@ -55,6 +55,8 @@ const CLIENT_FILES = [
   "plugins/leadgen/importMatchLogic.js",
   "plugins/leadgen/ExportDialog.jsx",
   "plugins/leadgen/ConnectorsView.jsx",
+  "plugins/leadgen/SourceBadge.jsx",
+  "plugins/leadgen/sourceBadgeLogic.js",
   "plugins/leadgen/ConnectorLogos.jsx",
   // Phase 4: saved searches
   "plugins/leadgen/SavedSearches.jsx",
@@ -89,9 +91,9 @@ const CLIENT_FILES = [
   "settings/developerCatalog.js",
   "settings/developerSnippets.js",
   "settings/DeveloperDocs.jsx",
-  "hub/SupportHub.jsx",
   "hub/openSupport.js",
-  "hub/supportApi.js",
+  "hub/SupportWidgetBridge.jsx",
+  "hub/supportWidget.js",
   "hub/SidebarAccountBadge.jsx",
   "help/HelpPage.jsx",
   "help/DocRenderer.jsx",
@@ -113,6 +115,13 @@ const CLIENT_FILES = [
   "plugins/leadgen/admin/RoleManagement.jsx",
   "plugins/leadgen/admin/adminUi.jsx",
   "plugins/leadgen/admin/adminLogic.js",
+  "plugins/leadgen/admin/AccessEditor.jsx",
+  "plugins/leadgen/admin/confirmChange.js",
+  "plugins/leadgen/listFilters.js",
+  "plugins/leadgen/ListFilterBar.jsx",
+  "plugins/leadgen/peopleFilters.js",
+  "plugins/leadgen/phoneNumbers.js",
+  "plugins/leadgen/NumbersPanel.jsx",
 ];
 
 const PAYMENT_SUPPLIERS = /\bstripe\b/i;

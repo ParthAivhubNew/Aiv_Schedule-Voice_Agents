@@ -1048,6 +1048,15 @@ async def _operator_data_scope(conn: AsyncConnection) -> None:
         "allow_export BOOLEAN NOT NULL DEFAULT TRUE, allow_google BOOLEAN NOT NULL DEFAULT TRUE, updated_by VARCHAR DEFAULT '', updated_at TIMESTAMP)"))
 
 
+async def _role_is_active(conn: AsyncConnection) -> None:
+    """Roles get an on/off switch. Savepointed: a problem here is logged and never stops the startup."""
+    try:
+        async with conn.begin_nested():
+            await conn.execute(text("ALTER TABLE roles ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+    except Exception as err:
+        logger.warning(f"roles.is_active was not added: {err}")
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -1123,6 +1132,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_11_30_ensure_fsb_demo_account", _ensure_fsb_demo_account),
     ("2026_12_01_operator_data_scope", _operator_data_scope),
     ("2026_12_02_fsb_all_postcodes", _fsb_all_postcodes),
+    ("2026_12_03_role_is_active", _role_is_active),
     ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # renames fsbdemo to fsbadmin in place; adds the normal user when its password is set
 ]
 

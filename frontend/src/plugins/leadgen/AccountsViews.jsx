@@ -11,6 +11,11 @@ import { Building2, Check, ChevronDown, Download, Eye, Lightbulb, Megaphone, Ext
 import { api } from "../../api/apiClient";
 import { ExportDialog } from "./ExportDialog";
 import { FieldMark, hasGoogleData, SourceList } from "./SourceMark";
+import { SourceBadge } from "./SourceBadge";
+import { SourceSelect, TpsChip, TpsNote, TpsPill } from "./ListFilterBar";
+import { hasSource, hasTpsCheck, screeningOf, sourceOptions } from "./listFilters";
+import { PhoneNumbers } from "./NumbersPanel";
+import { numberCounts, numbersToCheck } from "./phoneNumbers";
 import { EnrichmentBanner, EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 import { announceCreditsChanged, creditWord, useLeadCredits } from "./CreditsChip";
 import { SearchStatus } from "./SearchStatus";
@@ -625,14 +630,16 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
   const [moreFilter, setMoreFilter] = useState("");
   const [googleOnly, setGoogleOnly] = useState(false); // the "Google data" pill: only companies whose details came from Google
+  const [tpsOnly, setTpsOnly] = useState(false); // the "TPS checked" pill: only companies whose phone has a TPS/CTPS result
+  const [fromSource, setFromSource] = useState(""); // the "Data from" select: one source key, "" = any
   const [picksOnly, setPicksOnly] = useState(() => { try { const go = sessionStorage.getItem("aivhub_open_picks") === "1"; if (go) sessionStorage.removeItem("aivhub_open_picks"); return go; } catch { return false; } }); // the bell's Review opens here
   useEffect(() => { const open = () => setPicksOnly(true); window.addEventListener("aivhub:open-picks", open); return () => window.removeEventListener("aivhub:open-picks", open); }, []);
   const [pageSize, setPageSize] = useState(() => {
     try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
   const [pageNo, setPageNo] = useState(0);
-  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId, googleOnly]);
-  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}|${googleOnly}`); // ids ticked for the bulk actions; a new filter or list clears them
+  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId, googleOnly, tpsOnly, fromSource]);
+  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}|${googleOnly}|${tpsOnly}|${fromSource}`); // ids ticked for the bulk actions; a new filter or list clears them
   const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
   const [tpsNumbers, setTpsNumbers] = useState(null); // numbers of the ticked companies while the TPS and CTPS check is open
   const [listing, setListing] = useState(false); // the Add to list box is open
@@ -691,9 +698,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const available = allChips.filter(([id, , pred]) => id === "retention" || inTab.some(pred)); // Due for deletion always shows, even at 0, so it can be found
   const activeChip = available.find(([id]) => id === moreFilter);
   const flags = duplicateFlags(base);
+  const sourceChoices = sourceOptions(inTab);
+  const activeSource = sourceChoices.some((o) => o.key === fromSource) ? fromSource : "";
   const matching = inTab
     .filter(activeChip ? activeChip[2] : () => true)
     .filter((a) => !googleOnly || hasGoogleData(a))
+    .filter((a) => !tpsOnly || hasTpsCheck(a))
+    .filter((a) => !activeSource || hasSource(a, activeSource))
     .filter((a) => !q || [a.name, a.domain, a.contact_name, a.industry, a.region].some((v) => String(v || "").toLowerCase().includes(q)));
   // A filter chosen elsewhere (the check results) opens the tab that holds the companies it finds.
   const focusFilter = (id) => {
@@ -757,11 +768,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
     }
   };
   const openTps = () => {
-    const numbers = pickedIds.map((id) => phoneFor(base.find((a) => a.id === id) || {})?.text).filter(Boolean);
-    const missing = pickedIds.length - numbers.length;
+    const picked = pickedIds.map((id) => base.find((x) => x.id === id)).filter(Boolean);
+    const numbers = numbersToCheck(picked);
     if (!numbers.length) { store.toast("None of the ticked companies has a phone number yet. Use Get contacts first."); return; }
-    if (missing) store.toast(`${missing.toLocaleString()} ${missing === 1 ? "has" : "have"} no phone and ${missing === 1 ? "was" : "were"} skipped.`);
-    setTpsNumbers(numbers);
+    setTpsNumbers(numbers); // every number on the ticked companies: the company's own, those research found and each person's
   };
   // The ticked companies become a list of their own, and the campaign is started on it.
   const startCampaign = async () => {
@@ -823,6 +833,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? "#1D4ED8" : "#93B4F5"}`, background: googleOnly ? "#1D4ED8" : "#EFF5FF", color: googleOnly ? "#fff" : "#1D4ED8", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
           Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
         </button>
+        <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
+        <SourceSelect options={sourceChoices} value={activeSource} onChange={setFromSource} />
         {available.length ? (
           <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
             <option value="">More filters</option>
@@ -835,6 +847,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
           Showing only companies with Google data ({matching.length.toLocaleString()}). You can see and use it here, but it can't be downloaded. Open a company to see its live Google details.
         </div>
       ) : null}
+      {tpsOnly ? <TpsNote /> : null}
       <CheckProgress check={check} pendingCount={pendingCount} onFilter={(k) => focusFilter(`v_${k}`)}
         onRecheck={() => setChecking({ ids: base.filter((a) => a.verification?.pending_registry).map((a) => a.id), pendingOnly: true })} />
 
@@ -865,7 +878,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealRows(pickedOnFile)}>Reveal {pickedOnFile.length.toLocaleString()}</button>
           ) : null}
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={openTps}
-            title="Check the ticked companies' phone numbers against the TPS and CTPS registers">
+            title="Check every phone number on the ticked companies against the TPS and CTPS registers. You see the cost first.">
             <ShieldCheck size={14} /> Check TPS/CTPS
           </button>
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!listsStore} onClick={() => setListing(true)}
@@ -917,6 +930,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       {a.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                       {legalTag(a.registry?.company_category, a.registration_number) ? <div className="fl-co-sub">{legalTag(a.registry?.company_category, a.registration_number)}</div> : null}
                     </div>
+                    <div onClick={stop}><SourceBadge account={a} /></div>
                     {a.signals?.length ? <SignalTags signals={a.signals} /> : null}
                     {fitShown ? <FitBadge fit={a.fit} /> : null}
                     <div className="fl-co-reach" onClick={stop}>
@@ -989,6 +1003,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     {legalTag(a.registry?.company_category, a.registration_number) ? <span style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(a.registry?.company_category, a.registration_number)}</span> : null}
                     <span style={{ marginLeft: 4 }}><NotesButton companyId={a.id} name={a.name} /></span>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
+                    <div style={{ marginTop: 2 }}><SourceBadge account={a} /></div>
                     {a.signals?.length || flags[a.id] ? (
                       <div style={{ marginTop: 3, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         <SignalTags signals={a.signals} />
@@ -1005,6 +1020,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                         <>
                           {phoneFor(a).text}
                           <FieldMark flags={a.restricted} notes={a.restricted_note} sources={a.field_sources} field="phone" />
+                          <TpsChip screening={screeningOf(a, phoneFor(a).text)} />
                           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${a.name} in the browser`}
                             onClick={(e) => { e.stopPropagation(); openPhone({ number: phoneFor(a).text, leadId: a.id, name: a.name }); }}><PhoneCall size={13} /></button>
                           {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}> ✓</span> : null}
@@ -1102,7 +1118,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         <CheckDialog ids={checking.ids} pendingOnly={checking.pendingOnly} mode={checking.mode} onStart={check.start} onClose={() => setChecking(null)} />
       ) : null}
       {listing && listsStore ? <AddToListDialog ids={pickedIds} listsStore={listsStore} onToast={store.toast} onClose={() => setListing(false)} /> : null}
-      {tpsNumbers ? <TpsCheckDialog numbers={tpsNumbers} wallet="leadgen" onClose={() => setTpsNumbers(null)} /> : null}
+      {tpsNumbers ? <TpsCheckDialog numbers={tpsNumbers} wallet="leadgen" onClose={() => setTpsNumbers(null)} onDone={() => store.reload()} /> : null}
       {exportOpen && canExport ? <ExportDialog kind="companies" scope={{ ids: pickedIds }} onClose={() => setExportOpen(false)} /> : null}
       {call.dialog}
     </div>
@@ -1129,7 +1145,7 @@ function HistorySnapshot({ entry }) {
               {r.team.map((p, i) => (
                 <div key={i} style={{ ...text, fontSize: 13, color: C.textInk }}>
                   <span style={{ fontWeight: 600 }}>{p.name}</span>{p.title ? <span style={{ color: C.slate }}> · {p.title}</span> : null}
-                  {(p.phone || p.email) ? <span style={{ color: C.slate }}> — {[p.phone, p.email].filter(Boolean).join(" · ")}</span> : null}
+                  {(p.phone || p.email) ? <span style={{ color: C.slate }}> — {[p.phone, p.email].filter(Boolean).join(" · ")}</span> : null}{p.phone ? <TpsChip screening={p.phone_screening} /> : null}
                 </div>
               ))}
             </div>
@@ -1218,6 +1234,7 @@ function Dossier({ account, store }) {
                 {(p.phone || p.email) ? (
                   <span style={{ color: C.slate, fontVariantNumeric: "tabular-nums" }}>
                     {" "}— {[p.phone, p.email].filter(Boolean).join(" · ")}
+                    {p.phone ? <TpsChip screening={p.phone_screening} /> : null}
                   </span>
                 ) : (
                   <span style={{ color: C.slateLight }}> — No direct number or email found</span>
@@ -1241,7 +1258,7 @@ function Dossier({ account, store }) {
         <div>
           <div style={label}>Phone numbers found</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {r.phones.map((v) => <span key={v} style={{ ...text, fontSize: 13.5, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{v}</span>)}
+            {r.phones.map((v, i) => <span key={v} style={{ ...text, fontSize: 13.5, color: C.textInk, fontVariantNumeric: "tabular-nums" }}>{v}<TpsChip screening={(r.phones_screening || [])[i]} /></span>)}
           </div>
         </div>
       ) : null}
@@ -1271,7 +1288,7 @@ function Dossier({ account, store }) {
         <div>
           <div style={label}>Other offices</div>
           <div style={{ ...text, fontSize: 13.5, color: C.textInk, display: "flex", flexDirection: "column", gap: 2, fontVariantNumeric: "tabular-nums" }}>
-            {r.other_offices.map((o) => <span key={o.phone || o.email}><span style={{ color: C.slate }}>{o.town}:</span> {o.phone || o.email}</span>)}
+            {r.other_offices.map((o) => <span key={o.phone || o.email}><span style={{ color: C.slate }}>{o.town}:</span> {o.phone || o.email}{o.phone ? <TpsChip screening={o.phone_screening} /> : null}</span>)}
           </div>
         </div>
       ) : null}
@@ -1424,6 +1441,9 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
                     cancelLabel="Stop waiting" onCancel={() => store.stopWaiting(live.id)} />
                 ) : null}
               </div>
+            </Collapsible>
+            <Collapsible id="account:numbers" defaultOpen title="Phone numbers" summary={(() => { const c = numberCounts([live]); return c.total ? `${c.checked} of ${c.total} checked for TPS and CTPS` : ""; })()}>
+              <PhoneNumbers account={live} onChecked={() => store.reload()} />
             </Collapsible>
             <Collapsible id="account:dossier" title="Research"
               summary={live.researched_at ? `Researched ${new Date(live.researched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "Not researched yet"}>

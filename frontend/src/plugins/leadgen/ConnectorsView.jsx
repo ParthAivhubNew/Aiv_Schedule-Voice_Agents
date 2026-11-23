@@ -54,6 +54,37 @@ import {
 const text = { fontFamily: FONT_BODY };
 const head = { fontFamily: FONT_DISPLAY };
 
+// Plain lettered tile for connectors that are listed but have no integration behind them yet.
+const letterLogo = (letters) =>
+  function LetterLogo({ size = 24 }) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label={letters} xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="6" fill="#E2E8F0" />
+        <text x="16" y="21" textAnchor="middle" fontSize="13" fontWeight="700" fill="#334155" fontFamily="Arial, sans-serif">{letters}</text>
+      </svg>
+    );
+  };
+const ExperianLogo = letterLogo("Ex");
+const MarketLocationLogo = letterLogo("ML");
+
+// Shown in the connector panel for the two connectors that are not switched on. Nothing here is connected, tested or charged.
+export const NOT_CONNECTED_TEXT = "This connector isn't switched on for your account yet. Ask your administrator or Aivhub to connect it.";
+export const NOT_CONNECTED_LABEL = "Not connected yet";
+
+export function NotConnectedPanel({ connector }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, ...text }}>
+      <div role="status" style={{ padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#F8FAFC", border: `1px solid ${C.border}`, color: C.textInk }}>
+        Status: {NOT_CONNECTED_LABEL}
+      </div>
+      <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{connector.desc}</div>
+      <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>{NOT_CONNECTED_TEXT}</div>
+    </div>
+  );
+}
+
+export const NOT_CONNECTED_CONNECTORS = () => BASE_DATA_CONNECTORS.filter((c) => c.notConnected);
+
 // Default Data Connectors with exact logos and verified production specs
 const BASE_DATA_CONNECTORS = [
   {
@@ -184,6 +215,29 @@ const BASE_DATA_CONNECTORS = [
       mx_record: "mail.protection.outlook.com",
       ssl_valid: true,
     },
+  },
+  {
+    id: "experian",
+    name: "Experian",
+    category: "Enrichment & Registry",
+    badge: "Credit & Business Data",
+    defaultStatus: "not_connected",
+    notConnected: true,
+    LogoComponent: ExperianLogo,
+    desc: "Company credit and business data.",
+    docsUrl: "",
+  },
+  {
+    id: "market_location",
+    name: "Market Location",
+    category: "Enrichment & Registry",
+    badge: "UK Business Data",
+    defaultStatus: "not_connected",
+    notConnected: true,
+    LogoComponent: MarketLocationLogo,
+    desc: "UK business data.",
+    docsUrl: "https://www.marketlocation.com/business-data/",
+    linkText: "marketlocation.com/business-data",
   },
   {
     id: "csv_pipeline",
@@ -827,9 +881,38 @@ const STATUS_STORAGE_KEY = "aivhub_connector_statuses";
 const CUSTOM_STORAGE_KEY = "aivhub_custom_connectors";
 const CONFIG_STORAGE_KEY = "aivhub_connector_configs";
 
+// The kinds of data a connector gives us, for the "Data they provide" filter. Only what each connector's own description says.
+export const DATA_KINDS = [
+  ["company", "Company details"],
+  ["people", "Directors & people"],
+  ["address", "Addresses & places"],
+  ["phone", "Phone numbers"],
+  ["email", "Emails"],
+  ["website", "Websites"],
+  ["sole", "Sole traders"],
+  ["credit", "Financial & credit"],
+  ["screening", "Phone screening"],
+  ["yours", "Your own files & records"],
+];
+export const CONNECTOR_PROVIDES = {
+  ch_registry: ["company", "people", "address", "credit"],
+  fsa_hygiene: ["sole", "address", "company"],
+  cqc_care: ["sole", "address", "company"],
+  tps_ctps: ["screening", "phone"],
+  os_postcodes: ["address"],
+  web_dossier: ["website", "email", "phone", "people"],
+  experian: ["credit", "company"],
+  market_location: ["company", "phone", "email"],
+  csv_pipeline: ["yours"],
+  salesforce: ["yours"], hubspot: ["yours"], dynamics365: ["yours"], zoho_crm: ["yours"], pipedrive: ["yours"],
+  bigquery: ["yours"], postgres: ["yours"], snowflake: ["yours"], s3_lake: ["yours"], airtable: ["yours"],
+};
+export const providesKind = (item, kind) => kind === "all" || (CONNECTOR_PROVIDES[item.id] || []).includes(kind);
+
 export function ConnectorsView({ operator, toast }) {
   const [partition, setPartition] = useState("data");
   const [activeCategory, setActiveCategory] = useState("All");
+  const [dataKind, setDataKind] = useState("all"); // "Data they provide" filter, on the data connectors
   const [query, setQuery] = useState("");
   const [selectedConnector, setSelectedConnector] = useState(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -950,6 +1033,7 @@ export function ConnectorsView({ operator, toast }) {
     const userCustom = customConnectors.filter((c) => c.partition === partition);
 
     const merged = [...userCustom, ...baseList].map((item) => {
+      if (item.notConnected) return { ...item, status: "not_connected", isCustomized: false };
       if (item.platformKey) {
         const source = keySources ? keySources[item.platformKey] || "none" : "checking";
         return { ...item, keySource: source, status: source === "own" ? "connected" : "key_" + source, isCustomized: false };
@@ -980,13 +1064,177 @@ export function ConnectorsView({ operator, toast }) {
         item.name.toLowerCase().includes(q) ||
         item.category.toLowerCase().includes(q) ||
         (item.desc && item.desc.toLowerCase().includes(q));
-      return matchCat && matchQuery;
+      return matchCat && matchQuery && (partition !== "data" || providesKind(item, dataKind));
     });
-  }, [currentList, activeCategory, query]);
+  }, [currentList, activeCategory, query, partition, dataKind]);
 
   // Stats
   const connectedCount = currentList.filter((c) => c.status === "connected").length;
   const availableCount = currentList.filter((c) => c.status === "available").length;
+  const connectedItems = filtered.filter((c) => c.status === "connected");
+  const availableItems = filtered.filter((c) => c.status !== "connected");
+  const renderCard = (item) => {
+          const isConnected = item.status === "connected";
+          const LogoComp = item.LogoComponent || CompaniesHouseLogo;
+
+          return (
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setSelectedConnector(item);
+                setEditForm({ ...item });
+                setIsEditing(false);
+                setTestResult(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setSelectedConnector(item);
+                  setEditForm({ ...item });
+                  setIsEditing(false);
+                  setTestResult(null);
+                }
+              }}
+              className="connector-card"
+              style={{
+                background: "#FFFFFF",
+                border: `1px solid ${isConnected ? "#BBEBDC" : C.border}`,
+                borderRadius: 8,
+                padding: "12px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                cursor: "pointer",
+                transition: "all .15s ease",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                userSelect: "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                {/* Official Vector Logo */}
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <LogoComp size={32} />
+                </div>
+
+                {/* Name & Model & Status */}
+                <div style={{ minWidth: 0, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      ...head,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: C.ink,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={item.name}
+                  >
+                    {item.name}
+                  </div>
+                  {item.modelName ? (
+                    <div
+                      style={{
+                        ...text,
+                        fontSize: 11,
+                        color: "#0C8C7D",
+                        fontWeight: 600,
+                        marginTop: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={item.modelName}
+                    >
+                      {item.modelName}
+                    </div>
+                  ) : null}
+                  {partition === "data" && (CONNECTOR_PROVIDES[item.id] || []).length ? (
+                    <div style={{ ...text, fontSize: 10.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={`Gives us: ${(CONNECTOR_PROVIDES[item.id] || []).map((k) => (DATA_KINDS.find((d) => d[0] === k) || [k, k])[1]).join(", ")}`}>
+                      {(CONNECTOR_PROVIDES[item.id] || []).map((k) => (DATA_KINDS.find((d) => d[0] === k) || [k, k])[1]).join(" · ")}
+                    </div>
+                  ) : null}
+                  {item.task ? (
+                    <div
+                      style={{
+                        ...text,
+                        fontSize: 10.5,
+                        color: C.slate,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={item.task}
+                    >
+                      {item.task}
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}>
+                    <span
+                      style={{
+                        ...text,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: "1px 5px",
+                        borderRadius: 4,
+                        background: isConnected ? "#DCFCE7" : "#F1F5F9",
+                        color: isConnected ? "#15803D" : C.slate,
+                        textTransform: "uppercase",
+                        letterSpacing: ".03em",
+                      }}
+                    >
+                      {item.notConnected
+                        ? NOT_CONNECTED_LABEL
+                        : item.platformKey
+                        ? item.keySource === "checking"
+                          ? "Checking"
+                          : KEY_STATUS_LABEL[item.keySource]
+                        : isConnected
+                          ? "Connected"
+                          : "Available"}
+                    </span>
+                    {item.isCustomized ? (
+                      <span
+                        style={{
+                          ...text,
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: 4,
+                          background: "#FEF3C7",
+                          color: "#92400E",
+                          border: "1px solid #FDE68A",
+                        }}
+                      >
+                        Customized
+                      </span>
+                    ) : null}
+                    {item.latency ? (
+                      <span style={{ ...text, fontSize: 10, color: C.slateLight }}>
+                        · {item.latency}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* Forward Arrow */}
+              <div
+                style={{
+                  color: isConnected ? "#0C8C7D" : C.slateLight,
+                  display: "flex",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <ArrowRight size={14} />
+              </div>
+            </div>
+          );
+  };
 
   const handleTestConnection = (conn) => {
     setTesting(true);
@@ -1160,23 +1408,6 @@ export function ConnectorsView({ operator, toast }) {
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#94A3B8" }} />
             {availableCount} Available to Connect
           </span>
-          <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <button
-              type="button"
-              className="ui-btn ui-btn--primary ui-btn--sm"
-              onClick={() => setAddModalOpen(true)}
-              style={{
-                background: "#0C8C7D",
-                borderColor: "#0C8C7D",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12.5,
-              }}
-            >
-              <Plus size={14} /> Add new connector
-            </button>
-          </div>
         </div>
       </div>
 
@@ -1260,201 +1491,60 @@ export function ConnectorsView({ operator, toast }) {
         </div>
       </div>
 
+      {partition === "data" ? (
+        <div role="group" aria-label="Filter by the data they provide" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ ...text, fontSize: 12.5, fontWeight: 700, color: C.slate, marginRight: 4 }}>Data they provide:</span>
+          {[["all", "All data"], ...DATA_KINDS].map(([k, label]) => {
+            const on = dataKind === k;
+            const count = k === "all" ? currentList.length : currentList.filter((c) => providesKind(c, k)).length;
+            return (
+              <button key={k} type="button" aria-pressed={on} onClick={() => setDataKind(k)} disabled={!count}
+                title={k === "all" ? "Every connector" : `Connectors that give us ${label.toLowerCase()}`}
+                style={{ ...text, minHeight: 36, padding: "0 12px", borderRadius: 999, border: `1px solid ${on ? "#0C8C7D" : C.border}`, background: on ? "#E6F5F2" : "#FFFFFF", color: on ? "#0A6F63" : C.textInk, fontSize: 12.5, fontWeight: on ? 700 : 500, cursor: count ? "pointer" : "not-allowed", opacity: count ? 1 : 0.5, whiteSpace: "nowrap" }}>
+                {on ? "✓ " : ""}{label} <span style={{ color: C.slate }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div role="status" aria-live="polite" style={{ ...text, fontSize: 12.5, color: C.red, display: keySourcesError ? "block" : "none" }}>
         {keySourcesError}
       </div>
 
-      {/* Grid of Connectors (5 Columns desktop, matching reference image) */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(215px, 1fr))",
-          gap: 12,
-        }}
-      >
-        {filtered.map((item) => {
-          const isConnected = item.status === "connected";
-          const LogoComp = item.LogoComponent || CompaniesHouseLogo;
+      {/* Connected connectors, then the one big Add button, then everything still available. The category pills and the search above filter both lists. */}
+      <section aria-labelledby="cx-connected" style={{ display: "grid", gap: 10 }}>
+        <h2 id="cx-connected" style={{ ...head, fontSize: 16, fontWeight: 700, color: C.ink, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          Connected connectors
+          <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#DCFCE7", color: "#15803D" }}>{connectedItems.length}</span>
+        </h2>
+        {connectedItems.length ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(215px, 1fr))", gap: 12 }}>{connectedItems.map(renderCard)}</div>
+        ) : (
+          <p style={{ ...text, fontSize: 13, color: C.slate, margin: 0 }}>Nothing is connected here yet. Pick one below or add your own.</p>
+        )}
+      </section>
 
-          return (
-            <div
-              key={item.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setSelectedConnector(item);
-                setEditForm({ ...item });
-                setIsEditing(false);
-                setTestResult(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  setSelectedConnector(item);
-                  setEditForm({ ...item });
-                  setIsEditing(false);
-                  setTestResult(null);
-                }
-              }}
-              className="connector-card"
-              style={{
-                background: "#FFFFFF",
-                border: `1px solid ${isConnected ? "#BBEBDC" : C.border}`,
-                borderRadius: 8,
-                padding: "12px 14px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-                cursor: "pointer",
-                transition: "all .15s ease",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                userSelect: "none",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                {/* Official Vector Logo */}
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <LogoComp size={32} />
-                </div>
-
-                {/* Name & Model & Status */}
-                <div style={{ minWidth: 0, overflow: "hidden" }}>
-                  <div
-                    style={{
-                      ...head,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: C.ink,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={item.name}
-                  >
-                    {item.name}
-                  </div>
-                  {item.modelName ? (
-                    <div
-                      style={{
-                        ...text,
-                        fontSize: 11,
-                        color: "#0C8C7D",
-                        fontWeight: 600,
-                        marginTop: 1,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={item.modelName}
-                    >
-                      {item.modelName}
-                    </div>
-                  ) : null}
-                  {item.task ? (
-                    <div
-                      style={{
-                        ...text,
-                        fontSize: 10.5,
-                        color: C.slate,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={item.task}
-                    >
-                      {item.task}
-                    </div>
-                  ) : null}
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}>
-                    <span
-                      style={{
-                        ...text,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        padding: "1px 5px",
-                        borderRadius: 4,
-                        background: isConnected ? "#DCFCE7" : "#F1F5F9",
-                        color: isConnected ? "#15803D" : C.slate,
-                        textTransform: "uppercase",
-                        letterSpacing: ".03em",
-                      }}
-                    >
-                      {item.platformKey
-                        ? item.keySource === "checking"
-                          ? "Checking"
-                          : KEY_STATUS_LABEL[item.keySource]
-                        : isConnected
-                          ? "Connected"
-                          : "Available"}
-                    </span>
-                    {item.isCustomized ? (
-                      <span
-                        style={{
-                          ...text,
-                          fontSize: 9.5,
-                          fontWeight: 700,
-                          padding: "1px 5px",
-                          borderRadius: 4,
-                          background: "#FEF3C7",
-                          color: "#92400E",
-                          border: "1px solid #FDE68A",
-                        }}
-                      >
-                        Customized
-                      </span>
-                    ) : null}
-                    {item.latency ? (
-                      <span style={{ ...text, fontSize: 10, color: C.slateLight }}>
-                        · {item.latency}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              {/* Forward Arrow */}
-              <div
-                style={{
-                  color: isConnected ? "#0C8C7D" : C.slateLight,
-                  display: "flex",
-                  alignItems: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <ArrowRight size={14} />
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Add Connector Quick Card */}
-        <div
-          role="button"
-          tabIndex={0}
+      <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}>
+        <button
+          type="button"
+          className="ui-btn ui-btn--primary"
           onClick={() => setAddModalOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") setAddModalOpen(true);
-          }}
-          style={{
-            background: "#FAFBFC",
-            border: `1px dashed ${C.border}`,
-            borderRadius: 8,
-            padding: "12px 14px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            cursor: "pointer",
-            transition: "all .15s ease",
-            color: C.slate,
-          }}
+          style={{ background: "#0C8C7D", borderColor: "#0C8C7D", minHeight: 52, padding: "0 36px", fontSize: 16, fontWeight: 700, borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 10, boxShadow: "0 6px 16px rgba(12,140,125,.28)" }}
         >
-          <Plus size={16} />
-          <span style={{ ...text, fontSize: 13, fontWeight: 500 }}>
-            Add {partition === "data" ? "Data" : "AI"} Connector
-          </span>
-        </div>
+          <Plus size={20} aria-hidden="true" /> Add {partition === "data" ? "data" : "AI"} connector
+        </button>
       </div>
+
+      <section aria-labelledby="cx-available" style={{ display: "grid", gap: 10 }}>
+        <h2 id="cx-available" style={{ ...head, fontSize: 16, fontWeight: 700, color: C.ink, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          Available connectors
+          <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#F1F5F9", color: C.slate }}>{availableItems.length}</span>
+        </h2>
+        {availableItems.length ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(215px, 1fr))", gap: 12 }}>{availableItems.map(renderCard)}</div>
+        ) : null}
+      </section>
 
       {!filtered.length ? (
         <div
@@ -1547,7 +1637,7 @@ export function ConnectorsView({ operator, toast }) {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {selectedConnector.platformKey ? null : (
+                {selectedConnector.platformKey || selectedConnector.notConnected ? null : (
                 <button
                   type="button"
                   className={`ui-btn ui-btn--sm ${isEditing ? "ui-btn--primary" : "ui-btn--secondary"}`}
@@ -1579,7 +1669,9 @@ export function ConnectorsView({ operator, toast }) {
 
             {/* Body */}
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16, maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>
-              {selectedConnector.platformKey ? (
+              {selectedConnector.notConnected ? (
+                <NotConnectedPanel connector={selectedConnector} />
+              ) : selectedConnector.platformKey ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, ...text }}>
                   <div
                     role="status"
@@ -2147,7 +2239,7 @@ export function ConnectorsView({ operator, toast }) {
                     gap: 4,
                   }}
                 >
-                  <ExternalLink size={12} /> Official API Documentation
+                  <ExternalLink size={12} /> {selectedConnector.linkText || "Official API Documentation"}
                 </a>
               ) : (
                 <span />
