@@ -233,6 +233,7 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
                       {on ? null : <span style={{ display: "inline-block", marginTop: 4 }}><InactiveChip /></span>}
                     </button>
                     <ItemActions name={r.name} active={on}
+                      onView={() => onSelect(r.id)}
                       onToggle={() => onToggle(r)}
                       onEdit={() => { onSelect(r.id); setEditId(r.id); }}
                       onDelete={() => onDelete(r)}

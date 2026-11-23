@@ -1,5 +1,5 @@
 import React from "react";
-import { Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
+import { Eye, Pencil, Power, Trash2 } from "lucide-react";
 import { C, FONT_BODY } from "../../../tokens";
 import { roleTone, toggleLabel } from "./adminLogic";
 
@@ -15,14 +15,18 @@ export const ADMIN_CSS = `
 .adm-table th > button, .adm-table th > span { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; background: none; border: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
 .adm-table td { padding: 8px 12px; border-bottom: 1px solid ${C.borderLight}; font: 400 13px/1.4 'Inter', sans-serif; color: ${C.textInk}; vertical-align: middle; }
 .adm-table tr:last-child td { border-bottom: 0; }
-.adm-actions { display: flex; gap: 4px; }
-.adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; color: ${C.slate}; }
+.adm-actions { display: inline-flex; align-items: stretch; border: 1px solid ${C.border}; border-radius: 10px; background: #fff; overflow: hidden; box-shadow: 0 1px 2px rgba(17,21,32,0.05); }
+.adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 0; background: transparent; cursor: pointer; color: ${C.slate}; transition: background 0.12s, color 0.12s; }
+.adm-icon + .adm-icon { border-left: 1px solid ${C.border}; }
 .adm-icon:hover:not(:disabled) { background: ${C.paperSoft}; color: ${C.textInk}; }
 .adm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
-.adm-icon--off, .adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; color: ${C.amber}; }
-.adm-icon--on, .adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; color: ${C.green}; }
-.adm-icon--edit, .adm-icon--edit:hover:not(:disabled) { background: ${C.paperSoft}; color: ${C.textInk}; }
-.adm-icon--del, .adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; color: ${C.red}; }
+.adm-icon--off { color: ${C.amber}; }
+.adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; color: ${C.amber}; }
+.adm-icon--on { color: ${C.green}; }
+.adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; color: ${C.green}; }
+.adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; color: ${C.red}; }
+.adm-icon--del:not(:disabled) { color: ${C.red}; }
+@media (pointer: coarse) { .adm-icon { width: 44px; height: 44px; } }
 .adm-row-off td:not([data-label="Actions"]) { opacity: 0.65; }
 .adm-roleitem-off .adm-roleitem-main { opacity: 0.65; }
 .adm-namebtn { background: none; border: 0; padding: 0; min-height: 44px; font: 600 13px 'Inter', sans-serif; color: ${C.textInk}; text-align: left; cursor: pointer; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: transparent; }
@@ -95,14 +99,15 @@ export function InactiveChip() {
   return <span style={{ ...text, display: "inline-block", fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 6, background: C.paperSoft, color: C.slate, border: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>Inactive</span>;
 }
 
-// The three icon buttons on every role card and user row: switch off or on, edit, delete.
+// One joined group of icon buttons on every role card and user row: view, switch off or on, edit, delete.
 // A reason string in toggleOff or deleteOff disables that button and becomes its title.
-export function ItemActions({ name, active, onToggle, onEdit, onDelete, toggleOff = "", deleteOff = "" }) {
+export function ItemActions({ name, active, onView, onToggle, onEdit, onDelete, toggleOff = "", deleteOff = "" }) {
   const label = toggleLabel(name, active);
   return (
-    <span className="adm-actions">
+    <span className="adm-actions" role="group" aria-label={`Actions for ${name}`}>
+      {onView ? <button type="button" className="adm-icon" aria-label={`View ${name}`} title={`View ${name}`} onClick={onView}><Eye size={16} aria-hidden="true" /></button> : null}
       <button type="button" className={`adm-icon ${active ? "adm-icon--off" : "adm-icon--on"}`} aria-label={label} title={toggleOff || label} disabled={!!toggleOff} onClick={onToggle}>
-        {active ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+        <Power size={16} aria-hidden="true" />
       </button>
       <button type="button" className="adm-icon adm-icon--edit" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></button>
       <button type="button" className="adm-icon adm-icon--del" aria-label={`Delete ${name}`} title={deleteOff || `Delete ${name}`} disabled={!!deleteOff} onClick={onDelete}><Trash2 size={16} aria-hidden="true" /></button>

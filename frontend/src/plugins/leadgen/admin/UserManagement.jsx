@@ -108,7 +108,7 @@ export function UserManagementBody({ users, roles = [], me, error = "", notice =
                       <td data-label="Status"><StatusChip status={userStatus(u)} /></td>
                       <td data-label="Actions">
                         <ItemActions name={u.name} active={isActiveItem(u)}
-                          onToggle={() => onToggle(u)} onEdit={() => onEdit(u)} onDelete={() => onDelete(u)}
+                          onView={() => onEdit(u)} onToggle={() => onToggle(u)} onEdit={() => onEdit(u)} onDelete={() => onDelete(u)}
                           toggleOff={isMe ? "You cannot switch off your own account" : ""} deleteOff={isMe ? "You cannot delete your own account" : ""} />
                       </td>
                     </tr>
