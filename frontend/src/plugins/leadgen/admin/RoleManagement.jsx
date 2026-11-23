@@ -224,7 +224,7 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
               {list.map((r) => {
                 const on = isActiveItem(r);
                 return (
-                  <div key={r.id} className={`adm-rolecard${on ? "" : " adm-roleitem-off"}`}>
+                  <div key={r.id} className={`adm-rolecard${on ? "" : " adm-roleitem-off"}`} data-selected={selected && selected.id === r.id ? "true" : undefined}>
                     <button type="button" className="adm-roleitem" aria-current={selected && selected.id === r.id ? "true" : undefined} onClick={() => onSelect(r.id)}>
                       <span className="adm-roleitem-main" style={{ display: "block" }}>
                         <span style={{ ...text, display: "block", fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{r.name}{r.is_admin ? <AdminCrown operator={{ is_admin: true }} /> : null}</span>

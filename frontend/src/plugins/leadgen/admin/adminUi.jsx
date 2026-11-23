@@ -15,18 +15,16 @@ export const ADMIN_CSS = `
 .adm-table th > button, .adm-table th > span { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; background: none; border: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
 .adm-table td { padding: 8px 12px; border-bottom: 1px solid ${C.borderLight}; font: 400 13px/1.4 'Inter', sans-serif; color: ${C.textInk}; vertical-align: middle; }
 .adm-table tr:last-child td { border-bottom: 0; }
-.adm-actions { display: inline-flex; align-items: stretch; border: 1px solid ${C.border}; border-radius: 10px; background: #fff; overflow: hidden; box-shadow: 0 1px 2px rgba(17,21,32,0.05); }
-.adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 0; background: transparent; cursor: pointer; color: ${C.slate}; transition: background 0.12s, color 0.12s; }
-.adm-icon + .adm-icon { border-left: 1px solid ${C.border}; }
-.adm-icon:hover:not(:disabled) { background: ${C.paperSoft}; color: ${C.textInk}; }
-.adm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
-.adm-icon--off { color: ${C.amber}; }
-.adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; color: ${C.amber}; }
-.adm-icon--on { color: ${C.green}; }
-.adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; color: ${C.green}; }
-.adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; color: ${C.red}; }
-.adm-icon--del:not(:disabled) { color: ${C.red}; }
-@media (pointer: coarse) { .adm-icon { width: 44px; height: 44px; } }
+.adm-actions { display: inline-flex; gap: 6px; align-items: center; }
+.adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid ${C.border}; border-radius: 7px; background: #fff; cursor: pointer; color: ${C.textInk}; transition: filter 0.12s; }
+.adm-icon:hover:not(:disabled) { filter: brightness(0.95); }
+.adm-icon:disabled { opacity: 0.45; cursor: not-allowed; }
+.adm-icon--view, .adm-icon--view:hover:not(:disabled) { background: ${C.cobaltSoft}; border-color: ${C.cobalt}33; color: ${C.cobaltDeep}; }
+.adm-icon--off, .adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; border-color: ${C.amber}55; color: ${C.amber}; }
+.adm-icon--on, .adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; border-color: ${C.green}55; color: ${C.green}; }
+.adm-icon--edit, .adm-icon--edit:hover:not(:disabled) { background: ${C.paperSoft}; border-color: ${C.border}; color: ${C.textInk}; }
+.adm-icon--del, .adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; border-color: ${C.red}44; color: ${C.red}; }
+@media (pointer: coarse) { .adm-icon { width: 36px; height: 36px; } }
 .adm-row-off td:not([data-label="Actions"]) { opacity: 0.65; }
 .adm-roleitem-off .adm-roleitem-main { opacity: 0.65; }
 .adm-namebtn { background: none; border: 0; padding: 0; min-height: 44px; font: 600 13px 'Inter', sans-serif; color: ${C.textInk}; text-align: left; cursor: pointer; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: transparent; }
@@ -34,7 +32,9 @@ export const ADMIN_CSS = `
 .adm-namebtn:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; border-radius: 4px; }
 .adm-rolecard { border-bottom: 1px solid ${C.borderLight}; }
 .adm-rolecard .adm-roleitem { border-bottom: 0; }
-.adm-rolecard .adm-actions { padding: 0 10px 8px; }
+.adm-rolecard .adm-actions { padding: 0 14px 10px; }
+.adm-rolecard { background: #fff; }
+.adm-rolecard[data-selected="true"] { background: ${C.cobaltSoft}; box-shadow: inset 3px 0 0 ${C.cobalt}; }
 .adm-icon:focus-visible, .adm-tab:focus-visible, .adm-chip:focus-visible, .adm-roleitem:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }
 .adm-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid ${C.border}; }
 .adm-tab { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; background: none; border: 0; border-bottom: 2px solid transparent; font: 500 13px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; white-space: nowrap; }
@@ -43,8 +43,7 @@ export const ADMIN_CSS = `
 .adm-chip { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid ${C.border}; background: #fff; font: 500 12.5px 'Inter', sans-serif; color: ${C.textInk}; cursor: pointer; }
 .adm-chip[aria-pressed="true"] { background: ${C.cobaltSoft}; border-color: ${C.cobalt}; color: ${C.cobaltDeep}; font-weight: 600; }
 .adm-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
-.adm-roleitem { display: block; width: 100%; text-align: left; padding: 10px 14px; min-height: 44px; border: 0; border-bottom: 1px solid ${C.borderLight}; background: #fff; cursor: pointer; font-family: 'Inter', sans-serif; }
-.adm-roleitem[aria-current="true"] { background: ${C.cobaltSoft}; }
+.adm-roleitem { display: block; width: 100%; text-align: left; padding: 10px 14px 6px; min-height: 44px; border: 0; border-bottom: 0; background: transparent; cursor: pointer; font-family: 'Inter', sans-serif; }
 .adm-seg { display: inline-flex; border: 1px solid ${C.border}; border-radius: 8px; overflow: hidden; }
 .adm-seg button { min-height: 44px; min-width: 52px; padding: 0 10px; border: 0; background: #fff; font: 500 12.5px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; }
 .adm-seg button + button { border-left: 1px solid ${C.border}; }
@@ -105,12 +104,12 @@ export function ItemActions({ name, active, onView, onToggle, onEdit, onDelete, 
   const label = toggleLabel(name, active);
   return (
     <span className="adm-actions" role="group" aria-label={`Actions for ${name}`}>
-      {onView ? <button type="button" className="adm-icon" aria-label={`View ${name}`} title={`View ${name}`} onClick={onView}><Eye size={16} aria-hidden="true" /></button> : null}
+      {onView ? <button type="button" className="adm-icon adm-icon--view" aria-label={`View ${name}`} title={`View ${name}`} onClick={onView}><Eye size={13} aria-hidden="true" /></button> : null}
       <button type="button" className={`adm-icon ${active ? "adm-icon--off" : "adm-icon--on"}`} aria-label={label} title={toggleOff || label} disabled={!!toggleOff} onClick={onToggle}>
-        <Power size={16} aria-hidden="true" />
+        <Power size={13} aria-hidden="true" />
       </button>
-      <button type="button" className="adm-icon adm-icon--edit" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onEdit}><Pencil size={16} aria-hidden="true" /></button>
-      <button type="button" className="adm-icon adm-icon--del" aria-label={`Delete ${name}`} title={deleteOff || `Delete ${name}`} disabled={!!deleteOff} onClick={onDelete}><Trash2 size={16} aria-hidden="true" /></button>
+      <button type="button" className="adm-icon adm-icon--edit" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onEdit}><Pencil size={13} aria-hidden="true" /></button>
+      <button type="button" className="adm-icon adm-icon--del" aria-label={`Delete ${name}`} title={deleteOff || `Delete ${name}`} disabled={!!deleteOff} onClick={onDelete}><Trash2 size={13} aria-hidden="true" /></button>
     </span>
   );
 }
