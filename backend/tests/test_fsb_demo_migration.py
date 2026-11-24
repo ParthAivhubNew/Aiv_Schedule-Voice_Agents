@@ -1,6 +1,6 @@
-"""The FSB demo account: its own organisation, linked to the FSB brand, an Admin in it, credits in every wallet, and the brand policy
-really applied to its searches. The startup step shares one transaction with every other step, so a failure in it must never stop the app."""
-import logging
+"""The FSB organisation: no code makes it or its logins any more; on a database that holds it, it becomes FSB's real company with its users,
+data and credits untouched; the FSB brand's rules still apply to it end to end, and the older data steps (postcode lock, starter credits) still work."""
+import json
 
 import pytest
 from sqlalchemy import text
@@ -14,141 +14,108 @@ from app.services import tenant_policy as TP
 
 pytestmark = pytest.mark.db
 
-LOGIN = {"username": D.EMAIL, "password": D.DEFAULT_PASSWORD}
-
 
 @pytest.fixture(autouse=True)
-def default_password(monkeypatch):
-    monkeypatch.delenv("FSB_DEMO_PASSWORD", raising=False)
+def fresh_rules():
     TP.invalidate()
     yield
     TP.invalidate()
 
 
-async def run_step():
+async def fsb_org(db, name=D.DEMO_NAME, slug=D.DEMO_SLUG, policy=None):
+    """The FSB organisation and brand as an older version left them, with its two users and a company profile."""
+    from app.core.security import hash_password
+
+    await db.execute(text("INSERT INTO brands (id, name, display_name, logo_url, accent_color, theme, powered_by, hide_credits, status, policy, created_at, updated_at) "
+                          "VALUES ('brd_fsb', 'FSB', 'Federation of Small Businesses', '', '', CAST('{}' AS JSON), TRUE, FALSE, 'active', CAST(:p AS JSON), "
+                          "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"), {"p": json.dumps(TP.clean_policy(policy or D.FSB_BRAND_POLICY))})
+    await db.execute(text("INSERT INTO organizations (id, name, slug, status, brand_id) VALUES (:i, :n, :s, 'active', 'brd_fsb')"), {"i": D.ORG_ID, "n": name, "s": slug})
+    await db.execute(text("INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, is_active) VALUES "
+                          "('op_fsboutreach', :o, 'fsbadmin', 'fsbadmin@outreach.com', 'FSB Admin', 'Admin', :p, TRUE), "
+                          "('op_fsbuser', :o, 'fsbuser', 'fsbuser@outreach.com', 'FSB User', 'FSB Operator', :p, TRUE)"),
+                     {"o": D.ORG_ID, "p": hash_password("Their-own-pass-1")})
+    await db.commit()
+    with org_scope(D.ORG_ID):
+        await db.execute(text("INSERT INTO company_profile (id, org_id, name, website, social, pitch, industry) VALUES ('default', :o, :n, '', '', '', '')"),
+                         {"o": D.ORG_ID, "n": name})
+        await db.commit()
+
+
+async def run(step):
     from app.database import engine
 
     async with engine.begin() as conn:
-        await M._ensure_fsb_demo_account(conn)
+        await step(conn)
         await conn.execute(text("SELECT 1"))  # the startup transaction is still usable afterwards
 
 
-async def snapshot(db):
-    out = {}
-    for name, sql in {"operators": "SELECT id, org_id, username, email, role, hashed_password, is_active FROM operators ORDER BY id",
-                      "orgs": "SELECT id, slug, brand_id FROM organizations ORDER BY id", "brands": "SELECT id, name, policy::text FROM brands ORDER BY id",
-                      "roles": "SELECT id, org_id, name FROM roles ORDER BY id", "links": "SELECT operator_id, role_id FROM operator_roles ORDER BY 1, 2"}.items():
-        out[name] = [tuple(r) for r in (await db.execute(text(sql))).all()]
-    return out
+async def users(db):
+    return [tuple(r) for r in (await db.execute(text("SELECT id, org_id, username, email, role, hashed_password, is_active FROM operators ORDER BY id"))).all()]
 
 
-async def test_a_fresh_database_gets_the_org_the_brand_and_the_operator_in_it(db):
-    await run_step()
-    org = (await db.execute(text("SELECT name, slug, status, brand_id FROM organizations WHERE id = 'org_fsb_demo'"))).first()
-    assert org[:3] == ("Federation of Small Businesses (demo)", "fsb-demo", "active") and org[3]
-    brand = (await db.execute(text("SELECT name, display_name, powered_by, hide_credits, status FROM brands WHERE id = :b"), {"b": org[3]})).first()
-    assert tuple(brand) == ("FSB", "Federation of Small Businesses", True, True, "active")
-    op = (await db.execute(text("SELECT org_id, role, is_active, email, must_change_password FROM operators WHERE username = 'fsbadmin'"))).all()
-    assert [tuple(r) for r in op] == [("org_fsb_demo", "Admin", True, "fsbadmin@outreach.com", False)]  # one account, not in org_default
-    admin = (await db.execute(text("SELECT r.name, r.org_id FROM operator_roles o JOIN roles r ON r.id = o.role_id JOIN operators p ON p.id = o.operator_id "
-                                   "WHERE p.username = 'fsbadmin'"))).all()
-    assert [tuple(r) for r in admin] == [("Admin", "org_fsb_demo")]
-    assert (await db.execute(text("SELECT count(*) FROM operators WHERE org_id = 'org_default'"))).scalar() == 0
+async def profile_name(db):
+    await db.rollback()  # a new transaction, so the organisation scope applies to it
+    with org_scope(D.ORG_ID):
+        name = (await db.execute(text("SELECT name FROM company_profile WHERE org_id = :o"), {"o": D.ORG_ID})).scalar()
+        await db.rollback()
+    return name
 
 
-async def test_the_brand_carries_the_fsb_policy(db):
-    await run_step()
-    policy = (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()
-    assert policy == TP.clean_policy(D.DEMO_POLICY)
-    assert policy["geo"]["districts"] == []  # FSB is national: no postcode lock
-    assert policy["exclusions"] == {"fsb": True, "extra": [], "locked": True} and policy["member_suppression"] is True
-    assert policy["restricted_sources"] == {"google": True, "apollo": True, "search_engines": True}
-    assert policy["signin"] == {"password": True, "google": False, "microsoft": True} and policy["screening"] == {"block_unscreened": True}
+# ---- no code makes the organisation or its logins -------------------------------------------------------
+async def test_a_fresh_database_gets_no_fsb_organisation_brand_or_login(db):
+    await run(M._ensure_fsb_demo_account)
+    await run(M._ensure_fsb_demo_operator)
+    await run(M._fsb_becomes_real_company)
+    assert (await db.execute(text("SELECT count(*) FROM organizations WHERE id <> 'org_default'"))).scalar() == 0
+    assert (await db.execute(text("SELECT count(*) FROM brands"))).scalar() == 0
+    assert (await db.execute(text("SELECT count(*) FROM operators"))).scalar() == 0
 
 
-async def test_the_demo_login_works_with_the_default_password_and_lands_in_the_demo_org(db, anon):
-    await run_step()
-    ok = await anon.post("/api/auth/login", json=LOGIN)
-    assert ok.status_code == 200
-    from app.core.security import decode_token
-
-    assert decode_token(ok.json()["access_token"], "access").get("org") == "org_fsb_demo"
-    by_name = await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": D.DEFAULT_PASSWORD})
-    assert by_name.status_code == 200
-    assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "wrong"})).status_code == 401
+def test_no_password_or_login_making_code_is_left():
+    for name in ("DEFAULT_PASSWORD", "DEFAULT_USER_PASSWORD", "ensure_demo_account", "ensure_demo_data", "demo_password", "user_password"):
+        assert not hasattr(D, name), name
+    ids = [i for i, _ in M.STEPS]
+    assert len(ids) == len(set(ids))
+    assert ids.index("2026_12_05_fsb_becomes_real_company") > ids.index("2026_12_01_fsb_demo_admin_rename_and_user")
 
 
-async def test_the_password_comes_from_the_environment_and_the_default_is_only_a_warned_fallback(db, anon, monkeypatch, caplog):
-    with caplog.at_level(logging.WARNING, logger="fsb_demo"):
-        await run_step()
-    assert "FSB_DEMO_PASSWORD is not set" in caplog.text and D.DEFAULT_PASSWORD not in caplog.text
-    monkeypatch.setenv("FSB_DEMO_PASSWORD", "Another-Secret-77")
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="fsb_demo"):
-        await run_step()
-    assert "Another-Secret-77" not in caplog.text and "FSB_DEMO_PASSWORD is not set" not in caplog.text
-    assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "Another-Secret-77"})).status_code == 200
-    assert (await anon.post("/api/auth/login", json=LOGIN)).status_code == 401
+# ---- the demo becomes FSB's real company ----------------------------------------------------------------
+async def test_the_demo_organisation_becomes_the_real_company_and_its_users_stay_as_they_are(db):
+    await fsb_org(db)
+    before = await users(db)
+    await run(M._fsb_becomes_real_company)
+    org = (await db.execute(text("SELECT name, slug, brand_id, status FROM organizations WHERE id = :i"), {"i": D.ORG_ID})).first()
+    assert tuple(org) == (D.REAL_NAME, D.REAL_SLUG, "brd_fsb", "active")
+    assert await profile_name(db) == D.REAL_NAME
+    assert await users(db) == before  # same ids, organisation, usernames, e-mails, roles, passwords and status
 
 
-async def test_a_real_user_with_a_similar_name_or_email_is_never_modified(db):
-    from app.core.security import hash_password
+async def test_running_it_again_changes_nothing(db):
+    await fsb_org(db)
+    from app.database import engine
 
-    pw = hash_password("Real-pass-123")
-    for i, (user, email) in enumerate([("fsboutreach", "fsboutreach@fsb.org.uk"), ("fsbdemo2", "fsbdemo@outreach.com.au"), ("someone", "fsbdemo@outreach.co"),
-                                       ("op_fsbdemo_like", "other@example.com")]):
-        await db.execute(text("INSERT INTO operators (id, org_id, username, name, role, email, hashed_password, is_active) "
-                              "VALUES (:i, 'org_default', :u, 'Real', 'Operator', :e, :p, TRUE)"), {"i": f"op_real{i}", "u": user, "e": email, "p": pw})
+    async with engine.begin() as conn:
+        first = await D.become_real_company(conn)
+    async with engine.begin() as conn:
+        second = await D.become_real_company(conn)
+    assert first == {"name": True, "slug": True, "profile": True} and second == {"name": False, "slug": False, "profile": False}
+
+
+async def test_a_name_or_slug_someone_chose_is_kept(db):
+    await fsb_org(db, name="FSB Brighton", slug="fsb-brighton")
+    await db.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_other', 'Other', 'fsb', 'active')"))
     await db.commit()
-    real = lambda snap: [r for r in snap["operators"] if r[0].startswith("op_real")]  # noqa: E731
-    first = real(await snapshot(db))
-    await run_step()
-    after = await snapshot(db)
-    assert real(after) == first and len(first) == 4
-    assert [r[1] for r in after["operators"] if r[2] == "fsbadmin"] == ["org_fsb_demo"]
+    await run(M._fsb_becomes_real_company)
+    assert tuple((await db.execute(text("SELECT name, slug FROM organizations WHERE id = :i"), {"i": D.ORG_ID})).first()) == ("FSB Brighton", "fsb-brighton")
+    assert await profile_name(db) == "FSB Brighton"
 
 
-async def test_an_address_held_by_another_user_is_not_taken_over(db, anon):
-    from app.core.security import hash_password
-
-    await db.execute(text("INSERT INTO operators (id, org_id, username, name, role, email, hashed_password, is_active) "
-                          "VALUES ('op_owner', 'org_default', 'owner', 'Owner', 'Admin', 'fsbadmin@outreach.com', :p, TRUE)"), {"p": hash_password("Owner-pass-123")})
+async def test_the_slug_stays_when_another_organisation_holds_fsb(db):
+    await fsb_org(db)
+    await db.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_other', 'Other', 'fsb', 'active')"))
     await db.commit()
-    await run_step()
-    row = (await db.execute(text("SELECT email, org_id FROM operators WHERE username = 'fsbadmin'"))).first()
-    assert tuple(row) == (None, "org_fsb_demo")
-    assert (await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": D.DEFAULT_PASSWORD})).status_code == 200
-    assert (await anon.post("/api/auth/login", json={"username": D.EMAIL, "password": "Owner-pass-123"})).status_code == 200
-
-
-async def test_the_older_demo_account_in_org_default_moves_into_the_demo_org(db, anon):
-    from app.core.accounts import assign_roles, ensure_system_roles
-    from app.core.security import hash_password
-    from app.models.models import AppSetting, Operator
-
-    roles = await ensure_system_roles(db, "org_default")
-    old = Operator(id="op_fsboutreach", org_id="org_default", username="fsbdemo", name="FSB Demo", role="Admin", email="fsbdemo@outreach.com",
-                   hashed_password=hash_password("Old-pass-123"), is_active=True)
-    db.add(old)
-    db.add(AppSetting(id="leadlists:org_default", data={"lists": [{"id": "lst_1", "name": "Mine", "ids": []}]}))
-    await db.flush()
-    await assign_roles(db, old, [roles["Admin"].id])
-    await db.commit()
-    await run_step()
-    ops = (await db.execute(text("SELECT id, org_id FROM operators WHERE username = 'fsbadmin'"))).all()
-    assert [tuple(r) for r in ops] == [("op_fsboutreach", "org_fsb_demo")]
-    assert (await db.execute(text("SELECT r.org_id FROM operator_roles o JOIN roles r ON r.id = o.role_id WHERE o.operator_id = 'op_fsboutreach'"))).scalars().all() == ["org_fsb_demo"]
-    assert (await db.execute(text("SELECT data::text FROM app_settings WHERE id = 'leadlists:org_default'"))).scalar()  # org_default keeps its data
-    assert (await anon.post("/api/auth/login", json=LOGIN)).status_code == 200
-
-
-async def test_running_it_twice_changes_nothing(db):
-    await run_step()
-    first = await snapshot(db)
-    await run_step()
-    await run_step()
-    assert await snapshot(db) == first
-    assert len(first["brands"]) == 1
+    await run(M._fsb_becomes_real_company)
+    assert tuple((await db.execute(text("SELECT name, slug FROM organizations WHERE id = :i"), {"i": D.ORG_ID})).first()) == (D.REAL_NAME, D.DEMO_SLUG)
 
 
 async def test_a_failure_in_the_step_is_skipped_and_does_not_abort_the_startup_transaction(db, monkeypatch):
@@ -157,66 +124,36 @@ async def test_a_failure_in_the_step_is_skipped_and_does_not_abort_the_startup_t
     async def broken(conn):
         await conn.execute(text("SELECT * FROM table_that_does_not_exist"))
 
-    monkeypatch.setattr(M, "_fsb_demo_account", broken)
+    monkeypatch.setattr(D, "become_real_company", broken)
     async with engine.begin() as conn:
-        await M._ensure_fsb_demo_account(conn)  # logs a warning and carries on
+        await M._fsb_becomes_real_company(conn)  # logs a warning and carries on
         assert (await conn.execute(text("SELECT 1"))).scalar() == 1
-        await conn.execute(text("CREATE TABLE IF NOT EXISTS schema_migrations (id VARCHAR PRIMARY KEY, applied_at TIMESTAMP NOT NULL)"))
 
 
-async def test_the_old_step_is_a_recorded_no_op_so_it_cannot_put_the_demo_in_org_default(db):
-    from app.database import engine
+# ---- FSB's people keep signing in, and nobody is exempt from the lockout -------------------------------
+async def test_the_fsb_users_still_sign_in_with_their_own_password_after_the_move(db, anon):
+    await fsb_org(db)
+    await run(M._fsb_becomes_real_company)
+    for name in ("fsbadmin", "fsbuser"):
+        got = await anon.post("/api/auth/login", json={"username": name, "password": "Their-own-pass-1"})
+        assert got.status_code == 200, got.text
+        from app.core.security import decode_token
 
-    async with engine.begin() as conn:
-        await M._ensure_fsb_demo_operator(conn)
-    assert (await db.execute(text("SELECT count(*) FROM operators"))).scalar() == 0
-    ids = [i for i, _ in M.STEPS]
-    assert "2026_11_29_ensure_fsb_demo_operator" in ids and ids.index("2026_11_30_ensure_fsb_demo_account") > ids.index("2026_11_29_ensure_fsb_demo_operator")
-
-
-async def test_the_demo_has_no_free_credits_so_every_app_stays_locked_until_it_buys(db, anon):
-    await run_step()
-    assert await D.ensure_demo_data() is True
-    from app.services import credits as K
-
-    with org_scope("org_fsb_demo"):
-        from app.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as s:
-            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 0, "leadgen": 0, "scheduler": 0}
-    token = (await anon.post("/api/auth/login", json=LOGIN)).json()["access_token"]
-    got = await anon.get("/api/billing/access", headers={"Authorization": f"Bearer {token}"})
-    assert got.status_code == 200 and got.json()["has_active_plan"] == {"voice": False, "leadgen": False, "scheduler": False}
-    assert (await db.execute(text("SELECT hide_credits FROM brands WHERE name = :n"), {"n": D.BRAND_NAME})).scalar() is False
+        assert decode_token(got.json()["access_token"], "access").get("org") == D.ORG_ID
 
 
-async def test_the_old_free_starter_credits_are_taken_back_and_the_balance_is_shown(db):
-    from app.database import engine
-    from app.services import credits as K
+async def test_fsbadmin_is_locked_out_after_too_many_wrong_passwords_like_everyone_else(db, anon):
+    from app.api import auth as A
 
-    await run_step()
-    await db.execute(text("UPDATE brands SET hide_credits = TRUE WHERE name = :n"), {"n": D.BRAND_NAME})
-    await db.commit()
-    with org_scope("org_fsb_demo"):
-        from app.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as s:
-            for w in K.WALLETS:
-                await K.add_credits(s, w, 5000, source="grant", note="old", by="Demo setup", ref=D.STARTER_REF)
-            await s.commit()
-    async with engine.begin() as conn:
-        await M._fsb_no_free_credits(conn)
-    with org_scope("org_fsb_demo"):
-        async with AsyncSessionLocal() as s:
-            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 0, "leadgen": 0, "scheduler": 0}
-    assert (await db.execute(text("SELECT hide_credits FROM brands WHERE name = :n"), {"n": D.BRAND_NAME})).scalar() is False
+    A._FAILS.clear()
+    await fsb_org(db)
+    codes = [(await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": f"wrong-{i}"})).status_code for i in range(12)]
+    assert 429 in codes, codes
+    assert (await anon.post("/api/auth/login", json={"username": "fsbadmin", "password": "Their-own-pass-1"})).status_code == 429
+    A._FAILS.clear()
 
 
-async def test_the_data_step_does_nothing_when_the_org_does_not_exist(db):
-    assert await D.ensure_demo_data() is False
-
-
-# ---- the brand policy is applied to the demo organisation's searches -------------------------
+# ---- the FSB brand's rules still apply end to end, and to nobody else -----------------------------------
 def _rec(n, name, reg, postcode="BN1 1AA", status="Active", category="Private limited Company", sic="|43220|"):
     return B(id=f"b{n}", identity_hash=f"h{n}", name=name, registration_number=reg, postcode=postcode, status=status, company_category=category,
              sic_codes=sic, sic_text="x", sources=[], rank_score=0, region="Hove", industry="Plumbing")
@@ -230,47 +167,67 @@ async def _names(db, filters, org):
     return names
 
 
-async def test_the_fsb_policy_applies_to_the_demo_org_end_to_end_and_to_nobody_else(db):
+async def test_the_fsb_rules_apply_to_the_fsb_company_end_to_end_and_to_nobody_else(db):
     db.add_all([_rec(1, "Acme Plumbing Ltd", "01234567"), _rec(2, "Hope Charity Ltd", "01234568", postcode="BN1 2AB"),
                 _rec(3, "Hove Primary School Ltd", "01234569", postcode="BN3 3AA"), _rec(4, "Leeds Plumbing Ltd", "01234573", postcode="LS1 1AA"),
                 _rec(5, "Worthing Joinery Ltd", "01234574", postcode="BN11 1AA"), _rec(6, "Lewes Roofing Ltd", "01234575", postcode="BN7 1AA"),
                 _rec(7, "Gone Ltd", "01234576", status="Dissolved")])
     await db.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_plain', 'Plain', 'plain', 'active')"))
     await db.commit()
-    await run_step()
+    await fsb_org(db)
+    await run(M._fsb_becomes_real_company)
     TP.invalidate()
     wide = {"postcode_prefixes": ["BN", "LS"], "status": "any"}
-    demo = await _names(db, wide, "org_fsb_demo")
-    assert demo == ["Acme Plumbing Ltd", "Leeds Plumbing Ltd", "Lewes Roofing Ltd", "Worthing Joinery Ltd"]  # ordinary companies in every postcode; the charity and school are out
-    assert await _names(db, {"postcode_prefixes": ["BN1"], "status": "any"}, "org_fsb_demo") == ["Acme Plumbing Ltd"]  # the BN1 charity is not there
-    assert await _names(db, {"postcode_prefixes": ["BN3"], "status": "any"}, "org_fsb_demo") == []  # nor the BN3 school
-    assert await _names(db, {**wide, "fsb_exclusions": False}, "org_fsb_demo") == demo  # a client filter cannot switch it off
+    fsb = await _names(db, wide, D.ORG_ID)
+    assert fsb == ["Acme Plumbing Ltd", "Leeds Plumbing Ltd", "Lewes Roofing Ltd", "Worthing Joinery Ltd"]  # the charity and the school are out
+    assert await _names(db, {**wide, "fsb_exclusions": False}, D.ORG_ID) == fsb  # a client filter cannot switch it off
     plain = await _names(db, wide, "org_plain")
     assert {"Hope Charity Ltd", "Hove Primary School Ltd", "Leeds Plumbing Ltd", "Gone Ltd"} <= set(plain) and len(plain) == 7
-    with org_scope("org_fsb_demo"):
-        pol = await TP.effective(db, "org_fsb_demo")
+    with org_scope(D.ORG_ID):
+        pol = await TP.effective(db, D.ORG_ID)
         assert not pol.is_empty and pol.geo_districts == [] and pol.block_unscreened and pol.restricted("google")
         assert (await TP.effective(db, "org_plain")).is_empty
 
 
-async def run_geo_step():
-    from app.database import engine
-
-    async with engine.begin() as conn:
-        await M._fsb_all_postcodes(conn)
-
-
-async def test_an_older_bn_only_lock_is_cleared_but_a_lock_staff_chose_is_left_alone(db):
-    import json
-
-    await run_step()
-    old = json.dumps({**TP.clean_policy(D.DEMO_POLICY), "geo": {"districts": D.BN_DISTRICTS}})
-    await db.execute(text("UPDATE brands SET policy = CAST(:p AS JSON) WHERE name = 'FSB'"), {"p": old})
+async def test_the_fsb_company_adds_its_own_rule_on_top_of_the_brand_s(db):
+    db.add_all([_rec(1, "Acme Plumbing Ltd", "01234567"), _rec(4, "Leeds Plumbing Ltd", "01234573", postcode="LS1 1AA")])
     await db.commit()
-    await run_geo_step()
+    await fsb_org(db)
+    await db.execute(text("UPDATE organizations SET policy = CAST(:p AS JSON) WHERE id = :i"), {"p": json.dumps({"geo": {"districts": ["BN1"]}}), "i": D.ORG_ID})
+    await db.commit()
+    TP.invalidate()
+    with org_scope(D.ORG_ID):
+        pol = await TP.org_effective(db, D.ORG_ID)
+        await db.rollback()
+    assert pol.geo_districts == ["BN1"] and pol.restricted("google") and pol.data["exclusions"]["fsb"]
+
+
+# ---- the older data steps --------------------------------------------------------------------------------
+async def test_an_older_bn_only_lock_is_cleared_but_a_lock_staff_chose_is_left_alone(db):
+    await fsb_org(db, policy={**D.FSB_BRAND_POLICY, "geo": {"districts": D.BN_DISTRICTS}})
+    await run(M._fsb_all_postcodes)
     assert (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()["geo"]["districts"] == []
-    mine = json.dumps({**TP.clean_policy(D.DEMO_POLICY), "geo": {"districts": ["LS1"]}})
+    mine = json.dumps({**TP.clean_policy(D.FSB_BRAND_POLICY), "geo": {"districts": ["LS1"]}})
     await db.execute(text("UPDATE brands SET policy = CAST(:p AS JSON) WHERE name = 'FSB'"), {"p": mine})
     await db.commit()
-    await run_geo_step()
+    await run(M._fsb_all_postcodes)
     assert (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()["geo"]["districts"] == ["LS1"]
+
+
+async def test_the_old_free_starter_credits_are_taken_back_and_the_balance_is_shown(db):
+    from app.database import AsyncSessionLocal
+    from app.services import credits as K
+
+    await fsb_org(db)
+    await db.execute(text("UPDATE brands SET hide_credits = TRUE WHERE name = :n"), {"n": D.BRAND_NAME})
+    await db.commit()
+    with org_scope(D.ORG_ID):
+        async with AsyncSessionLocal() as s:
+            for w in K.WALLETS:
+                await K.add_credits(s, w, 5000, source="grant", note="old", by="Demo setup", ref=D.STARTER_REF)
+            await s.commit()
+    await run(M._fsb_no_free_credits)
+    with org_scope(D.ORG_ID):
+        async with AsyncSessionLocal() as s:
+            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 0, "leadgen": 0, "scheduler": 0}
+    assert (await db.execute(text("SELECT hide_credits FROM brands WHERE name = :n"), {"n": D.BRAND_NAME})).scalar() is False

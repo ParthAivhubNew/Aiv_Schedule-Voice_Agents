@@ -14,7 +14,6 @@ from app.core.tenancy import org_scope
 from app.main import app
 from app.models.models import AuditLog, BusinessRecord as B, LeadAccount, Operator, OperatorDataScope, OperatorRole, Role
 from app.services import data_access as DA
-from app.services import fsb_demo as D
 from app.services import tenant_policy as TP
 from tests.conftest import make_user
 
@@ -373,7 +372,7 @@ def test_a_fresh_database_still_starts():
     assert len(ids) == len(set(ids)) and "2026_12_01_operator_data_scope" in ids
 
 
-# ---- demo seeding --------------------------------------------------------------------------------------
+# ---- no logins made by code ---------------------------------------------------------------------------
 async def demo_step():
     from app.database import engine
 
@@ -386,99 +385,22 @@ async def ops(db):
     return [tuple(r) for r in (await db.execute(text("SELECT id, org_id, username, email FROM operators ORDER BY id"))).all()]
 
 
-async def test_the_old_demo_operator_is_renamed_in_place_without_a_duplicate(db):
+async def test_the_retired_demo_step_makes_no_organisation_and_no_login(db):
+    await demo_step()
+    assert await ops(db) == []
+    assert (await db.execute(text("SELECT count(*) FROM organizations WHERE id = 'org_fsb_demo'"))).scalar() == 0
+
+
+async def test_the_retired_demo_step_leaves_existing_fsb_users_exactly_as_they_are(db):
     from app.core.security import hash_password
 
     await db.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_fsb_demo', 'FSB', 'fsb-demo', 'active')"))
     await db.execute(text("INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, is_active) VALUES "
-                          "('op_fsboutreach', 'org_fsb_demo', 'fsbdemo', 'fsbdemo@outreach.com', 'Old', 'Admin', :p, TRUE), "
-                          "('op_bystander', 'org_default', 'fsbdemo2', 'bystander@example.com', 'By', 'Operator', :p, TRUE)"), {"p": hash_password("x-Old-pass-1")})
+                          "('op_fsbuser', 'org_fsb_demo', 'fsbuser', 'fsbuser@outreach.com', 'FSB User', 'FSB Operator', :p, TRUE), "
+                          "('op_real', 'org_default', 'fsbuser2', 'real@example.com', 'Real', 'Operator', :p, TRUE)"), {"p": hash_password("Their-own-pass-1")})
     await db.commit()
-    await demo_step()
-    got = await ops(db)
-    assert ("op_fsboutreach", "org_fsb_demo", "fsbadmin", "fsbadmin@outreach.com") in got
-    assert sum(1 for r in got if r[1] == "org_fsb_demo" and r[2] != "fsbuser") == 1 and ("op_bystander", "org_default", "fsbdemo2", "bystander@example.com") in got
     before = await ops(db)
+    hashes = (await db.execute(text("SELECT hashed_password FROM operators ORDER BY id"))).scalars().all()
     await demo_step()
-    assert await ops(db) == before  # nothing new on a second run
-    from app.core.security import verify_password
-
-    pw = (await db.execute(text("SELECT hashed_password FROM operators WHERE id = 'op_fsboutreach'"))).scalar()
-    assert verify_password(D.DEFAULT_PASSWORD, pw)[0]
-
-
-async def test_the_normal_user_uses_the_demo_default_password_when_none_is_set(db, caplog):
-    from app.core.security import verify_password
-
-    with caplog.at_level(logging.WARNING, logger="fsb_demo"):
-        await demo_step()
-    assert [r for r in await ops(db) if r[2] == "fsbuser"]
-    assert "FSB_DEMO_USER_PASSWORD is not set" in caplog.text and D.DEFAULT_USER_PASSWORD not in caplog.text  # warned, value never logged
-    pw = (await db.execute(text("SELECT hashed_password FROM operators WHERE username = 'fsbuser'"))).scalar()
-    assert verify_password(D.DEFAULT_USER_PASSWORD, pw)[0]
-
-
-async def test_the_normal_user_and_the_fsb_operator_role(db, monkeypatch):
-    from app.core.security import verify_password
-
-    monkeypatch.setenv("FSB_DEMO_USER_PASSWORD", "User-pass-123")
-    await demo_step()
-    row = (await db.execute(text("SELECT id, org_id, email, name, role, hashed_password FROM operators WHERE username = 'fsbuser'"))).first()
-    assert row[1:5] == ("org_fsb_demo", "fsbuser@outreach.com", "FSB User", "FSB Operator") and verify_password("User-pass-123", row[5])[0]
-    role = (await db.execute(text("SELECT id, is_admin, levels::text FROM roles WHERE org_id = 'org_fsb_demo' AND name = 'FSB Operator'"))).first()
-    assert role[1] is False
-    import json
-
-    levels = json.loads(role[2])
-    assert levels == {"leadgen": "full", "calling": "full", "scheduler": "full", "email": "full", "calcom": "view", "company": "view",
-                      "connections": "none", "team": "none", "analytics": "none", "process_logs": "none"}
-    assert (await db.execute(text("SELECT role_id FROM operator_roles WHERE operator_id = :i"), {"i": row[0]})).scalars().all() == [role[0]]
-    # the user can sign in, is not an admin, and never sees the admin screens
-    from app.api.auth import check_credentials  # noqa: F401
-
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as anon:
-        login = await anon.post("/api/auth/login", json={"username": "fsbuser", "password": "User-pass-123"})
-        assert login.status_code == 200, login.text
-        tok = login.json()["access_token"]
-    async with client(tok) as c:
-        assert (await c.get("/api/auth/me")).json()["is_admin"] is False
-        assert (await c.get("/api/org/data-access")).status_code == 403
-
-
-async def test_seeding_never_overwrites_an_edited_password_scope_or_role(db, monkeypatch):
-    from app.core.security import hash_password, verify_password
-
-    monkeypatch.setenv("FSB_DEMO_USER_PASSWORD", "User-pass-123")
-    await demo_step()
-    uid = (await db.execute(text("SELECT id FROM operators WHERE username = 'fsbuser'"))).scalar()
-    await db.execute(text("UPDATE operators SET hashed_password = :p, name = 'Renamed' WHERE id = :i"), {"p": hash_password("Changed-pass-9"), "i": uid})
-    await db.execute(text("UPDATE roles SET levels = CAST('{\"leadgen\": \"view\"}' AS JSON) WHERE id = :i"), {"i": D.USER_ROLE_ID})
-    await db.commit()
-    with org_scope("org_fsb_demo"):
-        await db.execute(text("INSERT INTO operator_data_scope (operator_id, org_id, districts, allow_export, allow_google) VALUES (:i, 'org_fsb_demo', CAST('[\"BN1\"]' AS JSON), FALSE, TRUE)"), {"i": uid})
-        await db.commit()
-    monkeypatch.setenv("FSB_DEMO_USER_PASSWORD", "Another-pass-5")
-    await demo_step()
-    row = (await db.execute(text("SELECT hashed_password, name FROM operators WHERE id = :i"), {"i": uid})).first()
-    assert verify_password("Changed-pass-9", row[0])[0] and row[1] == "Renamed"
-    assert (await db.execute(text("SELECT levels::text FROM roles WHERE id = :i"), {"i": D.USER_ROLE_ID})).scalar().replace(" ", "") == '{"leadgen":"view"}'
-    await db.rollback()
-    with org_scope("org_fsb_demo"):
-        scope = (await db.execute(text("SELECT districts::text, allow_export FROM operator_data_scope WHERE operator_id = :i"), {"i": uid})).first()
-        await db.rollback()
-    assert scope[0].replace(" ", "") == '["BN1"]' and scope[1] is False
-    assert len([r for r in await ops(db) if r[2] == "fsbuser"]) == 1
-
-
-async def test_seeding_leaves_real_users_alone(db, monkeypatch):
-    from app.core.security import hash_password
-
-    monkeypatch.setenv("FSB_DEMO_USER_PASSWORD", "User-pass-123")
-    await db.execute(text("INSERT INTO operators (id, org_id, username, email, name, role, hashed_password, is_active) VALUES "
-                          "('op_real', 'org_default', 'fsbuser', 'real@example.com', 'Real', 'Operator', :p, TRUE)"), {"p": hash_password("Real-pass-12")})
-    await db.commit()
-    before = (await db.execute(text("SELECT username, email, hashed_password, org_id FROM operators WHERE id = 'op_real'"))).first()
-    await demo_step()
-    after = (await db.execute(text("SELECT username, email, hashed_password, org_id FROM operators WHERE id = 'op_real'"))).first()
-    assert tuple(before) == tuple(after)
-    assert not [r for r in await ops(db) if r[1] == "org_fsb_demo" and r[2] == "fsbuser"]  # that username belongs to someone else, so no second one is made
+    assert await ops(db) == before
+    assert (await db.execute(text("SELECT hashed_password FROM operators ORDER BY id"))).scalars().all() == hashes  # no password is ever reset

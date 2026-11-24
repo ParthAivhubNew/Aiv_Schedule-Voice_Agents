@@ -2050,6 +2050,7 @@ async def get_model_pricing(request: Request):
 class ModelPriceBody(BaseModel):
     priceIn: float
     priceOut: float = 0.0
+    billing: str = ""  # lookups only: per_find | per_search; left out, it stays as it was
 
 
 @router.put("/model-pricing/{price_id}")
@@ -2059,7 +2060,7 @@ async def put_model_pricing(price_id: str, body: ModelPriceBody, request: Reques
     who = _admin_only(request)
     async with AsyncSessionLocal() as db:
         try:
-            out = await set_price(db, price_id, body.priceIn, body.priceOut, who.get("name") or who.get("email") or "")
+            out = await set_price(db, price_id, body.priceIn, body.priceOut, who.get("name") or who.get("email") or "", body.billing)
         except ValueError as err:
             raise HTTPException(status_code=404, detail=str(err))
         await db.commit()

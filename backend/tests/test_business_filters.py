@@ -127,9 +127,12 @@ def test_officer_names_are_split_and_only_current_officers_are_kept():
         {"name": "SMITH, John", "role": "director", "appointed_on": "2020-01-01"},
         {"name": "OLD, Person", "role": "director", "resigned_on": "2021-01-01"},
         {"name": "LEGAL, Corp Secretaries Ltd", "role": "corporate-secretary"},
+        {"name": "Acme Nominees Limited", "role": "director"},
         {"name": "AUDITOR, Alan", "role": "auditor"},
+        {"name": "SMITH, John", "role": "secretary"},
     ])
-    assert [o["name"] for o in got] == ["SMITH, John", "LEGAL, Corp Secretaries Ltd"]
+    # Only people to talk to: a firm acting as director or secretary is left out (since 2026-11-06), and one person with two roles is listed once.
+    assert [o["name"] for o in got] == ["SMITH, John"] and got[0]["role"] == "Director, Secretary"
     assert all(o["verified"] and o["source"] == "registry" for o in got)
 
 

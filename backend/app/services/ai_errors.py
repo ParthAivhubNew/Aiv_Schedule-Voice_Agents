@@ -35,9 +35,11 @@ CODES: Dict[str, str] = {
     # Staff only (never shown to customers).
     "BILL-01": "Call minutes we charged and Telnyx's billed minutes disagree for a month.",
     "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
+    "USR-07": "Your credits couldn't be checked just now, so a larger job was not started. Try again in a minute.",
+    "PRICE-01": "A paid provider is being used with no price set, so its cost counts as $0 in margins and reports. Set it on Model Pricing.",
     "BL-01": "Stripe's messages are arriving late or not at all: a company kept needing its plan or credits put right after renewals, or the webhook has gone quiet. The daily check already fixed what it found.",
 }
-STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert"}
+STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert", "PRICE-01": "alert"}
 ALERTS_KEY = "staff_alerts"
 MAX_ALERTS = 100
 EMAIL_EVERY = timedelta(minutes=30)  # one email per code and company in this time

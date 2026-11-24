@@ -247,13 +247,21 @@ async def check_credentials(db: AsyncSession, username: str, password: str, requ
     username = (username or "").strip()
     key = _fail_key(username, request)
     uname = (username or "").strip().lower()
-    if _locked(key) and uname not in ("fsbadmin", "fsbadmin@outreach.com"):
+    if _locked(key):  # no account is exempt: an exemption let one Admin password be guessed without limit
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
-    op = (await db.execute(
-        select(Operator).where(func.lower(Operator.username) == uname)
-    )).scalars().first()
+    # A sign-in name must point at exactly one account. If two accounts ever share it (usernames are unique everywhere, but older data
+    # or an import could break that), nobody is signed in to "the first one found": the person is asked to use the other name.
+    named = (await db.execute(select(Operator).where(func.lower(Operator.username) == uname).limit(2))).scalars().all()
+    if len(named) > 1:
+        raise HTTPException(status_code=409, detail={"message": "More than one account uses this username. Sign in with your e-mail address.",
+                                                     "code": "ambiguous_login"})
+    op = named[0] if named else None
     if not op and "@" in uname:
-        op = (await db.execute(select(Operator).where(func.lower(Operator.email) == uname))).scalars().first()
+        mailed = (await db.execute(select(Operator).where(func.lower(Operator.email) == uname).limit(2))).scalars().all()
+        if len(mailed) > 1:
+            raise HTTPException(status_code=409, detail={"message": "More than one account uses this e-mail address. Sign in with your username.",
+                                                         "code": "ambiguous_login"})
+        op = mailed[0] if mailed else None
     ok, upgrade = verify_password(password or "", op.hashed_password if op else None) if op else (False, False)
     if not op or not ok:
         _FAILS[key].append(time.time())
@@ -763,6 +771,9 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
         raise HTTPException(status_code=400, detail="Name and username are required.")
     if (await db.execute(select(Operator).where(func.lower(Operator.username) == username))).scalars().first():
         raise HTTPException(status_code=400, detail="This username is taken.")
+    email = (body.email or "").strip().lower()
+    if email and (await db.execute(select(Operator).where((func.lower(Operator.email) == email) | (func.lower(Operator.username) == email)))).scalars().first():
+        raise HTTPException(status_code=400, detail="This e-mail address is already used by another account.")
     roles_by_name = await ensure_system_roles(db, ctx["org_id"])
     role_ids = body.role_ids or [roles_by_name.get((body.role or "Operator").title(), roles_by_name["Operator"]).id]
     roles = await _check_role_ids(db, role_ids, ctx["org_id"])

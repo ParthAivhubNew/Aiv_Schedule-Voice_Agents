@@ -1092,6 +1092,11 @@ def _order(sort: str, f: Optional[Dict[str, Any]] = None, broadened: bool = Fals
         # Fullest profiles first even inside a trade search: the tier (Full / Partial / Basic) leads, so each tier is one block
         # under one divider, and the main-activity companies come first within it.
         tier = func.floor(func.coalesce(B.rank_score, 0) / TIER_STEP).desc()
+        if broadened or (f or {}).get("include_secondary_activity"):
+            # Side activities are in the list (asked for, or taken in because the trade was thin): every company whose main activity is
+            # the trade comes before any that only lists it on the side, however full its profile, so "accountants" never opens with a
+            # car dealer. Each part keeps its tier blocks (the list shows a divider again where a tier repeats).
+            return first + [tier, B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
         return [tier] + first + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
     return first + [B.rank_score.desc().nullslast(), B.incorporated_on.desc().nullslast(), B.id]
 

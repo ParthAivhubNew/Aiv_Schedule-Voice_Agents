@@ -1012,14 +1012,8 @@ async def _ensure_fsb_demo_operator(conn: AsyncConnection) -> None:
 
 
 async def _ensure_fsb_demo_account(conn: AsyncConnection) -> None:
-    """Makes sure the FSB demo account exists in its own organisation (see services/fsb_demo.py). It runs inside a savepoint: a problem
-    here is logged and skipped, because a failed statement in the startup transaction would otherwise stop the whole app from starting
-    (every migration shares that transaction)."""
-    try:
-        async with conn.begin_nested():
-            await _fsb_demo_account(conn)
-    except Exception as err:
-        logger.warning(f"FSB demo account was not set up: {err}")
+    """Retired: it made the FSB demo organisation and its logins with passwords written in the code. Kept as a recorded no-op so the step
+    names stay in schema_migrations; a new database gets no FSB organisation and no login made by code (plan 12, B6)."""
 
 
 async def _fsb_all_postcodes(conn: AsyncConnection) -> None:
@@ -1044,10 +1038,43 @@ async def _fsb_no_free_credits(conn: AsyncConnection) -> None:
         logger.warning(f"FSB starter credits were not taken back: {err}")
 
 
-async def _fsb_demo_account(conn: AsyncConnection) -> None:
-    from app.services import fsb_demo
+async def _fsb_becomes_real_company(conn: AsyncConnection) -> None:
+    """The FSB organisation stops being a demo: "Federation of Small Businesses (demo)" becomes "Federation of Small Businesses" (see
+    services/fsb_demo.become_real_company). Users, roles, data and credits stay as they are. Savepointed, never stops the startup."""
+    try:
+        async with conn.begin_nested():
+            from app.services import fsb_demo
 
-    await fsb_demo.ensure_demo_account(conn)
+            await fsb_demo.become_real_company(conn)
+    except Exception as err:
+        logger.warning(f"FSB organisation was not renamed: {err}")
+
+
+async def _operator_username_unique(conn: AsyncConnection) -> None:
+    """One account per sign-in name across every company (it was unique only within a company, and sign-in took the first match).
+    Savepointed: if older data already holds a duplicate, the index is skipped and sign-in still refuses the shared name (api/auth.py)."""
+    try:
+        async with conn.begin_nested():
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_operators_username_ci ON operators (lower(username))"))
+    except Exception as err:
+        logger.warning(f"Usernames are not unique across companies yet, so the index was not made: {err}")
+
+
+async def _provider_price_billing(conn: AsyncConnection) -> None:
+    """Whether a lookup vendor charges only for a find (per_find, what the cost has always assumed) or for every search (per_search)."""
+    await conn.execute(text("ALTER TABLE provider_prices ADD COLUMN IF NOT EXISTS billing VARCHAR DEFAULT 'per_find'"))
+
+
+async def _per_request_lookups(conn: AsyncConnection) -> None:
+    """Web search, Google Places, the Telnyx number lookup and TPS screening charge for every request, found or not: say so on Model
+    Pricing (the e-mail finders stay per find, which is how their plans charge)."""
+    await conn.execute(text("UPDATE provider_prices SET billing = 'per_search' WHERE kind = 'lookup' "
+                            "AND provider IN ('tavily', 'google_places', 'telnyx_lookup', 'provero_tps') AND coalesce(billing, 'per_find') = 'per_find'"))
+
+
+async def _organization_policy(conn: AsyncConnection) -> None:
+    """Each company's own rules (services/tenant_policy.py), combined with its brand's. Empty means no company rules."""
+    await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS policy JSON"))
 
 
 async def _operator_data_scope(conn: AsyncConnection) -> None:
@@ -1145,7 +1172,12 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_02_fsb_all_postcodes", _fsb_all_postcodes),
     ("2026_12_03_role_is_active", _role_is_active),
     ("2026_12_04_fsb_no_free_credits", _fsb_no_free_credits),
-    ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # renames fsbdemo to fsbadmin in place; adds the normal user when its password is set
+    ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # retired with it: a recorded no-op
+    ("2026_12_05_fsb_becomes_real_company", _fsb_becomes_real_company),
+    ("2026_12_06_organization_policy", _organization_policy),
+    ("2026_12_07_operator_username_unique", _operator_username_unique),
+    ("2026_12_08_provider_price_billing", _provider_price_billing),
+    ("2026_12_09_per_request_lookups", _per_request_lookups),
 ]
 
 

@@ -29,7 +29,7 @@ async def seed_database():
         
     async with AsyncSessionLocal() as db:
         # Check if already initialized
-        # The demo organisation's operator is made by a startup step that runs first; it must not count as "already initialised".
+        # Users of the FSB organisation (a customer that older versions made at start-up) do not count as "already initialised".
         res = await db.execute(select(Operator).where(func.coalesce(Operator.org_id, "") != "org_fsb_demo"))
         if res.scalars().first():
             return
@@ -54,7 +54,7 @@ async def seed_database():
         )
         db.add(admin)
 
-        # The FSB demo account is not seeded here: it lives in its own organisation (services/fsb_demo.py, made by a startup step).
+        # No customer or demo login is seeded here or anywhere else at start-up (plan 12, B6).
         
         # 2. Default Company Profile
         profile = CompanyProfile(

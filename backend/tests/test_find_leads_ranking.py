@@ -40,6 +40,7 @@ def _fresh_caches():
     lead_accounts._PAGE_CACHE.clear()
     BR._RANKING[0] = 0.0
     BR._TOTALS.clear()
+    BR._COMPLETE[0], BR._COMPLETE[1] = 0.0, []  # the complete companies are kept for 20 minutes: never carry another test's ids over
     yield
 
 
@@ -81,7 +82,7 @@ async def test_best_match_puts_full_profiles_and_big_names_first_and_counts_the_
         assert [x["profile"] for x in out["companies"]] == ["full", "full", "partial", "basic"]
         assert out["total"] == 4
         summary = (await c.post("/api/leads/search/summary", json={"filters": {"towns": ["Leeds"]}})).json()
-        assert summary["tiers"] == {"full": 2, "partial": 1, "basic": 1} and summary["total"] == 4
+        assert summary["tiers"] == {"full": 2, "partial": 1, "basic": 1, "capped": False} and summary["total"] == 4
         newest = await _search(c, sort="newest")
         assert [x["name"] for x in newest["companies"]] == ["Tiny Cafe Ltd", "Half Cafe Ltd", "Mid Cafe Ltd", "Big Cafe Group PLC"]
         by_name = await _search(c, sort="name")
@@ -135,7 +136,9 @@ async def test_exclude_filters_remove_matches_without_losing_rows_with_empty_fie
         out = await _search(c, filters={"not_keyword": ["Tiny"], "not_company_category": ["public limited"]})
         assert sorted(x["name"] for x in out["companies"]) == ["Half Cafe Ltd", "Mid Cafe Ltd"]
         assert any("Not about" in ch for ch in out["chips"])
-        assert (await _search(c, filters={"not_towns": ["Leeds"]}))["total"] == 0
+        # Every company is in Leeds, so leaving Leeds out fits nothing: the closest companies are shown, and it says what was given up.
+        none_left = await _search(c, filters={"not_towns": ["Leeds"]})
+        assert none_left["relaxed"] == ["leave-out filters"] and "closest" in none_left["broadened_note"]
 
 
 @pytest.mark.db
@@ -168,7 +171,7 @@ async def test_people_tab_lists_registry_people_and_says_which_companies_still_n
 
 
 @pytest.mark.db
-async def test_opening_with_no_filters_starts_on_software_and_a_filter_lists_the_rest_best_first(db):
+async def test_opening_with_no_filters_lists_complete_trading_companies_first_then_every_other_company(db):
     await _seed(db)
     soft = "62012 - Business and domestic software development"
     await BR.bulk_upsert(db, source_id="ds_ch", rows=[_row("201", "Brightcode Software Ltd", "05/05/2021", sic_text=soft, industry=soft)])
@@ -178,11 +181,13 @@ async def test_opening_with_no_filters_starts_on_software_and_a_filter_lists_the
         r = await c.post("/api/leads/search", json={"filters": {}})
         assert r.status_code == 200, r.text
         out = r.json()
-        assert [x["name"] for x in out["companies"]] == ["Brightcode Software Ltd"]  # not the cafes that merely have the most filled-in fields
-        assert any("Starting with software companies" in chip for chip in out["chips"])
-        assert out["total_all"] is None  # only counted separately when there are more than 10,000
+        names = [x["name"] for x in out["companies"]]
+        # The whole register as one list: the trading companies with a full record and their own website first, then the rest, best first.
+        assert names[:2] == ["Big Cafe Group PLC", "Mid Cafe Ltd"]
+        assert sorted(names) == sorted(["Big Cafe Group PLC", "Mid Cafe Ltd", "Half Cafe Ltd", "Tiny Cafe Ltd", "Brightcode Software Ltd"])  # no one shown twice or left out
+        assert out["total"] == 5 and out["total_all"] is None  # only counted separately when there are more than 10,000
         cafes = (await c.post("/api/leads/search", json={"filters": {"towns": ["Leeds"]}})).json()
-        assert cafes["companies"][0]["name"] == "Big Cafe Group PLC" and not any("Starting with software" in chip for chip in cafes["chips"])
+        assert cafes["companies"][0]["name"] == "Big Cafe Group PLC"
         assert (await c.post("/api/leads/people/search", json={"filters": {}})).status_code == 200
 
 
@@ -300,7 +305,7 @@ async def test_the_opening_list_is_ready_before_anyone_asks(db):
     _, token = await make_user(db, "fl9", "Admin", org_id="org_acme")
     async with _client(token) as c:
         out = (await c.post("/api/leads/search", json={"filters": {}, "limit": 25})).json()
-        assert out["companies"][0]["name"] == "Brightcode Software Ltd" and out["timing_ms"] is not None
+        assert out["companies"][0]["name"] == "Big Cafe Group PLC" and out["timing_ms"] is not None  # the best complete trading company leads
         assert "saved" in out["companies"][0]  # saved marks are still worked out for this organisation
 
 
@@ -314,7 +319,7 @@ async def test_an_empty_register_is_never_remembered_as_the_answer(db):
     await _seed_software(db)
     _, token = await make_user(db, "fl10", "Admin", org_id="org_acme")
     async with _client(token) as c:
-        assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 2  # the opening list starts on software
+        assert (await c.post("/api/leads/search", json={"filters": {}})).json()["total"] == 6  # every company, not the empty answer from before the import
 
 
 def test_only_a_real_shaped_uk_phone_is_kept_from_the_web():

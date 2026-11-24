@@ -107,8 +107,17 @@ def configured_key_is_public() -> bool:
 
 
 async def resolve_signing_key() -> None:
-    """Use SECRET_KEY when it is a real secret; otherwise a random key stored in app_settings."""
+    """Use SECRET_KEY when it is a real secret; otherwise a random key stored in app_settings.
+    The test copy (core/test_copy.py) shares the live SECRET_KEY to open stored keys, so it signs with a key derived from it instead:
+    a live sign-in never works in the copy, and a copy sign-in never works live."""
     if not configured_key_is_public():
+        from app.core import test_copy
+
+        if test_copy.on():
+            import hashlib
+
+            set_signing_key(hashlib.sha256((settings.SECRET_KEY + ":test-copy-signing").encode()).hexdigest())
+            return
         set_signing_key(settings.SECRET_KEY)
         return
     from sqlalchemy.future import select

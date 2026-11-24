@@ -65,8 +65,14 @@ async def test_saving_to_a_list_is_only_proposed_never_done(db, fakes):
     async with _client(token) as c:
         r = (await c.post("/api/leads/assistant/ask", json={"message": "save cafes in Leeds to a list called Leeds cafes"})).json()
         p = r["proposals"][0]
-        assert p["kind"] == "add_to_list" and p["params"]["list_name"] == "Leeds cafes" and p["params"]["how_many"] == 200 and p["params"]["filters"]
+        # 500 asked: never more than 200 at once, and never more than the search found.
+        assert p["kind"] == "add_to_list" and p["params"]["list_name"] == "Leeds cafes" and p["params"]["filters"]
+        total = p["params"]["total"]
+        assert p["params"]["how_many"] == (min(200, total) if total else 200)
         assert (await db.execute(select(LeadAccount))).scalars().all() == []  # nothing was saved: the person confirms on screen
+    from app.api import lead_assistant as LA
+
+    assert LA.save_proposal("p0", "Big", {"towns": ["Leeds"]}, {"total": 5000, "top": []}, 500)["params"]["how_many"] == 200
 
 
 async def test_a_check_is_proposed_for_a_real_list_and_a_made_up_one_is_not(db, fakes):

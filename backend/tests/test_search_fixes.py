@@ -143,8 +143,6 @@ async def test_the_accountants_in_rg2_request_returns_accountants_only(db):
 
 @pytest.mark.db
 async def test_the_assistant_lists_the_number_asked_for_and_never_drops_the_trade(db):
-    from types import SimpleNamespace
-
     from app.api import lead_assistant as LA
     from app.models.models import BusinessRecord
 
@@ -158,7 +156,7 @@ async def test_the_assistant_lists_the_number_asked_for_and_never_drops_the_trad
     assert all("Taxi" not in c["name"] for c in res["top"])
     assert len((await LA._run_search(db, {"sector": ["accounting"], "postcode_prefixes": ["RG2"]}))["top"]) == LA.TOP  # no number asked: a short preview
 
-    turn = LA._Turn(SimpleNamespace(web_search=False, filters=None), [])
+    turn = LA._Turn(LA.AskIn(message="find", web_search=False), [])  # the real request, so a new field never breaks the test
     await LA._tool_search(db, turn, {"sector": ["accounting"], "postcode_prefixes": ["RG2"], "limit": 5})
     first = turn.found
     await LA._tool_search(db, turn, {"postcode_prefixes": ["RG2"]})  # a second round that lost the trade
@@ -305,8 +303,6 @@ async def test_accountants_in_rg2_are_companies_whose_main_activity_is_accountin
 
 @pytest.mark.db
 async def test_a_thin_trade_search_takes_in_side_activities_and_says_so(db):
-    from types import SimpleNamespace
-
     from app.api import lead_assistant as LA
     from app.services import lead_filters
 
@@ -325,7 +321,7 @@ async def test_a_thin_trade_search_takes_in_side_activities_and_says_so(db):
 
     res = await LA._run_search(db, {**filters, "limit": 20})
     assert res["total"] == 5 and len(res["top"]) == 5 and res["broadened"] is True
-    turn = LA._Turn(SimpleNamespace(web_search=False, filters=None), [])
+    turn = LA._Turn(LA.AskIn(message="find", web_search=False), [])  # the real request, so a new field never breaks the test
     await LA._tool_search(db, turn, {**filters, "limit": 20})
     assert any("side activity" in n and "Tell the person" in n for n in turn.notes)
 

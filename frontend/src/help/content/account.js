@@ -100,10 +100,10 @@ export const accountDoc = {
           type: "table",
           headers: ["App", "Action", "Credits"],
           rows: [
-            ["Voice", "A call, per minute", "1 per minute"],
+            ["Voice", "A call, per minute", "1 per minute (2 on a premium AI engine or voice)"],
             ["Voice", "A WhatsApp message sent", "1 per message"],
             ["Voice", "A written transcript and summary of a call you made from the browser", "1 per minute of call"],
-            ["Voice", "A phone number, per month", "1 per number a month"],
+            ["Voice", "A phone number, per month", "15 per number a month"],
             ["Voice", "Setting up a number", "5 per number"],
             ["Voice", "Checking imported phone numbers", "1 per 5 numbers"],
             ["Leads", "Researching a lead", "5 per lead"],

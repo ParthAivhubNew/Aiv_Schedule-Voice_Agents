@@ -1,6 +1,9 @@
-"""What an organisation's brand policy switches on, and the member list it hides from every search.
+"""An organisation's rules (its brand's combined with its own), the company's own rules, and the member list hidden from every search.
 
 GET    /org/policy                what is on for this account (read-only; any signed-in user; no lists, nothing secret)
+GET    /org/rules                 each level's rules: the brand's (read-only here), the company's own, and the combined result (organisation admin)
+PUT    /org/rules                 replace the company's own rules (organisation admin). They can only add to the brand's; refused with the
+                                  reasons when an area is outside the brand's areas or no sign-in method would be left. Every save is audited
 GET    /org/member-suppression    how many company numbers are hidden, and a sample (organisation admin; only when the policy has member suppression)
 POST   /org/member-suppression    add numbers: a CSV or JSON file (multipart field "file"), or a JSON body {"numbers": [...]} / a plain JSON list.
                                   ?replace=true clears the list first
@@ -44,7 +47,7 @@ def _admin(request: Request) -> Dict[str, Any]:
 async def _need_suppression(db: AsyncSession, ctx: Dict[str, Any]) -> TP.Policy:
     pol = await TP.effective(db, ctx["org_id"])
     if not pol.suppression_on:
-        raise HTTPException(status_code=404, detail="Member suppression is not switched on for this account.")
+        raise HTTPException(status_code=404, detail="Member suppression is not switched on for this account. An admin can switch it on in your company's rules.")
     return pol
 
 
@@ -97,6 +100,51 @@ async def my_policy(request: Request, db: AsyncSession = Depends(get_db)):
     out = (await TP.org_effective(db, ctx["org_id"])).summary()
     out["data_access"] = (await DA.resolve(db, ctx["org_id"], ctx["operator_id"])).payload() if ctx.get("operator_id") and ctx.get("type") != "api_key" else DA.OPEN.payload()
     return out
+
+
+def _rules_admin(request: Request) -> Dict[str, Any]:
+    ctx = current(request)
+    if ctx.get("type") == "api_key" or not ctx.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Only an account admin can see or change your company's rules.")
+    return ctx
+
+
+async def _rules_view(db: AsyncSession, org_id: str) -> Dict[str, Any]:
+    lv = await TP.levels(db, org_id)
+    combined = TP.merge_policy(lv["brand"] or TP.default_policy(), lv["company"])
+    return {"brand": lv["brand"], "brandName": lv["brandName"], "company": lv["company"], "combined": combined,
+            "summary": TP.Policy(org_id, lv["brandId"], merged=combined).summary()}
+
+
+@router.get("/rules")
+async def get_rules(request: Request, db: AsyncSession = Depends(get_db)):
+    ctx = _rules_admin(request)
+    return await _rules_view(db, ctx["org_id"])
+
+
+@router.put("/rules")
+async def put_rules(body: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    """Replaces the company's own rules with the body (the policy shape; anything left out takes its default, which restricts nothing)."""
+    from app.models.models import Organization
+
+    ctx = _rules_admin(request)
+    org_id = ctx["org_id"]
+    lv = await TP.levels(db, org_id)
+    company = TP.clean_policy(body)
+    problems = TP.company_policy_problems(lv["brand"] or TP.default_policy(), company)
+    if problems:
+        raise HTTPException(status_code=400, detail={"message": " ".join(problems), "problems": problems, "code": "rules_conflict"})
+    org = await db.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation not found.")
+    before = lv["company"]
+    org.policy = None if company == TP.default_policy() else company
+    if before != company:
+        await audit.record(db, "policy.changed", target=f"org:{org_id}", detail={"level": "company", "before": before, "after": company},
+                           actor_id=ctx.get("operator_id", ""), actor_name=ctx.get("email") or ctx.get("name") or "")
+    await db.commit()
+    TP.invalidate(org_id)
+    return await _rules_view(db, org_id)
 
 
 @router.get("/member-suppression")

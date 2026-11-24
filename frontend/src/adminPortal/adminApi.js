@@ -168,7 +168,7 @@ export const adminApi = {
   setAssistantFeedbackStatus: (id, status) => request(`/assistant-feedback/${q(id)}`, { method: "PUT", body: { status } }),
   saveMeetingApp: (provider, body) => request(`/meeting-apps/${q(provider)}`, { method: "PUT", body }),
   modelPricing: () => request("/model-pricing"),
-  saveModelPrice: (id, priceIn, priceOut) => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut } }),
+  saveModelPrice: (id, priceIn, priceOut, billing = "") => request(`/model-pricing/${q(id)}`, { method: "PUT", body: { priceIn, priceOut, billing } }),
   modelPricingMonthlyCost: (month) => request(`/model-pricing/monthly-cost?month=${q(month)}`),
   complianceNotice: () => request("/compliance/notice"),
   saveComplianceNotice: (body) => request("/compliance/notice", { method: "PUT", body }),

@@ -246,7 +246,7 @@ async def start(db, *, user_id: str, to: str, from_number: str, lead_id: str = "
             raise HumanCallError(402, why, "NO_CREDIT")
 
     call_id = f"call_{uuid.uuid4().hex[:16]}"
-    ok, why, secs = await K.reserve_call(db, call_id)
+    ok, why, secs = await K.reserve_call(db, call_id, item="voice_minute")  # a person calling: the standard minute
     if not ok:
         raise HumanCallError(402, why, "NO_CREDIT")
     credential_id = ""

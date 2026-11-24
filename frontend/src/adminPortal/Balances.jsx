@@ -234,11 +234,11 @@ function ModelPricing() {
   const [drafts, setDrafts] = useState({});
 
   const items = data?.items || [];
-  const draftOf = (it) => ({ priceIn: it.priceIn, priceOut: it.priceOut, ...(drafts[it.id] || {}) });
+  const draftOf = (it) => ({ priceIn: it.priceIn, priceOut: it.priceOut, billing: it.billing || "", ...(drafts[it.id] || {}) });
   const set = (id, field, value) => setDrafts((d) => ({ ...d, [id]: { ...d[id], [field]: value } }));
   const save = (it) => {
     const d = draftOf(it);
-    run(() => adminApi.saveModelPrice(it.id, parseFloat(d.priceIn) || 0, parseFloat(d.priceOut) || 0), "Saved.");
+    run(() => adminApi.saveModelPrice(it.id, parseFloat(d.priceIn) || 0, parseFloat(d.priceOut) || 0, it.kind === "lookup" ? d.billing : ""), "Saved.");
   };
 
   return (
@@ -265,7 +265,7 @@ function ModelPricing() {
                   <th style={{ padding: "10px 16px" }}>Model</th>
                   <th style={{ padding: "10px 16px" }}>Kind</th>
                   <th style={{ padding: "10px 16px" }}>Price in / unit</th>
-                  <th style={{ padding: "10px 16px" }}>Price out (LLM)</th>
+                  <th style={{ padding: "10px 16px" }}>Price out (LLM) / charged</th>
                   <th style={{ padding: "10px 16px" }}>Status</th>
                   <th style={{ padding: "10px 16px" }} />
                 </tr>
@@ -284,10 +284,19 @@ function ModelPricing() {
                       <td style={{ padding: "10px 16px" }}>
                         {it.kind === "llm" ? (
                           <input type="number" step="0.0001" value={d.priceOut} onChange={(e) => set(it.id, "priceOut", e.target.value)} style={{ ...input, width: 110 }} />
+                        ) : it.kind === "lookup" ? (
+                          // From the vendor's contract: does a search that finds nothing cost us too?
+                          <select value={d.billing || "per_find"} onChange={(e) => set(it.id, "billing", e.target.value)} style={{ ...input, width: 150 }} aria-label={`How ${it.provider} charges`}>
+                            <option value="per_find">Per find only</option>
+                            <option value="per_search">Every search</option>
+                          </select>
                         ) : <span style={{ color: C.slate }}>—</span>}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
                         {it.confirmed ? <Pill tone="green">Priced</Pill> : <Pill tone="amber">Needs a price</Pill>}
+                        {!it.confirmed && it.unpricedCalls30d > 0 ? (
+                          <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>{it.unpricedCalls30d.toLocaleString()} calls in 30 days counted as $0</div>
+                        ) : null}
                       </td>
                       <td style={{ padding: "10px 16px" }}>
                         <button type="button" style={btn(false)} onClick={() => save(it)}>Save</button>

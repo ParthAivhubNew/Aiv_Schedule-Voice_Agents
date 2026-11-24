@@ -303,6 +303,12 @@ async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None, 
     from app.services.timezone_service import resolve_prospect_timezone
 
     gate = CallGate(allowed=True)
+    from app.core import test_copy
+
+    if test_copy.on() and not test_copy.number_allowed(to_number):
+        gate.allowed = False
+        gate.reasons.append("This is the test copy: calls go only to the numbers in TEST_COPY_ALLOW_NUMBERS.")
+        return gate
     try:
         if await is_opted_out(db, to_number):
             gate.allowed = False
@@ -328,9 +334,9 @@ async def check_call_allowed(db, to_number: str, now_utc: Optional[_dt] = None, 
         gate.needs = perm["needs"]
         gate.reasons.extend(perm["reasons"])
         return gate
-    from app.services.credits import can_start
+    from app.services.credits import can_start, voice_minute_item
 
-    ok, why = await can_start(db, "voice_minute")
+    ok, why = await can_start(db, voice_minute_item() if kind == "ai" else "voice_minute")
     if not ok:
         gate.allowed = False
         gate.reasons.append(why)

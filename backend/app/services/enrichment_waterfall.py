@@ -433,9 +433,9 @@ async def lookup_person_waterfall(
                 if _PROVIDER_FAILS[provider] >= CIRCUIT_FAIL_LIMIT:
                     _PROVIDER_BACKOFF_UNTIL[provider] = time.time() + CIRCUIT_RESET_SECONDS
                 continue
-            from app.services.ai_pricing import price_per_call
+            from app.services.ai_pricing import lookup_cost
 
-            cost = await price_per_call(db, provider) if email_addr else 0.0
+            cost = await lookup_cost(db, provider, bool(email_addr))  # a miss costs too when the vendor bills every search
             db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider=provider,
                                      found_email=email_addr or "", cost_usd=cost,
                                      latency_ms=int((time.time() - started) * 1000), hit=st == "verified"))

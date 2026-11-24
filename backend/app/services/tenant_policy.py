@@ -1,7 +1,11 @@
-"""The policy an organisation must follow because of the brand it belongs to (white-label customers such as FSB).
+"""The rules an organisation must follow: its brand's (a white-label reseller such as FSB, set by Aivhub staff) combined with the company's
+own (Organization.policy, set by the company's admins).
 
-organisation -> brand -> Brand.policy. An organisation with no brand (every normal customer) gets an empty Policy: its methods add no
-conditions, its hash is "" and nothing about its searches changes.
+organisation -> brand -> Brand.policy, plus organisation -> Organization.policy, combined by merge_policy(): the company level can only add
+restrictions, never relax one its brand set. A person's own areas are added per request (effective()). An organisation with neither gets an
+empty Policy: its methods add no conditions, its hash is "" and nothing about its searches changes.
+
+If the rules cannot be read and none are remembered, the request is refused (PolicyUnavailable), never answered without rules.
 
 Policy shape (Brand.policy, cleaned by clean_policy):
   {"exclusions": {"fsb": bool, "extra": [exclusion items], "locked": bool},
@@ -73,15 +77,71 @@ def normalize_company_number(value: Any) -> str:
     return t if re.fullmatch(r"[A-Z0-9]{8}", t) else ""
 
 
+def _has_exclusions(p: Dict[str, Any]) -> bool:
+    return bool(p["exclusions"]["fsb"] or p["exclusions"]["extra"])
+
+
+def merge_policy(upper: Dict[str, Any], lower: Dict[str, Any]) -> Dict[str, Any]:
+    """The brand's cleaned rules (upper) combined with the company's (lower). The lower level can only add restrictions:
+    - exclusions and member lists: everything either level excludes; enforced when any level that has exclusions enforces them,
+    - territory: the brand's districts are kept apart as geo.locked (they hold for everyone, admins included); the company's districts are
+      the default area of its people and only count inside the brand's. No overlap at all leaves geo.none set: the search shows nothing,
+    - blocked sources and "block unscreened numbers": on when either level turns them on,
+    - sign-in methods: allowed only when both allow them. If that would leave none, the brand's methods are used.
+    The result is not passed through clean_policy again (that would cap the lists and drop geo.locked)."""
+    import copy
+
+    u, l = upper, lower
+    out = copy.deepcopy(default_policy())
+    out["exclusions"]["fsb"] = bool(u["exclusions"]["fsb"] or l["exclusions"]["fsb"])
+    out["exclusions"]["extra"] = list(dict.fromkeys(list(u["exclusions"]["extra"]) + list(l["exclusions"]["extra"])))
+    locks = [p["exclusions"]["locked"] for p in (u, l) if _has_exclusions(p)]
+    out["exclusions"]["locked"] = any(locks) if locks else True
+    out["member_suppression"] = bool(u["member_suppression"] or l["member_suppression"])
+    hard = sorted(set(u["geo"]["districts"]))
+    mine = sorted(set(l["geo"]["districts"]))
+    soft = sorted(set(mine) & set(hard)) if hard and mine else (mine or hard)
+    out["geo"] = {"districts": soft, "locked": hard, "none": bool(hard and mine and not soft)}
+    out["restricted_sources"] = {s: bool(u["restricted_sources"].get(s) or l["restricted_sources"].get(s)) for s in SOURCES}
+    signin = {k: bool(u["signin"].get(k, True) and l["signin"].get(k, True)) for k in ("password", "google", "microsoft")}
+    out["signin"] = signin if any(signin.values()) else dict(u["signin"])
+    out["screening"] = {"block_unscreened": bool(u["screening"]["block_unscreened"] or l["screening"]["block_unscreened"])}
+    return out
+
+
+def company_policy_problems(brand: Dict[str, Any], company: Dict[str, Any]) -> List[str]:
+    """Why a company's own rules (cleaned) cannot be saved under its brand's (cleaned), in words for the company admin; [] when they can."""
+    out: List[str] = []
+    hard = set(brand["geo"]["districts"])
+    outside = sorted(set(company["geo"]["districts"]) - hard) if hard else []
+    if outside:
+        shown = ", ".join(outside[:10]) + (f" and {len(outside) - 10} more" if len(outside) > 10 else "")
+        out.append(f"These areas are outside the areas your brand allows: {shown}.")
+    signin = {k: brand["signin"].get(k, True) and company["signin"].get(k, True) for k in ("password", "google", "microsoft")}
+    if not any(signin.values()):
+        out.append("Keep at least one sign-in method on, or nobody can sign in.")
+    return out
+
+
+class PolicyUnavailable(Exception):
+    """The rules of an organisation could not be read and none are remembered. Answered as 503 by the callers' handler."""
+
+
 _GEN: Dict[str, int] = {}  # org -> how many times its policy or member list changed: part of every cache key, so an edit is seen at once
 _GEN_ALL = [0]
 
 
 class Policy:
-    def __init__(self, org_id: str = "", brand_id: str = "", data: Optional[Dict[str, Any]] = None):
+    def __init__(self, org_id: str = "", brand_id: str = "", data: Optional[Dict[str, Any]] = None, merged: Optional[Dict[str, Any]] = None):
+        """data: one level's rules, cleaned here (used with a brand id). merged: rules already combined by merge_policy, used as they are."""
         self.org_id = org_id
         self.brand_id = brand_id
-        self.data = clean_policy(data) if brand_id else default_policy()
+        if merged is not None:
+            self.data = merged
+        else:
+            self.data = clean_policy(data) if brand_id else default_policy()
+        self.data["geo"].setdefault("locked", [])
+        self.data["geo"].setdefault("none", False)
         self.gen = (_GEN_ALL[0], _GEN.get(org_id, 0))
         self.user_districts: List[str] = []  # one person's own area limit (services/data_access.py); only ever set on a per-request copy
 
@@ -106,7 +166,18 @@ class Policy:
 
     @property
     def geo_districts(self) -> List[str]:
+        """The default area of the organisation's people: the company's districts inside its brand's, else the brand's."""
         return list(self.data["geo"]["districts"])
+
+    @property
+    def locked_districts(self) -> List[str]:
+        """The brand's area: it holds for everyone in the organisation, admins and people with their own areas included."""
+        return list(self.data["geo"]["locked"])
+
+    @property
+    def geo_none(self) -> bool:
+        """True when the company's areas and its brand's have nothing in common: searches then show nothing, never everything."""
+        return bool(self.data["geo"]["none"])
 
     @property
     def suppression_on(self) -> bool:
@@ -115,7 +186,7 @@ class Policy:
     @property
     def is_empty(self) -> bool:
         """True when this policy adds nothing to a search (the case for every organisation without a brand)."""
-        return not (self._exclusions_on or self.geo_districts or self.suppression_on or self.user_districts)
+        return not (self._exclusions_on or self.geo_districts or self.locked_districts or self.geo_none or self.suppression_on or self.user_districts)
 
     def exclusion_conditions(self) -> list:
         if not self._exclusions_on:
@@ -132,11 +203,18 @@ class Policy:
         return conds
 
     def geo_conditions(self) -> list:
-        if not self.geo_districts:
+        """The organisation's area: its default area (always inside the brand's), or the brand's area once that default is lifted for an
+        admin or a person with their own areas. Nothing at all when the two levels' areas do not meet."""
+        if self.geo_none:
+            from sqlalchemy import false
+
+            return [false()]
+        districts = self.geo_districts or self.locked_districts
+        if not districts:
             return []
         from app.services import business_records as BR
 
-        return [or_(*[BR._postcode_match(d) for d in self.geo_districts])]
+        return [or_(*[BR._postcode_match(d) for d in districts])]
 
     def user_conditions(self) -> list:
         """The person's own areas, ANDed with the organisation's geography lock (both must hold)."""
@@ -175,6 +253,8 @@ class Policy:
         ex = self.data["exclusions"]
         basis = {"fsb": bool(ex["fsb"]) and self._exclusions_on, "extra": sorted(ex["extra"]) if self._exclusions_on else [], "geo": self.geo_districts,
                  "members": self.suppression_on, "gen": list(self.gen), "user": self.user_districts}
+        if self.locked_districts or self.geo_none:  # only when set, so every existing key stays the same
+            basis["locked"], basis["none"] = self.locked_districts, self.geo_none
         return hashlib.sha1(json.dumps(basis, sort_keys=True).encode()).hexdigest()[:12]
 
     def cache_key(self) -> str:
@@ -196,7 +276,8 @@ class Policy:
         return {"brandId": self.brand_id or None, "standingExclusions": self._exclusions_on,
                 "fsbRules": bool(self.data["exclusions"]["fsb"]) and self._exclusions_on,
                 "extraExclusions": len(self.data["exclusions"]["extra"]) if self._exclusions_on else 0, "locked": bool(self.data["exclusions"]["locked"]),
-                "memberSuppression": self.suppression_on, "geoDistricts": len(self.geo_districts),
+                "memberSuppression": self.suppression_on, "geoDistricts": len(self.geo_districts), "geoLocked": len(self.locked_districts),
+                "geoNone": self.geo_none,
                 "restrictedSources": [s for s in SOURCES if self.restricted(s)], "signin": dict(self.data["signin"])}
 
 
@@ -217,12 +298,25 @@ def invalidate(org_id: Optional[str] = None) -> None:
 async def _load(db, org_id: str) -> Policy:
     from app.models.models import Brand, Organization
 
-    brand_id = (await db.execute(select(Organization.brand_id).where(Organization.id == org_id))).scalar()
-    if not brand_id:
+    row = (await db.execute(select(Organization.brand_id, Organization.policy).where(Organization.id == org_id))).first()
+    brand_id, own = (row[0], row[1]) if row else (None, None)
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalars().first() if brand_id else None
+    if not brand and not own:
         return Policy(org_id)
-    brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalars().first()
     # A suspended brand keeps its policy: suspending must never relax what an organisation has to follow.
-    return Policy(org_id, brand_id, brand.policy if brand else None) if brand else Policy(org_id)
+    upper = clean_policy(brand.policy) if brand else default_policy()
+    return Policy(org_id, brand.id if brand else "", merged=merge_policy(upper, clean_policy(own)))
+
+
+async def levels(db, org_id: str) -> Dict[str, Any]:
+    """The rules of each level, cleaned, for the company's rules screen: {"brand": {...} or None, "brandId", "brandName", "company": {...}}. Not cached."""
+    from app.models.models import Brand, Organization
+
+    row = (await db.execute(select(Organization.brand_id, Organization.policy).where(Organization.id == org_id))).first()
+    brand = (await db.execute(select(Brand).where(Brand.id == row[0]))).scalars().first() if row and row[0] else None
+    return {"brand": clean_policy(brand.policy) if brand else None, "brandId": brand.id if brand else "",
+            "brandName": (brand.display_name or brand.name) if brand else "",
+            "company": clean_policy(row[1] if row else None)}
 
 
 async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
@@ -265,10 +359,9 @@ async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy
     except Exception as err:
         logger.warning(f"[tenant_policy] could not read the policy of {org_id}: {err}")
         if hit:
-            return hit[1]
-        pol = Policy(org_id)
-        _CACHE[org_id] = (time.monotonic() - _TTL + 5, pol)  # not asked again for 5 seconds
-        return pol
+            return hit[1]  # the last known rules, however old: never fewer rules than before
+        # Never answer without the rules: a company's member list, exclusions or blocked sources must not vanish because a read failed.
+        raise PolicyUnavailable(f"The rules of {org_id} could not be read") from err
     if len(_CACHE) > 2000:
         _CACHE.clear()
     _CACHE[org_id] = (time.monotonic(), pol)
@@ -276,8 +369,12 @@ async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy
 
 
 async def source_allowed(org_id: Optional[str], source: str, db=None) -> bool:
-    """False when the organisation's policy restricts this source ("google", "apollo", "search_engines"): the caller then reports nothing found."""
-    return not (await effective(db, org_id or None)).restricted(source)
+    """False when the organisation's policy restricts this source ("google", "apollo", "search_engines"): the caller then reports nothing found.
+    Also False when the rules cannot be read: a source is never used on a guess."""
+    try:
+        return not (await effective(db, org_id or None)).restricted(source)
+    except PolicyUnavailable:
+        return False
 
 
 async def brand_for_host(db, host: str):

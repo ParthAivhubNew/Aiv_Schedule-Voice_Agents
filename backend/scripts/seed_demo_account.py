@@ -1,7 +1,7 @@
-"""Kept for the old command: the FSB demo account is now made by seed_fsb_demo.py, in its own organisation (org_fsb_demo).
+"""Kept for the old command: the same as seed_fsb_demo.py, which seeds sample data into a demo organisation staff created. No logins are made.
 
-    python backend/scripts/seed_demo_account.py            (same as seed_fsb_demo.py)
-    python backend/scripts/seed_demo_account.py --reset
+    python backend/scripts/seed_demo_account.py --org org_xxx
+    python backend/scripts/seed_demo_account.py --org org_xxx --reset
 """
 from __future__ import annotations
 

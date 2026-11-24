@@ -1,0 +1,73 @@
+# Runs the backend and frontend tests on every push and pull request (Gitea Actions; the same file works on GitHub Actions).
+# It needs Actions switched on for the repository and a runner connected to the Gitea server.
+#
+# The backend suite takes about 70 minutes on one machine, so it runs as 4 shards, each with its own PostgreSQL.
+# backend/tests/known_failures.txt lists the tests that were already failing on main before CI existed: they are skipped so
+# that CI catches new breakage. Fix one, then delete its line.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    container: python:3.11-slim  # the same base as backend/Dockerfile
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: t
+          POSTGRES_PASSWORD: t
+          POSTGRES_DB: aiv_pytest
+        options: >-
+          --health-cmd "pg_isready -U t -d aiv_pytest"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://t:t@postgres:5432/aiv_pytest
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        working-directory: backend
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends build-essential >/dev/null
+          pip install --no-cache-dir -r requirements-dev.txt
+      - name: Database extension
+        working-directory: backend
+        run: |
+          python - <<'EOF'
+          import asyncio, asyncpg
+          async def main():
+              c = await asyncpg.connect("postgresql://t:t@postgres:5432/aiv_pytest")
+              await c.execute("CREATE EXTENSION IF NOT EXISTS vector")
+              await c.close()
+          asyncio.run(main())
+          EOF
+      - name: Tests (shard ${{ matrix.shard }} of 4)
+        working-directory: backend
+        run: |
+          files=$(ls tests/test_*.py | awk -v s=${{ matrix.shard }} 'NR % 4 == s')
+          skip=$(grep -vE '^\s*(#|$)' tests/known_failures.txt | sed 's/^/--deselect /')
+          python -m pytest -q -p no:cacheprovider -o addopts="" $skip $files
+
+  frontend:
+    runs-on: ubuntu-latest
+    container: node:20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        working-directory: frontend
+        # The lockfile is made on Windows and lacks Linux builds of vite's bundler (see frontend/Dockerfile), so install fresh.
+        run: rm -f package-lock.json && npm install --no-audit --no-fund
+      - name: Lint
+        working-directory: frontend
+        run: npx eslint src/
+      - name: Tests
+        working-directory: frontend
+        run: npx vitest run

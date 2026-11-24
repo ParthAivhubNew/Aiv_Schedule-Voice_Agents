@@ -1,4 +1,5 @@
-"""scripts/seed_fsb_demo.py: seeds the sample import, report and list in the demo organisation only, safely and repeatably; --reset removes only its own rows."""
+"""scripts/seed_fsb_demo.py: seeds the sample import, report and list in a demo organisation staff made, safely and repeatably; --reset removes
+only its own rows. It never makes a login and refuses FSB's real company."""
 import importlib.util
 from pathlib import Path
 
@@ -24,12 +25,15 @@ def load_script():
     return mod
 
 
+ORG = "org_demo_seed"
+
+
 async def account():
+    """A demo organisation made by staff (the script itself makes none)."""
     from app.database import engine
 
     async with engine.begin() as conn:
-        await D.ensure_demo_account(conn)
-    await D.ensure_demo_data()
+        await conn.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES (:o, 'Demo', 'demo-seed', 'active') ON CONFLICT DO NOTHING"), {"o": ORG})
 
 
 async def count(db, table, org, where=""):
@@ -41,7 +45,6 @@ async def count(db, table, org, where=""):
 
 
 async def test_seed_on_a_database_with_bn_companies_makes_every_kind_of_row_and_reset_removes_only_its_own(db, monkeypatch):
-    monkeypatch.delenv("FSB_DEMO_PASSWORD", raising=False)
     db.add_all([B(id=f"b{n}", identity_hash=f"h{n}", name=f"Sample Trading {n} Ltd" if n % 2 else f"Harbour Works {n} Limited", registration_number=f"0123{n:04d}",
                   postcode=f"BN{1 + n % 3} {n % 9}AA", address=f"{n} High Street, Brighton", status="Active" if n < 170 else "Dissolved",
                   company_category="Private limited Company", sic_codes="|43220|", sic_text="x", sources=[], rank_score=0, region="Brighton") for n in range(185)])
@@ -52,36 +55,48 @@ async def test_seed_on_a_database_with_bn_companies_makes_every_kind_of_row_and_
         await db.commit()
     S = load_script()
     await account()
-    out = await S.seed(D.ORG_ID)
+    out = await S.seed(ORG)
     assert out["status"] == "done" and out["counts"]["auto"] > 0 and out["counts"]["none"] > 0 and sum(out["counts"].values()) > 100
     assert out["counts"]["review"] > 0
     assert out["report"]["period"] and out["list"]["name"] == "FSB prospects" and out["list"]["companies"] >= 1
-    assert await count(db, "fsb_imports", D.ORG_ID) == 1 and await count(db, "change_reports", D.ORG_ID) == 1
+    assert await count(db, "fsb_imports", ORG) == 1 and await count(db, "change_reports", ORG) == 1
     assert await count(db, "fsb_imports", "org_default") == 0 and await count(db, "lead_accounts", "org_default") == 0
-    again = await S.seed(D.ORG_ID)  # nothing is added a second time
-    assert again["import"] == "already there" and await count(db, "fsb_imports", D.ORG_ID) == 1
-    rows_before = await count(db, "fsb_import_rows", D.ORG_ID)
+    again = await S.seed(ORG)  # nothing is added a second time
+    assert again["import"] == "already there" and await count(db, "fsb_imports", ORG) == 1
+    rows_before = await count(db, "fsb_import_rows", ORG)
     # something the person added themselves in the demo org must survive a reset
-    with org_scope(D.ORG_ID):
+    with org_scope(ORG):
         from app.database import AsyncSessionLocal
         from app.models.models import LeadAccount
 
         async with AsyncSessionLocal() as s:
             s.add(LeadAccount(id="la_mine", name="Added by hand", notes="mine"))
             await s.commit()
-    gone = await S.reset(D.ORG_ID)
+    gone = await S.reset(ORG)
     assert gone["imports"] == 1 and gone["rows"] == rows_before and gone["lists"] == 1 and gone["accounts"] >= 1
-    assert await count(db, "fsb_imports", D.ORG_ID) == 0 and await count(db, "fsb_import_rows", D.ORG_ID) == 0
+    assert await count(db, "fsb_imports", ORG) == 0 and await count(db, "fsb_import_rows", ORG) == 0
     assert await count(db, "fsb_imports", "org_other") == 1  # another organisation is never touched
-    assert await count(db, "lead_accounts", D.ORG_ID, "AND id = 'la_mine'") == 1
-    await S.seed(D.ORG_ID)
-    assert await count(db, "fsb_imports", D.ORG_ID) == 1
+    assert await count(db, "lead_accounts", ORG, "AND id = 'la_mine'") == 1
+    await S.seed(ORG)
+    assert await count(db, "fsb_imports", ORG) == 1
 
 
 async def test_seed_without_register_data_uses_the_small_made_up_file(db, monkeypatch):
-    monkeypatch.delenv("FSB_DEMO_PASSWORD", raising=False)
     S = load_script()
     await account()
-    out = await S.seed(D.ORG_ID)
+    out = await S.seed(ORG)
     assert out["status"] == "done" and sum(out["counts"].values()) == len(S.SYNTHETIC) and "synthetic" in out["import"]
     assert out["list"]["companies"] >= 1
+
+
+async def test_the_script_refuses_fsb_s_real_company_and_an_organisation_that_does_not_exist(db, monkeypatch):
+    import sys
+
+    S = load_script()
+    monkeypatch.setattr(sys, "argv", ["seed_fsb_demo.py", "--org", D.ORG_ID])
+    with pytest.raises(SystemExit, match="real company"):
+        await S.main()
+    monkeypatch.setattr(sys, "argv", ["seed_fsb_demo.py", "--org", "org_missing"])
+    with pytest.raises(SystemExit, match="No organisation"):
+        await S.main()
+    assert (await db.execute(text("SELECT count(*) FROM operators"))).scalar() == 0

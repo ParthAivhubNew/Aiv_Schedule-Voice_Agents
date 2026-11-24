@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, FetchedValue
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, FetchedValue, Index, func
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -20,6 +20,7 @@ class Organization(Base):
     status = Column(String, default="active")  # active, inactive, suspended
     referred_by_partner_id = Column(String, nullable=True, index=True)  # the partner whose sign-up page created this account
     brand_id = Column(String, nullable=True, index=True)  # the white-label brand (and its policy) this account follows; none for a normal customer
+    policy = Column(JSON, nullable=True)  # the company's own rules, set by its admins; combined with the brand's (services/tenant_policy.py)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -52,6 +53,7 @@ class Operator(Base):
 
     __table_args__ = (
         UniqueConstraint("org_id", "username", name="uq_operator_org_username"),
+        Index("uq_operators_username_ci", func.lower(username), unique=True),  # one account per sign-in name across every company
     )
 
 
@@ -1608,6 +1610,7 @@ class ProviderPrice(Base):
     provider = Column(String, nullable=False, index=True)
     model = Column(String, default="")  # "" for providers with no model variants (Hunter, BetterContact...)
     kind = Column(String, nullable=False)  # llm | image | tts | stt | lookup
+    billing = Column(String, default="per_find")  # lookups: per_find (the vendor charges only when it finds something) | per_search
     # Meaning of price_in_usd depends on kind: per 1K input tokens (llm), per call (image, lookup),
     # per minute (stt), per 1K characters (tts). price_out_usd (per 1K output tokens) is llm-only.
     price_in_usd = Column(Float, default=0.0)

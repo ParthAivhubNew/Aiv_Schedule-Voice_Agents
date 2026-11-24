@@ -1,0 +1,90 @@
+# The new app (new.outreach.aivhub.com): its own containers, database and Redis, next to the live app and sharing nothing with it.
+#
+#   cd /opt/flow-new && docker compose -p flownew -f docker-compose.new.yml up -d
+#
+# Live app: /opt/flow, containers aivhub_*, database aivhub_postgres. Nothing here touches them.
+# Settings: .env.local (tracked; Stripe TEST keys) then .env (this app's own secrets, never the live ones; git-ignored).
+# Only the frontend is reachable, on 127.0.0.1:8090, behind the host's nginx. Database, Redis and backend have no host ports.
+# Memory limits keep it from starving the live app on this shared server.
+
+name: flownew
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aivhub_new_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aivhub_new}
+      POSTGRES_USER: ${POSTGRES_USER:-aivhub_new}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - flownew_pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=60"]
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aivhub_new} -d ${POSTGRES_DB:-aivhub_new}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: aivhub_new_redis
+    restart: unless-stopped
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: flow-backend  # the same Python image as the live app; this app's code is mounted below
+    container_name: aivhub_new_backend
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: true
+    environment:
+      TZ: ${TZ:-Europe/London}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aivhub_new}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aivhub_new}
+      REDIS_URL: redis://redis:6379/0
+      PUBLIC_BASE_URL: https://new.outreach.aivhub.com
+      FRONTEND_URL: https://new.outreach.aivhub.com
+      LIVEKIT_URL: ""
+    mem_limit: 1536m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500k"
+        max-file: "1"
+
+  frontend:
+    image: flownew-frontend:latest  # built from ./frontend: docker build -t flownew-frontend:latest frontend
+    container_name: aivhub_new_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8090:80"
+    mem_limit: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500k"
+        max-file: "1"
+
+volumes:
+  flownew_pgdata:

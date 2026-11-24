@@ -43,6 +43,21 @@ postgres_data/
 .env.test.local
 .env.production.local
 .env.bak*
+# Every other .env file holds secrets too (.env.backup, .env.new, ...): only the example and the tracked test-keys file are committed.
+.env.*
+!.env.example
+!.env.local
+
+# Data exports and one-off analysis output in the repo root. Lead files hold personal data and must never be committed:
+# keep them outside the app folder (see /root/aivhub-private-data).
+/*.csv
+/*.xlsx
+/bn_*.txt
+/bn_*.md
+/sample_*.txt
+/sample_*.json
+/industry_out/
+/phone
 
 # Logs
 logs

@@ -1,4 +1,4 @@
-# Server-local: keep Postgres/Redis off the public IP (reach them via SSH tunnel).
+# This server's port bindings. Only nginx (on this host) talks to the app: nothing is published to the internet directly.
 services:
   postgres:
     ports: !override
@@ -6,3 +6,9 @@ services:
   redis:
     ports: !override
       - "127.0.0.1:6379:6379"
+  backend:
+    ports: !override
+      - "127.0.0.1:8000:8000"  # behind nginx; was 0.0.0.0, which let anyone skip HTTPS and nginx
+  frontend:
+    ports: !override
+      - "127.0.0.1:8080:80"  # nginx proxies outreach.aivhub.com here

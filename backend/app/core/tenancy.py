@@ -131,12 +131,22 @@ def scope_actor(operator_id: str) -> Iterator[None]:
 
 
 # The request being served ("POST /api/leads/companies/x/find-website"), so work that reaches a paid vendor can say which action caused it.
-# Background tasks started by the request inherit it; blank means a scheduled or system job.
+# Background tasks started by the request inherit it; a background job of the app says "JOB <name>" (main.py); a script run by hand
+# says "script <file>", so a vendor call is never left without a cause and internal bulk work is never taken for a client's.
 _current_route: contextvars.ContextVar[str] = contextvars.ContextVar("current_route", default="")
 
 
+def _process_route() -> str:
+    import os
+    import sys
+
+    name = os.path.basename(sys.argv[0] or "") if sys.argv else ""
+    # Only a Python script run by hand (python bn_enrich_all.py) is named; the web server and the test runner are not scripts.
+    return f"script {name}"[:200] if name.endswith(".py") and name != "__main__.py" else ""
+
+
 def current_route() -> str:
-    return _current_route.get() or ""
+    return _current_route.get() or _process_route()
 
 
 @contextmanager

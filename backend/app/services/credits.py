@@ -50,6 +50,8 @@ WALLETS: Dict[str, str] = {
 # A Voice credit is a minute of calls, so calling plans read in minutes (60 credits = 1 hour).
 DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     "voice_minute": {"label": "Voice call minute", "unit": "minute", "credits": 1, "wallet": "voice", "charged": True},
+    # A minute on an AI engine or voice that costs us several times more (see voice_minute_item): OpenAI Realtime, Vapi, Retell, ElevenLabs.
+    "voice_minute_premium": {"label": "Voice call minute, premium AI", "unit": "minute", "credits": 2, "wallet": "voice", "charged": True},
     "whatsapp_message": {"label": "WhatsApp message sent", "unit": "message", "credits": 1, "wallet": "voice", "charged": True},
     # A written transcript and summary of a call a person made from the browser: recording + speech-to-text + summary.
     "call_transcript": {"label": "Call transcript", "unit": "minute of call", "credits": 1, "wallet": "voice", "charged": True},
@@ -71,8 +73,9 @@ DEFAULT_RATES: Dict[str, Dict[str, Any]] = {
     # adds up what it used and rounds the total up once (see charge()).
     "check_registry": {"label": "Registry check", "unit": "company", "credits": 1, "wallet": "leadgen", "charged": True},
     "check_email": {"label": "Contact email check", "unit": "email found", "credits": 2.5, "wallet": "leadgen", "charged": True},
-    # Telnyx charges us a monthly rental per number; 0 until staff set our price in the rate card.
-    "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 1, "wallet": "voice", "charged": True},
+    # Telnyx charges us about $1 (79p) a month per number. 15 credits keeps at least a 60% margin on every plan (13.3p to 20p a credit);
+    # it was 1 credit (13p to 20p), below cost on every number.
+    "phone_number_month": {"label": "Phone number, per month", "unit": "number a month", "credits": 15, "wallet": "voice", "charged": True},
     "number_setup": {"label": "Number setup", "unit": "number", "credits": 5, "wallet": "voice", "charged": True},
     # Checking imported phone numbers: 1 credit per 5 numbers that get a real answer.
     "number_check": {"label": "Number check", "unit": "5 numbers", "credits": 1, "wallet": "voice", "charged": True},
@@ -494,7 +497,7 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
     """Hold credits for these parts, all or nothing, at today's prices. Parts already held stay
     held (safe to call again on a retry). Refused when the wallet would go below zero by even
     one credit and the organisation's credits are enforced. Never raises: if the check itself
-    fails the work may run, and is charged when it is confirmed. Caller commits."""
+    fails, work up to FAIL_ALLOWANCE_CREDITS may run and is charged when it is confirmed; more is refused. Caller commits."""
     try:
         await pay_owed(db)
         await _lock(db)
@@ -529,12 +532,31 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
         await _patch_doc(db, {"holds": holds})
         return True, ""
     except Exception as err:
-        logger.warning(f"[credits] hold skipped, work runs and is charged when it finishes: {err}")
         try:
             await db.rollback()
         except Exception:
             pass
+        return _allowed_when_check_fails([(p.get("item", ""), float(p.get("quantity", 1) or 0)) for p in parts or []], "hold", err)
+
+
+# When the credit check itself fails (database trouble), small work still runs and is charged when it finishes, so a blip never stops a
+# call or a single lookup. Bigger work (a bulk run) is refused until the check works again, so a failure can't open the tap on paid work.
+FAIL_ALLOWANCE_CREDITS = max(0, int(os.getenv("CREDIT_CHECK_FAIL_ALLOWANCE", "25") or 25))
+CHECK_FAILED = "USR-07: Your credits couldn't be checked just now, so this larger job was not started. Try again in a minute."
+
+
+def _estimate(items: List[Tuple[str, float]]) -> int:
+    """Credits these items cost at the standard prices: what the failure rule can still tell when the rate card can't be read."""
+    return sum(int(math.ceil(max(float(q or 0), 0) * float(DEFAULT_RATES.get(i, {}).get("credits", 0)))) for i, q in items)
+
+
+def _allowed_when_check_fails(items: List[Tuple[str, float]], what: str, err: Exception) -> Tuple[bool, str]:
+    est = _estimate(items)
+    if est <= FAIL_ALLOWANCE_CREDITS:
+        logger.warning(f"[credits] {what} skipped, small work ({est} credits) runs and is charged when it finishes: {err}")
         return True, ""
+    logger.warning(f"[credits] {what} failed for work of about {est} credits, refused until the check works: {err}")
+    return False, CHECK_FAILED
 
 
 def out_of_credits(wallet: str) -> str:
@@ -661,7 +683,7 @@ async def expire_plan_batches(db, wallet: str) -> None:
 
 async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tuple[str, float]]] = None) -> Tuple[bool, str]:
     """Whether the organisation can afford quantity units of item now (plus extra items that
-    come with it, e.g. a post's image). Never raises."""
+    come with it, e.g. a post's image). Never raises; if the check itself fails, see FAIL_ALLOWANCE_CREDITS."""
     try:
         card = await rates(db)
         need: Dict[str, int] = {}
@@ -679,8 +701,7 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
                 return False, out_of_credits(wallet)
         return True, ""
     except Exception as err:
-        logger.warning(f"[credits] check skipped: {err}")
-        return True, ""
+        return _allowed_when_check_fails([(item, quantity), *(extra or [])], "check", err)
 
 
 async def average_call_minutes(db, days: int = 30) -> float:
@@ -695,12 +716,36 @@ async def average_call_minutes(db, days: int = 30) -> float:
     return round(sum(mins) / len(mins), 1) if mins else float(DEFAULT_CALL_MIN)
 
 
-async def minutes_left(db) -> Optional[int]:
-    """Whole voice minutes the organisation can still pay for (after what live calls hold).
+PREMIUM_ENGINES = ("openai", "vapi", "retell")  # realtime models and hosted voice platforms: several times Telnyx's own AI per minute
+PREMIUM_VOICES = ("elevenlabs",)
+
+
+def voice_minute_item(stack: Optional[Dict[str, Any]] = None, mission: str = "") -> str:
+    """The rate-card item one minute of a call costs: "voice_minute_premium" when the AI runs on a premium engine or voice
+    (PREMIUM_ENGINES, PREMIUM_VOICES, read from the active voice stack), else "voice_minute". A person calling from the browser
+    (mission "human") and Telnyx's own AI assistant are always the standard minute."""
+    m = (mission or "").strip().lower()
+    if m == "human" or "telnyx ai assistant" in m:
+        return "voice_minute"
+    try:
+        if stack is None:
+            from app.services.voice_plugin_plan import get_active_stack
+
+            stack = get_active_stack()
+        engine = str(stack.get("engine") or "").strip().lower()
+        voice = " ".join(str(stack.get(k) or "") for k in ("tts", "tts_model", "tts_provider")).lower()
+    except Exception:
+        return "voice_minute"
+    return "voice_minute_premium" if engine in PREMIUM_ENGINES or any(v in voice for v in PREMIUM_VOICES) else "voice_minute"
+
+
+async def minutes_left(db, item: str = "voice_minute") -> Optional[int]:
+    """Whole voice minutes the organisation can still pay for at this minute's price (after what live calls hold).
     None when its credits are not enforced or minutes are free."""
     if not (await org_settings(db))["enforce"]:
         return None
-    per_minute = (await rates(db))["voice_minute"]["credits"]
+    card = await rates(db)
+    per_minute = card.get(item, card["voice_minute"])["credits"]
     if per_minute <= 0:
         return None
     return max(await wallet_balance(db, "voice"), 0) // per_minute
@@ -729,13 +774,16 @@ async def short_call_warning(db, calls: int = 1) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def reserve_call(db, call_id: str) -> Tuple[bool, str, Optional[int]]:
+async def reserve_call(db, call_id: str, item: Optional[str] = None) -> Tuple[bool, str, Optional[int]]:
     """Hold the voice minutes left for this call: (allowed, why not, longest it may last in
     seconds, or None for no cap). The hold keeps other calls from spending the same minutes and
     is charged by what the call really used when it ends (charge_finished_call). Never raises:
-    if the check fails the call goes ahead uncapped and is charged when it ends. Caller commits."""
+    if the check fails the call goes ahead uncapped and is charged when it ends. Caller commits.
+    item is the minute's rate-card item; left out, it follows the active voice stack (voice_minute_item). The hold keeps it, so the
+    call is charged at the price it started on."""
+    item = item or voice_minute_item()
     try:
-        left = await minutes_left(db)
+        left = await minutes_left(db, item)
         if left is None:
             return True, "", None
         if left < 1:
@@ -743,11 +791,11 @@ async def reserve_call(db, call_id: str) -> Tuple[bool, str, Optional[int]]:
         minutes = min(left, MAX_CALL_SECS // 60)
         room = await cap_room(db, current_actor(), _holds(await _get_doc(db, _settings_id())))
         if room is not None:  # a person with a monthly limit may only reserve what is left of it
-            per_min = max(1, int(math.ceil((await rates(db)).get("voice_minute", {}).get("credits", 1))))
+            per_min = max(1, int(math.ceil((await rates(db)).get(item, {}).get("credits", 1))))
             minutes = min(minutes, room // per_min)
             if minutes < 1:
                 return False, "USR-02: Your monthly credit limit, set by your admin, leaves no room for another call. Ask an admin to raise it.", None
-        ok, why = await hold(db, [{"ref": f"{CALL_HOLD}{call_id}", "item": "voice_minute", "quantity": minutes,
+        ok, why = await hold(db, [{"ref": f"{CALL_HOLD}{call_id}", "item": item, "quantity": minutes,
                                    "note": "Call in progress"}])
         if not ok:
             return False, why, None
@@ -765,10 +813,11 @@ async def charge_finished_call(db, call_id: str, duration: str, label: str = "")
     try:
         ref = f"call:{log_id_for_call(call_id)}"
         used = minutes_of(duration) - (await _charged(db, [ref])).get(ref, 0)
-        who = _holds(await _get_doc(db, _settings_id())).get(f"{CALL_HOLD}{call_id}", {}).get("actor") or current_actor()
+        held = _holds(await _get_doc(db, _settings_id())).get(f"{CALL_HOLD}{call_id}", {})
+        who = held.get("actor") or current_actor()
         if used > 0:
-            with actor_scope(who):  # the call ended on its own: charge it to the person who started it
-                await charge(db, "voice_minute", used, ref, f"Call with {label}" if label else "Call")
+            with actor_scope(who):  # the call ended on its own: charge it to the person who started it, at the price it started on
+                await charge(db, held.get("item") or "voice_minute", used, ref, f"Call with {label}" if label else "Call")
         await release(db, [f"{CALL_HOLD}{call_id}"])
         await db.commit()
     except Exception as err:
@@ -846,7 +895,7 @@ async def settle(db, now: Optional[datetime] = None) -> int:
     for c in logs:
         extra = minutes_of(c.duration) - done.get(f"call:{c.id}", 0)
         if extra > 0:
-            total += await charge(db, "voice_minute", extra, f"call:{c.id}", f"Call with {c.listed_as}")
+            total += await charge(db, voice_minute_item(mission=c.mission or ""), extra, f"call:{c.id}", f"Call with {c.listed_as}")
     await _release_ended_call_holds(db)
 
     # Finished AI posts whose charge was never written (normally charged the moment they finish).

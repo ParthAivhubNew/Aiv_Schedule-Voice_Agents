@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, BackgroundTasks
+from app.core import test_copy as TEST_COPY
+TEST_COPY.install()  # before anything can open a connection: in the test copy nothing reaches a real person (core/test_copy.py)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -209,6 +211,11 @@ async def _platform_balance_check_loop():
             with system_scope():
                 async with AsyncSessionLocal() as db:
                     await check_and_alert(db)
+                async with AsyncSessionLocal() as db:  # paid providers used with no price count as $0: tell staff once a day
+                    from app.services.ai_pricing import alert_unpriced
+
+                    await alert_unpriced(db)
+                    await db.commit()
                 async with AsyncSessionLocal() as db:
                     from app.services.data_sources import check_stuck_runs
 
@@ -609,14 +616,7 @@ async def lifespan(app: FastAPI):
     from app.core.tenancy import ensure_tenancy
     async with engine.begin() as conn:
         await ensure_tenancy(conn)
-    try:
-        from app.services import fsb_demo
-        if not await fsb_demo.ensure_demo_data():  # the startup step failed once (it is only recorded as done): try again
-            async with engine.begin() as conn:
-                await fsb_demo.ensure_demo_account(conn)
-            await fsb_demo.ensure_demo_data()
-    except Exception as demo_err:
-        logger.warning(f"FSB demo credits were not set up: {demo_err}")
+    # No login or organisation is made by code at start-up: demo organisations are made by staff (plan 12, B7).
     # A brand-new database seeds provider rows into Aivhub; they belong to the platform.
     from app.core.platform import split_platform
     async with engine.begin() as conn:
@@ -866,32 +866,46 @@ async def lifespan(app: FastAPI):
     except Exception as social_schema_err:
         logger.warning(f"[Social] Schema check failed: {social_schema_err}")
 
+    def job(name, factory):
+        """A background job, or an idle stand-in when it is off in the test copy (core/test_copy.py). Every vendor call the job makes is
+        logged as caused by "JOB <name>" (core/tenancy.current_route), so the platform's own work is never taken for a client's."""
+        if TEST_COPY.on() and name not in TEST_COPY.SAFE_JOBS:
+            logger.warning(f"[Test copy] background job off: {name}")
+            return asyncio.create_task(TEST_COPY.idle())
+        from app.core.tenancy import route_scope
+
+        async def labelled():
+            with route_scope("JOB", name):
+                await factory()
+
+        return asyncio.create_task(labelled())
+
     # Instructions pushed by an older version had the sync day written in as "today".
     from app.services.telnyx_assistant_sync import sync_active_prompt_to_telnyx
-    asyncio.create_task(sync_active_prompt_to_telnyx())
+    job("telnyx_prompt_sync", sync_active_prompt_to_telnyx)
 
-    publish_due_task = asyncio.create_task(_social_publish_due_loop())
-    credits_task = asyncio.create_task(_credits_settle_loop())
+    publish_due_task = job("social_publish", _social_publish_due_loop)
+    credits_task = job("credits_settle", _credits_settle_loop)
     from app.services.generation_queue import generation_loop
-    generation_task = asyncio.create_task(generation_loop())
+    generation_task = job("generation", generation_loop)
     from app.services.email_worker import email_loop
-    email_task = asyncio.create_task(email_loop())
+    email_task = job("email", email_loop)
     from app.services.connection_jobs import connections_loop
-    connections_task = asyncio.create_task(connections_loop())
-    number_health_task = asyncio.create_task(_telnyx_number_health_loop())
-    balance_check_task = asyncio.create_task(_platform_balance_check_loop())
-    telnyx_floor_task = asyncio.create_task(_telnyx_floor_loop())
-    social_token_task = asyncio.create_task(_social_token_refresh_loop())
-    social_results_task = asyncio.create_task(_social_results_loop())
-    billing_upkeep_task = asyncio.create_task(_billing_upkeep_loop())
-    find_leads_warm_task = asyncio.create_task(_find_leads_warm_loop())
-    registry_feeds_task = asyncio.create_task(_registry_feeds_start())
+    connections_task = job("connections", connections_loop)
+    number_health_task = job("telnyx_number_health", _telnyx_number_health_loop)
+    balance_check_task = job("platform_balances", _platform_balance_check_loop)
+    telnyx_floor_task = job("telnyx_floor", _telnyx_floor_loop)
+    social_token_task = job("social_token_refresh", _social_token_refresh_loop)
+    social_results_task = job("social_results", _social_results_loop)
+    billing_upkeep_task = job("billing_upkeep", _billing_upkeep_loop)
+    find_leads_warm_task = job("find_leads_warm", _find_leads_warm_loop)
+    registry_feeds_task = job("registry_feeds", _registry_feeds_start)
     from app.services.change_report import monthly_loop as change_report_loop
-    change_report_task = asyncio.create_task(change_report_loop())
-    call_schedule_task = asyncio.create_task(_call_schedule_loop())
-    human_calls_task = asyncio.create_task(_human_calls_loop())
+    change_report_task = job("change_report", change_report_loop)
+    call_schedule_task = job("call_schedule", _call_schedule_loop)
+    human_calls_task = job("human_calls", _human_calls_loop)
     from app.services.workflows import workflow_loop
-    workflow_task = asyncio.create_task(workflow_loop())
+    workflow_task = job("workflows", workflow_loop)
 
     yield
 
@@ -914,7 +928,8 @@ async def lifespan(app: FastAPI):
     social_token_task.cancel()
     logger.info("Shutting down Outreach by Aivhub Voice Agent API...")
 
-expose_docs = os.getenv("EXPOSE_API_DOCS", "true").lower() in ("1", "true", "yes")
+# The full list of internal endpoints is not published unless asked for: EXPOSE_API_DOCS=true shows /docs, /redoc and /openapi.json.
+expose_docs = os.getenv("EXPOSE_API_DOCS", "false").lower() in ("1", "true", "yes")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -929,6 +944,16 @@ app = FastAPI(
 async def _data_access_denied(request: Request, err: DataAccessDenied):
     """A person's own data limits refused something: {"detail": message, "code": code} so the screen can show the message as it is."""
     return JSONResponse(status_code=err.status, content={"detail": err.detail, "code": err.code})
+
+
+from app.services.tenant_policy import PolicyUnavailable  # noqa: E402
+
+
+@app.exception_handler(PolicyUnavailable)
+async def _policy_unavailable(request: Request, err: PolicyUnavailable):
+    """The company's rules could not be read: refuse rather than answer without them (services/tenant_policy.py)."""
+    return JSONResponse(status_code=503, content={"detail": "Your company's rules couldn't be loaded, so this was not done. Try again in a moment.",
+                                                  "code": "rules_unavailable"})
 
 
 class SecurityHeadersMiddleware:
@@ -968,13 +993,11 @@ from app.core.auth_middleware import AuthMiddleware, install_log_redaction
 app.add_middleware(AuthMiddleware)
 install_log_redaction()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.core.cors import OriginPolicyCORS  # noqa: E402
+
+# Only our own pages, brand domains, partners' listed pages and our extension get credentialed access; the public endpoints answer
+# any page without credentials; every other page gets nothing (core/cors.py). It used to be every origin, with credentials.
+app.add_middleware(OriginPolicyCORS)
 
 try:
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -1132,7 +1155,8 @@ async def health_check():
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "mode": settings.VOICE_ENGINE_MODE
+        "mode": settings.VOICE_ENGINE_MODE,
+        **({"testCopy": True} if TEST_COPY.on() else {}),  # the test copy says so, so a check can tell the two apps apart
     }
 
 @app.get("/privacy")

@@ -39,6 +39,10 @@ def route_label(route: str) -> str:
 
     if not route:
         return "Background job"
+    if route.startswith("JOB "):
+        return f"Background job ({route[4:].replace('_', ' ')})"
+    if route.startswith("script "):
+        return f"Script run by hand ({route[7:]})"
     path = route.split(" ", 1)[-1]
     path = re.sub(r"^/api", "", path)
     for pattern, label in _ROUTES:

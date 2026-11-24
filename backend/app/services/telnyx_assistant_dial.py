@@ -191,7 +191,7 @@ async def dial_via_telnyx_assistant(
 
     call_id = f"call_{uuid.uuid4().hex[:8]}"
     # Prepaid: the call holds the minutes left and Telnyx ends it when they run out.
-    allowed, why, time_limit = await reserve_call(db, call_id)
+    allowed, why, time_limit = await reserve_call(db, call_id, item="voice_minute")  # Telnyx's own AI: the standard minute
     if not allowed:
         return {"success": False, "error": why, "code": "OUT_OF_CREDITS"}
     await db.commit()

@@ -516,10 +516,11 @@ export const voiceDoc = {
           headers: ["Item", "Standard rate"],
           rows: [
             ["Call minute (AI or browser)", "1 credit per minute"],
+            ["Call minute with a premium AI engine or voice", "2 credits per minute"],
             ["WhatsApp message sent", "1 credit per message"],
             ["Browser call transcript and summary", "1 credit per minute of call"],
             ["Number check", "1 credit per 5 numbers"],
-            ["Phone number rental", "1 credit per number per month"],
+            ["Phone number rental", "15 credits per number per month"],
             ["Number setup", "5 credits per number"],
           ],
         },

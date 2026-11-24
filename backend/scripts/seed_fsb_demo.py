@@ -1,16 +1,15 @@
-"""Sets up (or resets) the FSB demo account: its own organisation, FSB brand, Admin login, a sample import with a review queue,
-a change report for the last 31 days and a list of saved companies. Safe to run again: whatever is already there is left alone.
+"""Seeds sample data (an import with a review queue, a change report for the last 31 days and a list of saved companies) into a demo
+organisation that staff already created. It never makes or changes a login, and it refuses FSB's real company (org_fsb_demo).
 
 On the server, like the scripts in scratch/fsb_bid_scripts (copy make_fsb_test_file.py next to it to build the file from the BN companies we hold):
 
   docker cp backend/scripts/seed_fsb_demo.py aivhub_backend:/tmp/seed_fsb_demo.py
   docker cp backend/scripts/make_fsb_test_file.py aivhub_backend:/tmp/make_fsb_test_file.py
-  docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py
-  docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py --reset
+  docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py --org org_xxx
+  docker exec -i -e PYTHONPATH=/app -w /app aivhub_backend python /tmp/seed_fsb_demo.py --org org_xxx --reset
 
-The admin (fsbadmin) password is FSB_DEMO_PASSWORD (the default demo password when it is unset). The normal user (fsbuser, role FSB Operator) is made only
-with the password FSB_DEMO_USER_PASSWORD (the default demo password when it is unset), and an existing fsbuser is never changed. --reset removes only what this script made in the demo
-organisation (its import and rows, its report, its list and the companies it saved), then seeds again. Nothing outside org_fsb_demo is touched.
+--reset removes only what this script made in that organisation (its import and rows, its report, its list and the companies it saved),
+then seeds again. Nothing outside the chosen organisation is touched. The admin portal's "Create demo organisation" (plan 12, B7) replaces it.
 """
 from __future__ import annotations
 
@@ -30,7 +29,11 @@ for extra in (os.path.join(HERE, ".."), HERE, "/tmp", "/app/scripts"):
 FILENAME = "fsb_salesforce_accounts_demo.csv"
 LIST_NAME = "FSB prospects"
 MARK = "Saved by the FSB demo seed"  # on every company this script saves, so a reset removes only those
-STATE_KEY = "fsb_demo_seed:org_fsb_demo"
+def _state_key() -> str:
+    """One record of what a run made per organisation (the run is inside that organisation's scope)."""
+    from app.core.tenancy import current_org
+
+    return f"fsb_demo_seed:{current_org()}"
 WANT_ROWS = 200
 SAVE_COMPANIES = 8
 
@@ -71,18 +74,18 @@ async def _file_rows() -> Tuple[List[Dict[str, str]], str]:
 async def _state(db) -> Dict[str, Any]:
     from app.models.models import AppSetting
 
-    row = await db.get(AppSetting, STATE_KEY)
+    row = await db.get(AppSetting, _state_key())
     return dict(row.data or {}) if row else {}
 
 
 async def _save_state(db, data: Dict[str, Any]) -> None:
     from app.models.models import AppSetting
 
-    row = await db.get(AppSetting, STATE_KEY)
+    row = await db.get(AppSetting, _state_key())
     if row:
         row.data = data
     else:
-        db.add(AppSetting(id=STATE_KEY, data=data))
+        db.add(AppSetting(id=_state_key(), data=data))
     await db.flush()
 
 
@@ -114,7 +117,7 @@ async def reset(org: str) -> Dict[str, int]:
             if len(keep) != len(lists):
                 await K._put_doc(db, key, {**doc, "lists": keep})
                 gone["lists"] = len(lists) - len(keep)
-            row = await db.get(AppSetting, STATE_KEY)
+            row = await db.get(AppSetting, _state_key())
             if row:
                 await db.delete(row)
             await db.commit()
@@ -189,28 +192,30 @@ async def seed(org: str) -> Dict[str, Any]:
 
 
 async def main() -> None:
-    ap = argparse.ArgumentParser(description="Seed or reset the FSB demo account and its sample data.")
-    ap.add_argument("--reset", action="store_true", help="remove what this script made in the demo organisation, then seed again")
+    ap = argparse.ArgumentParser(description="Seed or reset sample data in a demo organisation staff already created. Makes no logins.")
+    ap.add_argument("--org", required=True, help="the id of the demo organisation to seed (never FSB's real company)")
+    ap.add_argument("--reset", action="store_true", help="remove what this script made in that organisation, then seed again")
     a = ap.parse_args()
-    from app.services import fsb_demo as D
-    from app.database import engine
+    from sqlalchemy import text
 
+    from app.database import engine
+    from app.services import fsb_demo as D
+
+    if a.org == D.ORG_ID:
+        raise SystemExit(f"{D.ORG_ID} is FSB's real company now: sample data is never seeded into it. Create a demo organisation and pass its id.")
     async with engine.begin() as conn:
-        who = await D.ensure_demo_account(conn)
-    await D.ensure_demo_data()
+        name = (await conn.execute(text("SELECT name FROM organizations WHERE id = :i"), {"i": a.org})).scalar()
+    if not name:
+        raise SystemExit(f"No organisation {a.org}: create it first (admin portal), then run this again.")
     if a.reset:
-        print("reset:", await reset(D.ORG_ID))
-    result = await seed(D.ORG_ID)
+        print("reset:", await reset(a.org))
+    result = await seed(a.org)
     print("=" * 60)
-    print(" FSB DEMO ACCOUNT READY")
+    print(f" SAMPLE DATA READY in {name} ({a.org})")
     print("=" * 60)
-    print(f" Organisation : {D.ORG_NAME} ({who['org_id']}), brand {D.BRAND_NAME} ({who['brand_id']})")
-    print(f" Admin sign in: {D.EMAIL} (or {D.USERNAME}); password from FSB_DEMO_PASSWORD" + ("" if os.environ.get("FSB_DEMO_PASSWORD") is not None else " (unset: default demo password)"))
-    print(f" User sign in : {D.USER_EMAIL} (or {D.USER_USERNAME}), role {D.USER_ROLE}; " + ("password from FSB_DEMO_USER_PASSWORD" + ("" if os.environ.get("FSB_DEMO_USER_PASSWORD") else " (unset: default demo password)") if who.get("user_id") else "NOT created: another user holds the username fsbuser"))
     print(f" Import       : {result.get('import')}, status {result.get('status')}, rows by outcome {result.get('counts')}")
     print(f" Change report: {result.get('report')}")
     print(f" List         : {result.get('list')}")
-    print(f" Credits      : {D.STARTER_CREDITS} in each of voice, leadgen, scheduler (hidden in the screens by the brand)")
     await engine.dispose()
 
 
