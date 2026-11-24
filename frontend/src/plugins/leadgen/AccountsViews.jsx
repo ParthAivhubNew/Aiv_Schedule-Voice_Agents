@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
+import { screeningNote } from "./tpsCheck";
 import { writeEmail } from "../../utils/writeEmail";
 import { pagePicked, useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
@@ -233,7 +234,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
     // saves what it found on the company, so the answer is applied quietly when it lands, never lost.
     research: (id) => lookup(id, "research", () => api.researchLeadAccount(id), (a) => {
       announceCreditsChanged();
-      return hasFindings(a) ? `Researched ${a.name}.` : `Nothing public found for ${a.name}. No credit used.`;
+      return (hasFindings(a) ? `Researched ${a.name}.` : `Nothing public found for ${a.name}. No credit used.`) + screeningNote(a.tps_check);
     }, "Research failed. Try again."),
     // Deep web search: one structured lookup (Google Places under the hood -- never named to the
     // user), 2 Leads credits when it finds something.
@@ -242,7 +243,7 @@ export function useLeadAccounts(onToast, onListsChanged) {
       return lookup(id, "deep", () => api.deepSearchLeadAccount(id), (a) => {
         announceCreditsChanged();
         const changed = before && (a.phone !== before.phone || a.website !== before.website || a.region !== before.region);
-        return changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`;
+        return (changed ? `Deep web search found more on ${a.name}.` : `Nothing new found for ${a.name}. No credit used.`) + screeningNote(a.tps_check);
       }, "Deep web search failed. Try again.");
     },
     // Free: only checks our own shared company store, no live web search, no credit.

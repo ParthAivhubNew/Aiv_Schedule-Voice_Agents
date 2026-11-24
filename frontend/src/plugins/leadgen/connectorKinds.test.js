@@ -5,9 +5,9 @@ describe("data they provide", () => {
   it("all data keeps every connector", () => {
     expect(providesKind({ id: "anything" }, "all")).toBe(true);
   });
-  it("sole traders come from the food hygiene and care registers only, not the company register", () => {
+  it("sole traders come from the hygiene and care registers plus Experian and Market Location, not the company register", () => {
     const sole = Object.keys(CONNECTOR_PROVIDES).filter((id) => providesKind({ id }, "sole"));
-    expect(sole.sort()).toEqual(["cqc_care", "fsa_hygiene"]);
+    expect(sole.sort()).toEqual(["cqc_care", "experian", "fsa_hygiene", "market_location"]);
   });
   it("phone screening is the TPS register and a connector with no listing gives nothing", () => {
     expect(providesKind({ id: "tps_ctps" }, "screening")).toBe(true);

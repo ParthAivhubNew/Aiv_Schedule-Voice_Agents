@@ -35,7 +35,6 @@ USER_ROLE_LEVELS: Dict[str, str] = {"leadgen": "full", "calling": "full", "sched
 OPERATOR_NAME = "FSB Demo Outreach"
 LEGACY_OPERATOR_IDS = ("op_fsboutreach", "op_fsbdemo")  # ids older versions gave the demo account
 DEFAULT_PASSWORD = "Fsb@2026"
-STARTER_CREDITS = 5000
 STARTER_REF = "fsb_demo_starter"  # one grant per wallet, ever: the demo may spend them
 
 BN_DISTRICTS: List[str] = (["BN1", "BN2", "BN3"] + [f"BN{n}" for n in range(5, 19)] + [f"BN{n}" for n in range(20, 28)]
@@ -93,7 +92,7 @@ async def _ensure_brand(conn: AsyncConnection) -> str:
             brand_id = f"brd_{uuid.uuid4().hex[:12]}"
         await conn.execute(text(
             "INSERT INTO brands (id, name, display_name, logo_url, accent_color, theme, powered_by, hide_credits, status, policy, created_at, updated_at) "
-            "VALUES (:i, :n, 'Federation of Small Businesses', '', '', CAST('{}' AS JSON), TRUE, TRUE, 'active', CAST(:p AS JSON), "
+            "VALUES (:i, :n, 'Federation of Small Businesses', '', '', CAST('{}' AS JSON), TRUE, FALSE, 'active', CAST(:p AS JSON), "
             "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"), {"i": brand_id, "n": BRAND_NAME, "p": json.dumps(clean_policy(DEMO_POLICY))})
     await conn.execute(text("UPDATE organizations SET brand_id = :b WHERE id = :o AND (brand_id IS NULL OR brand_id = '')"), {"b": brand_id, "o": ORG_ID})
     return brand_id
@@ -228,8 +227,8 @@ async def ensure_demo_account(conn: AsyncConnection) -> Dict[str, str]:
 
 
 async def ensure_demo_data() -> bool:
-    """The demo organisation's company profile and starting credits (5,000 in each wallet, once: credits on a wallet are what opens its app,
-    the same rule as for any customer). Needs the tenancy setup, so it runs after it. False when the organisation does not exist."""
+    """The demo organisation's company profile and the credit rules. It gets no free credits: like any customer it buys a plan or a top-up,
+    and a wallet with credits is what opens its app. Needs the tenancy setup, so it runs after it. False when the organisation does not exist."""
     from app.core.tenancy import org_scope
     from app.database import AsyncSessionLocal
     from app.models.models import CompanyProfile, Organization
@@ -249,7 +248,24 @@ async def ensure_demo_data() -> bool:
                 doc = await K._get_doc(s, K._settings_id(ORG_ID))
                 doc["tracking_since"] = datetime.utcnow().isoformat()
                 await K._put_doc(s, K._settings_id(ORG_ID), doc)
-            for wallet in K.WALLETS:
-                await K.add_credits(s, wallet, STARTER_CREDITS, source="grant", note="FSB demo starting credits", by="Demo setup", ref=STARTER_REF)
             await s.commit()
     return True
+
+
+async def remove_starter_credits(conn: AsyncConnection) -> None:
+    """The first demo setup gave each wallet 5,000 free credits, which opened every app without a purchase. Take back what is left of them
+    (a grant nobody touched is removed from the history; a part-spent one is zeroed and the spending stays) and show the credit balance on the FSB brand."""
+    rows = (await conn.execute(text(
+        "SELECT id, wallet, remaining, amount FROM credit_grants WHERE org_id = :o AND ref = :r AND remaining > 0"), {"o": ORG_ID, "r": STARTER_REF})).all()
+    for gid, wallet, remaining, amount in rows:
+        if remaining == amount:
+            # Never touched: remove it as if it had not been given, so the history starts clean.
+            await conn.execute(text("DELETE FROM credit_grants WHERE id = :i"), {"i": gid})
+            await conn.execute(text("DELETE FROM credit_ledger WHERE org_id = :o AND ref = :r AND wallet = :w AND kind = 'grant'"), {"o": ORG_ID, "r": STARTER_REF, "w": wallet})
+            continue
+        await conn.execute(text("UPDATE credit_grants SET remaining = 0 WHERE id = :i"), {"i": gid})
+        await conn.execute(text(
+            "INSERT INTO credit_ledger (org_id, id, kind, wallet, item, quantity, amount, ref, note, by, created_at, payer_org_id) "
+            "VALUES (:o, :i, 'adjust', :w, '', 0, :a, NULL, 'FSB demo starting credits taken back', 'Demo setup', CURRENT_TIMESTAMP, :o)"),
+            {"o": ORG_ID, "i": f"cr_{uuid.uuid4().hex[:14]}", "w": wallet, "a": -int(remaining)})
+    await conn.execute(text("UPDATE brands SET hide_credits = FALSE WHERE name = :n AND hide_credits = TRUE"), {"n": BRAND_NAME})

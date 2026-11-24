@@ -94,3 +94,16 @@ describe("wiring", () => {
     expect(read("../voice/calling/CallingWorkspace.jsx")).toContain("<TpsCheckBar");
   });
 });
+
+describe("the screening sentence added to a company check", () => {
+  it("says what happened, and nothing when nothing was needed", async () => {
+    const { screeningNote } = await import("./tpsCheck");
+    expect(screeningNote({ status: "done", screened: 2, credits: 1 })).toBe(" Phone numbers screened against TPS and CTPS: 1 credit used.");
+    expect(screeningNote({ status: "done", screened: 0, credits: 0 })).toBe("");
+    expect(screeningNote({ status: "nothing" })).toBe("");
+    expect(screeningNote(undefined)).toBe("");
+    expect(screeningNote({ status: "no_credits" })).toContain("not enough credits");
+    expect(screeningNote({ status: "no_key" })).toContain("isn't switched on");
+    expect(screeningNote({ status: "service" })).toContain("couldn't be reached");
+  });
+});

@@ -131,3 +131,13 @@ export function previewLine(est, total) {
   const n = (v) => v.toLocaleString();
   return `${n(toCheck)} ${toCheck === 1 ? "number" : "numbers"} to check, ${n(already)} already checked, cost ${creditsWord(credits)}.${notUk ? ` ${n(notUk)} ${notUk === 1 ? "is" : "are"} not UK ${notUk === 1 ? "number" : "numbers"} and ${notUk === 1 ? "is" : "are"} left out.` : ""}`;
 }
+
+// One sentence about the phone screening that ran with a company check, added to the check's message. Empty when nothing was needed.
+export function screeningNote(check) {
+  const c = check || {};
+  if (c.status === "done" && c.screened) return ` Phone numbers screened against TPS and CTPS${c.credits ? `: ${creditsWord(c.credits)} used` : ""}.`;
+  if (c.status === "no_credits") return " Phone screening was skipped: not enough credits.";
+  if (c.status === "no_key") return " Phone screening isn't switched on yet.";
+  if (c.status === "service") return " Phone screening couldn't be reached this time.";
+  return "";
+}

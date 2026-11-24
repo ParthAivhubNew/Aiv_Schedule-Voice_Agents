@@ -481,8 +481,6 @@ export const api = {
   getGoogleView: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/google-view`, { cache: 'no-store', timeoutMs: 30000 }),
   // Per-person data access (admins only)
   getDataAccess: () => apiRequest('/org/data-access'),
-  getAutoTps: () => apiRequest('/org/auto-tps'),
-  setAutoTps: (enabled) => apiRequest('/org/auto-tps', { method: 'PUT', body: { enabled: !!enabled } }),
   getPlatformProvided: () => apiRequest('/connections/platform-provided'),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),

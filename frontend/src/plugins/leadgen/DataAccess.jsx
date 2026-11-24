@@ -6,7 +6,6 @@ import { api } from "../../api/apiClient";
 import { AdminCrown } from "../../components/AdminCrown";
 import { AccessEditor, useAccessDraft } from "./admin/AccessEditor";
 import { accessChanges, confirmTwice, roleSetChanges } from "./admin/confirmChange";
-import { PhoneScreeningCard } from "./admin/PhoneScreeningCard";
 
 export { AREAS_HELP, AREA_ERROR, NEED_AREAS_LINE, NO_LIMIT_LINE, cleanArea, previewLine } from "./admin/AccessEditor";
 
@@ -118,7 +117,6 @@ export function DataAccess() {
   const onSaved = (u) => setData((d) => (d ? { ...d, users: d.users.map((x) => (x.id === u.id ? { ...x, ...u } : x)) } : d));
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <PhoneScreeningCard />
       <DataAccessBody data={data} error={error} loading={!data && !error} onSaved={onSaved} />
       {error && !data ? <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44, marginTop: 10 }} onClick={load}>Try again</button> : null}
     </div>

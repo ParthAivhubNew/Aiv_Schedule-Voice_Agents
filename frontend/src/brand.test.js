@@ -117,7 +117,6 @@ const CLIENT_FILES = [
   "plugins/leadgen/admin/adminLogic.js",
   "plugins/leadgen/admin/AccessEditor.jsx",
   "plugins/leadgen/admin/confirmChange.js",
-  "plugins/leadgen/admin/PhoneScreeningCard.jsx",
   "plugins/leadgen/listFilters.js",
   "plugins/leadgen/ListFilterBar.jsx",
   "plugins/leadgen/peopleFilters.js",

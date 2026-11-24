@@ -1,3 +1,6 @@
+import { openSupport } from "../../hub/openSupport";
+import { ConnectorPricing } from "./ConnectorPricing";
+import { CONNECTOR_PRICING } from "./connectorPrices";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -90,13 +93,27 @@ export const NOT_CONNECTED_TEXT = "This connector isn't switched on for your acc
 export const NOT_CONNECTED_LABEL = "Not connected yet";
 
 export function NotConnectedPanel({ connector }) {
+  const gives = (CONNECTOR_PROVIDES[connector.id] || []).map((k) => (DATA_KINDS.find((d) => d[0] === k) || [k, k])[1]);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, ...text }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, ...text }}>
       <div role="status" style={{ padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#F8FAFC", border: `1px solid ${C.border}`, color: C.textInk }}>
         Status: {NOT_CONNECTED_LABEL}
       </div>
       <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{connector.desc}</div>
+      {gives.length ? (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Once connected it gives you</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {gives.map((g) => <span key={g} style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "#F1F5F9", color: C.textInk }}>{g}</span>)}
+          </div>
+        </div>
+      ) : null}
       <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>{NOT_CONNECTED_TEXT}</div>
+      <div>
+        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ minHeight: 36 }} onClick={() => openSupport()}>
+          Ask to switch this on
+        </button>
+      </div>
     </div>
   );
 }
@@ -917,12 +934,12 @@ export const DATA_KINDS = [
 export const CONNECTOR_PROVIDES = {
   ch_registry: ["company", "people", "address", "credit"],
   fsa_hygiene: ["sole", "address", "company"],
-  cqc_care: ["sole", "address", "company"],
-  tps_ctps: ["screening", "phone"],
+  cqc_care: ["sole", "address", "company", "phone", "people"],
+  tps_ctps: ["screening"],
   os_postcodes: ["address"],
   web_dossier: ["website", "email", "phone", "people"],
-  experian: ["credit", "company"],
-  market_location: ["company", "phone", "email"],
+  experian: ["credit", "company", "sole", "people", "address"],
+  market_location: ["company", "sole", "people", "address", "phone", "email", "website"],
   csv_pipeline: ["yours"],
   salesforce: ["yours"], hubspot: ["yours"], dynamics365: ["yours"], zoho_crm: ["yours"], pipedrive: ["yours"],
   bigquery: ["yours"], postgres: ["yours"], snowflake: ["yours"], s3_lake: ["yours"], airtable: ["yours"],
@@ -1096,8 +1113,7 @@ export function ConnectorsView({ operator, toast }) {
   const renderCard = (item) => {
           const isConnected = item.status === "connected";
           const LogoComp = item.LogoComponent || CompaniesHouseLogo;
-
-          return (
+  return (
             <div
               key={item.id}
               role="button"
@@ -1254,6 +1270,28 @@ export function ConnectorsView({ operator, toast }) {
               </div>
             </div>
           );
+  };
+  // On the Data tab, vendors that supply data and the customer's own systems sit under separate titles.
+  const OWN_SYSTEMS = new Set(["CRM & ERP", "Big Data & Cloud", "File & API"]);
+  const cardGrid = (items) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(215px, calc((100% - 48px) / 5)), 1fr))", gap: 12 }}>{items.map(renderCard)}</div>
+  );
+  const renderGroups = (items) => {
+    if (partition !== "data") return cardGrid(items);
+    const own = items.filter((c) => OWN_SYSTEMS.has(c.category) || c.partition === "data" && !CONNECTOR_PROVIDES[c.id] && !c.notConnected && c.custom);
+    const providers = items.filter((c) => !own.includes(c));
+    const title = (t, sub) => (
+      <div style={{ ...text, display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" }}>
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: C.slate }}>{t}</span>
+        <span style={{ fontSize: 12, color: C.slateLight }}>{sub}</span>
+      </div>
+    );
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        {providers.length ? <div>{title("Data providers", "They supply new data")}{cardGrid(providers)}</div> : null}
+        {own.length ? <div>{title("Your own systems", "They hold your records")}{cardGrid(own)}</div> : null}
+      </div>
+    );
   };
 
   const handleTestConnection = (conn) => {
@@ -1539,9 +1577,11 @@ export function ConnectorsView({ operator, toast }) {
           <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#DCFCE7", color: "#15803D" }}>{connectedItems.length}</span>
         </h2>
         {connectedItems.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(215px, calc((100% - 48px) / 5)), 1fr))", gap: 12 }}>{connectedItems.map(renderCard)}</div>
+          renderGroups(connectedItems)
         ) : (
-          <p style={{ ...text, fontSize: 13, color: C.slate, margin: 0 }}>Nothing is connected here yet. Pick one below or add your own.</p>
+          <p style={{ ...text, fontSize: 13, color: C.slate, margin: 0 }}>
+            {currentList.length !== filtered.length || connectedCount ? "No connected connectors match these filters." : "Nothing is connected here yet. Pick one below or add your own."}
+          </p>
         )}
       </section>
 
@@ -1562,8 +1602,10 @@ export function ConnectorsView({ operator, toast }) {
           <span style={{ ...text, fontSize: 12, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: "#F1F5F9", color: C.slate }}>{availableItems.length}</span>
         </h2>
         {availableItems.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(215px, calc((100% - 48px) / 5)), 1fr))", gap: 12 }}>{availableItems.map(renderCard)}</div>
-        ) : null}
+          renderGroups(availableItems)
+        ) : (
+          <p style={{ ...text, fontSize: 13, color: C.slate, margin: 0 }}>No available connectors match these filters.</p>
+        )}
       </section>
 
       {!filtered.length ? (
@@ -1609,7 +1651,7 @@ export function ConnectorsView({ operator, toast }) {
             style={{
               background: "#FFFFFF",
               borderRadius: 12,
-              maxWidth: 580,
+              maxWidth: !isEditing && selectedConnector.status !== "connected" && CONNECTOR_PRICING[selectedConnector.id] ? 800 : 580,
               width: "100%",
               overflow: "hidden",
               boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
@@ -1689,6 +1731,7 @@ export function ConnectorsView({ operator, toast }) {
 
             {/* Body */}
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16, maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>
+              {!isEditing && selectedConnector.status !== "connected" ? <ConnectorPricing id={selectedConnector.id} /> : null}
               {selectedConnector.notConnected ? (
                 <NotConnectedPanel connector={selectedConnector} />
               ) : selectedConnector.platformKey ? (

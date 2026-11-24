@@ -1033,6 +1033,17 @@ async def _fsb_all_postcodes(conn: AsyncConnection) -> None:
         logger.warning(f"FSB postcode lock was not cleared: {err}")
 
 
+async def _fsb_no_free_credits(conn: AsyncConnection) -> None:
+    """The FSB demo buys its credits like any customer: takes back the free starter credits and shows the balance (savepointed)."""
+    try:
+        async with conn.begin_nested():
+            from app.services import fsb_demo
+
+            await fsb_demo.remove_starter_credits(conn)
+    except Exception as err:
+        logger.warning(f"FSB starter credits were not taken back: {err}")
+
+
 async def _fsb_demo_account(conn: AsyncConnection) -> None:
     from app.services import fsb_demo
 
@@ -1133,6 +1144,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_01_operator_data_scope", _operator_data_scope),
     ("2026_12_02_fsb_all_postcodes", _fsb_all_postcodes),
     ("2026_12_03_role_is_active", _role_is_active),
+    ("2026_12_04_fsb_no_free_credits", _fsb_no_free_credits),
     ("2026_12_01_fsb_demo_admin_rename_and_user", _ensure_fsb_demo_account),  # renames fsbdemo to fsbadmin in place; adds the normal user when its password is set
 ]
 

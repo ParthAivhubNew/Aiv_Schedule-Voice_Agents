@@ -174,20 +174,42 @@ async def test_the_old_step_is_a_recorded_no_op_so_it_cannot_put_the_demo_in_org
     assert "2026_11_29_ensure_fsb_demo_operator" in ids and ids.index("2026_11_30_ensure_fsb_demo_account") > ids.index("2026_11_29_ensure_fsb_demo_operator")
 
 
-async def test_every_wallet_is_funded_and_every_app_is_open(db, anon):
+async def test_the_demo_has_no_free_credits_so_every_app_stays_locked_until_it_buys(db, anon):
     await run_step()
     assert await D.ensure_demo_data() is True
-    assert await D.ensure_demo_data() is True  # again: no second grant
     from app.services import credits as K
 
     with org_scope("org_fsb_demo"):
         from app.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as s:
-            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 5000, "leadgen": 5000, "scheduler": 5000}
+            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 0, "leadgen": 0, "scheduler": 0}
     token = (await anon.post("/api/auth/login", json=LOGIN)).json()["access_token"]
     got = await anon.get("/api/billing/access", headers={"Authorization": f"Bearer {token}"})
-    assert got.status_code == 200 and got.json()["has_active_plan"] == {"voice": True, "leadgen": True, "scheduler": True}
+    assert got.status_code == 200 and got.json()["has_active_plan"] == {"voice": False, "leadgen": False, "scheduler": False}
+    assert (await db.execute(text("SELECT hide_credits FROM brands WHERE name = :n"), {"n": D.BRAND_NAME})).scalar() is False
+
+
+async def test_the_old_free_starter_credits_are_taken_back_and_the_balance_is_shown(db):
+    from app.database import engine
+    from app.services import credits as K
+
+    await run_step()
+    await db.execute(text("UPDATE brands SET hide_credits = TRUE WHERE name = :n"), {"n": D.BRAND_NAME})
+    await db.commit()
+    with org_scope("org_fsb_demo"):
+        from app.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as s:
+            for w in K.WALLETS:
+                await K.add_credits(s, w, 5000, source="grant", note="old", by="Demo setup", ref=D.STARTER_REF)
+            await s.commit()
+    async with engine.begin() as conn:
+        await M._fsb_no_free_credits(conn)
+    with org_scope("org_fsb_demo"):
+        async with AsyncSessionLocal() as s:
+            assert {w: await K.wallet_balance(s, w) for w in K.WALLETS} == {"voice": 0, "leadgen": 0, "scheduler": 0}
+    assert (await db.execute(text("SELECT hide_credits FROM brands WHERE name = :n"), {"n": D.BRAND_NAME})).scalar() is False
 
 
 async def test_the_data_step_does_nothing_when_the_org_does_not_exist(db):

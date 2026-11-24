@@ -2055,9 +2055,6 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
 
     await _EL.classify(db, added + updated)  # free: our own register copy only, so every saved company has its email group at once
     await db.commit()
-    from app.services import auto_tps as _AT
-
-    _AT.kick()  # saved numbers are screened in the background; this request does not wait
     from app.core.tenancy import current_org
     from app.services import connections as _C
 
@@ -2340,7 +2337,18 @@ async def deep_search_account(account_id: str, db: AsyncSession = Depends(get_db
     await db.commit()
     await _charge_deep_search(db, f"Deep web search: {row.name}")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return await _screened(db, _out(row, biz))
+    return await _with_tps(db, row, _out(row, biz))
+
+
+async def _with_tps(db: AsyncSession, row: LeadAccount, card: Dict[str, Any]) -> Dict[str, Any]:
+    """The end of a company check: screen its UK numbers against the TPS and CTPS registers now (charged, see services/check_screening.py),
+    then return the card with those results. `tps_check` tells the screen what happened: nothing, done, no_key, no_credits or service."""
+    from app.services import check_screening as _CS
+
+    got = await _CS.screen_account_safely(db, row)
+    out = await _screened(db, card)
+    out["tps_check"] = {"status": got["status"], "screened": got["screened"], "credits": got["charged"]}
+    return out
 
 
 @router.post("/accounts/{account_id}/research")
@@ -2359,13 +2367,10 @@ async def research_account(account_id: str, db: AsyncSession = Depends(get_db)):
     await _apply_shared_record(db, row)
     found = await research_into(db, row)
     await db.commit()
-    from app.services import auto_tps as _AT
-
-    _AT.kick()  # a number research found is screened in the background
     if found:
         await _charge_leads(db, 1, f"Researched {row.name}")
     biz = (await db.execute(select(BusinessRecord).where(BusinessRecord.id == row.business_record_id))).scalars().first() if row.business_record_id else None
-    return await _screened(db, _out(row, biz))
+    return await _with_tps(db, row, _out(row, biz))
 
 
 _UK_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b", re.I)
