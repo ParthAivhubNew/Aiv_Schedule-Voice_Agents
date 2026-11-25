@@ -198,6 +198,12 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25 (latest):** step 4 is done for sign-in and Voice. Social is still to do.
+- **B9, sign-in rules by company:** every sign-in (password, Google) is checked against the combined rules on every web address (`api/auth.signin_refusal`), not only on the brand's own address. Each session records how it began (`auth_sessions.method`, migration `2026_12_12_session_method`). Switching a method off ends the sessions it began at their next refresh. There is no Microsoft sign-in in the code yet, so its switch does nothing until one is built.
+- **B8, Voice, decision 3:** **keep warning only**, decided 2026-11-25. A call to an unscreened number is never blocked. When the rules ask for screening, the warning says so ("Your company's rules ask for a TPS and CTPS check before calling…"). Exports keep leaving those numbers out.
+- **Still to do in step 4:** Social rules (approval, who approves, networks, AI images and video). They need new fields in the policy shape, then checks in the publish and approve paths, then a Social section on the Rules screen.
+- Tests: `tests/test_rules_everywhere.py`.
+
 **Status, 2026-11-25 (later):** step 3 and the first part of step 5 are done on the branch.
 - **Step 3 (B2):** exclusion rule sets are data. `services/exclusion_rules.PRESETS["standard_b2b"]` is FSB's rule set, offered to every company as **Standard B2B exclusions**.
   - A company switches sets on in `exclusions.sets`. The old `exclusions.fsb` flag means the same set, and cleaning keeps the two in step.
@@ -237,7 +243,7 @@ Connectors is shown to every user (plan 10, decision 3, taken as the default).
 
 1. **FSB's real e-mail addresses** for `fsbadmin` and `fsbuser`. The `outreach.com` ones aren't ours.
 2. **New passwords:** may I make both choose a new password at their next sign-in? Their current ones are very likely the ones in the code.
-3. **Voice:** should FSB's "block unscreened numbers" also **block calls**, not only exports? Today it only warns, so this would change what FSB's callers see.
+3. ~~**Voice:** should FSB's "block unscreened numbers" also **block calls**?~~ **Decided 2026-11-25: keep warning only.** The warning now names the rule.
 4. Should the "Standard B2B exclusions" preset be **on by default for new companies** (as a default filter they can switch off), or off?
 5. Can companies **create their own exclusion rule sets on every plan**, or only on higher plans?
 6. Should brand-level member lists (FSB members hidden for all FSB organisations) be supported now, or later?

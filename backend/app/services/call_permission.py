@@ -31,6 +31,8 @@ METHODS = {
 NO_AI_PERMISSION = "No permission recorded for AI calls to this number."
 TPS_LISTED = "This number is on the TPS list."
 CHECK_TPS = "Check TPS first"
+CHECK_TPS_RULE = ("Your company's rules ask for a TPS and CTPS check before calling, and this number hasn't been checked yet. "
+                  "Check TPS first: you can still call, but the number is left out of exports until it's checked.")
 
 
 def wording(company: str, number: str, product: str) -> str:
@@ -204,5 +206,16 @@ async def decide(db, num: str, kind: str = "ai", now: Optional[datetime] = None)
         out["reasons"].append(TPS_LISTED)
     elif not st["fresh"]:
         out["flags"].append("check_tps")
-        out["warnings"].append(CHECK_TPS)
+        out["warnings"].append(CHECK_TPS_RULE if await _rule_asks_for_screening(db) else CHECK_TPS)
     return out
+
+
+async def _rule_asks_for_screening(db) -> bool:
+    """True when the company's rules (or its brand's) say to screen numbers first. A call is still only warned, never blocked, for it: the
+    rule blocks unscreened numbers in exports (decided 2026-11-25, plan 12 decision 3). Never raises."""
+    try:
+        from app.services import tenant_policy as TP
+
+        return (await TP.effective(db)).block_unscreened
+    except Exception:
+        return False

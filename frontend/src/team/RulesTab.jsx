@@ -5,7 +5,8 @@ import { draftFrom, fromBrand, previewLine, SIGNIN_NAMES, SOURCE_NAMES, toPayloa
 
 // Company rules (plan 12, F1): what the company's admins decide for everyone in it. A rule the brand set (a white-label reseller such as
 // FSB) shows as set and can't be relaxed here; the server checks that again on save (PUT /org/rules) and audits every change.
-// Voice and Social rules come next (plan 12, step 4); calling hours and the do-not-call list stay in Voice settings.
+// Sign-in methods hold on every sign-in and refresh (api/auth.signin_refusal). Social rules come next; calling hours and the
+// do-not-call list stay in Voice settings.
 
 const text = { fontFamily: FONT_BODY };
 const section = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: "grid", gap: 10 };
@@ -134,11 +135,13 @@ export function RulesTab({ flash, initial = null, initialSets = null }) {
       <section aria-label="Exports and phone screening" style={section}>
         <strong style={{ fontSize: 14 }}>Exports</strong>
         <Check label="Leave phone numbers out of exports unless they have a clear TPS / CTPS check" checked={draft.blockUnscreened}
-          onChange={(on) => set({ blockUnscreened: on })} lockedBy={brand.blockUnscreened ? by : ""} />
+          onChange={(on) => set({ blockUnscreened: on })} lockedBy={brand.blockUnscreened ? by : ""}
+          note="Calls aren't blocked: calling a number that hasn't been checked shows a warning that names this rule." />
       </section>
 
       <section aria-label="Sign-in" style={section}>
         <strong style={{ fontSize: 14 }}>How people sign in</strong>
+        <span style={hint}>Applies on every web address. Switching a method off also signs out anyone who signed in that way.</span>
         {Object.entries(SIGNIN_NAMES).map(([k, label]) => {
           const off = Boolean(brand.signinOff[k]);
           return (

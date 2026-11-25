@@ -510,7 +510,7 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, response: Respo
     if org and org.status == PENDING and verified and (op.email or "").lower() == email.lower():
         org.status = "active"  # Google already confirmed this email
     await db.commit()
-    out = await sign_in_as(db, op, request)
+    out = await sign_in_as(db, op, request, method="google")
     from app.api.auth import set_refresh_cookie
 
     set_refresh_cookie(response, out["refresh_token"])

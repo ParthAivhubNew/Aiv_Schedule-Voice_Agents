@@ -72,6 +72,7 @@ class AuthSession(Base):
     revoked_at = Column(DateTime, nullable=True)
     # The token before the last rotation stays good for a few seconds, so two tabs refreshing together do not sign each other out.
     prev_refresh_jti = Column(String, nullable=True)
+    method = Column(String, default="")  # how the session began: password | google ("" for sessions from before it was kept)
     rotated_at = Column(DateTime, nullable=True)
     # "Keep me signed in" on a trusted device: lasts the refresh token's 30 days instead of the platform's shorter maximum.
     remember = Column(Boolean, default=False)

@@ -161,7 +161,25 @@ async def _may_remember(db: AsyncSession, op: Operator) -> bool:
     return not (await session_policy.org_choice(db, org_of(op))).get("max_hours")
 
 
-async def _start_session(db: AsyncSession, op: Operator, request: Request, remember: bool = False) -> Dict[str, Any]:
+METHOD_NAMES = {"password": "a password", "google": "Google", "microsoft": "Microsoft"}
+
+
+async def signin_refusal(db: AsyncSession, op: Operator, method: str) -> str:
+    """Why this person may not sign in this way under their company's rules (the brand's combined with the company's, plan 12, B9), or ""
+    when they may. The sign-in page's own check by web address stays as well; this one holds on every address."""
+    from app.services import tenant_policy as TP
+
+    if not method:
+        return ""
+    allowed = (await TP.effective(db, org_of(op))).data["signin"]
+    if allowed.get(method, True):
+        return ""
+    others = [METHOD_NAMES[k] for k in ("password", "google") if allowed.get(k, True) and k != method]
+    how = f" Sign in with {' or '.join(others)}." if others else " Ask your administrator how to sign in."
+    return f"Your company's rules don't allow signing in with {METHOD_NAMES.get(method, method)}.{how}"
+
+
+async def _start_session(db: AsyncSession, op: Operator, request: Request, remember: bool = False, method: str = "") -> Dict[str, Any]:
     remember = bool(remember and await _may_remember(db, op))
     sid = f"ses_{uuid.uuid4().hex}"
     refresh = create_refresh_token(op.id, sid)
@@ -174,6 +192,7 @@ async def _start_session(db: AsyncSession, op: Operator, request: Request, remem
         ip=request.client.host if request.client else "",
         expires_at=datetime.utcnow() + timedelta(seconds=REFRESH_TTL_S if remember else min(REFRESH_TTL_S, (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600)),
         remember=remember,
+        method=method or "",
     ))
     is_admin, _, roles = await effective_access(db, op)
     role = "Admin" if is_admin else (roles[0].name if roles else "Operator")
@@ -300,13 +319,13 @@ async def login(body: LoginBody, request: Request, response: Response, db: Async
     if branded is not None and not branded.get("password"):
         raise HTTPException(status_code=403, detail="Password sign-in is not available on this address. Use the sign-in method your administrator gave you.")
     op = await check_credentials(db, body.username, body.password, request)
-    out = await sign_in_as(db, op, request, remember=body.remember)
+    out = await sign_in_as(db, op, request, remember=body.remember, method="password")
     set_refresh_cookie(response, out["refresh_token"])
     return out
 
 
-async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember: bool = False) -> Dict[str, Any]:
-    """Start a session for a user who proved who they are (password or Google)."""
+async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember: bool = False, method: str = "") -> Dict[str, Any]:
+    """Start a session for a user who proved who they are (password or Google). `method` is checked against the company's rules."""
     from app.models.models import Organization
 
     if op.is_active is False:
@@ -319,6 +338,9 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember:
     await ensure_role_for(db, op)
     if await is_switched_off(db, op):
         raise AccessDenied(403, ACCESS_OFF_MESSAGE, "access_off")
+    refused = await signin_refusal(db, op, method)
+    if refused:
+        raise HTTPException(status_code=403, detail={"message": refused, "code": "signin_method_off"})
     # The very first sign-in is marked so the home screen can greet them as new; the next sign-in clears it.
     stored = dict(op.profile or {})
     if op.last_login_at is None:
@@ -326,7 +348,7 @@ async def sign_in_as(db: AsyncSession, op: Operator, request: Request, remember:
     elif stored.pop("first_visit", None):
         op.profile = stored
     op.last_login_at = datetime.utcnow()
-    tokens = await _start_session(db, op, request, remember)
+    tokens = await _start_session(db, op, request, remember, method)
     await db.commit()
     return {**tokens, "operator": await _operator_json(db, op)}
 
@@ -354,6 +376,11 @@ async def refresh(request: Request, response: Response, body: Optional[RefreshBo
         raise HTTPException(status_code=401, detail="Session expired. Sign in again.")
     if await is_switched_off(db, op):
         raise AccessDenied(403, ACCESS_OFF_MESSAGE, "access_off")
+    # A sign-in method the company switched off also ends the sessions it began (plan 12, B9).
+    if await signin_refusal(db, op, getattr(ses, "method", "") or ""):
+        ses.revoked_at = datetime.utcnow()
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Your company's sign-in rules changed. Sign in again.")
     # A shortened maximum applies to sign-ins already open, not only new ones.
     max_s = (await session_policy.get_policy(db, org_of(op)))["max_hours"] * 3600
     if not ses.remember and ses.created_at and (datetime.utcnow() - ses.created_at).total_seconds() > max_s:

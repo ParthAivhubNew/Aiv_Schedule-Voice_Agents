@@ -1101,6 +1101,11 @@ async def _role_is_active(conn: AsyncConnection) -> None:
         logger.warning(f"roles.is_active was not added: {err}")
 
 
+async def _session_method(conn: AsyncConnection) -> None:
+    """How each sign-in began (password or Google), so a company that switches a method off also ends the sessions it started."""
+    await conn.execute(text("ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS method VARCHAR DEFAULT ''"))
+
+
 async def _fsb_brand_account_link(conn: AsyncConnection) -> None:
     """The FSB sidebar badge used to be chosen by a list of usernames in the frontend (isFsbAccount). It is now the brand's own setting,
     theme.accountLink; this gives the FSB brand the link it showed before. Only when the brand exists and has no link yet."""
@@ -1199,6 +1204,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_09_per_request_lookups", _per_request_lookups),
     ("2026_12_10_billing_plan_rules", _billing_plan_rules),
     ("2026_12_11_fsb_brand_account_link", _fsb_brand_account_link),
+    ("2026_12_12_session_method", _session_method),
 ]
 
 
