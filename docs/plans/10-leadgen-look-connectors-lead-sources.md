@@ -38,9 +38,9 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - **`Pill`** is now in `app/ui.jsx`, and the staff portal re-exports it, so a label looks the same in the apps and the portal. The Leads screens take it from the shared file instead of the staff portal's.
   - **`Toast`** is shared too, and Leads uses it.
   - The Leads **"Subscription required"** notice is a `Banner`. The leftover purple background is gone.
+- **Third part (2026-11-25):** `Note`, `btn`, `card`, `input`, `cell`, `th`, `when`, `useAction` and `useLoad` moved from `adminPortal/ui.jsx` into `app/ui.jsx`, unchanged. The portal imports and re-exports them. **No client screen imports the staff portal's code any more**, and a test (`app/uiBlocks.test.jsx`) keeps it so.
 - **Still to do in item 4:**
   - `StatusPill` / `StatTile`.
-  - `Note` / `btn` / `card`, which Leads still takes from the staff portal.
   - The Voice and Social screens' hand-built versions.
 - Tests: `app/uiBlocks.test.jsx`.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).

@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
-import { card } from "../../adminPortal/ui";
-import { Pill } from "../../app/ui";
+import { Pill, card } from "../../app/ui";
 
 // "Everything we know" about how to reach a company: every website, phone, email and social page any source gave us, one line each, with where it came
 // from. A phone, email or website the register holds stays hidden until it is opened above (free, once), as it does in the results.

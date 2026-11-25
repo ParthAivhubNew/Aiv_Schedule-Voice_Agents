@@ -1,8 +1,7 @@
 import React from "react";
 import { C } from "../../tokens";
 import { Spinner } from "../../app/Loader";
-import { Note, btn as baseBtn, card } from "../../adminPortal/ui";
-import { Pill } from "../../app/ui";
+import { Pill, Note, btn as baseBtn, card } from "../../app/ui";
 import { ArrowLeft, Bot, Link2, Mail, Search } from "lucide-react";
 import { niceName, personEmail, shortDate } from "./companyLogic";
 

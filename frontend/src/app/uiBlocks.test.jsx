@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Building2, ShieldAlert } from "lucide-react";
@@ -36,5 +38,14 @@ describe("shared building blocks", () => {
     expect(renderToStaticMarkup(<Pill tone="good">Ready</Pill>)).toBe(renderToStaticMarkup(<Pill tone="green">Ready</Pill>));
     expect(renderToStaticMarkup(<Toast message="Saved." />)).toMatch(/role="status" aria-live="polite".*Saved\./);
     expect(renderToStaticMarkup(<Toast message="" />)).toBe("");
+  });
+
+  it("no client screen depends on the staff portal's code", () => {
+    const root = new URL("../", import.meta.url).pathname;
+    const files = [];
+    const walk = (d) => readdirSync(d).forEach((f) => { const p = join(d, f); if (statSync(p).isDirectory()) { if (f !== "adminPortal" && f !== "node_modules") walk(p); } else if (/\.(jsx|js)$/.test(f) && !f.includes(".test.")) files.push(p); });
+    walk(root);
+    const borrowing = files.filter((p) => /from\s+["'][./]*adminPortal\//.test(readFileSync(p, "utf8"))).map((p) => relative(root, p));
+    expect(borrowing).toEqual([]);
   });
 });
