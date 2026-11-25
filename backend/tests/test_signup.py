@@ -48,7 +48,9 @@ async def test_signup_creates_own_org_admin_and_isolates_data(anon, db, monkeypa
     users = (await anon.get("/api/auth/users", headers=h)).json()
     assert [u["username"] for u in users] == ["ann@acme.test"]
     ob = (await anon.get("/api/auth/onboarding", headers=h)).json()
-    assert ob["total"] == 6 and ob["done"] == 0
+    # a self-sign-up with no app yet starts with the shared steps and the Leads ones (plan 11, C.6)
+    assert [x["key"] for x in ob["steps"]] == ["company", "plan", "team", "search", "mailbox"] and ob["done"] == 0
+    assert "credits" in ob["credits"] and ob["creditsHelp"].startswith("/help/")
 
     # Same email twice is refused; honeypot is refused.
     assert (await anon.post("/api/auth/signup", json=BODY)).status_code == 400

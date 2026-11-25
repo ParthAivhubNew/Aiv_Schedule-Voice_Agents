@@ -57,7 +57,7 @@ const SAMPLE_PREVIEW_DATA = {
   prospect_name: "Sarah Jenkins",
   prospect_company: "Apex Retail Group",
   prospect_email: "sarah@apexretail.com",
-  prospect_phone: "+447307216767",
+  prospect_phone: "+447700900123", // an Ofcom number kept for TV and film, never a real line
   prospect_timezone: "Europe/London",
 };
 

@@ -13,7 +13,8 @@ function hidden(orgId) {
   }
 }
 
-// First steps for a new organisation, shown to admins on the plugin hub until done or hidden.
+// First steps for a new organisation, shown to admins on the home screen until done or hidden (plan 11, C.6). The steps and whether each
+// is done come from the server (GET /auth/onboarding), which picks them for the apps the company has.
 // A step's "go" is either an in-app path ("#/voice/hours") or "team:<tab>".
 export function OnboardingChecklist({ operator, onGo }) {
   const [data, setData] = useState(null);
@@ -61,6 +62,12 @@ export function OnboardingChecklist({ operator, onGo }) {
           </button>
         ))}
       </div>
+      {data.credits ? (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 10, lineHeight: 1.5 }}>
+          {data.credits}{" "}
+          {data.creditsHelp ? <a href={data.creditsHelp} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>How credits work</a> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

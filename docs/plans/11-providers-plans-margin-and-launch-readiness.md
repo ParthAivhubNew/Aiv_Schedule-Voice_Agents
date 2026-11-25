@@ -337,7 +337,7 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 | ✅ / 🟠 | **Ports: done live 2026-11-24.** 8000 and 8080 are bound to 127.0.0.1 (`docker-compose.override.yml`); only scanners had been using them. **Docs:** the default is off on the branch, but live `.env` sets `EXPOSE_API_DOCS=true` explicitly, so the docs stay public. **Decided 2026-11-24: keep them on for now.** | `docker-compose.override.yml`, `main.py` |
 | ✅ | ~~**`.env.backup` isn't git-ignored.**~~ **Done 2026-11-24:** `.env.*` (except the example and `.env.local`) and root data files are ignored (`.gitignore` on the branch, `.git/info/exclude` live). `.env` and `.env.backup` were readable by every user on the server (644); now root only (600). | `.gitignore` |
 | ✅ | ~~**Client data is lying in the app folder**~~ **Done 2026-11-24:** the 13 files with e-mails and phones moved to `/root/aivhub-private-data/repo-root-2026-11-24/` (root only, with a README). Delete them when no longer needed. | repo root |
-| 🟠 | Feature access by **hard-coded usernames** (`isFsbAccount()`: fsbadmin / fsbuser / fsbdemo / fsboutreach; `operatorFromLogin()` special-cases "jitendra"). Replace with plan or role permissions. | `hub/SidebarAccountBadge.jsx:8`, `tokens.js` |
+| ✅ | ~~Feature access by **hard-coded usernames**~~ **Done on the branch 2026-11-25 (step 7):**<br>• `isFsbAccount()` and its username lists are gone. Connectors shows for everyone, and only admins can test.<br>• The FSB sidebar badge is now a brand setting: `theme.accountLink`, set for the FSB brand by migration `2026_12_11_fsb_brand_account_link`.<br>• The unused `operatorFromLogin()` "jitendra" special case is gone.<br>• The Voice call card no longer starts every account with two real phone numbers ("Jitendra Mehta", "Operations Desk"), and the template preview's sample number is an Ofcom drama number. A test keeps them out (`noBuiltInContacts.test.js`). | `hub/SidebarAccountBadge.jsx`, `brand/brandLogic.js` |
 | 🟠 | Postgres, Redis and LiveKit ports: check none is reachable from outside in production (the override binds some to 127.0.0.1; base compose binds `5432` and `6379` openly). | `docker-compose.yml:17,30` |
 | 🟠 | Rate limits exist only on sign-in failures and partner API keys. Add per-IP and per-organisation limits on sign-up, password reset, the assistant, and every paid action. | `api/auth.py:251` |
 | 🟠 | Sign-up has email verification, but no bot protection (captcha / Turnstile) and no disposable-email check. | `api/signup.py` |
@@ -375,15 +375,23 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 | ✅ / 🔴 | **Backups: local done 2026-11-24** (`/usr/local/sbin/aivhub-db-backup`, `/etc/cron.d/aivhub-backup`): daily without the register rows (14 kept, 4 MB), weekly full (1 kept, only with disk room), weekly restore test. The first restore test matched live. **Still missing: an off-site copy.** The backups sit on the same disk as the database. | `/var/backups/aivhub` |
 | 🔴 | **No error tracking or monitoring** (no Sentry or metrics). Add error tracking for backend and frontend, uptime checks, and alerts on queue backlog, failed provider calls and Stripe webhook silence (`billing.SILENT_WEBHOOK` exists; send it somewhere). | `requirements.txt` |
 | ✅ / 🟠 | **CI: workflow written on the branch** (`.gitea/workflows/tests.yml`: 4 backend shards with PostgreSQL, frontend lint and tests). It runs only once Gitea Actions and a runner are set up. The 36 tests already failing on main are listed in `backend/tests/known_failures.txt` and skipped. Frontend: 703 tests pass, lint has 0 errors. | `.gitea/workflows` |
-| 🟠 | Production config check at startup: refuse to start in production with test Stripe keys, public API docs, open CORS, demo accounts, or a weak `SECRET_KEY` (`core/security.py` already lists weak values like "changeme"; enforce it). |
-| 🟠 | Move the root one-off scripts (`bn_*.py`, `load_*.py`, `*.sh`) into `backend/scripts/data_loads/` with a README, or delete them. Move generated CSVs out of the repo folder. |
+| ✅ | **Production config check: done on the branch 2026-11-25** (`services/config_check.py`, step 7).<br>• **Blocks:** a weak `SECRET_KEY`, Stripe test keys, mixed test and live keys, a Stripe key without its webhook secret, `CORS_ORIGINS=*`, and `TEST_COPY` on a production server.<br>• **Warnings:** public API docs, no `STAFF_ADMIN_EMAIL`, a public address that isn't https.<br>• At every start, each problem is logged and staff get one **CFG-01** alert. **Only with `APP_ENV=production` does a block stop the start-up.** Staff can read the list at `GET /admin-api/config-check`.<br>• **Live today (2026-11-25) would be blocked by Stripe test keys**, so don't set `APP_ENV=production` until live keys are in.<br>• Live also has no `STAFF_ADMIN_EMAIL`, so staff alerts are only shown in the admin portal, never e-mailed. |
+| ✅ / 🟠 | **Root one-off scripts: copied to `backend/scripts/data_loads/` with a README on the branch 2026-11-25.** The README says which loader put which dataset into the company records. The originals are still untracked in the live folder's root. **Delete them there after the merge.** The CSVs moved out on 2026-11-24. |
 | 🟢 | ~~Staging environment with a copy of production settings.~~ **Done 2026-11-24:** https://new.outreach.aivhub.com (compose project `flownew`, its own database and Redis). It holds a copy of live users and data plus the BN slice of the register, and it opens live keys only behind the `TEST_COPY` switch (`backend/app/core/test_copy.py`): outward jobs off, writes denied except cost-only providers, calls and e-mail only to allow-lists. TLS and domain check for the frontend (port 8080 is open on `0.0.0.0`; confirm a TLS proxy sits in front). |
 
 ### C.6 Product polish for strangers (not demo users)
-- First-run onboarding for a new self-sign-up: what to do first, a sample search, how credits work. Today's copy assumes a guided demo.
+- ✅ **First-run onboarding: done on the branch 2026-11-25 (step 7).** The "Get started" checklist (`hub/OnboardingChecklist.jsx`) had been built but wasn't shown anywhere, and its steps were for Voice only. It's now on the home screen for admins, until it's done or hidden.
+  - The steps come from `GET /auth/onboarding` and follow the company's apps:
+    - **Always:** describe your business, choose a plan or top up, invite your team.
+    - **Leads:** find and save your first companies, connect a mailbox.
+    - **Voice:** working hours, a phone number, a first call.
+  - A self-sign-up with no app yet gets the Leads steps.
+  - Each step is ticked from what the account really holds.
+  - A line explains that credits are per app, with a link to "How credits work".
+  - **Not done:** a pre-filled sample search.
 - Pricing page and in-app "what this will cost" before every paid action. Cost boxes exist in places; make them consistent.
 - Honest Connectors screen (plan 10, Phase 0) and real empty states.
-- Help pages: the Documentation link opens `/help/leads`; review them for FSB-specific wording.
+- ✅ Help pages: checked 2026-11-25, and there's no FSB-specific wording. The Lists help now names the real origins.
 
 ---
 
@@ -402,7 +410,20 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 
 Steps 1–2 are the minimum before letting the public sign up. Steps 3–5 are what make a fixed monthly price safe as usage grows.
 
-**Step 6, first part (2026-11-25, branch):** the Connectors screen is now built on the registry and the server (`GET /leadgen/connectors`, real Test), with one list of lead sources (`GET /leadgen/sources`). The BN file's Google phones and websites are now view-only. Plan 10's Phases 0–3 are done (plan 10, section 3.1). Cost per source is not done yet: look-ups need to record the lead they were for. On live, staff must run the provenance repair after deploying (dry run first). Next: step 7 (remove FSB-specific code paths, production config check, onboarding) or step 8 / plan 10 Phase 4 (look and feel).
+**Step 6, first part (2026-11-25, branch):** the Connectors screen is now built on the registry and the server (`GET /leadgen/connectors`, real Test), with one list of lead sources (`GET /leadgen/sources`). The BN file's Google phones and websites are now view-only. Plan 10's Phases 0–3 are done (plan 10, section 3.1). Cost per source is not done yet: look-ups need to record the lead they were for. On live, staff must run the provenance repair after deploying (dry run first).
+
+**Step 7 (2026-11-25, branch): done, apart from what's listed as left below.**
+- **Done:**
+  - **FSB-only code paths:** no more username checks (C.1). The FSB badge is a brand setting. The record-matching routes are served at `/records/...` (`core/route_alias.py`), and the frontend uses them; `/fsb/...` stays for one release (plan 12, B5).
+  - **Production config check** (C.5).
+  - **Onboarding** (C.6).
+  - **Root scripts** moved (C.5).
+  - **CI:** the workflow from step 1 is in place, waiting for a Gitea runner.
+- **Left:**
+  - The FSB rule sets as data and the Rules screen (plan 12, steps 3–5).
+  - "Create demo organisation" (plan 12, step 7).
+  - Rate limits and bot protection on sign-up (C.1).
+  - Off-site backups and error tracking (C.5).
 
 ---
 

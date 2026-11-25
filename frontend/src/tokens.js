@@ -74,13 +74,6 @@ export function initialsFromName(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-export function operatorFromLogin(username) {
-  const u = String(username || "").trim();
-  if (/^jitendra/i.test(u)) return { username: u, name: "Jitendra S.", role: "Admin" };
-  const pretty = u.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return { username: u, name: pretty || "Operator", role: "Operator" };
-}
-
 export const TIMEZONES = [
   { id: "Europe/London", label: "UK — London (GMT/BST)" },
   { id: "America/New_York", label: "US — Eastern (EST/EDT)" },

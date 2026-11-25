@@ -97,10 +97,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
       const saved = localStorage.getItem("aivhub_saved_contacts");
       if (saved) return JSON.parse(saved);
     } catch (_) {}
-    return [
-      { id: "sc_jm", name: "Jitendra Mehta", company: "Example Ltd", phone: "+447577570050", role: "CEO / Director" },
-      { id: "sc_ops", name: "Operations Desk", company: "Example Ltd", phone: "+447307216767", role: "Support" }
-    ];
+    return []; // no built-in contacts: a new account starts with its own list only
   });
 
   useEffect(() => {

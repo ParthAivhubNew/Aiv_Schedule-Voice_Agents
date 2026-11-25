@@ -2054,6 +2054,15 @@ async def company_connectors(request: Request, orgId: str):
             return await CC.catalogue(db, orgId, staff=True)
 
 
+@router.get("/config-check")
+async def config_check_list(request: Request):
+    """The production config check: each problem with the server's settings, "block" (fix before launch) or "warn". Never shows a value."""
+    from app.services import config_check
+
+    _who(request)
+    return {"production": config_check.production(), "problems": config_check.problems()}
+
+
 class ProvenanceFixBody(BaseModel):
     apply: bool = False
 

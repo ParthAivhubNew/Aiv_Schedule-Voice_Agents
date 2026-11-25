@@ -924,6 +924,16 @@ async def lifespan(app: FastAPI):
     except Exception as social_schema_err:
         logger.warning(f"[Social] Schema check failed: {social_schema_err}")
 
+    # The production config check (services/config_check.py): logged and sent to staff; with APP_ENV=production a blocking problem
+    # stops the start-up here, before any background job runs.
+    from app.services import config_check
+    try:
+        await config_check.at_startup()
+    except config_check.ConfigRefused:
+        raise
+    except Exception as cfg_err:
+        logger.warning(f"[config] check could not run: {cfg_err}")
+
     def job(name, factory):
         """A background job, or an idle stand-in when it is off in the test copy (core/test_copy.py). Every vendor call the job makes is
         logged as caused by "JOB <name>" (core/tenancy.current_route), so the platform's own work is never taken for a client's."""

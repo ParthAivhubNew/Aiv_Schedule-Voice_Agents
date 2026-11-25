@@ -143,3 +143,9 @@ async def salesforce_csv(import_id: str, body: SalesforceIn, request: Request, d
     return Response(EE.to_csv(rows), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="salesforce-update-{import_id}.csv"', "X-Withheld-Count": str(tally.withheld),
                              "X-Export-Rows": str(len(rows) - 1), **({"X-Access-Notice": DA.OUTSIDE_NOTICE} if tally.outside else {})})
+
+
+# The same routes at /records/... (plan 12, B5). The frontend uses those; the /fsb/... paths stay for one release.
+from app.core.route_alias import add_aliases as _add_aliases  # noqa: E402
+
+_add_aliases(router)

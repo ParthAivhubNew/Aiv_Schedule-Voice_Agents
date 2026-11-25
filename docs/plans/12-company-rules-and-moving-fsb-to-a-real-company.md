@@ -198,6 +198,12 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25:** step 6 is done on the branch.
+- F3: `isFsbAccount()` is gone. The sidebar badge comes from the brand's `theme.accountLink` (migration `2026_12_11_fsb_brand_account_link` gives FSB's brand its link), and the "jitendra" case is gone.
+- B5: the `/fsb/...` routes are also served at `/records/...`, which the frontend now uses; the old paths stay for one release.
+
+Connectors is shown to every user (plan 10, decision 3, taken as the default).
+
 **Status, 2026-11-24:**
 - Steps 1 and 2 are written on the branch `company-rules-fsb-migration`, in the worktree `.worktrees/company-rules`. That's B6, B6b, B1, B3 (rules GET/PUT) and B10.
 - The work is kept out of `/opt/flow` on purpose, because the live backend runs from that folder and would pick the branch up on its next restart.

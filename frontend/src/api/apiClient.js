@@ -469,14 +469,14 @@ export const api = {
   uploadRecordImport: (file) => {
     const form = new FormData();
     form.append('file', file, file.name);
-    return apiRequest('/fsb/imports', { method: 'POST', body: form, timeoutMs: 300000 });
+    return apiRequest('/records/imports', { method: 'POST', body: form, timeoutMs: 300000 });
   },
-  listRecordImports: () => apiRequest('/fsb/imports'),
+  listRecordImports: () => apiRequest('/records/imports'),
   // Exports: admin-only on the server. The file comes back with its headers (name, rows, values left out).
   previewExport: (body) => apiRequest('/exports/preview', { method: 'POST', body, timeoutMs: 120000 }),
   downloadExport: (body) => apiRequest('/exports', { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
-  previewSalesforce: (id, body) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/salesforce/preview`, { method: 'POST', body, timeoutMs: 120000 }),
-  downloadSalesforce: (id, body) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/salesforce.csv`, { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
+  previewSalesforce: (id, body) => apiRequest(`/records/imports/${encodeURIComponent(id)}/salesforce/preview`, { method: 'POST', body, timeoutMs: 120000 }),
+  downloadSalesforce: (id, body) => apiRequest(`/records/imports/${encodeURIComponent(id)}/salesforce.csv`, { method: 'POST', body, asBlob: true, withHeaders: true, timeoutMs: 300000 }),
   // Shown live, never kept: no-store, and a timeout so the GET is not shared with another caller.
   getGoogleView: (companyId) => apiRequest(`/leads/companies/${encodeURIComponent(companyId)}/google-view`, { cache: 'no-store', timeoutMs: 30000 }),
   // Per-person data access (admins only)
@@ -488,12 +488,12 @@ export const api = {
   getLeadSourcesSummary: () => apiRequest('/leadgen/sources/summary'),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
-  getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),
+  getRecordImport: (id) => apiRequest(`/records/imports/${encodeURIComponent(id)}`),
   getRecordImportRows: (id, { status = '', limit = 50, offset = 0 } = {}) =>
-    apiRequest(`/fsb/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),
-  downloadRecordDuplicates: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}/duplicates.csv`, { asBlob: true, timeoutMs: 120000 }),
-  getMatchSettings: () => apiRequest('/fsb/settings'),
-  saveMatchSettings: (auto, review) => apiRequest('/fsb/settings', { method: 'PUT', body: { auto, review } }),
+    apiRequest(`/records/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),
+  downloadRecordDuplicates: (id) => apiRequest(`/records/imports/${encodeURIComponent(id)}/duplicates.csv`, { asBlob: true, timeoutMs: 120000 }),
+  getMatchSettings: () => apiRequest('/records/settings'),
+  saveMatchSettings: (auto, review) => apiRequest('/records/settings', { method: 'PUT', body: { auto, review } }),
   getReviewQueue: ({ importId = '', status = 'open', limit = 50, offset = 0 } = {}) =>
     apiRequest(`/review-queue?import=${encodeURIComponent(importId)}&status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),
   decideReview: (rowId, decision, companyNumber = '') =>

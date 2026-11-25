@@ -520,26 +520,50 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, response: Respo
 # ── First steps checklist (signed in) ───────────────────────────────────────
 @router.get("/onboarding")
 async def onboarding(request: Request, db: AsyncSession = Depends(get_db)):
-    from app.models.models import CallLog, CompanyProfile, OrgPhoneNumber
+    """First steps for a new company (plan 11, C.6), for the home screen: the same three for everyone (describe your business, choose a plan
+    or top up, invite your team), then the steps of each app the company has (Leads: a first search, a mailbox; Voice: working hours, a
+    number, a first call). A company with no app yet gets the Leads steps, so a self-sign-up has somewhere to start. Each step is done
+    from what the account really holds, never from a click on the list."""
+    from app.models.models import CallLog, CompanyProfile, LeadAccount, OrgPhoneNumber
     from app.services.calendar_service import calendar_service
     from app.services.compliance import load_rules
+    from app.services.entitlement import get_org_entitlements
 
     ctx = current(request)
-    profile = (await db.execute(select(CompanyProfile))).scalars().first()
-    numbers = (await db.execute(select(func.count()).select_from(OrgPhoneNumber))).scalar() or 0
-    team = (await db.execute(select(func.count()).select_from(Operator).where(Operator.org_id == ctx["org_id"]))).scalar() or 0
     try:
-        mailbox = bool(await calendar_service._mail_accounts_ready(db))
+        ent = await get_org_entitlements(db, ctx["org_id"])
     except Exception:
-        mailbox = False
-    rules = await load_rules(db)
-    calls = (await db.execute(select(func.count()).select_from(CallLog))).scalar() or 0
+        ent = {}
+    has_any = any(ent.values()) if ent else False
+    leads = bool(ent.get("leads")) or not has_any
+    voice = bool(ent.get("voice"))
+    profile = (await db.execute(select(CompanyProfile))).scalars().first()
+    team = (await db.execute(select(func.count()).select_from(Operator).where(Operator.org_id == ctx["org_id"]))).scalar() or 0
     steps = [
-        {"key": "company", "label": "Describe your company", "done": bool(profile and (profile.pitch or "").strip() and profile.name not in ("", "Your company")), "go": "#/voice/company"},
-        {"key": "hours", "label": "Set your working hours", "done": bool(rules.get("schedule") or rules.get("policy")), "go": "#/voice/hours"},
-        {"key": "number", "label": "Add a phone number", "done": numbers > 0, "go": "team:numbers"},
+        {"key": "company", "label": "Describe your business", "done": bool(profile and (profile.pitch or "").strip() and profile.name not in ("", "Your company")),
+         "go": "#/leadgen/business" if leads else "#/voice/company"},
+        {"key": "plan", "label": "Choose a plan or top up", "done": has_any, "go": "#/leadgen/subscription" if leads else "#/voice/subscription"},
         {"key": "team", "label": "Invite your team", "done": team > 1, "go": "team:users"},
-        {"key": "mailbox", "label": "Connect a mailbox", "done": mailbox, "go": "#/emailoutreach"},
-        {"key": "call", "label": "Make your first call", "done": calls > 0, "go": "#/voice/list"},
     ]
-    return {"steps": steps, "done": sum(s["done"] for s in steps), "total": len(steps)}
+    if leads:
+        saved = (await db.execute(select(func.count()).select_from(LeadAccount))).scalar() or 0
+        try:
+            mailbox = bool(await calendar_service._mail_accounts_ready(db))
+        except Exception:
+            mailbox = False
+        steps += [
+            {"key": "search", "label": "Find and save your first companies", "done": saved > 0, "go": "#/leadgen/find_leads"},
+            {"key": "mailbox", "label": "Connect a mailbox", "done": mailbox, "go": "#/leadgen/mailboxes"},
+        ]
+    if voice:
+        rules = await load_rules(db)
+        numbers = (await db.execute(select(func.count()).select_from(OrgPhoneNumber))).scalar() or 0
+        calls = (await db.execute(select(func.count()).select_from(CallLog))).scalar() or 0
+        steps += [
+            {"key": "hours", "label": "Set your working hours", "done": bool(rules.get("schedule") or rules.get("policy")), "go": "#/voice/hours"},
+            {"key": "number", "label": "Add a phone number", "done": numbers > 0, "go": "team:numbers"},
+            {"key": "call", "label": "Make your first call", "done": calls > 0, "go": "#/voice/list"},
+        ]
+    return {"steps": steps, "done": sum(s["done"] for s in steps), "total": len(steps),
+            "credits": "Each app has its own credits. Running out in one app pauses only that app; the others keep working.",
+            "creditsHelp": "/help/account#plans-and-credits"}

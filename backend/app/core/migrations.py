@@ -6,6 +6,7 @@ no drops or renames while running code may still use the old shape.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Awaitable, Callable, List, Tuple
@@ -1100,6 +1101,19 @@ async def _role_is_active(conn: AsyncConnection) -> None:
         logger.warning(f"roles.is_active was not added: {err}")
 
 
+async def _fsb_brand_account_link(conn: AsyncConnection) -> None:
+    """The FSB sidebar badge used to be chosen by a list of usernames in the frontend (isFsbAccount). It is now the brand's own setting,
+    theme.accountLink; this gives the FSB brand the link it showed before. Only when the brand exists and has no link yet."""
+    row = (await conn.execute(text("SELECT theme FROM brands WHERE id = 'brd_fsb'"))).first()
+    if row is None:
+        return
+    theme = row[0] if isinstance(row[0], dict) else {}
+    if theme.get("accountLink"):
+        return
+    theme = {**theme, "accountLink": {"url": "https://account.fsb.org.uk/", "label": "Federation of Small Businesses"}}
+    await conn.execute(text("UPDATE brands SET theme = CAST(:t AS JSON) WHERE id = 'brd_fsb'"), {"t": json.dumps(theme)})
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -1184,6 +1198,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_08_provider_price_billing", _provider_price_billing),
     ("2026_12_09_per_request_lookups", _per_request_lookups),
     ("2026_12_10_billing_plan_rules", _billing_plan_rules),
+    ("2026_12_11_fsb_brand_account_link", _fsb_brand_account_link),
 ]
 
 

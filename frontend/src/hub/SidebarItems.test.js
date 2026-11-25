@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { isFsbAccount, SidebarAccountBadge } from "./SidebarAccountBadge";
+import { SidebarAccountBadge } from "./SidebarAccountBadge";
+import { accountLinkOf, resolveBrand } from "../brand/brandLogic";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -59,51 +60,44 @@ describe("Support and Documentation in the sidebars", () => {
     expect(voiceBadge).toBeGreaterThan(voiceCredits);
   });
 
-  it("isFsbAccount identifies dedicated FSB account and rejects all others", () => {
-    expect(isFsbAccount({ username: "fsbdemo" })).toBe(true);
-    expect(isFsbAccount({ username: "FSBDEMO" })).toBe(true);
-    expect(isFsbAccount({ email: "fsbdemo@outreach.com" })).toBe(true);
-    expect(isFsbAccount({ username: "fsbdemo", email: "fsbdemo@outreach.com" })).toBe(true);
-    expect(isFsbAccount({ username: "fsboutreach" })).toBe(true);
-    expect(isFsbAccount({ email: "fsboutreach@fsb.org.uk" })).toBe(true);
-    expect(isFsbAccount({ username: "fsbadmin" })).toBe(true);
-    expect(isFsbAccount({ username: "fsbuser" })).toBe(true);
-    expect(isFsbAccount({ email: "fsbadmin@outreach.com" })).toBe(true);
-    expect(isFsbAccount({ email: "FSBUSER@outreach.com" })).toBe(true);
-
-    expect(isFsbAccount({ username: "op1", email: "user@example.com", org_name: "Acme Corp" })).toBe(false);
-    expect(isFsbAccount({ username: "other", org_name: "Federation of Small Businesses" })).toBe(false);
-    expect(isFsbAccount({ username: "admin", org_name: "FSB" })).toBe(false);
-    expect(isFsbAccount(null)).toBe(false);
-    expect(isFsbAccount({})).toBe(false);
-  });
+  // The badge is a brand setting (theme.accountLink), never a list of usernames (plan 12, F3).
+  const FSB = { active: true, name: "Federation of Small Businesses", shortName: "FSB", logoUrl: "", accent: "",
+    accountLink: { url: "https://account.fsb.org.uk/", label: "Federation of Small Businesses" } };
 
   it("SidebarAccountBadge shows the crown only for an admin", () => {
-    const admin = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbadmin", is_admin: true } }));
-    const user = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbuser", is_admin: false } }));
+    const admin = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "anyone", is_admin: true }, brand: FSB }));
+    const user = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "anyone", is_admin: false }, brand: FSB }));
     expect(admin).toContain("Administrator");
     expect(user).not.toContain("Administrator");
   });
 
-  it("SidebarAccountBadge draws FSB logo and company name only for FSB accounts, linking to website", () => {
-    const fsbOp = { username: "fsboutreach", org_name: "Federation of Small Businesses" };
-    const html = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: fsbOp }));
+  it("SidebarAccountBadge draws the brand's mark and name only when its brand has an account link", () => {
+    const html = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "x" }, brand: FSB }));
     expect(html).toContain("Federation of Small Businesses");
-    expect(html).toContain("FSB Account");
+    expect(html).toContain("FSB account");
     expect(html).toContain("fsb");
     expect(html).toContain("<svg");
     expect(html).toContain('href="https://account.fsb.org.uk/"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
 
-    const collapsedHtml = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: fsbOp, collapsed: true }));
+    const collapsedHtml = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: {}, brand: FSB, collapsed: true }));
     expect(collapsedHtml).toContain('title="Federation of Small Businesses (opens in new tab)"');
-    expect(collapsedHtml).toContain("<svg");
     expect(collapsedHtml).toContain('href="https://account.fsb.org.uk/"');
-    expect(collapsedHtml).toContain('target="_blank"');
-    expect(collapsedHtml).not.toContain("FSB Account");
+    expect(collapsedHtml).not.toContain("FSB account");
 
-    const otherHtml = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "other_user" } }));
-    expect(otherHtml).toBe("");
+    // a username that used to be special shows nothing without the brand setting
+    expect(renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbadmin" } }))).toBe("");
+    expect(renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: {}, brand: { ...FSB, accountLink: null } }))).toBe("");
+  });
+
+  it("reads the account link from the brand's theme, https only", () => {
+    expect(accountLinkOf({ accountLink: { url: "https://account.fsb.org.uk/", label: "FSB" } })).toEqual({ url: "https://account.fsb.org.uk/", label: "FSB" });
+    expect(accountLinkOf({ accountLink: { url: "javascript:alert(1)" } })).toBe(null);
+    expect(accountLinkOf({ accountLink: { url: "http://plain.example" } })).toBe(null);
+    expect(accountLinkOf({})).toBe(null);
+    expect(resolveBrand({ me: { name: "FSB", displayName: "Federation of Small Businesses", theme: { accountLink: { url: "https://account.fsb.org.uk/" } } } }).accountLink)
+      .toEqual({ url: "https://account.fsb.org.uk/", label: "" });
+    expect(resolveBrand({ host: { name: "FSB", theme: { accountLink: { url: "https://account.fsb.org.uk/" } } } }).accountLink).toBe(null); // signed-in accounts only
   });
 });

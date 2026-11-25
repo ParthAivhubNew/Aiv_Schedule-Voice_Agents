@@ -210,7 +210,7 @@ async def preview_template(
 
     if direction == "inbound":
         context = await context_resolver.resolve_inbound(
-            db, caller_phone=sample.get("prospect_phone") or "+447307216767"
+            db, caller_phone=sample.get("prospect_phone") or "+447700900123"
         )
     else:
         context = await context_resolver.resolve_outbound(
@@ -218,7 +218,7 @@ async def preview_template(
             override_name=sample.get("prospect_name") or "Sarah Jenkins",
             override_company=sample.get("prospect_company") or "Apex Retail Group",
             override_email=sample.get("prospect_email") or "sarah@apexretail.com",
-            override_phone=sample.get("prospect_phone") or "+447307216767",
+            override_phone=sample.get("prospect_phone") or "+447700900123",
         )
 
     try:

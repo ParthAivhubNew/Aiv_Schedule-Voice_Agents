@@ -4,9 +4,17 @@ export const DEFAULT_SIGNIN = { password: true, google: true, microsoft: true };
 
 // What the app uses when there is no brand: exactly today's look.
 export const NO_BRAND = {
-  active: false, name: "", logoUrl: "", accent: "", poweredBy: false, hideCredits: false,
-  standingExclusions: false, memberSuppression: false, signin: DEFAULT_SIGNIN,
+  active: false, name: "", shortName: "", logoUrl: "", accent: "", poweredBy: false, hideCredits: false,
+  standingExclusions: false, memberSuppression: false, signin: DEFAULT_SIGNIN, accountLink: null,
 };
+
+// The brand's own account link for the sidebar (theme.accountLink: {url, label}), or null. Only an https address is used.
+export function accountLinkOf(theme) {
+  const link = theme && typeof theme === "object" ? theme.accountLink : null;
+  const url = link && typeof link.url === "string" ? link.url.trim() : "";
+  if (!/^https:\/\/[^\s]+$/i.test(url)) return null;
+  return { url, label: String(link.label || "").trim().slice(0, 80) };
+}
 
 // "https://Outreach.Example.com:8080/signin" -> "outreach.example.com" (the server matches on the bare name).
 export function normaliseHost(value) {
@@ -95,6 +103,7 @@ export function resolveBrand({ host, me, policy } = {}) {
   return {
     active: true,
     name: look.displayName || look.name,
+    shortName: look.name || "",
     logoUrl: look.logoUrl || "",
     accent: normaliseAccent(look.accent) || "",
     poweredBy: Boolean(look.poweredBy),
@@ -102,5 +111,6 @@ export function resolveBrand({ host, me, policy } = {}) {
     standingExclusions: standing,
     memberSuppression,
     signin: { ...DEFAULT_SIGNIN, ...(look.signin || {}) },
+    accountLink: signedIn ? accountLinkOf(look.theme) : null,
   };
 }

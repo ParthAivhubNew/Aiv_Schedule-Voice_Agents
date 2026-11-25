@@ -257,3 +257,9 @@ async def report_csv(report_id: str, request: Request, db: AsyncSession = Depend
     await db.commit()
     return Response(CR.rows_csv(rows), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="fsb-changes-{rep.period.replace("..", "_to_")}.csv"'})
+
+
+# The same routes at /records/... (plan 12, B5). The frontend uses those; the /fsb/... paths stay for one release.
+from app.core.route_alias import add_aliases as _add_aliases  # noqa: E402
+
+_add_aliases(router)

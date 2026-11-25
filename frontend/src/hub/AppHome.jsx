@@ -8,6 +8,7 @@ import { navigateHash } from "../utils/route";
 import { openWorkflows } from "../workflows/openWorkflows";
 import { openSupport } from "./openSupport";
 import { APPS } from "./apps";
+import { OnboardingChecklist } from "./OnboardingChecklist";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
@@ -202,6 +203,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
             <> <button type="button" onClick={onOpenProfileSettings} style={{ all: "unset", cursor: "pointer", color: C.cobalt, fontWeight: 500 }}>Add your name</button> so we can greet you.</>
           ) : null}
         </p>
+        <OnboardingChecklist operator={operator} onGo={(go) => (String(go).startsWith("team:") ? onOpenTeamUsers?.(String(go).slice(5)) : navigateHash(go))} />
 
         <BillingReturnBanner />
 
