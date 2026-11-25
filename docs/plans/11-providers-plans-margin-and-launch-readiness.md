@@ -123,7 +123,10 @@ call_provider(capability, request, org, feature)
 - **Still to do in step 4:**
   - the call sites of Tavily, Google Places, Telnyx lookup and Provero still call those vendors directly; move them behind the
     provider files,
-  - one generic key pool in place of `apollo_pool` and `tavily_pool`,
+  - ~~one generic key pool in place of `apollo_pool` and `tavily_pool`~~ **done (2026-11-25):** `app/providers/keypool.py` (main key,
+    backups, set-aside per key or per kind of request, failover, one log row per request with only the key's id and label).
+    `apollo_pool` and `tavily_pool` keep their names and status rules on top of it. On new.outreach, Apollo and Tavily each
+    have a main key and 3 backups, so Tavily's empty main key fails over to the backups.
   - the `call_provider()` wrapper (plan and cost-cap check, shared cache, circuit breaker, one `provider_calls` table),
   - config-only providers (`generic_http`),
   - a Providers screen in the admin portal. Today it's the API only; the Connectors screen comes in plan 10, phase 3.

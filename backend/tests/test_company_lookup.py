@@ -19,7 +19,17 @@ OWN = "https://www.teddybears-preschool.co.uk/"
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Runs a coroutine in its own event loop. Database connections opened in that loop (the policy check, backup keys, call logs)
+    must not go back into the shared pool: a later test on the session loop would get a connection whose loop is closed."""
+    async def go():
+        try:
+            return await coro
+        finally:
+            from app.database import engine
+
+            await engine.dispose(close=False)  # drop this loop's connections without touching the other loop's
+
+    return asyncio.run(go())
 
 
 # ── the recipe ───────────────────────────────────────────────────────────────────────────────────────

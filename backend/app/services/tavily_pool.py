@@ -32,36 +32,39 @@ def _cooldown(status: int, headers: Any) -> int:
 
 
 def _tail(key: str) -> str:
-    return key[-4:] if len(key) >= 4 else ""
+    from app.providers.keypool import tail
+
+    return tail(key)
+
+
+def _row(entry, purpose, looked_for, status, outcome, credits: int = 0):
+    from app.core.tenancy import current_actor, current_org, current_route
+    from app.models.models import TavilyCall
+
+    return TavilyCall(id=uuid.uuid4().hex, key_id=entry[0], key_label=entry[1], key_tail=_tail(entry[2]), purpose=purpose, looked_for=looked_for,
+                      for_org=current_org() or "", actor=current_actor(), route=current_route(), status=status, outcome=outcome,
+                      credits=int(credits or 0))
+
+
+async def _main_key() -> str:
+    from app.services import enrichment_service as E
+
+    return await E.tavily_key()
+
+
+def _pool():
+    from app.providers.keypool import KeyPool
+
+    return KeyPool(name="tavily", backups_doc=BACKUPS_DOC, main_key=_main_key, main_label="Tavily key", log_row=_row, cool=_COOL)
 
 
 async def backups() -> List[Dict[str, Any]]:
-    from app.database import AsyncSessionLocal
-    from app.models.models import AppSetting
-
-    try:
-        async with AsyncSessionLocal() as s:
-            row = await s.get(AppSetting, BACKUPS_DOC)
-        return list((row.data or {}).get("keys") or []) if row else []
-    except Exception as err:
-        logger.debug(f"[tavily] backup keys not read: {err}")
-        return []
+    return await _pool().backups()
 
 
 async def keys() -> List[Tuple[str, str, str]]:
     """[(id, label, key)] in the order they are tried: the main key (Platform Keys), then the backups."""
-    from app.services import enrichment_service as E
-    from app.services.secret_box import open_secret
-
-    out: List[Tuple[str, str, str]] = []
-    main = (await E.tavily_key() or "").strip()
-    if main:
-        out.append(("main", "Tavily key", main))
-    for b in await backups():
-        k = open_secret(b.get("sealed") or "").strip()
-        if k and all(k != x[2] for x in out):
-            out.append((b.get("id") or "", b.get("label") or "Backup key", k))
-    return out
+    return await _pool().keys()
 
 
 def cooling_for(key_id: str) -> int:
@@ -69,57 +72,38 @@ def cooling_for(key_id: str) -> int:
 
 
 async def _log(key: Tuple[str, str, str], purpose: str, looked_for: str, status: Optional[int], outcome: str, credits: int = 0) -> None:
-    try:
-        from app.core.tenancy import current_actor, current_org, current_route
-        from app.database import AsyncSessionLocal
-        from app.models.models import TavilyCall
-
-        async with AsyncSessionLocal() as s:
-            s.add(TavilyCall(id=uuid.uuid4().hex, key_id=key[0], key_label=key[1], key_tail=_tail(key[2]), purpose=purpose,
-                             looked_for=(looked_for or "")[:200], for_org=current_org() or "", actor=current_actor(), route=current_route(),
-                             status=status, outcome=outcome, credits=int(credits or 0)))
-            await s.commit()
-    except Exception as err:
-        logger.debug(f"[tavily] call not logged: {err}")
+    await _pool().log(key, purpose, looked_for, status, outcome, credits=credits)
 
 
 async def search(client: Any, body: Dict[str, Any], *, purpose: str = "search") -> Any:
     """POST one search, failing over to the next key when one is exhausted, over its limit or refused. Returns the last response
     (a refused one when every key was), or None when there is no key at all. A network error is raised: it is not the key's fault."""
-    last = None
-    query = str(body.get("query") or "")
-    for entry in await keys():
-        if cooling_for(entry[0]):
-            continue
+    from app.providers.keypool import Verdict
+
+    async def send(entry):
         headers = {"Authorization": f"Bearer {entry[2]}"}
-        try:
+        r = await client.post("https://api.tavily.com/search", headers=headers, json=body)
+        if int(getattr(r, "status_code", 0) or 0) == 429:  # one polite retry after the wait Tavily asks for
+            try:
+                wait = float(r.headers.get("Retry-After") or 1)
+            except (TypeError, ValueError):
+                wait = 1.0
+            await asyncio.sleep(min(max(wait, 0.2), 5.0))
             r = await client.post("https://api.tavily.com/search", headers=headers, json=body)
-            if int(getattr(r, "status_code", 0) or 0) == 429:  # one polite retry after the wait Tavily asks for
-                try:
-                    wait = float(r.headers.get("Retry-After") or 1)
-                except (TypeError, ValueError):
-                    wait = 1.0
-                await asyncio.sleep(min(max(wait, 0.2), 5.0))
-                r = await client.post("https://api.tavily.com/search", headers=headers, json=body)
-        except Exception:
-            await _log(entry, purpose, query, None, "error")
-            raise
-        last = r
+        return r
+
+    def judge(entry, r) -> Verdict:
         status = int(getattr(r, "status_code", 0) or 0)
         if status in _OUTCOME:
-            _COOL[entry[0]] = time.time() + _cooldown(status, getattr(r, "headers", None))
-            await _log(entry, purpose, query, status, _OUTCOME[status])
-            logger.warning(f"[tavily] {entry[1]} answered {status}; trying the next key")
-            continue
-        if status == 200:
-            try:
-                data = r.json()
-                hit = bool(data.get("results"))
-                credits = int(((data.get("usage") or {}).get("credits")) or (2 if body.get("search_depth") == "advanced" else 1))
-            except Exception:
-                hit, credits = False, 1
-            await _log(entry, purpose, query, status, "found" if hit else "none", credits)
-        else:
-            await _log(entry, purpose, query, status, "error")
-        return r
-    return last
+            return Verdict(_OUTCOME[status], set_aside=True, seconds=_cooldown(status, getattr(r, "headers", None)))
+        if status != 200:
+            return Verdict("error")
+        try:
+            data = r.json()
+            hit = bool(data.get("results"))
+            credits = int(((data.get("usage") or {}).get("credits")) or (2 if body.get("search_depth") == "advanced" else 1))
+        except Exception:
+            hit, credits = False, 1
+        return Verdict("found" if hit else "none", extra={"credits": credits})
+
+    return await _pool().run(send, judge, purpose=purpose, looked_for=str(body.get("query") or ""))

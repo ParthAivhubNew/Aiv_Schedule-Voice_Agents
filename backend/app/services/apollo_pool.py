@@ -69,39 +69,39 @@ _ROUTES = [
 
 
 def _tail(key: str) -> str:
-    return key[-4:] if len(key) >= 4 else ""
+    from app.providers.keypool import tail
+
+    return tail(key)
+
+
+def _row(entry, purpose, looked_for, status, outcome):
+    from app.core.tenancy import current_actor, current_org, current_route
+    from app.models.models import ApolloCall
+
+    return ApolloCall(id=uuid.uuid4().hex, key_id=entry[0], key_label=entry[1], key_tail=_tail(entry[2]), purpose=purpose, looked_for=looked_for,
+                      for_org=current_org() or "", actor=current_actor(), route=current_route(), status=status, outcome=outcome)
+
+
+async def _main_key() -> str:
+    from app.services import enrichment_service as E
+
+    return await E.apollo_key()
+
+
+def _pool():
+    from app.providers.keypool import KeyPool
+
+    return KeyPool(name="apollo", backups_doc=BACKUPS_DOC, main_key=_main_key, main_label="Apollo key", log_row=_row, cool=_COOL,
+                   source="apollo")  # the organisation's rules can block Apollo: no key, so every lookup reports nothing found
 
 
 async def backups() -> List[Dict[str, Any]]:
-    from app.database import AsyncSessionLocal
-    from app.models.models import AppSetting
-
-    try:
-        async with AsyncSessionLocal() as s:
-            row = await s.get(AppSetting, BACKUPS_DOC)
-        return list((row.data or {}).get("keys") or []) if row else []
-    except Exception as err:
-        logger.debug(f"[apollo] backup keys not read: {err}")
-        return []
+    return await _pool().backups()
 
 
 async def keys(lead: str = "") -> List[Tuple[str, str, str]]:
     """[(id, label, key)] in the order they are tried: the main key (or `lead`, when the caller holds its own), then the backups."""
-    from app.services import enrichment_service as E
-    from app.services import tenant_policy
-    from app.services.secret_box import open_secret
-
-    if not await tenant_policy.source_allowed(None, "apollo"):
-        return []  # the organisation's brand policy restricts Apollo: no key means every lookup reports nothing found
-    out: List[Tuple[str, str, str]] = []
-    main = (lead or await E.apollo_key() or "").strip()
-    if main:
-        out.append(("main", "Apollo key", main))
-    for b in await backups():
-        k = open_secret(b.get("sealed") or "").strip()
-        if k and all(k != x[2] for x in out):
-            out.append((b.get("id") or "", b.get("label") or "Backup key", k))
-    return out
+    return await _pool().keys(lead)
 
 
 def cooling_for(key_id: str) -> int:
@@ -109,55 +109,44 @@ def cooling_for(key_id: str) -> int:
 
 
 async def _log(key: Tuple[str, str, str], purpose: str, looked_for: str, status: Optional[int], outcome: str) -> None:
-    try:
-        from app.core.tenancy import current_actor, current_org, current_route
-        from app.database import AsyncSessionLocal
-        from app.models.models import ApolloCall
-
-        async with AsyncSessionLocal() as s:
-            s.add(ApolloCall(id=uuid.uuid4().hex, key_id=key[0], key_label=key[1], key_tail=_tail(key[2]), purpose=purpose,
-                             looked_for=(looked_for or "")[:200], for_org=current_org() or "", actor=current_actor(), route=current_route(),
-                             status=status, outcome=outcome))
-            await s.commit()
-    except Exception as err:
-        logger.debug(f"[apollo] call not logged: {err}")
+    await _pool().log(key, purpose, looked_for, status, outcome)
 
 
 async def call(client: Any, method: str, url: str, *, purpose: str, looked_for: str = "", lead: str = "",
                found: Optional[Callable[[Any], bool]] = None, **kw: Any) -> Any:
     """Send one request, failing over to the next key when one is out of credits. Returns the last response
     (an exhausted one when every key was), or None when there is no key at all. A network error is raised: it is not the key's fault."""
+    from app.providers.keypool import Verdict
     from app.services import enrichment_service as E
 
-    last = None
-    for entry in await keys(lead):
-        if cooling_for(entry[0]) or cooling_for(f"{entry[0]}:{purpose}"):
-            continue
+    async def send(entry):
         headers = {**(kw.get("headers") or {}), "x-api-key": entry[2], "Content-Type": "application/json"}
-        try:
-            r = await getattr(client, method.lower())(url, **{**kw, "headers": headers})
-        except Exception:
-            await _log(entry, purpose, looked_for, None, "error")
-            raise
-        last = r
+        return await getattr(client, method.lower())(url, **{**kw, "headers": headers})
+
+    def judge(entry, r) -> Verdict:
         status = int(getattr(r, "status_code", 0) or 0)
         text = str(getattr(r, "text", "") or "").lower()
         if status in _OUTCOME and (status != 422 or "credit" in text):
-            _COOL[f"{entry[0]}:{purpose}" if status == 403 else entry[0]] = time.time() + _cooldown(status, getattr(r, "headers", None), text)
-            await _log(entry, purpose, looked_for, status, _OUTCOME[status])
-            logger.warning(f"[apollo] {entry[1]} answered {status}; trying the next key")
-            continue
-        await E._bump_vendor_call("apollo")
-        if status == 200:
-            try:
-                hit = found(r.json()) if found else True
-            except Exception:
-                hit = False
-            await _log(entry, purpose, looked_for, status, "found" if hit else "none")
-        else:
-            await _log(entry, purpose, looked_for, status, "error")
+            # 403: this key may not use this kind of request; only that kind is set aside, the key still serves the rest.
+            return Verdict(_OUTCOME[status], set_aside=True, seconds=_cooldown(status, getattr(r, "headers", None), text),
+                           scope=f"{entry[0]}:{purpose}" if status == 403 else entry[0])
+        if status != 200:
+            return Verdict("error")
+        try:
+            hit = found(r.json()) if found else True
+        except Exception:
+            hit = False
+        return Verdict("found" if hit else "none")
+
+    async def counted_send(entry):
+        r = await send(entry)
+        status = int(getattr(r, "status_code", 0) or 0)
+        if not (status in _OUTCOME and (status != 422 or "credit" in str(getattr(r, "text", "") or "").lower())):
+            await E._bump_vendor_call("apollo")  # an answer that stands is one Apollo call
         return r
-    return last
+
+    return await _pool().run(counted_send, judge, purpose=purpose, looked_for=looked_for, lead=lead,
+                             skip_scopes=lambda e: [e[0], f"{e[0]}:{purpose}"])
 
 
 # One company is asked about once. The answer (or the fact that Apollo had nothing) is kept for everyone, so no other button, screen or
