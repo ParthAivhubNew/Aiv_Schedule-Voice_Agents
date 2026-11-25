@@ -4,6 +4,7 @@ import { api } from "../../api/apiClient";
 import { openSupport } from "../../hub/openSupport";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { ConnectorPricing } from "./ConnectorPricing";
+import { Pill } from "../../app/ui";
 import {
   AirtableLogo, AwsS3Logo, BigQueryLogo, CompaniesHouseLogo, CqcLogo, CsvLogo, CustomLlmLogo, DirectorMatchLogo, DossierAiLogo, DynamicsLogo,
   ExperianLogo, FsaLogo, GoogleCloudLogo, HubspotLogo, InboundIntentLogo, MarketLocationLogo, OrdnanceSurveyLogo, PipedriveLogo, PostgresLogo,
@@ -32,12 +33,7 @@ export const Logo = ({ name, size = 32 }) => {
 };
 
 export function StatusPill({ c }) {
-  const t = TONE_COLOURS[toneOf(c.status)];
-  return (
-    <span style={{ ...text, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: t.bg, color: t.ink, letterSpacing: ".02em", whiteSpace: "nowrap" }}>
-      {c.statusLabel}
-    </span>
-  );
+  return <Pill tone={toneOf(c.status)}>{c.statusLabel}</Pill>; // good, warn, bad, muted or soon: the shared Pill's tones
 }
 
 function Card({ c, onOpen }) {

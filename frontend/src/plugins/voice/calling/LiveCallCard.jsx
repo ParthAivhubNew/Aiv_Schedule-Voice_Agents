@@ -4,17 +4,18 @@ import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { CallSummary } from "./CallSummary";
 import { openLead } from "../../../connections/ConnectedHome";
+import { Pill } from "../../../app/ui";
 
 const STATE_META = {
-  calling: { label: "Ringing", fg: C.amber, bg: C.amberSoft, pulse: true },
-  ringing: { label: "Ringing", fg: C.amber, bg: C.amberSoft, pulse: true },
-  pitching: { label: "Live", fg: C.green, bg: C.greenSoft, pulse: true },
-  negotiating: { label: "Live", fg: C.green, bg: C.greenSoft, pulse: true },
-  human_review: { label: "Needs you", fg: C.red, bg: C.redSoft, pulse: true },
-  human: { label: "Your call", fg: C.cobaltDeep, bg: C.cobaltSoft, pulse: true },
-  ended: { label: "Ended", fg: C.slate, bg: C.paperSoft },
-  failed: { label: "Not reached", fg: C.red, bg: C.redSoft },
-  canceled: { label: "Canceled", fg: C.slate, bg: C.paperSoft },
+  calling: { label: "Ringing", tone: "amber", pulse: true },
+  ringing: { label: "Ringing", tone: "amber", pulse: true },
+  pitching: { label: "Live", tone: "green", pulse: true },
+  negotiating: { label: "Live", tone: "green", pulse: true },
+  human_review: { label: "Needs you", tone: "red", pulse: true },
+  human: { label: "Your call", tone: "blue", pulse: true },
+  ended: { label: "Ended", tone: "slate" },
+  failed: { label: "Not reached", tone: "red" },
+  canceled: { label: "Canceled", tone: "slate" },
 };
 
 /** Normalises transcript entries (strings "AI: …" / "Prospect: …" / "System: …" or {who,text}). */
@@ -38,13 +39,8 @@ export function parseTranscriptLine(line) {
 }
 
 function StatePill({ state }) {
-  const meta = STATE_META[String(state || "").toLowerCase()] || { label: state || "Live", fg: C.slate, bg: C.paperSoft };
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, background: meta.bg, color: meta.fg, fontSize: 11, fontWeight: 800, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
-      <span style={{ width: 7, height: 7, borderRadius: 999, background: meta.fg, animation: meta.pulse ? "aivhubPulse 1.4s ease-in-out infinite" : "none" }} />
-      {meta.label}
-    </span>
-  );
+  const meta = STATE_META[String(state || "").toLowerCase()] || { label: state || "Live", tone: "slate" };
+  return <Pill tone={meta.tone} dot pulse={Boolean(meta.pulse)}>{meta.label}</Pill>;
 }
 
 function Transcript({ lines, live, tall, them = "" }) {

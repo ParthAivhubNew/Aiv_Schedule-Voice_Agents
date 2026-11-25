@@ -609,9 +609,18 @@ const PILL_TONES = {
   green: [C.green, C.greenSoft], red: [C.red, C.redSoft], amber: [C.amber, C.amberSoft], blue: [C.cobalt, C.cobaltSoft], slate: [C.slate, C.paperSoft],
 };
 PILL_TONES.good = PILL_TONES.green; PILL_TONES.bad = PILL_TONES.red; PILL_TONES.warn = PILL_TONES.amber; PILL_TONES.info = PILL_TONES.blue; PILL_TONES.muted = PILL_TONES.slate;
-export function Pill({ tone = "slate", children, title }) {
+PILL_TONES.ok = PILL_TONES.green; PILL_TONES.mute = PILL_TONES.slate; PILL_TONES.soon = PILL_TONES.blue;
+// `dot` adds a small status dot in the label's colour; `pulse` makes it pulse, for something happening now (a call ringing, live).
+export function Pill({ tone = "slate", children, title, dot = false, pulse = false }) {
   const [fg, bg] = PILL_TONES[tone] || PILL_TONES.slate;
-  return <span title={title} style={{ display: "inline-block", fontSize: 11.5, fontWeight: 600, color: fg, background: bg, padding: "2px 9px", borderRadius: 99 }}>{children}</span>;
+  const base = { fontSize: 11.5, fontWeight: 600, color: fg, background: bg, padding: "2px 9px", borderRadius: 99 };
+  if (!dot) return <span title={title} style={{ display: "inline-block", ...base }}>{children}</span>;
+  return (
+    <span title={title} style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", ...base }}>
+      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 99, background: fg, flexShrink: 0, animation: pulse ? "ui-pulse 1.4s ease-in-out infinite" : "none" }} />
+      {children}
+    </span>
+  );
 }
 
 // The short "done" message at the bottom of the screen after an action. Read aloud politely; nothing to press.

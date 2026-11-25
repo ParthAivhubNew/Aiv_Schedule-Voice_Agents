@@ -6,23 +6,13 @@ import {
   CHUNK, MATCH, STATUS, STATUS_ORDER, applyResults, chunks, countByStatus, filterRows,
   hasChecks, itemsFor, statusOf,
 } from "./numberCheck";
+import { Pill } from "../../../app/ui";
 
-const TONES = {
-  ok: { color: "#176B3F", bg: "#E3F4EA" },
-  warn: { color: "#8A5A00", bg: "#FFF1D2" },
-  bad: { color: "var(--ui-bad)", bg: "var(--ui-bad-soft)" },
-  mute: { color: "#5B6573", bg: "#EEF0F3" },
-};
+const TONE = { ok: "green", warn: "amber", bad: "red", mute: "slate" }; // numberCheck.STATUS tones as the shared Pill's
 
 export function StatusBadge({ status }) {
   const s = STATUS[status] || STATUS.not_checked;
-  const t = TONES[s.tone];
-  return (
-    <span title={s.hint} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 99, fontSize: 12, fontWeight: 500, color: t.color, background: t.bg, whiteSpace: "nowrap" }}>
-      <span style={{ width: 6, height: 6, borderRadius: 99, background: t.color }} />
-      {s.label}
-    </span>
-  );
+  return <Pill tone={TONE[s.tone] || "slate"} dot title={s.hint}>{s.label}</Pill>;
 }
 
 function Dialog({ title, onClose, children, footer }) {

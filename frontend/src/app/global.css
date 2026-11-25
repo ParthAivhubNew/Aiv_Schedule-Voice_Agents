@@ -1446,3 +1446,7 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
   .lm-bar form select { flex: 1 1 auto; height: 40px !important; }
   .lm-bar .ui-btn { min-height: 40px; }
 }
+
+/* The shared Pill's pulsing status dot (app/ui.jsx). Still for people who ask for less motion. */
+@keyframes ui-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { [style*="ui-pulse"] { animation: none !important; } }

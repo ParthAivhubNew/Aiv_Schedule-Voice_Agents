@@ -54,4 +54,12 @@ describe("shared building blocks", () => {
     expect(html).toMatch(/Connect rate.*42.*%.*\+3 pts/);
     expect(renderToStaticMarkup(<StatTile label="Failed" value={2} tone="alert" />)).toContain("--c-red");
   });
+
+  it("a pill can carry a status dot that pulses for something happening now", () => {
+    const live = renderToStaticMarkup(<Pill tone="green" dot pulse>Live</Pill>);
+    expect(live).toContain("ui-pulse");
+    expect(live).toContain('aria-hidden="true"');
+    expect(renderToStaticMarkup(<Pill tone="slate" dot>Ended</Pill>)).not.toContain("ui-pulse");
+    expect(renderToStaticMarkup(<Pill tone="ok">Good</Pill>)).toBe(renderToStaticMarkup(<Pill tone="green">Good</Pill>));
+  });
 });
