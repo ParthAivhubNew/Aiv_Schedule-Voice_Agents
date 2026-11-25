@@ -19,11 +19,11 @@ export const ADMIN_CSS = `
 .adm-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid ${C.border}; border-radius: 7px; background: #fff; cursor: pointer; color: ${C.textInk}; transition: filter 0.12s; }
 .adm-icon:hover:not(:disabled) { filter: brightness(0.95); }
 .adm-icon:disabled { opacity: 0.45; cursor: not-allowed; }
-.adm-icon--view, .adm-icon--view:hover:not(:disabled) { background: ${C.cobaltSoft}; border-color: ${C.cobalt}33; color: ${C.cobaltDeep}; }
-.adm-icon--off, .adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; border-color: ${C.amber}55; color: ${C.amber}; }
-.adm-icon--on, .adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; border-color: ${C.green}55; color: ${C.green}; }
+.adm-icon--view, .adm-icon--view:hover:not(:disabled) { background: ${C.cobaltSoft}; border-color: color-mix(in srgb, ${C.cobalt} 20%, transparent); color: ${C.cobaltDeep}; }
+.adm-icon--off, .adm-icon--off:hover:not(:disabled) { background: ${C.amberSoft}; border-color: color-mix(in srgb, ${C.amber} 33%, transparent); color: ${C.amber}; }
+.adm-icon--on, .adm-icon--on:hover:not(:disabled) { background: ${C.greenSoft}; border-color: color-mix(in srgb, ${C.green} 33%, transparent); color: ${C.green}; }
 .adm-icon--edit, .adm-icon--edit:hover:not(:disabled) { background: ${C.paperSoft}; border-color: ${C.border}; color: ${C.textInk}; }
-.adm-icon--del, .adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; border-color: ${C.red}44; color: ${C.red}; }
+.adm-icon--del, .adm-icon--del:hover:not(:disabled) { background: ${C.redSoft}; border-color: color-mix(in srgb, ${C.red} 27%, transparent); color: ${C.red}; }
 @media (pointer: coarse) { .adm-icon { width: 36px; height: 36px; } }
 .adm-row-off td:not([data-label="Actions"]) { opacity: 0.65; }
 .adm-roleitem-off .adm-roleitem-main { opacity: 0.65; }

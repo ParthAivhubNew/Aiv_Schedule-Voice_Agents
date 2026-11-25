@@ -4,7 +4,7 @@ import { Loader } from "../../app/Loader";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, ExternalLink, Pencil, Plug, RefreshCw, Send, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../api/apiClient";
-import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER, HEX } from "../../tokens";
 import { formatOrgTime, orgDateTime, useOrg } from "../../org/orgSettings";
 
 // Overview (what needs the user today) and Insights (how published posts did). Every number shown
@@ -78,13 +78,13 @@ function TrendChart({ data, field, name, height = 180, kind = "area" }) {
     <div style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height="100%">
         <Chart data={data} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
-          <CartesianGrid vertical={false} stroke={C.border} strokeDasharray="0" />
+          <CartesianGrid vertical={false} stroke={HEX.border} strokeDasharray="0" />
           <XAxis dataKey="date" tickFormatter={dayTick} tick={axisTick} axisLine={false} tickLine={false} minTickGap={24} />
           <YAxis tick={axisTick} axisLine={false} tickLine={false} allowDecimals={false} width={56} tickFormatter={(v) => Number(v).toLocaleString()} />
           <Tooltip content={<ChartTip name={name} />} cursor={kind === "bar" ? { fill: HUB_PAPER } : { stroke: C.slateLight || C.slate, strokeWidth: 1 }} />
           {kind === "bar"
-            ? <Bar dataKey={field} fill={C.teal} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
-            : <Area dataKey={field} type="monotone" stroke={C.teal} strokeWidth={2} fill={C.tealSoft || "#E4F5F2"} connectNulls isAnimationActive={false}
+            ? <Bar dataKey={field} fill={HEX.teal} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
+            : <Area dataKey={field} type="monotone" stroke={HEX.teal} strokeWidth={2} fill={HEX.tealSoft || "#E4F5F2"} connectNulls isAnimationActive={false}
                 dot={false} activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2, fill: C.teal }} />}
         </Chart>
       </ResponsiveContainer>

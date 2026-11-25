@@ -1,4 +1,6 @@
-export const C = {
+// The colour values themselves, for code that needs a real colour (a colour picker, a canvas, an e-mail, a contrast check).
+// Screens use C, which reads the same values from CSS variables (app/global.css), so a brand or a theme can change them in one place.
+export const HEX = {
   ink: "#12141C",
   inkSoft: "#1B1E29",
   inkLine: "#2A2D3A",
@@ -9,31 +11,32 @@ export const C = {
   border: "#E3E6EB",
   borderLight: "#EDEFF2",
   borderHover: "#3457D5",
-  
   cobalt: "#3457D5",
   cobaltSoft: "#EAEEFC",
   cobaltDeep: "#26409E",
-  
   teal: "#0C8C7D",
   tealSoft: "#E4F5F2",
-  
   amber: "#B8760A",
   amberSoft: "#FCEFDA",
-  
   red: "#C2410C",
   redSolid: "#DC2626",
   redSoft: "#FBEAE8",
-  
   green: "#15803D",
   greenSoft: "#E7F5EB",
-  
   slate: "#6B7280",
   slateLight: "#9CA3AF",
   textInk: "#1B1D24",
-  
+};
+
+// The CSS variable each colour lives in. The accent ones are the shared --ui-accent variables, which hold the same colours.
+const ACCENT_VARS = { cobalt: "--ui-accent", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent" };
+export const CSS_VARS = Object.fromEntries(Object.keys(HEX).map((k) => [k, ACCENT_VARS[k] || "--c-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())]));
+
+export const C = {
+  ...Object.fromEntries(Object.entries(HEX).map(([k, v]) => [k, `var(${CSS_VARS[k]}, ${v})`])),
   // Gradients & Accents for clean modern polish
-  gradientPrimary: "linear-gradient(135deg, #3457D5 0%, #26409E 100%)",
-  gradientTeal: "linear-gradient(135deg, #0C8C7D 0%, #15803D 100%)",
+  gradientPrimary: "linear-gradient(135deg, var(--ui-accent, #3457D5) 0%, var(--ui-accent-ink, #26409E) 100%)",
+  gradientTeal: "linear-gradient(135deg, var(--c-teal, #0C8C7D) 0%, var(--c-green, #15803D) 100%)",
   shadowCard: "0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)",
   shadowCardHover: "0 4px 12px rgba(0,0,0,0.08)",
 };

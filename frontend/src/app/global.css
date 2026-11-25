@@ -34,6 +34,33 @@ button, input, select, textarea {
   border-radius: 8px !important;
 }
 
+/* ---------- The screens' colours (tokens.js C): one source, exactly the values tokens.js HEX lists ----------
+   tokens.js reads each as var(--c-..., fallback). The accent colours (C.cobalt, C.cobaltDeep) are --ui-accent and --ui-accent-ink below. */
+:root {
+  --c-ink: #12141C;
+  --c-ink-soft: #1B1E29;
+  --c-ink-line: #2A2D3A;
+  --c-paper: #F5F6F8;
+  --c-bg: #F5F6F8;
+  --c-paper-card: #FFFFFF;
+  --c-paper-soft: #F0F2F5;
+  --c-border: #E3E6EB;
+  --c-border-light: #EDEFF2;
+  --c-cobalt-soft: #EAEEFC;
+  --c-teal: #0C8C7D;
+  --c-teal-soft: #E4F5F2;
+  --c-amber: #B8760A;
+  --c-amber-soft: #FCEFDA;
+  --c-red: #C2410C;
+  --c-red-solid: #DC2626;
+  --c-red-soft: #FBEAE8;
+  --c-green: #15803D;
+  --c-green-soft: #E7F5EB;
+  --c-slate: #6B7280;
+  --c-slate-light: #9CA3AF;
+  --c-text-ink: #1B1D24;
+}
+
 /* ---------- The shared look (chosen 2026-10-03: soft corners, cool neutrals, dark sidebar) ----------
    Controls styled with these classes get real hover, focus and disabled states, which inline
    styles cannot give them. New and reworked screens should use these instead of inline styles. */

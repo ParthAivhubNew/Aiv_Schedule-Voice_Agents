@@ -2,7 +2,15 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 (look and feel) and cost per source are still to do. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 item 1 and the guard part of item 2 are done; the rest of Phase 4, and cost per source, are still to do. Details are in section 3.1.
+
+**Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
+- `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.
+- `C.*` now returns `var(--name, fallback)`, so every screen that uses `C` reads the variables. A brand or a theme can change a colour in one place.
+- Code that needs a real colour uses `HEX`: the chart attributes in Voice analytics and Social results do. Four `${C.x}33`-style alpha strings became `color-mix()`.
+- Nothing in the frontend writes these colours into outgoing HTML (e-mails are built by the backend), and no canvas uses them.
+- **Item 2, guard only:** `tokens.test.js` checks that the CSS and `HEX` agree. It also fails if any Leads file gains hard-coded hex colours: there are 681 in 58 files today, counted in `plugins/leadgen/hexBaseline.json`, to be moved onto tokens and the count lowered. The codemod itself isn't done.
+- **Item 3 needs decision 4:** whether Leads keeps purple `#8B5CF6` or uses the cobalt accent. Tying the accent to the brand (`--brand-accent`) comes with that.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 

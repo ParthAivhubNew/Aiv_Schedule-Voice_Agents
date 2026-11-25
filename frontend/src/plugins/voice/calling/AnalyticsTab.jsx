@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Minus, RefreshCw, Share2, Table2, LineChart as LineIcon, X } from "lucide-react";
-import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
+import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, HEX } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { LevelPicker } from "../../../team/TeamModal";
 
@@ -319,7 +319,7 @@ export function AnalyticsTab({ operator }) {
               <div style={{ height: 260, background: SURFACE, borderRadius: 10 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data.trend} margin={{ top: 10, right: 16, left: -12, bottom: 0 }}>
-                    <CartesianGrid stroke={C.borderLight} vertical={false} />
+                    <CartesianGrid stroke={HEX.borderLight} vertical={false} />
                     <XAxis dataKey="date" tickFormatter={fmtDay} tick={{ fontSize: 11, fill: MUTED }} tickLine={false} axisLine={{ stroke: C.border }} minTickGap={24} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: MUTED }} tickLine={false} axisLine={false} />
                     <Tooltip content={<TrendTooltip />} cursor={{ stroke: C.slateLight, strokeWidth: 1 }} />
