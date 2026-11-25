@@ -2056,6 +2056,92 @@ async def test_provider(provider_id: str, request: Request):
     return await registry.test_key(provider_id, key)
 
 
+# ── Fixed costs and break-even (services/fixed_costs.py) ─────────────────────
+@router.get("/fixed-costs")
+async def list_fixed_costs(request: Request, month: str = ""):
+    from app.services import fixed_costs as FC
+    from app.models.models import FixedCost
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(FixedCost).order_by(FixedCost.starts_on.desc()))).scalars().all()
+        return {"items": [FC.view(r) for r in rows], "month": await FC.monthly(db, month or datetime.utcnow().strftime("%Y-%m"))}
+
+
+@router.post("/fixed-costs")
+async def add_fixed_cost(body: Dict[str, Any], request: Request):
+    from app.models.models import FixedCost
+    from app.services import audit, fixed_costs as FC
+
+    who = _admin_only(request)
+    try:
+        fields = FC.clean(body)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    async with AsyncSessionLocal() as db:
+        fc = FixedCost(**fields, created_by=who.get("email") or "")
+        db.add(fc)
+        await db.flush()
+        await audit.record(db, "fixed_cost.added", target=fc.id, detail=FC.view(fc), actor_id=str(who.get("id") or ""), actor_name=who.get("email") or "")
+        await db.commit()
+        return FC.view(fc)
+
+
+@router.put("/fixed-costs/{cost_id}")
+async def update_fixed_cost(cost_id: str, body: Dict[str, Any], request: Request):
+    from app.models.models import FixedCost
+    from app.services import audit, fixed_costs as FC
+
+    who = _admin_only(request)
+    try:
+        fields = FC.clean(body)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    async with AsyncSessionLocal() as db:
+        fc = await db.get(FixedCost, cost_id)
+        if not fc:
+            raise HTTPException(status_code=404, detail="Not found.")
+        before = FC.view(fc)
+        for k, v in fields.items():
+            setattr(fc, k, v)
+        await audit.record(db, "fixed_cost.changed", target=fc.id, detail={"before": before, "after": FC.view(fc)},
+                           actor_id=str(who.get("id") or ""), actor_name=who.get("email") or "")
+        await db.commit()
+        return FC.view(fc)
+
+
+@router.delete("/fixed-costs/{cost_id}")
+async def delete_fixed_cost(cost_id: str, request: Request):
+    from app.models.models import FixedCost
+    from app.services import audit, fixed_costs as FC
+
+    who = _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        fc = await db.get(FixedCost, cost_id)
+        if not fc:
+            raise HTTPException(status_code=404, detail="Not found.")
+        await audit.record(db, "fixed_cost.removed", target=fc.id, detail=FC.view(fc), actor_id=str(who.get("id") or ""), actor_name=who.get("email") or "")
+        await db.delete(fc)
+        await db.commit()
+        return {"ok": True}
+
+
+@router.get("/break-even")
+async def get_break_even(request: Request, month: str = ""):
+    """Per plan on sale: subscribers, what one leaves us a month, and how many would pay the fixed costs (services/fixed_costs.py)."""
+    import re
+
+    from app.core.tenancy import system_scope
+    from app.services import fixed_costs as FC
+
+    _who(request)
+    if month and not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return await FC.break_even(db, month or None)
+
+
 @router.get("/revenue/clients")
 async def revenue_clients(request: Request, month: str = "", include_internal: bool = False):
     """Profit and loss per client for a month, in pounds: paid, our recorded and estimated cost, margin and flags, worst first

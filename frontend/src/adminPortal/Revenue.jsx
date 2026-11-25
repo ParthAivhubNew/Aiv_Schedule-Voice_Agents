@@ -132,6 +132,8 @@ export function Revenue({ canEdit }) {
             ))}
           </Table>
           <ProfitByClient month={month} includeInternal={includeAivhub} />
+          <FixedCosts month={month} canEdit={canEdit} />
+          <BreakEven month={month} />
         </>
       )}
       <UnitCosts canEdit={canEdit} onSaved={load} />
@@ -171,8 +173,8 @@ function ProfitByClient({ month, includeInternal }) {
         Recorded cost is what each provider call cost us (AI, e-mail finders, web search, Apollo, number lookups). Estimated cost is
         usage not logged per call (call minutes, numbers, WhatsApp, TPS, Google) at the cost per unit below. {rate} Margin floor {data.floorPct}%.
       </div>
-      <Table head={["Client", "Paid", "Recorded cost", "Estimated cost", "Margin", "Margin %", "Flags"]} minWidth={820}>
-        {data.clients.length === 0 && <tr><td colSpan={7} style={{ ...cell, color: C.slate }}>Nothing this month.</td></tr>}
+      <Table head={["Client", "Paid", "Recorded cost", "Estimated cost", "Margin", "Margin %", "Fixed share", "After fixed", "Flags"]} minWidth={980}>
+        {data.clients.length === 0 && <tr><td colSpan={9} style={{ ...cell, color: C.slate }}>Nothing this month.</td></tr>}
         {data.clients.map((r) => (
           <tr key={r.orgId}>
             <td style={cell}>{r.name}{r.notCharged ? <span style={{ color: C.slate, fontSize: 12 }}> · not charged</span> : null}</td>
@@ -181,6 +183,8 @@ function ProfitByClient({ month, includeInternal }) {
             <td style={right}>{gbp(r.estimatedCost)}</td>
             <td style={{ ...right, color: r.margin < 0 ? C.red : C.teal }}>{gbp(r.margin)}</td>
             <td style={{ ...right, color: r.flags.includes("below_floor") ? C.red : C.textInk }}>{r.marginPct == null ? "—" : `${r.marginPct}%`}</td>
+            <td style={right}>{gbp(r.fixedShare)}</td>
+            <td style={{ ...right, color: (r.marginAfterFixed ?? 0) < 0 ? C.red : C.textInk }}>{gbp(r.marginAfterFixed)}</td>
             <td style={{ ...cell, fontSize: 12, color: r.flags.length ? C.red : C.slate }}>
               {r.flags.length ? r.flags.map((f) => FLAG_TEXT[f] || f).join(" · ") : "—"}
               {r.unpricedCalls ? ` (${fmt(r.unpricedCalls)})` : ""}
@@ -194,11 +198,103 @@ function ProfitByClient({ month, includeInternal }) {
             <td style={right} colSpan={2}>{gbp(data.totals.cost)}</td>
             <td style={{ ...right, fontWeight: 700 }}>{gbp(data.totals.margin)}</td>
             <td style={right}>{data.totals.marginPct == null ? "—" : `${data.totals.marginPct}%`}</td>
+            <td style={right}>{gbp(data.totals.fixed)}</td>
+            <td style={{ ...right, fontWeight: 700, color: (data.totals.marginAfterFixed ?? 0) < 0 ? C.red : C.textInk }}>{gbp(data.totals.marginAfterFixed)}</td>
             <td style={cell} />
           </tr>
         )}
       </Table>
       <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>{(data.notes || []).join(" ")}</div>
+    </>
+  );
+}
+
+const PERIOD = { month: "a month", year: "a year", once: "one-off (spread over 12 months)" };
+const APPS = [["", "Whole platform"], ["voice", "Voice"], ["leadgen", "Leads"], ["scheduler", "Social"]];
+const EMPTY_FIXED = { vendor: "", description: "", amount: "", currency: "gbp", period: "month", wallet: "", startsOn: new Date().toISOString().slice(0, 10), endsOn: "" };
+
+// Costs we pay whatever the usage (services/fixed_costs.py): they are shared among paying clients above, and break-even uses them.
+function FixedCosts({ month, canEdit }) {
+  const [data, err, reload] = useLoad(() => adminApi.fixedCosts(month), [month]);
+  const [msg, run] = useAction(reload);
+  const [draft, setDraft] = useState(EMPTY_FIXED);
+  const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
+  return (
+    <>
+      <div style={heading}>Fixed costs</div>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+        Costs we pay whatever the usage: the TPS licence, a bought data file, a vendor's monthly plan. {data ? `This month: ${gbp(data.month.total)}.` : ""}
+      </div>
+      <Note error={!!err}>{err}</Note>
+      <Note error={msg.error}>{msg.text}</Note>
+      <Table head={["Vendor", "Amount", "App", "From", "To", "This month", ""]} minWidth={760}>
+        {(data?.items || []).length === 0 && <tr><td colSpan={7} style={{ ...cell, color: C.slate }}>None entered yet.</td></tr>}
+        {(data?.items || []).map((f) => (
+          <tr key={f.id}>
+            <td style={cell}>{f.vendor}{f.description ? <span style={{ color: C.slate }}> · {f.description}</span> : null}</td>
+            <td style={right}>{money(f.amountCents, f.currency)} {PERIOD[f.period]}</td>
+            <td style={cell}>{(APPS.find(([w]) => w === f.wallet) || APPS[0])[1]}</td>
+            <td style={cell}>{f.startsOn}</td>
+            <td style={cell}>{f.endsOn || "—"}</td>
+            <td style={right}>{gbp((data.month.items.find((m) => m.id === f.id) || {}).monthlyGbp ?? 0)}</td>
+            <td style={cell}>{canEdit && <button type="button" style={btn(false)} onClick={() => window.confirm(`Remove ${f.vendor}?`) && run(() => adminApi.removeFixedCost(f.id), "Removed.")}>Remove</button>}</td>
+          </tr>
+        ))}
+      </Table>
+      {canEdit && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, alignItems: "center" }}>
+          <input aria-label="Vendor" placeholder="Vendor, e.g. TPS licence" value={draft.vendor} onChange={set("vendor")} style={{ ...input, minWidth: 170 }} />
+          <input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" value={draft.amount} onChange={set("amount")} style={{ ...input, width: 100 }} />
+          <select aria-label="Currency" value={draft.currency} onChange={set("currency")} style={input}>
+            <option value="gbp">GBP</option><option value="usd">USD</option><option value="eur">EUR</option>
+          </select>
+          <select aria-label="How often" value={draft.period} onChange={set("period")} style={input}>
+            <option value="month">a month</option><option value="year">a year</option><option value="once">one-off</option>
+          </select>
+          <select aria-label="App" value={draft.wallet} onChange={set("wallet")} style={input}>
+            {APPS.map(([w, label]) => <option key={w} value={w}>{label}</option>)}
+          </select>
+          <input aria-label="From" type="date" value={draft.startsOn} onChange={set("startsOn")} style={input} />
+          <input aria-label="To (optional)" type="date" value={draft.endsOn} onChange={set("endsOn")} style={input} />
+          <button type="button" style={btn(true)} onClick={() => run(async () => {
+            await adminApi.addFixedCost({ ...draft, amountCents: Math.round(Number(draft.amount) * 100), endsOn: draft.endsOn || null });
+            setDraft(EMPTY_FIXED);
+          }, "Fixed cost added.")}>Add</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Per plan on sale: what one subscriber leaves us a month and how many subscribers would pay the fixed costs.
+function BreakEven({ month }) {
+  const [data, err] = useLoad(() => adminApi.breakEven(month), [month]);
+  if (err) return <Note error>{err}</Note>;
+  if (!data) return null;
+  return (
+    <>
+      <div style={heading}>Break-even</div>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+        A subscriber leaves us the plan's net price (after {data.settings.prices_include_vat ? "VAT and " : ""}Stripe) less the average usage cost of its subscribers last month.
+        Fixed costs this month: {gbp(data.fixed.total)}. {data.gap > 0 ? `Subscribers don't cover them yet: ${gbp(data.gap)} short.` : `Covered, with ${gbp(-data.gap)} to spare.`}
+      </div>
+      <Table head={["Plan", "App", "Subscribers", "Net price", "Usage cost each", "Leaves us each", "Fixed share", "Subscribers needed"]} minWidth={900}>
+        {data.plans.length === 0 && <tr><td colSpan={8} style={{ ...cell, color: C.slate }}>No monthly plans on sale.</td></tr>}
+        {data.plans.map((p) => (
+          <tr key={p.planId}>
+            <td style={cell}>{p.plan}</td>
+            <td style={cell}>{(APPS.find(([w]) => w === p.wallet) || [p.wallet, p.wallet])[1]}</td>
+            <td style={right}>{p.subscribers}</td>
+            <td style={right}>{gbp(p.netPrice)}</td>
+            <td style={right}>{gbp(p.avgVariableCost)}</td>
+            <td style={right}>{gbp(p.leavesPerSubscriber)}</td>
+            <td style={right}>{gbp(p.fixedShare)}</td>
+            <td style={{ ...right, color: p.subscribersNeeded == null ? C.red : p.coversFixed ? C.teal : C.textInk }}>
+              {p.subscribersNeeded == null ? "never (no margin)" : p.subscribersNeeded}
+            </td>
+          </tr>
+        ))}
+      </Table>
     </>
   );
 }

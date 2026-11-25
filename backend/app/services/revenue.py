@@ -232,7 +232,7 @@ async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: 
 
     - Paid is cash taken in the month, before VAT and Stripe fees (prices may include VAT: plan 11, decision 4).
     - Recorded cost comes from services/cost_ledger.provider_calls; estimated cost is units x cost per unit (_estimate_unit_costs).
-    - Fixed costs (the TPS licence, bought data) are not shared out yet (plan 11, step 5).
+    - Fixed costs (services/fixed_costs.py) are shared among paying clients by what they paid: fixedShare and marginAfterFixed.
     - Flags: below_floor, unpaid_usage (cost but no payment: a trial, free credits or an organisation that is not charged),
       unpriced_calls (provider calls counted as $0), unknown_cost (estimated items with no cost per unit), fx_estimated."""
     from datetime import timedelta
@@ -323,6 +323,16 @@ async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: 
         totals["cost"] += cost
     # Worst first: below the floor (lowest margin first), then cost with no payment, then the rest by margin.
     out.sort(key=lambda x: (x["marginPct"] is None and x["cost"] <= 0, x["marginPct"] if x["marginPct"] is not None else -1e9, x["margin"]))
+    # The month's fixed costs (services/fixed_costs.py), shared among the paying clients by what they paid.
+    from app.services import fixed_costs
+
+    fixed = await fixed_costs.monthly(db, month)
+    paying = sum(r["paid"] for r in out if r["paid"] > 0)
+    for r in out:
+        share = fixed["total"] * r["paid"] / paying if paying > 0 and r["paid"] > 0 else 0.0
+        r["fixedShare"] = round(share, 2)
+        r["marginAfterFixed"] = round(r["margin"] - share, 2)
+        r["marginAfterFixedPct"] = round((r["margin"] - share) / r["paid"] * 100, 1) if r["paid"] > 0 else None
     usd_gbp, fx_day, est = await fx.rate(db, "USD", to, on)
     margin_total = totals["paid"] - totals["cost"]
     return {"month": month, "currency": to, "floorPct": floor_pct, "includeInternal": include_internal,
@@ -330,8 +340,10 @@ async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: 
                    "source": (await _get_doc(db, fx.RATES_KEY)).get("source") or ""},
             "clients": out,
             "totals": {"paid": round(totals["paid"], 2), "cost": round(totals["cost"], 2), "margin": round(margin_total, 2),
-                       "marginPct": round(margin_total / totals["paid"] * 100, 1) if totals["paid"] > 0 else None},
-            "notes": ["Paid is before VAT and Stripe fees.", "Fixed costs (TPS licence, bought data) are not shared out yet.",
+                       "marginPct": round(margin_total / totals["paid"] * 100, 1) if totals["paid"] > 0 else None,
+                       "fixed": fixed["total"], "marginAfterFixed": round(margin_total - fixed["total"], 2)},
+            "notes": ["Paid is before VAT and Stripe fees.",
+                      "Fixed costs are shared among paying clients by what they paid." if fixed["total"] else "No fixed costs entered for this month.",
                       "Tavily, Apollo and number lookups are costed at today's price."]}
 
 

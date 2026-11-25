@@ -811,6 +811,24 @@ class BillingPlan(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class FixedCost(Base):
+    """A cost the platform pays whatever the usage: the TPS licence, a bought data file, a vendor's monthly plan (services/fixed_costs.py).
+    Platform-level: one row per cost, never per organisation."""
+    __tablename__ = "fixed_costs"
+
+    id = Column(String, primary_key=True, default=lambda: f"fc_{uuid.uuid4().hex[:12]}")
+    vendor = Column(String, nullable=False)
+    description = Column(String, default="")
+    amount_cents = Column(Integer, nullable=False)  # in minor units of currency, per period
+    currency = Column(String, default="gbp")
+    period = Column(String, default="month")  # month | year | once (a one-off is spread over 12 months from its start)
+    starts_on = Column(Date, nullable=False)
+    ends_on = Column(Date, nullable=True)
+    wallet = Column(String, default="")  # voice | leadgen | scheduler | "" (the whole platform)
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class BillingSubscription(Base):
     """An organisation's Stripe customer and subscription (one subscription, one item per plugin)."""
     __tablename__ = "billing_subscriptions"

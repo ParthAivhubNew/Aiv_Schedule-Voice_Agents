@@ -257,8 +257,14 @@ Live data is too small to check these against real bills: 9 AI calls and 2 brows
   - **AI video clip 23%**: 39 credits needed for 60%,
   - **Phone number 53%**: 18 credits needed; the 15 set in step 2 assumed prices before VAT and fees,
   - premium voice minutes, call transcripts, AI posts and images have no known cost yet.
+- **Second part (2026-11-25):**
+  - **Fixed costs:** a `fixed_costs` table (vendor, amount, currency, monthly, yearly or one-off spread over 12 months, dates,
+    optionally an app) with an editor on the Revenue page. Every change is audited.
+  - **Client profit now shares the month's fixed costs among paying clients by what they paid** (Fixed share, After fixed).
+  - **Break-even per plan:** subscribers, net price, the average usage cost per subscriber last month, what one subscriber
+    leaves us, the plan's share of fixed costs and the subscribers needed. On today's plans the TPS licence alone (about £220 a
+    month including VAT) needs 2 Voice Starter, 3 Leads Growth or 6 Leads Starter subscribers.
 - **Still to do in step 5:**
-  - fixed costs and the break-even panel,
   - monthly limits (users, exports, e-mails a day, assistant messages),
   - Leads and Social top-ups: the mechanism exists, but they need prices.
 
