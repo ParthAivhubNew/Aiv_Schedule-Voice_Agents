@@ -186,6 +186,21 @@ Live data is too small to check these against real bills: 9 AI calls and 2 brows
 | 13 | **Voice per engine:** a new `voice_minute_premium` item at 2 credits for OpenAI Realtime, Vapi, Retell or an ElevenLabs voice. A call keeps the price it started on. Browser calls and Telnyx's own AI stay at 1. |
 | 14 | **Correction:** `telnyx_usage.py` already compares Telnyx's cost per organisation with the minutes billed, monthly. Other engines' costs are still not recorded. |
 
+### B.3b Step 3 done on the branch (2026-11-25)
+
+- **One cost ledger:** the database view `provider_calls` (`services/cost_ledger.py`) joins AI calls, e-mail finders, Tavily
+  (credits × price), Apollo and Telnyx number lookups. It's rebuilt at every start and respects company scoping. On the copied
+  live data it holds 7,113 calls.
+- **Exchange rates:** ECB reference rates, read twice a day (`services/fx.py`), kept per day, and marked "estimated" until the
+  first read. First read: $1 = £0.7635 (24 Nov 2026).
+- **Profit per client** (admin portal → Revenue → "Profit by client, in pounds";
+  `GET /admin-api/revenue/clients`): what each client paid, the recorded cost, the estimated cost for usage not logged per call,
+  the margin, and flags (below the 60% floor, cost with no payment, calls counted as $0, unknown cost). Worst first.
+- **First result:** clients paid £1,561.85 in October against £1.56 of cost (99.9% margin). The real spend is internal:
+  Aivhub's own account cost £40.72 in November (6,249 calls, mostly Tavily bulk work), and 683 AI calls had no client and no price.
+- **Not yet:** sharing out fixed costs (step 5), VAT and Stripe fees (decision 4), and the cost of voice engines other than
+  Telnyx's AI.
+
 ### B.4 Target: plans that can't go below a margin floor
 
 **1. Every call has a known cost** (fixes 1–4)

@@ -1935,6 +1935,24 @@ async def revenue(request: Request, month: str = "", include_aivhub: bool = Fals
         return await R.report(db, month, include_aivhub)
 
 
+@router.get("/revenue/clients")
+async def revenue_clients(request: Request, month: str = "", include_internal: bool = False):
+    """Profit and loss per client for a month, in pounds: paid, our recorded and estimated cost, margin and flags, worst first
+    (services/revenue.client_pnl). The platform's own accounts are left out unless include_internal."""
+    import re
+
+    from app.core.tenancy import system_scope
+    from app.services import revenue as R
+
+    _who(request)
+    month = month or datetime.utcnow().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(status_code=400, detail="Pick a month like 2026-09.")
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return await R.client_pnl(db, month, include_internal)
+
+
 @router.get("/vendor-costs")
 async def vendor_costs(request: Request, month: str = ""):
     """Real/estimated spend this month at the data-provider vendors behind Leadgen (Icypeas,

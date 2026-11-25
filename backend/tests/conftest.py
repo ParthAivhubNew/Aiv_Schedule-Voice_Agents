@@ -47,6 +47,9 @@ async def schema():
     from app.api.scheduler import ensure_social_schema
 
     async with engine.begin() as conn:
+        from sqlalchemy import text
+
+        await conn.execute(text("DROP VIEW IF EXISTS provider_calls"))  # the cost ledger view (services/cost_ledger.py) sits on tables dropped next
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     await ensure_social_schema()

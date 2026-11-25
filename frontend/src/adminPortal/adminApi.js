@@ -89,6 +89,7 @@ export const adminApi = {
   rates: () => request("/rates"),
   setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
   revenue: (month, includeAivhub = false) => request(`/revenue?month=${q(month)}&include_aivhub=${includeAivhub}`),
+  revenueClients: (month, includeInternal = false) => request(`/revenue/clients?month=${q(month)}&include_internal=${includeInternal}`),
   partners: () => request("/partners"),
   approvePartnerApplication: (id, note = "") => request(`/partners/applications/${q(id)}/approve`, { method: "POST", body: { note } }),
   rejectPartnerApplication: (id, note = "") => request(`/partners/applications/${q(id)}/reject`, { method: "POST", body: { note } }),

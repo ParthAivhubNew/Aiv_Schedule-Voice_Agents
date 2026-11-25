@@ -131,9 +131,74 @@ export function Revenue({ canEdit }) {
               </tr>
             ))}
           </Table>
+          <ProfitByClient month={month} includeInternal={includeAivhub} />
         </>
       )}
       <UnitCosts canEdit={canEdit} onSaved={load} />
+    </>
+  );
+}
+
+const FLAG_TEXT = {
+  below_floor: "Below the margin floor",
+  unpaid_usage: "Cost but no payment",
+  unpriced_calls: "Calls counted as $0 (no price set)",
+  unknown_cost: "Some usage has no cost per unit",
+};
+const gbp = (v) => (v == null ? "—" : money(Math.round(v * 100), "gbp"));
+
+// Each client's month in pounds from real recorded provider costs (the cost ledger) plus an estimate for usage that isn't
+// logged per call (call minutes, numbers, WhatsApp, TPS, Google). Worst margin first. See services/revenue.client_pnl.
+function ProfitByClient({ month, includeInternal }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    setData(null);
+    setError("");
+    adminApi.revenueClients(month, includeInternal).then((d) => live && setData(d)).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, [month, includeInternal]);
+  if (error) return <Note error>{error}</Note>;
+  if (!data) return null;
+  const rate = data.fx.estimated
+    ? "Exchange rate estimated: the ECB rates have not been read yet."
+    : `$1 = £${data.fx.usdToGbp.toFixed(4)} (ECB, ${data.fx.day}).`;
+  return (
+    <>
+      <div style={heading}>Profit by client, in pounds</div>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+        Recorded cost is what each provider call cost us (AI, e-mail finders, web search, Apollo, number lookups). Estimated cost is
+        usage not logged per call (call minutes, numbers, WhatsApp, TPS, Google) at the cost per unit below. {rate} Margin floor {data.floorPct}%.
+      </div>
+      <Table head={["Client", "Paid", "Recorded cost", "Estimated cost", "Margin", "Margin %", "Flags"]} minWidth={820}>
+        {data.clients.length === 0 && <tr><td colSpan={7} style={{ ...cell, color: C.slate }}>Nothing this month.</td></tr>}
+        {data.clients.map((r) => (
+          <tr key={r.orgId}>
+            <td style={cell}>{r.name}{r.notCharged ? <span style={{ color: C.slate, fontSize: 12 }}> · not charged</span> : null}</td>
+            <td style={right}>{gbp(r.paid)}</td>
+            <td style={right}>{gbp(r.recordedCost)}</td>
+            <td style={right}>{gbp(r.estimatedCost)}</td>
+            <td style={{ ...right, color: r.margin < 0 ? C.red : C.teal }}>{gbp(r.margin)}</td>
+            <td style={{ ...right, color: r.flags.includes("below_floor") ? C.red : C.textInk }}>{r.marginPct == null ? "—" : `${r.marginPct}%`}</td>
+            <td style={{ ...cell, fontSize: 12, color: r.flags.length ? C.red : C.slate }}>
+              {r.flags.length ? r.flags.map((f) => FLAG_TEXT[f] || f).join(" · ") : "—"}
+              {r.unpricedCalls ? ` (${fmt(r.unpricedCalls)})` : ""}
+            </td>
+          </tr>
+        ))}
+        {data.clients.length > 0 && (
+          <tr>
+            <td style={{ ...cell, fontWeight: 700 }}>Total</td>
+            <td style={{ ...right, fontWeight: 700 }}>{gbp(data.totals.paid)}</td>
+            <td style={right} colSpan={2}>{gbp(data.totals.cost)}</td>
+            <td style={{ ...right, fontWeight: 700 }}>{gbp(data.totals.margin)}</td>
+            <td style={right}>{data.totals.marginPct == null ? "—" : `${data.totals.marginPct}%`}</td>
+            <td style={cell} />
+          </tr>
+        )}
+      </Table>
+      <div style={{ fontSize: 12, color: C.slate, marginTop: 6 }}>{(data.notes || []).join(" ")}</div>
     </>
   );
 }

@@ -196,3 +196,140 @@ async def report(db, month: str, include_aivhub: bool = False) -> Dict[str, Any]
         "clients": out_clients,
         "costsSet": any(costs["costs"].values()),
     }
+
+
+# ── Profit and loss per client (plan 11, step 3) ───────────────────────────────
+REPORT_CURRENCY = "GBP"
+MARGIN_FLOOR_PCT = 60  # below this a client is flagged (plan 11, decision 1: the suggested floor)
+INTERNAL_ORGS = ("org_default", "org_outreach", "*", "")  # the platform's own accounts and work that belongs to no client
+# Usage whose vendor cost is not logged per call (see services/cost_ledger.py): its cost is estimated from the units used.
+ESTIMATED_ITEMS = ("voice_minute", "voice_minute_premium", "call_transcript", "whatsapp_message", "phone_number_month", "number_setup",
+                   "tps_check", "lead_tps_check", "google_view", "google_deep_search")
+
+
+async def _estimate_unit_costs(db) -> Dict[str, Any]:
+    """{item: (cost per unit, currency)} for the estimated items: what staff set on the rate card's cost column, else the researched
+    USD default; an item with neither has no entry (its units are reported as cost unknown)."""
+    from app.services.credits import DEFAULT_UNIT_COSTS_USD_CENTS, _get_doc, default_voice_minute_cost_usd_cents
+
+    stored = await _get_doc(db, UNIT_COSTS_KEY)
+    cur = (stored.get("currency") if stored.get("currency") in CURRENCIES else "gbp").upper()
+    set_by_staff = {k: float(v) for k, v in (stored.get("costs") or {}).items() if isinstance(v, (int, float)) and v > 0}
+    defaults = {**DEFAULT_UNIT_COSTS_USD_CENTS, "voice_minute": default_voice_minute_cost_usd_cents(),
+                "call_transcript": 0.0}  # the transcript's speech-to-text is in the AI ledger
+    out: Dict[str, Any] = {}
+    for item in ESTIMATED_ITEMS:
+        if item in set_by_staff:
+            out[item] = (set_by_staff[item] / 100.0, cur)  # stored in minor units (pence / cents)
+        elif item in defaults:
+            out[item] = (float(defaults[item]) / 100.0, "USD")
+    return out
+
+
+async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: int = MARGIN_FLOOR_PCT) -> Dict[str, Any]:
+    """Each organisation's month in pounds: what it paid (Stripe purchases), what its usage cost us (the cost ledger, plus an
+    estimate for usage not logged per call), and the margin. Worst margin first. Run under the system scope to see every organisation.
+
+    - Paid is cash taken in the month, before VAT and Stripe fees (prices may include VAT: plan 11, decision 4).
+    - Recorded cost comes from services/cost_ledger.provider_calls; estimated cost is units x cost per unit (_estimate_unit_costs).
+    - Fixed costs (the TPS licence, bought data) are not shared out yet (plan 11, step 5).
+    - Flags: below_floor, unpaid_usage (cost but no payment: a trial, free credits or an organisation that is not charged),
+      unpriced_calls (provider calls counted as $0), unknown_cost (estimated items with no cost per unit), fx_estimated."""
+    from datetime import timedelta
+
+    from app.services import cost_ledger, fx
+    from app.services.credits import DEFAULT_RATES, _get_doc
+
+    start, end = month_range(month)
+    window = {"s": start, "e": end}
+    on = min(end - timedelta(days=1), datetime.utcnow()).date()  # the month's last day, or today for the current month
+    to = REPORT_CURRENCY
+    names = dict((await db.execute(text("SELECT id, name FROM organizations"))).all())
+    fx_estimated = False
+
+    async def gbp(amount: float, cur: str) -> float:
+        nonlocal fx_estimated
+        value, est = await fx.convert(db, amount, cur, to, on)
+        fx_estimated = fx_estimated or est
+        return value
+
+    rows: Dict[str, Dict[str, Any]] = {}
+
+    def row(org_id: str) -> Dict[str, Any]:
+        return rows.setdefault(org_id, {"orgId": org_id, "name": names.get(org_id, "Platform (no client)" if org_id in ("*", "") else org_id),
+                                        "paid": 0.0, "recordedCost": 0.0, "estimatedCost": 0.0, "calls": 0, "unpricedCalls": 0,
+                                        "unknownUnits": 0.0, "bySource": {}, "estimatedItems": {}})
+
+    for org_id, cur, cents in (await db.execute(text(
+            "SELECT org_id, lower(coalesce(nullif(paid_currency, ''), 'usd')), sum(paid_cents) FROM credit_grants "
+            "WHERE paid_cents > 0 AND created_at >= :s AND created_at < :e GROUP BY 1, 2"), window)).all():
+        row(org_id)["paid"] += await gbp(float(cents or 0) / 100.0, cur)
+
+    for org_id, c in (await cost_ledger.cost_by_org(db, start, end)).items():
+        r = row(org_id)
+        r["recordedCost"] += await gbp(c["costUsd"], "USD")
+        r["calls"] += c["calls"]
+        r["unpricedCalls"] += c["unpricedCalls"]
+        r["bySource"] = {k: {"calls": v["calls"], "cost": round(await gbp(v["costUsd"], "USD"), 2)} for k, v in c["bySource"].items()}
+
+    unit = await _estimate_unit_costs(db)
+    for org_id, item, qty in (await db.execute(text(
+            "SELECT org_id, item, sum(quantity) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s AND created_at < :e "
+            "AND item = ANY(:items) GROUP BY 1, 2"), {**window, "items": list(ESTIMATED_ITEMS)})).all():
+        r, qty = row(org_id), float(qty or 0)
+        if item in unit:
+            cost = await gbp(qty * unit[item][0], unit[item][1])
+            r["estimatedCost"] += cost
+            r["estimatedItems"][item] = {"label": DEFAULT_RATES.get(item, {}).get("label", item), "units": round(qty, 2), "cost": round(cost, 2)}
+        else:
+            r["unknownUnits"] += qty
+            r["estimatedItems"][item] = {"label": DEFAULT_RATES.get(item, {}).get("label", item), "units": round(qty, 2), "cost": None}
+
+    not_charged = set()  # organisations staff switched charging off for (credits:<org> enforce false)
+    for key, data in (await db.execute(text("SELECT id, data FROM app_settings WHERE id LIKE 'credits:%'"))).all():
+        doc = data if isinstance(data, dict) else {}
+        if isinstance(data, str):
+            import json as _json
+
+            try:
+                doc = _json.loads(data)
+            except ValueError:
+                doc = {}
+        if doc.get("enforce") is False:
+            not_charged.add(key.split(":", 1)[1])
+    out, totals = [], {"paid": 0.0, "cost": 0.0}
+    for org_id, r in rows.items():
+        internal = org_id in INTERNAL_ORGS
+        if internal and not include_internal:
+            continue
+        cost = r["recordedCost"] + r["estimatedCost"]
+        margin = r["paid"] - cost
+        pct = round(margin / r["paid"] * 100, 1) if r["paid"] > 0 else None
+        flags = []
+        if pct is not None and pct < floor_pct:
+            flags.append("below_floor")
+        if r["paid"] <= 0 and cost > 0:
+            flags.append("unpaid_usage")
+        if r["unpricedCalls"]:
+            flags.append("unpriced_calls")
+        if r["unknownUnits"]:
+            flags.append("unknown_cost")
+        out.append({"orgId": org_id, "name": r["name"], "internal": internal, "notCharged": org_id in not_charged,
+                    "paid": round(r["paid"], 2), "recordedCost": round(r["recordedCost"], 2), "estimatedCost": round(r["estimatedCost"], 2),
+                    "cost": round(cost, 2), "margin": round(margin, 2), "marginPct": pct, "calls": r["calls"],
+                    "unpricedCalls": r["unpricedCalls"], "unknownUnits": round(r["unknownUnits"], 2), "flags": flags,
+                    "bySource": r["bySource"], "estimatedItems": r["estimatedItems"]})
+        totals["paid"] += r["paid"]
+        totals["cost"] += cost
+    # Worst first: below the floor (lowest margin first), then cost with no payment, then the rest by margin.
+    out.sort(key=lambda x: (x["marginPct"] is None and x["cost"] <= 0, x["marginPct"] if x["marginPct"] is not None else -1e9, x["margin"]))
+    usd_gbp, fx_day, est = await fx.rate(db, "USD", to, on)
+    margin_total = totals["paid"] - totals["cost"]
+    return {"month": month, "currency": to, "floorPct": floor_pct, "includeInternal": include_internal,
+            "fx": {"usdToGbp": round(usd_gbp, 5), "day": fx_day, "estimated": est or fx_estimated,
+                   "source": (await _get_doc(db, fx.RATES_KEY)).get("source") or ""},
+            "clients": out,
+            "totals": {"paid": round(totals["paid"], 2), "cost": round(totals["cost"], 2), "margin": round(margin_total, 2),
+                       "marginPct": round(margin_total / totals["paid"] * 100, 1) if totals["paid"] > 0 else None},
+            "notes": ["Paid is before VAT and Stripe fees.", "Fixed costs (TPS licence, bought data) are not shared out yet.",
+                      "Tavily, Apollo and number lookups are costed at today's price."]}

@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 logger = logging.getLogger("test_copy")
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-SAFE_JOBS = {"credits_settle", "generation"}  # internal bookkeeping, and AI drafts that are only saved, never published
+SAFE_JOBS = {"credits_settle", "generation", "fx_rates"}  # internal bookkeeping, AI drafts that are only saved, and reading exchange rates
 
 # Writes here only cost money: nobody is contacted and nothing the live app uses is changed.
 COST_ONLY_HOSTS = (

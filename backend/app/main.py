@@ -345,6 +345,25 @@ async def _social_results_loop():
         await asyncio.sleep(3600)
 
 
+async def _fx_rates_loop():
+    """The ECB exchange rates, read soon after start and then twice a day (services/fx.py), so dollar costs compare with pound payments."""
+    from app.core.tenancy import system_scope
+    from app.database import AsyncSessionLocal
+    from app.services import fx
+
+    await asyncio.sleep(30)
+    while True:
+        try:
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    await fx.refresh(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as fx_err:
+            logger.warning(f"[fx] refresh failed: {fx_err}")
+        await asyncio.sleep(12 * 3600)
+
+
 async def _human_calls_loop():
     """Every 5 minutes, per organisation: close browser calls whose tab died, start waiting transcripts, delete old audio."""
     from app.database import AsyncSessionLocal
@@ -611,6 +630,13 @@ async def lifespan(app: FastAPI):
     from app.core.security import resolve_signing_key
     async with engine.begin() as conn:
         await run_migrations(conn)
+    try:  # the one cost ledger over every provider log (services/cost_ledger.py); remade each start so it always matches the code
+        from app.services.cost_ledger import create_view
+
+        async with engine.begin() as conn:
+            await create_view(conn)
+    except Exception as view_err:
+        logger.warning(f"[cost ledger] view not made: {view_err}")
     await seed_database()
     # Organisation isolation: org_id columns, per-org keys, app role and RLS policies.
     from app.core.tenancy import ensure_tenancy
@@ -906,10 +932,12 @@ async def lifespan(app: FastAPI):
     human_calls_task = job("human_calls", _human_calls_loop)
     from app.services.workflows import workflow_loop
     workflow_task = job("workflows", workflow_loop)
+    fx_task = job("fx_rates", _fx_rates_loop)
 
     yield
 
     workflow_task.cancel()
+    fx_task.cancel()
     call_schedule_task.cancel()
     human_calls_task.cancel()
     find_leads_warm_task.cancel()
