@@ -2,7 +2,8 @@
 
 Each BillingPlan has `rules`, cleaned by clean_rules():
   {"providers": None | ["icypeas", "hunter", ...],   # None: every provider; a list: only these (app/providers ids)
-   "cost_cap_pct": None | 5..100}                    # what our variable cost may reach, as a % of what the client paid this period
+   "cost_cap_pct": None | 5..100,                    # what our variable cost may reach, as a % of what the client paid this period
+   "limits": {"users": n, "exports_month": n, "emails_day": n, "assistant_day": n}}   # each optional; missing: no limit
 
 - **Providers:** a company may use a provider when any of its live plans includes it. A company with no live plan (a trial,
   free credits, an account staff don't charge) is not limited. The e-mail waterfall and the Apollo and Tavily key pools ask
@@ -13,6 +14,10 @@ Each BillingPlan has `rules`, cleaned by clean_rules():
   - At 80% the company's admins get the "low credits" e-mail and staff get a CAP-01 alert, once per period.
   - At 100%, paid lookups (CAP_ITEMS) are refused with USR-08 until a top-up raises what was paid, or the period ends.
     Calls in progress, phone rent and everything else carry on.
+- **Limits:** a company's limit of a kind is the highest any of its live plans sets; no plan setting it (or no live plan) means
+  no limit. Users are counted when one is added (api/auth.py), exports per calendar month (api/exports.py), e-mails per UTC day
+  at the credit check of each send (services/credits.py), assistant messages per day (api/lead_assistant.py). A refusal says
+  what the plan allows (USR-09).
 - Every check never raises. When the rules can't be read, nothing is limited: these are commercial limits, not compliance rules.
 """
 from __future__ import annotations
@@ -32,6 +37,7 @@ WARN_AT, PAUSE_AT = 0.8, 1.0
 LIVE_STATUSES = ("active", "trialing", "past_due")
 CAP_REFUSED = ("USR-08: Your plan's fair-use limit for this billing period is reached, so paid lookups are paused. "
                "Top up to carry on, or they start again when the period renews.")
+LIMITS = {"users": "users", "exports_month": "exports a month", "emails_day": "e-mails a day", "assistant_day": "assistant messages a day"}
 _TTL = 60.0
 _CACHE: Dict[str, Any] = {}  # org -> (when, {"plans": [...], "cap": {...} or None})
 
@@ -40,11 +46,19 @@ def clean_rules(raw: Any) -> Dict[str, Any]:
     from app.providers import registry
 
     raw = raw if isinstance(raw, dict) else {}
-    out: Dict[str, Any] = {"providers": None, "cost_cap_pct": None}
+    out: Dict[str, Any] = {"providers": None, "cost_cap_pct": None, "limits": {}}
     prov = raw.get("providers")
     if isinstance(prov, list):
         known = {p.manifest.id for p in registry.all_providers()}
         out["providers"] = sorted({str(p).strip().lower() for p in prov if str(p).strip().lower() in known})
+    lim = raw.get("limits") if isinstance(raw.get("limits"), dict) else {}
+    for kind in LIMITS:
+        try:
+            n = int(float(lim.get(kind))) if lim.get(kind) not in (None, "") else 0
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            out["limits"][kind] = min(n, 10_000_000)
     cap = raw.get("cost_cap_pct")
     if cap not in (None, "", 0, "0"):
         try:
@@ -182,3 +196,37 @@ async def _tell_once(org_id: str, state: Dict[str, Any]) -> None:
                       "Paid lookups are paused until you top up or the period renews." if paused
                       else "When it reaches 100%, paid lookups pause until you top up or the period renews."])
     await alert_staff("CAP-01", f"{org_id} is at {int(state['used'] * 100)}% of its fair-use cap (£{state['costGbp']} of £{state['capGbp']}).", org_id=org_id)
+
+
+async def limit(kind: str, org_id: Optional[str] = None) -> Optional[int]:
+    """The company's limit of a kind (LIMITS): the highest its live plans set, or None for no limit. Never raises."""
+    try:
+        if not org_id:
+            from app.core.tenancy import SYSTEM, current_org
+
+            org_id = current_org()
+            if not org_id or org_id == SYSTEM:
+                return None
+        values = [p["rules"]["limits"].get(kind) for p in (await _state(org_id))["plans"]]
+        values = [v for v in values if v]
+        return max(values) if values else None
+    except Exception as err:
+        logger.warning(f"[plan_rules] limit check skipped: {err}")
+        return None
+
+
+def limit_message(kind: str, n: int) -> str:
+    return f"USR-09: Your plan allows {n:,} {LIMITS.get(kind, kind)}. Upgrade your plan for more."
+
+
+async def emails_refusal(db, quantity: float = 1) -> str:
+    """The refusal for an e-mail over the plan's daily limit (counted from today's e-mail charges, UTC); "" when it may go."""
+    n = await limit("emails_day")
+    if not n:
+        return ""
+    from datetime import datetime as _dt
+
+    start = _dt.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    sent = (await db.execute(text("SELECT coalesce(sum(quantity), 0) FROM credit_ledger WHERE kind = 'usage' AND item = 'email_send' AND created_at >= :s"),
+                             {"s": start})).scalar() or 0
+    return limit_message("emails_day", n) if float(sent) + float(quantity) > n else ""

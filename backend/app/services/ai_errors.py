@@ -37,6 +37,7 @@ CODES: Dict[str, str] = {
     "DS-01": "A Data Source run stalled (no progress for a while) and was paused automatically.",
     "USR-07": "Your credits couldn't be checked just now, so a larger job was not started. Try again in a minute.",
     "USR-08": "Your plan's fair-use limit for this billing period is reached, so paid lookups are paused. Top up to carry on.",
+    "USR-09": "This is more than your plan allows. Upgrade your plan for more.",
     "CAP-01": "A company has used most or all of its plan's fair-use cost cap for this billing period.",
     "PRICE-01": "A paid provider is being used with no price set, so its cost counts as $0 in margins and reports. Set it on Model Pricing.",
     "BL-01": "Stripe's messages are arriving late or not at all: a company kept needing its plan or credits put right after renewals, or the webhook has gone quiet. The daily check already fixed what it found.",

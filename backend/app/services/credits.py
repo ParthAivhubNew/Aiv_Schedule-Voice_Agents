@@ -704,6 +704,12 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
         refused = await cap_refusal([it for it, _q in [(item, quantity), *(extra or [])]])  # the plan's fair-use cost cap
         if refused:
             return False, refused
+        if item == "email_send":
+            from app.services.plan_rules import emails_refusal
+
+            refused = await emails_refusal(db, quantity)  # the plan's e-mails a day
+            if refused:
+                return False, refused
         if not (await org_settings(db))["enforce"]:
             return True, ""
         for wallet, cost in need.items():

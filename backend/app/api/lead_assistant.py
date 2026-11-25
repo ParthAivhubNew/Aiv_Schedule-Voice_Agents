@@ -591,9 +591,15 @@ _DOING = {"search_companies": "Searching the company register", "my_data": "Read
 
 
 async def _guard(db: AsyncSession) -> None:
-    # No daily cap. Messages are still counted (_count_message) for usage reports; only a runaway burst is stopped.
+    # No daily cap unless the company's plan sets one (services/plan_rules.py: assistant_day). Messages are always counted
+    # (_count_message) for usage reports; a runaway burst is stopped either way.
     if too_fast(f"leads:{current_org()}"):
         raise HTTPException(status_code=429, detail=SLOW_DOWN)
+    from app.services import plan_rules
+
+    allowed = await plan_rules.limit("assistant_day")
+    if allowed and await _spent_today(db) >= allowed:
+        raise HTTPException(status_code=429, detail=plan_rules.limit_message("assistant_day", allowed))
 
 
 async def _events(body: AskIn, request: Request, db: AsyncSession):

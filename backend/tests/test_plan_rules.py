@@ -8,9 +8,11 @@ from app.services import plan_rules as PR
 
 
 def test_rules_are_cleaned():
-    assert PR.clean_rules(None) == {"providers": None, "cost_cap_pct": None}
+    assert PR.clean_rules(None) == {"providers": None, "cost_cap_pct": None, "limits": {}}
     assert PR.clean_rules({"providers": ["Hunter", "icypeas", "not-a-provider"], "cost_cap_pct": "40"}) == {
-        "providers": ["hunter", "icypeas"], "cost_cap_pct": 40}
+        "providers": ["hunter", "icypeas"], "cost_cap_pct": 40, "limits": {}}
+    assert PR.clean_rules({"limits": {"users": "5", "exports_month": 0, "emails_day": "x", "assistant_day": 200, "nonsense": 9}})["limits"] == {
+        "users": 5, "assistant_day": 200}
     assert PR.clean_rules({"cost_cap_pct": 500})["cost_cap_pct"] == 100 and PR.clean_rules({"cost_cap_pct": 1})["cost_cap_pct"] == 5
     assert PR.clean_rules({"providers": []})["providers"] == []  # an empty list: no provider at all
 
@@ -176,7 +178,97 @@ async def test_a_cheap_plan_that_breaks_the_floor_is_refused_and_plan_rules_are_
     good = await staff.post("/api/admin-api/plans", json={**body, "name": "Leads top-up", "priceUsdCents": 3000, "credits": 100,
                                                          "rules": {"providers": ["icypeas", "tavily"], "cost_cap_pct": 40}})
     assert good.status_code == 200, good.text
-    assert good.json()["rules"] == {"providers": ["icypeas", "tavily"], "cost_cap_pct": 40}
+    assert good.json()["rules"] == {"providers": ["icypeas", "tavily"], "cost_cap_pct": 40, "limits": {}}
     margins = (await staff.get("/api/admin-api/margins")).json()
     assert margins["settings"]["floor_pct"] == 60 and any(r["item"] == "lead_lookup" for r in margins["items"])
     assert (await staff.put("/api/admin-api/margin-settings", json={"floorPct": 50})).json()["floor_pct"] == 50
+
+
+# ---- monthly and daily limits ----------------------------------------------------------------------------------
+@pytest.mark.db
+async def test_the_highest_limit_of_a_company_s_plans_applies_and_no_plan_means_no_limit(db):
+    await _org_on_plan(db, rules={"limits": {"users": 3}})
+    await db.execute(text("INSERT INTO billing_plans (id, wallet, kind, name, price_usd_cents, currency, credits, active, rules) "
+                          "VALUES ('pl_v', 'voice', 'plan', 'Voice', 100, 'gbp', 10, TRUE, CAST('{\"limits\": {\"users\": 8}}' AS JSON))"))
+    await db.commit()
+    from app.core.tenancy import org_scope
+
+    with org_scope("org_p"):  # the subscription is the company's own row (row-level security)
+        await db.execute(text("UPDATE billing_subscriptions SET plans = CAST('{\"leadgen\": \"pl_s\", \"voice\": \"pl_v\"}' AS JSON) WHERE id = 'org_p'"))
+        await db.commit()
+    PR.invalidate()
+    assert await PR.limit("users", "org_p") == 8 and await PR.limit("exports_month", "org_p") is None
+    assert await PR.limit("users", "org_nobody") is None
+
+
+@pytest.mark.db
+async def test_a_user_over_the_plan_s_seats_is_refused(db):
+    import httpx
+
+    from app.main import app
+    from tests.conftest import make_user
+
+    _op, token = await make_user(db, "boss", role="Admin", org_id="org_p")
+    await _org_on_plan(db, rules={"limits": {"users": 2}})
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as c:
+        first = await c.post("/api/auth/users", json={"username": "second", "name": "Second Person"})
+        assert first.status_code == 200, first.text
+        over = await c.post("/api/auth/users", json={"username": "third", "name": "Third Person"})
+        assert over.status_code == 403 and over.json()["detail"].startswith("USR-09: Your plan allows 2 users")
+
+
+@pytest.mark.db
+async def test_exports_over_the_month_s_limit_are_refused(db):
+    import httpx
+
+    from app.core.tenancy import org_scope
+    from app.main import app
+    from app.services import audit
+    from tests.conftest import make_user
+
+    _op, token = await make_user(db, "boss", role="Admin", org_id="org_p")
+    await _org_on_plan(db, rules={"limits": {"exports_month": 2}})
+    with org_scope("org_p"):
+        for _ in range(2):
+            await audit.record(db, "export.created", target="ids", detail={"rows": 1})
+        await db.commit()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as c:
+        r = await c.post("/api/exports", json={"kind": "companies", "scope": {"ids": ["x"]}})
+    assert r.status_code == 403 and "2 exports a month" in r.json()["detail"]
+
+
+@pytest.mark.db
+async def test_e_mails_over_the_day_s_limit_are_refused(db):
+    from app.core.tenancy import org_scope
+    from app.services import credits as K
+
+    await _org_on_plan(db, rules={"limits": {"emails_day": 3}})
+    with org_scope("org_p"):
+        await K.add_credits(db, "leadgen", 100, source="grant", note="t", by="t")
+        await db.execute(text("INSERT INTO credit_ledger (org_id, id, kind, wallet, item, quantity, amount, created_at) VALUES "
+                              "('org_p', 'e1', 'usage', 'leadgen', 'email_send', 3, -3, :w)"), {"w": datetime.utcnow()})
+        await db.commit()
+        ok, why = await K.can_start(db, "email_send")
+        assert ok is False and "3 e-mails a day" in why
+        assert (await K.can_start(db, "lead_lookup"))[0] is True  # other work is not limited by it
+
+
+@pytest.mark.db
+async def test_the_assistant_stops_at_the_plan_s_daily_messages_and_has_no_cap_without_one(db, monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api import lead_assistant as LA
+    from app.core.tenancy import org_scope
+
+    await _org_on_plan(db, rules={"limits": {"assistant_day": 5}})
+
+    async def spent(_db):
+        return 5
+
+    monkeypatch.setattr(LA, "_spent_today", spent)
+    with org_scope("org_p"):
+        with pytest.raises(HTTPException) as err:
+            await LA._guard(db)
+    assert err.value.status_code == 429 and "5 assistant messages a day" in err.value.detail
+    with org_scope("org_free"):
+        await LA._guard(db)  # no plan limit: the earlier "no daily cap" still holds

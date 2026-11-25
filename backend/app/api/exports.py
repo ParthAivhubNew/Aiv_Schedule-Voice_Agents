@@ -85,6 +85,21 @@ async def preview(body: PreviewIn, request: Request, db: AsyncSession = Depends(
 @router.post("/exports")
 async def export(body: ExportIn, request: Request, db: AsyncSession = Depends(get_db)):
     ctx = await _exporter(request, db)
+    from app.services import plan_rules
+
+    allowed = await plan_rules.limit("exports_month", ctx.get("org_id"))
+    if allowed:
+        from datetime import datetime as _dt
+
+        from sqlalchemy import func, select
+
+        from app.models.models import AuditLog
+
+        start = _dt.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        done = (await db.execute(select(func.count()).select_from(AuditLog).where(AuditLog.action == "export.created",
+                                                                                  AuditLog.created_at >= start))).scalar() or 0
+        if done >= allowed:
+            raise HTTPException(status_code=403, detail=plan_rules.limit_message("exports_month", allowed))
     records, tally, cols = await _build(db, body, ctx.get("operator_id") or "")
     if not records and tally.outside:
         raise DA.AccessDenied(403, DA.OUTSIDE_DETAIL, "outside_access")

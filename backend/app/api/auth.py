@@ -774,6 +774,13 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
     email = (body.email or "").strip().lower()
     if email and (await db.execute(select(Operator).where((func.lower(Operator.email) == email) | (func.lower(Operator.username) == email)))).scalars().first():
         raise HTTPException(status_code=400, detail="This e-mail address is already used by another account.")
+    from app.services import plan_rules
+
+    seats = await plan_rules.limit("users", ctx["org_id"])
+    if seats:
+        active = (await db.execute(select(func.count()).select_from(Operator).where(Operator.org_id == ctx["org_id"], Operator.is_active.is_not(False)))).scalar() or 0
+        if active >= seats:
+            raise HTTPException(status_code=403, detail=plan_rules.limit_message("users", seats))
     roles_by_name = await ensure_system_roles(db, ctx["org_id"])
     role_ids = body.role_ids or [roles_by_name.get((body.role or "Operator").title(), roles_by_name["Operator"]).id]
     roles = await _check_role_ids(db, role_ids, ctx["org_id"])

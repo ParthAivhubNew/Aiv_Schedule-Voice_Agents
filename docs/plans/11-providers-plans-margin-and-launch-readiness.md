@@ -264,8 +264,14 @@ Live data is too small to check these against real bills: 9 AI calls and 2 brows
   - **Break-even per plan:** subscribers, net price, the average usage cost per subscriber last month, what one subscriber
     leaves us, the plan's share of fixed costs and the subscribers needed. On today's plans the TPS licence alone (about £220 a
     month including VAT) needs 2 Voice Starter, 3 Leads Growth or 6 Leads Starter subscribers.
+- **Third part (2026-11-25):**
+  - **Plan limits** in `rules.limits`, set per plan on Plans & pricing. A company gets the highest limit any of its live plans
+    sets; no plan setting one, or no live plan, means no limit. Refusals say what the plan allows (USR-09).
+    - users: checked when a team member is added,
+    - exports a month: counted from `export.created`,
+    - e-mails a day: checked at each send's credit check, counted from the day's e-mail charges (UTC),
+    - assistant messages a day: no cap unless a plan sets one, as decided earlier.
 - **Still to do in step 5:**
-  - monthly limits (users, exports, e-mails a day, assistant messages),
   - Leads and Social top-ups: the mechanism exists, but they need prices.
 
 ### B.4 Target: plans that can't go below a margin floor

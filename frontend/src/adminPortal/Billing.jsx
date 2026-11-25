@@ -31,10 +31,13 @@ async function withMarginCheck(save) {
   }
 }
 
+const LIMITS = [["users", "users"], ["exports_month", "exports a month"], ["emails_day", "e-mails a day"], ["assistant_day", "assistant messages a day"]];
+
 const rulesText = (rules, providerNames) => {
   const r = rules || {};
   const who = r.providers == null ? "All providers" : r.providers.length === 0 ? "No providers" : r.providers.map((id) => providerNames[id] || id).join(", ");
-  return `${who}${r.cost_cap_pct ? ` · fair-use cap ${r.cost_cap_pct}%` : ""}`;
+  const limits = LIMITS.filter(([k]) => r.limits?.[k]).map(([k, label]) => `${fmt(r.limits[k])} ${label}`);
+  return `${who}${r.cost_cap_pct ? ` · fair-use cap ${r.cost_cap_pct}%` : ""}${limits.length ? ` · ${limits.join(", ")}` : ""}`;
 };
 
 // Plans and top-ups on sale, prices already made in Stripe, the rate card and the Telnyx margin.
@@ -107,7 +110,8 @@ export function Billing({ canEdit }) {
               {rulesText(p.rules, Object.fromEntries(providers.map((x) => [x.id, x.name])))}
               {canEdit && (
                 <button type="button" style={{ ...btn(false), marginLeft: 8, padding: "2px 8px" }}
-                  onClick={() => setRulesFor(rulesFor?.id === p.id ? null : { id: p.id, providers: p.rules?.providers ?? null, cost_cap_pct: p.rules?.cost_cap_pct ?? "" })}>
+                  onClick={() => setRulesFor(rulesFor?.id === p.id ? null : { id: p.id, providers: p.rules?.providers ?? null, cost_cap_pct: p.rules?.cost_cap_pct ?? "",
+                    limits: Object.fromEntries(LIMITS.map(([k]) => [k, p.rules?.limits?.[k] ?? ""])) })}>
                   {rulesFor?.id === p.id ? "Close" : "Edit"}
                 </button>
               )}
@@ -134,8 +138,18 @@ export function Billing({ canEdit }) {
                   <input type="number" min="5" max="100" placeholder="off" aria-label={`Fair-use cap for ${p.name}`} value={rulesFor.cost_cap_pct}
                     onChange={(e) => setRulesFor({ ...rulesFor, cost_cap_pct: e.target.value })} style={{ ...input, width: 80 }} />
                   <span style={{ fontSize: 13, color: C.slate }}>% (empty: no cap)</span>
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13 }}>Limits (empty: none; a company on several plans gets the highest):</span>
+                  {LIMITS.map(([k, label]) => (
+                    <label key={k} style={{ fontSize: 13, whiteSpace: "nowrap" }}>
+                      <input type="number" min="1" aria-label={`${label} for ${p.name}`} value={rulesFor.limits[k]}
+                        onChange={(e) => setRulesFor({ ...rulesFor, limits: { ...rulesFor.limits, [k]: e.target.value } })} style={{ ...input, width: 80 }} /> {label}
+                    </label>
+                  ))}
                   <button type="button" style={btn(true)} onClick={() => run(async () => {
-                    await adminApi.updatePlan(p.id, { ...p, rules: { providers: rulesFor.providers, cost_cap_pct: rulesFor.cost_cap_pct === "" ? null : Number(rulesFor.cost_cap_pct) } });
+                    const limits = Object.fromEntries(Object.entries(rulesFor.limits).filter(([, v]) => v !== "" && Number(v) > 0).map(([k, v]) => [k, Number(v)]));
+                    await adminApi.updatePlan(p.id, { ...p, rules: { providers: rulesFor.providers, cost_cap_pct: rulesFor.cost_cap_pct === "" ? null : Number(rulesFor.cost_cap_pct), limits } });
                     setRulesFor(null);
                   }, `${p.name}: what it includes is saved.`)}>Save</button>
                 </div>
