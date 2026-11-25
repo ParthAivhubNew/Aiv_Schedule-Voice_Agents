@@ -9,6 +9,7 @@ import {
   decisionMessage, formatScore, importChips, importStatusLabel, isAdminOperator, isBusy, pct, percentToFraction,
   progressPercent, reduceQueueAfterDecision, saveBlob, shouldIgnoreReviewKey, statusLabel, templateCsv, validatePercentThresholds, whenText,
 } from "./importMatchLogic";
+import { Pill } from "../../app/ui";
 
 // Import & match: upload your own customer records, match them to the Companies House register, and
 // let a person confirm what the match was not sure about.
@@ -25,11 +26,10 @@ const css = `.imx .ui-input{width:100%;box-sizing:border-box}.imx .ui-table td{w
 .imx .imx-pick{min-height:44px;width:100%;text-align:left;border:1px solid ${C.border};background:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;font:500 13px ${FONT_BODY};color:${C.ink}}
 @media (max-width:760px){.imx .imx-rq{grid-template-columns:1fr}.imx .imx-qlist{max-height:200px;overflow-y:auto}}`;
 
-const TONES = { good: [C.greenSoft, C.green], warn: [C.amberSoft, C.amber], plain: [C.paperSoft, C.slate] };
 
+// The shared label (app/ui.jsx Pill); "plain" is its muted tone.
 export function Chip({ tone = "plain", children }) {
-  const [bg, fg] = TONES[tone] || TONES.plain;
-  return <span style={{ ...text, display: "inline-flex", alignItems: "center", gap: 4, background: bg, color: fg, borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>{children}</span>;
+  return <Pill tone={tone === "plain" ? "muted" : tone}>{children}</Pill>;
 }
 
 function CountChips({ counts }) {

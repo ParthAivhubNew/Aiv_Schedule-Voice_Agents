@@ -39,9 +39,12 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - **`Toast`** is shared too, and Leads uses it.
   - The Leads **"Subscription required"** notice is a `Banner`. The leftover purple background is gone.
 - **Third part (2026-11-25):** `Note`, `btn`, `card`, `input`, `cell`, `th`, `when`, `useAction` and `useLoad` moved from `adminPortal/ui.jsx` into `app/ui.jsx`, unchanged. The portal imports and re-exports them. **No client screen imports the staff portal's code any more**, and a test (`app/uiBlocks.test.jsx`) keeps it so.
+- **Fourth part (2026-11-25):**
+  - **`StatTile`** (name on top, the number, a unit, a line under it; "alert" turns it red) replaces Voice analytics' own tile and Social results' tile. Social's tiles now put the name above the number, like Voice's.
+  - Voice call permissions and the Import & match chips use the shared `Pill`. The sizes and the call-permission colours shift slightly, to the shared ones.
 - **Still to do in item 4:**
-  - `StatusPill` / `StatTile`.
-  - The Voice and Social screens' hand-built versions.
+  - Connectors' `StatusPill`, Voice's `StatePill` / `StatusBadge`, and the two `Badge` copies (`components/Badges.jsx`, `app/ui.jsx`).
+  - Social's small inline `Stat`.
 - Tests: `app/uiBlocks.test.jsx`.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.

@@ -7,6 +7,7 @@ import { ArrowDownRight, ArrowUpRight, Minus, RefreshCw, Share2, Table2, LineCha
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO, HEX } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { LevelPicker } from "../../../team/TeamModal";
+import { StatTile } from "../../../app/ui";
 
 // Categorical slots 1-3 of the validated reference palette (light surface).
 // Aqua is below 3:1 on the surface, so series always carry a legend and a table view.
@@ -43,17 +44,6 @@ function Delta({ now, before, suffix = "", invert = false }) {
   );
 }
 
-function StatTile({ label, value, unit, delta }) {
-  return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", minWidth: 0 }}>
-      <div style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: INK, margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>
-        {value}<span style={{ fontSize: 15, color: MUTED, fontWeight: 600 }}>{unit}</span>
-      </div>
-      {delta}
-    </div>
-  );
-}
 
 function Card({ title, subtitle, children, right }) {
   return (

@@ -6,6 +6,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Too
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER, HEX } from "../../tokens";
 import { formatOrgTime, orgDateTime, useOrg } from "../../org/orgSettings";
+import { StatTile } from "../../app/ui";
 
 // Overview (what needs the user today) and Insights (how published posts did). Every number shown
 // comes from the networks; a figure a network does not share is left out, never shown as zero.
@@ -48,16 +49,6 @@ function Failed({ what, onRetry }) {
 }
 
 // A count with its label. tone "alert" only when there is something to fix.
-function Tile({ label, value, tone, sub }) {
-  const alert = tone === "alert";
-  return (
-    <div style={{ ...card, padding: "14px 16px", borderColor: alert ? C.red : C.border, minWidth: 0 }}>
-      <div style={{ fontSize: 26, fontWeight: 700, fontFamily: FONT_DISPLAY, color: alert ? C.red : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>{label}</div>
-      {sub ? <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>{sub}</div> : null}
-    </div>
-  );
-}
 
 function ChartTip({ active, payload, label, name }) {
   if (!active || !payload || !payload.length || payload[0].value == null) return null;
@@ -164,10 +155,10 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
     <div style={root}>
       <div style={{ maxWidth: embedded ? "none" : 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="overview-tiles" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-          <Tile label="Posts today" value={c.today} />
-          <Tile label="Scheduled, next 7 days" value={c.nextSevenDays} />
-          <Tile label="Failed" value={c.failed} tone={c.failed ? "alert" : ""} />
-          <Tile label="Published this month" value={c.publishedThisMonth} />
+          <StatTile label="Posts today" value={c.today} />
+          <StatTile label="Scheduled, next 7 days" value={c.nextSevenDays} />
+          <StatTile label="Failed" value={c.failed} tone={c.failed ? "alert" : ""} />
+          <StatTile label="Published this month" value={c.publishedThisMonth} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16, alignItems: "start" }}>

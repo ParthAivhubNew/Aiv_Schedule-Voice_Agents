@@ -3,6 +3,7 @@ import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { notice } from "../../../utils/notice";
 import { METHOD_OPTIONS, permissionMissing, screeningPill } from "./callPermissionLogic";
+import { Pill } from "../../../app/ui";
 
 // Permission to call a number with AI-voiced calls. Without it the AI caller does not dial that number. The wording the person
 // agreed to is stored word for word with who recorded it, so it can be shown if anyone asks.
@@ -11,12 +12,7 @@ const text = { fontFamily: FONT_BODY };
 const small = { ...text, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const field = { ...text, fontSize: 13, padding: "8px 10px", minHeight: 40, border: `1px solid ${C.border}`, borderRadius: 8, width: "100%", boxSizing: "border-box", background: "#fff", color: C.ink };
 const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginTop: 16, display: "grid", gap: 12, minWidth: 0 };
-const TONES = { red: ["#FDECEC", "#B42318"], green: ["#E7F6EC", "#166534"], amber: ["#FEF3E2", "#92400E"] };
 
-function Pill({ tone, children }) {
-  const [bg, fg] = TONES[tone] || TONES.amber;
-  return <span style={{ ...text, fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 999, background: bg, color: fg, whiteSpace: "nowrap" }}>{children}</span>;
-}
 
 const blank = { number: "", company: "", person: "", product: "", method: "verbal_recorded", evidence_ref: "", confirmed: false };
 

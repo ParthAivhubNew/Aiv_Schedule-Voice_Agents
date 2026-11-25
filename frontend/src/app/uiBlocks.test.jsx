@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Building2, ShieldAlert } from "lucide-react";
-import { Banner, EmptyState, Pill, Toast, Tooltip } from "./ui";
+import { Banner, EmptyState, Pill, StatTile, Toast, Tooltip } from "./ui";
 import { Pill as PortalPill } from "../adminPortal/ui";
 
 // Plan 10, Phase 4 item 4: one tooltip, one empty state and one notice for every screen.
@@ -47,5 +47,11 @@ describe("shared building blocks", () => {
     walk(root);
     const borrowing = files.filter((p) => /from\s+["'][./]*adminPortal\//.test(readFileSync(p, "utf8"))).map((p) => relative(root, p));
     expect(borrowing).toEqual([]);
+  });
+
+  it("a stat tile has its name, number, unit and a line under it, and an alert one says so in red", () => {
+    const html = renderToStaticMarkup(<StatTile label="Connect rate" value={42} unit="%" delta="+3 pts" />);
+    expect(html).toMatch(/Connect rate.*42.*%.*\+3 pts/);
+    expect(renderToStaticMarkup(<StatTile label="Failed" value={2} tone="alert" />)).toContain("--c-red");
   });
 });
