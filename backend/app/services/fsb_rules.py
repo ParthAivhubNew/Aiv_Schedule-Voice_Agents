@@ -1,4 +1,4 @@
-"""The FSB exclusion rule set: the one definition. business_records._fsb_exclusions, the tenant policy and the counting scripts all read it here.
+"""The FSB exclusion rule set, now the Standard B2B preset in services/exclusion_rules.py (plan 12, B2). business_records._fsb_exclusions, the tenant policy and the counting scripts all read it here.
 
 Source: "FSB exclusion rules - for developers" (17 November 2026). A company stays only when it is a Companies House company with status
 exactly "Active" and none of these applies: its type is an excluded type, it is on the Charity Commission register, ANY of its SIC codes
@@ -6,43 +6,31 @@ exactly "Active" and none of these applies: its type is an excluded type, it is 
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from sqlalchemy import cast, func, or_, String
+from app.services import exclusion_rules as ER
 
-from app.models.models import BusinessRecord
-
-STATUS = "Active"
-CH_NUMBER = "^[A-Z0-9]{8}$"
-TYPES = ("charitable incorporated organisation", "scottish charitable incorporated organisation", "registered society", "royal charter company",
-         "other company type")
-SIC = ("84110", "84120", "84130", "84210", "84220", "84230", "84240", "84250", "84300", "85100", "85200", "85310", "85320", "85410", "85421", "85422",
-       "85510", "85520", "85590", "85600", "86101", "86102", "86210", "86220", "86230", "86900", "64110", "64191", "64192", "64910", "64921", "64922",
-       "64929", "82911", "94110", "94120", "94200", "94910", "94920", "94990", "88910", "91011", "52230", "49100", "52212", "50100", "50300", "36000",
-       "37000", "19201", "06100", "53100", "99000")
-# Regex fragments (whole words, case-insensitive); the ones ending [a-z]* also match longer forms: charity, charitable, casinos.
-NAME_WORDS = ("charit[a-z]*", "church", "parish", "mosque", "synagogue", "temple", "casino[a-z]*", "credit union", "nhs", "hospital", "school", "college",
-              "university", "academy trust", "shopping centre", "bureau de change", "tourist information", "weighbridge[a-z]*")
-NAME_KEEP_WORDS = ("driving school", "dance school")
-NAME_WORDS_RX = r"\m(" + "|".join(NAME_WORDS) + r")\M"
-NAME_KEEP_RX = "(" + "|".join(NAME_KEEP_WORDS) + ")"
+# The rule set itself is data now (services/exclusion_rules.PRESETS["standard_b2b"]); these names stay for existing callers and scripts.
+_P = ER.PRESETS[ER.LEGACY]
+STATUS = _P["status"]
+CH_NUMBER = _P["company_number_regex"]
+TYPES = tuple(_P["company_types"])
+SIC = tuple(_P["sic_codes"])
+NAME_WORDS = tuple(_P["name_words"])
+NAME_KEEP_WORDS = tuple(_P["name_keep"])
+NAME_WORDS_RX = ER.name_words_rx(ER.LEGACY)
+NAME_KEEP_RX = ER.name_keep_rx(ER.LEGACY)
 
 
 def conditions(unregistered_too: bool = False) -> list:
     """The conditions that leave out everything on the exclusion list. The Companies-House-only rule is skipped
     when the person is looking at sole traders, who have no company number."""
-    B = BusinessRecord
-    return ([] if unregistered_too else [func.coalesce(B.registration_number, "").op("~")(CH_NUMBER)]) + [
-        ~func.lower(func.btrim(func.coalesce(B.company_category, ""))).in_(TYPES),
-        ~func.coalesce(cast(B.sources, String), "").like('%"ds_charity_commission"%'),  # a record with no sources is not on the charity register
-        ~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(SIC) + r")\|"),
-        or_(~B.name.op("~*")(NAME_WORDS_RX), B.name.op("~*")(NAME_KEEP_RX)),
-    ]
+    return ER.conditions(ER.LEGACY, unregistered_too)
 
 
 def status_condition() -> Any:
     """Status exactly "Active" (a company that is dissolved, in liquidation or struck off is never a lead under these rules)."""
-    return func.btrim(BusinessRecord.status) == STATUS
+    return ER.status_condition(ER.LEGACY)
 
 
 def rules_as_data() -> Dict[str, Any]:

@@ -8,12 +8,15 @@ empty Policy: its methods add no conditions, its hash is "" and nothing about it
 If the rules cannot be read and none are remembered, the request is refused (PolicyUnavailable), never answered without rules.
 
 Policy shape (Brand.policy, cleaned by clean_policy):
-  {"exclusions": {"fsb": bool, "extra": [exclusion items], "locked": bool},
+  {"exclusions": {"sets": [rule set ids], "fsb": bool, "extra": [exclusion items], "locked": bool},
    "member_suppression": bool,
    "geo": {"districts": ["BN1", "BN2"]},
    "restricted_sources": {"google": bool, "apollo": bool, "search_engines": bool},
    "signin": {"password": bool, "google": bool, "microsoft": bool},
    "screening": {"block_unscreened": bool}}
+
+`exclusions.sets` names rule sets from services/exclusion_rules.PRESETS ("standard_b2b": the Standard B2B exclusions, FSB's rules).
+`exclusions.fsb` is the older flag for that same set; cleaning keeps the two in step.
 
 `exclusions.locked` true means the server enforces the exclusions on every search and a client filter cannot switch them off. With locked false
 the exclusions are only a starting point for the screens and the server adds nothing.
@@ -38,7 +41,7 @@ _DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
 
 
 def default_policy() -> Dict[str, Any]:
-    return {"exclusions": {"fsb": False, "extra": [], "locked": True}, "member_suppression": False, "geo": {"districts": []},
+    return {"exclusions": {"sets": [], "fsb": False, "extra": [], "locked": True}, "member_suppression": False, "geo": {"districts": []},
             "restricted_sources": {s: False for s in SOURCES}, "signin": {"password": True, "google": True, "microsoft": True},
             "screening": {"block_unscreened": False}}
 
@@ -52,7 +55,12 @@ def clean_policy(raw: Any) -> Dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     out = default_policy()
     ex = raw.get("exclusions") if isinstance(raw.get("exclusions"), dict) else {}
-    out["exclusions"]["fsb"] = _flag(ex.get("fsb"), False)
+    from app.services import exclusion_rules as ER
+
+    sets = ex.get("sets") if isinstance(ex.get("sets"), list) else []
+    picked = {str(v) for v in sets if ER.known(v)} | ({ER.LEGACY} if _flag(ex.get("fsb"), False) else set())
+    out["exclusions"]["sets"] = sorted(picked)
+    out["exclusions"]["fsb"] = ER.LEGACY in picked
     out["exclusions"]["locked"] = _flag(ex.get("locked"), True)
     extra = ex.get("extra") if isinstance(ex.get("extra"), list) else []
     out["exclusions"]["extra"] = [t[:80] for t in dict.fromkeys(re.sub(r"\s+", " ", str(v)).strip() for v in extra) if len(re.sub(r"[^0-9A-Za-z]", "", t)) >= 2][:_MAX_EXTRA]
@@ -77,8 +85,15 @@ def normalize_company_number(value: Any) -> str:
     return t if re.fullmatch(r"[A-Z0-9]{8}", t) else ""
 
 
+def _sets(ex: Dict[str, Any]) -> List[str]:
+    """The rule sets a cleaned or merged exclusions block switches on (the old fsb flag counts as the Standard B2B set)."""
+    from app.services import exclusion_rules as ER
+
+    return sorted(set(ex.get("sets") or []) | ({ER.LEGACY} if ex.get("fsb") else set()))
+
+
 def _has_exclusions(p: Dict[str, Any]) -> bool:
-    return bool(p["exclusions"]["fsb"] or p["exclusions"]["extra"])
+    return bool(_sets(p["exclusions"]) or p["exclusions"]["extra"])
 
 
 def merge_policy(upper: Dict[str, Any], lower: Dict[str, Any]) -> Dict[str, Any]:
@@ -93,7 +108,10 @@ def merge_policy(upper: Dict[str, Any], lower: Dict[str, Any]) -> Dict[str, Any]
 
     u, l = upper, lower
     out = copy.deepcopy(default_policy())
-    out["exclusions"]["fsb"] = bool(u["exclusions"]["fsb"] or l["exclusions"]["fsb"])
+    from app.services import exclusion_rules as ER
+
+    out["exclusions"]["sets"] = sorted(set(_sets(u["exclusions"])) | set(_sets(l["exclusions"])))
+    out["exclusions"]["fsb"] = ER.LEGACY in out["exclusions"]["sets"]
     out["exclusions"]["extra"] = list(dict.fromkeys(list(u["exclusions"]["extra"]) + list(l["exclusions"]["extra"])))
     locks = [p["exclusions"]["locked"] for p in (u, l) if _has_exclusions(p)]
     out["exclusions"]["locked"] = any(locks) if locks else True
@@ -162,7 +180,7 @@ class Policy:
     @property
     def _exclusions_on(self) -> bool:
         ex = self.data["exclusions"]
-        return bool(ex["locked"] and (ex["fsb"] or ex["extra"]))
+        return bool(ex["locked"] and (_sets(ex) or ex["extra"]))
 
     @property
     def geo_districts(self) -> List[str]:
@@ -192,12 +210,12 @@ class Policy:
         if not self._exclusions_on:
             return []
         from app.services import business_records as BR
-        from app.services import fsb_rules as FR
+        from app.services import exclusion_rules as ER
 
         ex = self.data["exclusions"]
         conds: list = []
-        if ex["fsb"]:
-            conds += [FR.status_condition()] + FR.conditions(False)  # the Companies-House-only rule is never relaxed for a locked policy
+        for set_id in _sets(ex):
+            conds += ER.all_conditions(set_id, False)  # the Companies-House-only rule is never relaxed for a locked policy
         if ex["extra"]:
             conds += BR._exclusion_items(ex["extra"])
         return conds
@@ -251,8 +269,14 @@ class Policy:
         if self.is_empty:
             return ""
         ex = self.data["exclusions"]
-        basis = {"fsb": bool(ex["fsb"]) and self._exclusions_on, "extra": sorted(ex["extra"]) if self._exclusions_on else [], "geo": self.geo_districts,
+        from app.services import exclusion_rules as ER
+
+        sets = _sets(ex) if self._exclusions_on else []
+        basis = {"fsb": ER.LEGACY in sets, "extra": sorted(ex["extra"]) if self._exclusions_on else [], "geo": self.geo_districts,
                  "members": self.suppression_on, "gen": list(self.gen), "user": self.user_districts}
+        others = [x for x in sets if x != ER.LEGACY]
+        if others:  # only when set, so every existing key stays the same
+            basis["sets"] = others
         if self.locked_districts or self.geo_none:  # only when set, so every existing key stays the same
             basis["locked"], basis["none"] = self.locked_districts, self.geo_none
         return hashlib.sha1(json.dumps(basis, sort_keys=True).encode()).hexdigest()[:12]
@@ -275,6 +299,7 @@ class Policy:
         """What is on for this account, for its own people to read. No lists of numbers and nothing secret."""
         return {"brandId": self.brand_id or None, "standingExclusions": self._exclusions_on,
                 "fsbRules": bool(self.data["exclusions"]["fsb"]) and self._exclusions_on,
+                "ruleSets": _sets(self.data["exclusions"]) if self._exclusions_on else [],
                 "extraExclusions": len(self.data["exclusions"]["extra"]) if self._exclusions_on else 0, "locked": bool(self.data["exclusions"]["locked"]),
                 "memberSuppression": self.suppression_on, "geoDistricts": len(self.geo_districts), "geoLocked": len(self.locked_districts),
                 "geoNone": self.geo_none,

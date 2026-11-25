@@ -198,6 +198,30 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25 (later):** step 3 and the first part of step 5 are done on the branch.
+- **Step 3 (B2):** exclusion rule sets are data. `services/exclusion_rules.PRESETS["standard_b2b"]` is FSB's rule set, offered to every company as **Standard B2B exclusions**.
+  - A company switches sets on in `exclusions.sets`. The old `exclusions.fsb` flag means the same set, and cleaning keeps the two in step.
+  - `fsb_rules.py` reads the preset, so old callers and scripts are unchanged.
+  - **No change for FSB:** the SQL is byte-for-byte the same as before, and the cache keys are unchanged (`tests/test_rule_sets.py`).
+- **Preview:** `POST /org/rules/preview` counts how many companies a draft of the rules hides in the company's area, as if enforced. It stops after 15 s and says "add your area" instead. `GET /org/rule-sets` lists the sets.
+  - On the test copy, FSB's rules hide 22,714 of 82,586 companies and keep 59,872, in 3.7 s.
+- **Step 5, F1 (first part):** a **Company rules** tab in Team settings, for admins (`team/RulesTab.jsx`, `team/rulesLogic.js`). It covers:
+  - rule sets, extra exclusions, "Enforced" or "A starting filter", the preview and the member list;
+  - the company's area;
+  - data sources;
+  - leaving unscreened phones out of exports;
+  - sign-in methods.
+
+  A rule the brand set shows "Set by <brand>" and can't be unticked. The server checks again and audits every save.
+- **Decisions taken as defaults:**
+  - Decision 4: the Standard B2B set is **off** for new companies, so nothing changes until an admin ticks it.
+  - Decision 5: every plan can add its own extra exclusions. There is no separate "custom rule set" object yet.
+  - Decision 6: brand member lists come later.
+- **Next:**
+  - Step 4: Voice, Social and sign-in follow the combined rules. Decision 3 is needed first (should "block unscreened" also block calls?).
+  - The Voice and Social sections of the Rules screen and the notices (F2).
+  - Step 7: "Create demo organisation".
+
 **Status, 2026-11-25:** step 6 is done on the branch.
 - F3: `isFsbAccount()` is gone. The sidebar badge comes from the brand's `theme.accountLink` (migration `2026_12_11_fsb_brand_account_link` gives FSB's brand its link), and the "jitendra" case is gone.
 - B5: the `/fsb/...` routes are also served at `/records/...`, which the frontend now uses; the old paths stay for one release.

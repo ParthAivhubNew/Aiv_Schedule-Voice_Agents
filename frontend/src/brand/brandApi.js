@@ -12,3 +12,9 @@ export const uploadMemberList = (file, replace) => {
   return apiRequest(`/org/member-suppression${replace ? "?replace=true" : ""}`, { method: "POST", body: form, timeoutMs: 120000 });
 };
 export const clearMemberList = () => apiRequest("/org/member-suppression", { method: "DELETE" });
+
+// The company's own rules (organisation admins): each level's rules, a preview of what a draft hides, and the rule sets on offer.
+export const getOrgRules = () => apiRequest("/org/rules");
+export const saveOrgRules = (body) => apiRequest("/org/rules", { method: "PUT", body });
+export const previewOrgRules = (body) => apiRequest("/org/rules/preview", { method: "POST", body, timeoutMs: 30000 });
+export const getRuleSets = () => apiRequest("/org/rule-sets");

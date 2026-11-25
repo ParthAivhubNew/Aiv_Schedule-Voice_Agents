@@ -2,6 +2,9 @@
 
 GET    /org/policy                what is on for this account (read-only; any signed-in user; no lists, nothing secret)
 GET    /org/rules                 each level's rules: the brand's (read-only here), the company's own, and the combined result (organisation admin)
+POST   /org/rules/preview         how many companies a draft of the company's rules would hide: {"total", "kept", "hidden"} counted in the
+                                  company's area, with the rules applied as enforced (organisation admin; a draft, nothing saved)
+GET    /org/rule-sets             the exclusion rule sets a company can switch on (services/exclusion_rules.py)
 PUT    /org/rules                 replace the company's own rules (organisation admin). They can only add to the brand's; refused with the
                                   reasons when an area is outside the brand's areas or no sign-in method would be left. Every save is audited
 GET    /org/member-suppression    how many company numbers are hidden, and a sample (organisation admin; only when the policy has member suppression)
@@ -120,6 +123,48 @@ async def _rules_view(db: AsyncSession, org_id: str) -> Dict[str, Any]:
 async def get_rules(request: Request, db: AsyncSession = Depends(get_db)):
     ctx = _rules_admin(request)
     return await _rules_view(db, ctx["org_id"])
+
+
+PREVIEW_TIMEOUT = "15s"
+
+
+@router.post("/rules/preview")
+async def preview_rules(body: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
+    """Counts the companies in the company's area (its brand's and its own districts), and how many the draft rules would leave, as if the
+    exclusions were enforced. A count that takes longer than PREVIEW_TIMEOUT comes back as {"tooBig": true} instead of holding the screen."""
+    from sqlalchemy import text
+
+    from app.models.models import BusinessRecord
+
+    ctx = _rules_admin(request)
+    org_id = ctx["org_id"]
+    lv = await TP.levels(db, org_id)
+    combined = TP.merge_policy(lv["brand"] or TP.default_policy(), TP.clean_policy(body))
+    combined["exclusions"]["locked"] = True  # count what the rules hide when they apply
+    pol = TP.Policy(org_id, lv["brandId"], merged=combined)
+    area = pol.geo_conditions()
+    hide = pol.exclusion_conditions()
+    sup = pol.suppression_condition(org_id)
+    if sup is not None:
+        hide.append(sup)
+    try:
+        async with db.begin_nested():
+            await db.execute(text(f"SET LOCAL statement_timeout = '{PREVIEW_TIMEOUT}'"))
+            total = int((await db.execute(select(func.count()).select_from(BusinessRecord).where(*area))).scalar() or 0)
+            kept = int((await db.execute(select(func.count()).select_from(BusinessRecord).where(*area, *hide))).scalar() or 0) if hide else total
+    except Exception as err:
+        logger.info(f"[rules] preview not counted for {org_id}: {err}")
+        return {"tooBig": True, "total": None, "kept": None, "hidden": None,
+                "note": "Too many companies to count quickly. Add your area to see the numbers."}
+    return {"tooBig": False, "total": total, "kept": kept, "hidden": total - kept, "inArea": bool(area)}
+
+
+@router.get("/rule-sets")
+async def rule_sets(request: Request):
+    from app.services import exclusion_rules as ER
+
+    current(request)
+    return {"sets": ER.catalogue()}
 
 
 @router.put("/rules")
