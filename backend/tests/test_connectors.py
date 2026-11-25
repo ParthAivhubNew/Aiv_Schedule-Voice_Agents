@@ -356,3 +356,38 @@ def test_find_leads_can_filter_on_the_bulk_datasets():
     from app.services import business_records as BR
 
     assert BR.DATA_FROM["data"] == ("licensed", "scrape")
+
+
+# -- Phase 2: where each company came from, on the screens --------------------------------------------------------------------------
+def test_how_a_company_joined_in_words():
+    assert SC.origin_detail("file:members-2026.csv") == {"text": "From the file members-2026.csv", "url": ""}
+    assert SC.origin_detail("form:frm_1")["text"] == "From one of your web forms"
+    assert SC.origin_detail("booking:post_9")["text"] == "Booked through your booking page"
+    assert SC.origin_detail("https://www.linkedin.com/in/someone") == {"text": "From this post or profile", "url": "https://www.linkedin.com/in/someone"}
+    assert SC.origin_detail("") == {"text": "", "url": ""} and SC.origin_detail("weird") == {"text": "", "url": ""}
+    assert SC.registers_of({"ds_companies_house": {}, "import_bn_leads": {}, "ds_cqc": {}}) == ["Companies House", "Care Quality Commission"]
+
+
+async def test_the_lead_sources_summary_counts_only_the_companys_own(db, client):
+    from app.core.tenancy import org_scope
+    from app.models.models import LeadAccount
+    from tests.conftest import make_user
+
+    await make_user(db, "other", "Admin", org_id="org_other")
+    with org_scope("org_default"):
+        db.add_all([LeadAccount(id="a1", org_id="org_default", name="A", source="import", stage="won", phone="01273 1", field_sources={"phone": "import"}),
+                    LeadAccount(id="a2", org_id="org_default", name="B", source="import", stage="contacted", phone="01273 2", field_sources={"phone": "register:ch"}),
+                    LeadAccount(id="a3", org_id="org_default", name="C", source="scout", stage="new", email="x@c.co.uk"),
+                    LeadAccount(id="a4", org_id="org_default", name="D", source="inbound_call", stage="meeting", phone="01273 4")])
+        await db.commit()
+    with org_scope("org_other"):
+        db.add(LeadAccount(id="o1", org_id="org_other", name="Not mine", source="import", stage="won"))
+        await db.commit()
+    body = (await client.get("/api/leadgen/sources/summary")).json()
+    assert body["total"] == 4
+    rows = {o["key"]: o for o in body["origins"]}
+    assert rows["import"]["count"] == 2 and rows["import"]["label"] == "Your file"
+    assert rows["import"]["reached"] == {"contacted": 2, "interested": 1, "meeting": 1, "won": 1}
+    assert rows["inbound_call"]["reached"]["meeting"] == 1 and rows["scout"]["reached"]["contacted"] == 0
+    phones = next(f for f in body["coverage"] if f["field"] == "phone")
+    assert phones["with"] == 3 and {s["label"]: s["count"] for s in phones["bySource"]} == {"Your file": 1, "Official register": 1, "Not recorded": 1}

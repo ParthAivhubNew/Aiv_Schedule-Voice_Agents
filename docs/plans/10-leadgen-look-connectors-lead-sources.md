@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phase 0, Phase 1 and Phase 3 items 1–4 are done. Phases 2 and 4 are still to do. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 (look and feel) and cost per source are still to do. Details are in section 3.1.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 
@@ -236,7 +236,25 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
 - **Item 6:** an import records its file name (`source_url = file:<name>`), a booking-page lead its post (`booking:<post>`) and an API lead its prospect (`api:<id>`). Web forms (`form:<id>`) and social engagement (the profile link) already did. An inbound call has only the caller's number, which is the lead's phone.
 - New words on the screens: "Licensed business data", "Web scrape", "Research" and "Company record" (`SourceMark`, `ContactPoints`, `companyLogic.contactSourceWord`, the Lists "Data from" filter).
 
-**Still to do:** Phase 2 (a Source column on Lists, the "Where this came from" panel, the Lead sources summary) and Phase 4 (look and feel).
+**Phase 2 (third part, 2026-11-25): done, apart from cost per source.**
+- **Item 1:** one frontend list of origins (`originLabels.js`) replaces the four maps. It matches the server's, which `GET /leadgen/sources` serves. Pure functions such as `listStats` need the words without waiting, so it isn't a fetched hook.
+- **Item 2:** Lists → Companies already had a "First seen via" column. It now has a **Came from** filter (`OriginSelect`, with a count per origin) next to "Data from". Find Leads' "Data from" got **Business data (licensed or scraped)** in Phase 1.
+- **Item 3:** a **Where this came from** panel on the company page (`WhereFrom.jsx`) shows:
+  - how the company joined, with its date and detail: the file it was imported from, a web form, the booking page, or a post or profile link;
+  - where its website, phone and email came from: the saved company's recorded source, else the company record's own source;
+  - the registers it appears on, as chips.
+
+  The profile now carries `registers` and `mine.source_detail` / `mine.field_sources` (`source_catalog.origin_detail` / `registers_of`). The saved-company drawer keeps its existing "Data from" and origin line.
+- **Item 4:** a **Lead sources** card on Lists (`LeadSources.jsx`, from `GET /leadgen/sources/summary`) shows:
+  - saved companies by origin, with how many reached contacted, meeting and won;
+  - for phones, emails and websites, how many have one and where they came from.
+
+  It counts only the company's own saved companies, and it is hidden if it can't load.
+  - **Not done: cost per source.** A paid look-up (`EnrichmentAttempt`, the cost ledger) isn't linked to the saved company it was for, so cost can't be split by origin yet. The look-ups would need to record the lead id first.
+  - The admin supplier view isn't needed: saved values now hold categories, not supplier names. Staff see suppliers on `GET /admin-api/connectors`.
+- Tests: `tests/test_connectors.py` (22 in total) and `leadSources.test.jsx`.
+
+**Still to do:** Phase 4 (look and feel), and cost per source once look-ups record the lead they were for.
 
 ### Suggested order
 Phase 0 → Phase 1 (1–4) with Phase 4 (1, 3) in parallel → Phase 2 → Phase 3 → the rest of Phase 4.

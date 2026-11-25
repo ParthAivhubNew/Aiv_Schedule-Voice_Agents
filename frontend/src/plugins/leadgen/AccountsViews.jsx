@@ -13,7 +13,7 @@ import { api } from "../../api/apiClient";
 import { ExportDialog } from "./ExportDialog";
 import { FieldMark, hasGoogleData, SourceList } from "./SourceMark";
 import { SourceBadge } from "./SourceBadge";
-import { SourceSelect, TpsChip, TpsNote, TpsPill } from "./ListFilterBar";
+import { OriginSelect, SourceSelect, TpsChip, TpsNote, TpsPill } from "./ListFilterBar";
 import { hasSource, hasTpsCheck, screeningOf, sourceOptions } from "./listFilters";
 import { PhoneNumbers } from "./NumbersPanel";
 import { numberCounts, numbersToCheck } from "./phoneNumbers";
@@ -43,7 +43,7 @@ import { displayName, legalTag, niceName } from "./companyLogic";
 import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
 import { SelectionBar } from "./FindLeadsParts";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
-import { ORIGIN_LABEL, ORIGIN_WORDS, originWords } from "./originLabels";
+import { ORIGIN_LABEL, ORIGIN_WORDS, originKey, originOptions, originWords } from "./originLabels";
 
 // The Leads screens built on saved accounts (stored on the server, per company): Find Leads results,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -634,14 +634,15 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const [googleOnly, setGoogleOnly] = useState(false); // the "Google data" pill: only companies whose details came from Google
   const [tpsOnly, setTpsOnly] = useState(false); // the "TPS checked" pill: only companies whose phone has a TPS/CTPS result
   const [fromSource, setFromSource] = useState(""); // the "Data from" select: one source key, "" = any
+  const [fromOrigin, setFromOrigin] = useState(""); // the "Came from" select: one origin key (Find Leads, your file...), "" = any
   const [picksOnly, setPicksOnly] = useState(() => { try { const go = sessionStorage.getItem("aivhub_open_picks") === "1"; if (go) sessionStorage.removeItem("aivhub_open_picks"); return go; } catch { return false; } }); // the bell's Review opens here
   useEffect(() => { const open = () => setPicksOnly(true); window.addEventListener("aivhub:open-picks", open); return () => window.removeEventListener("aivhub:open-picks", open); }, []);
   const [pageSize, setPageSize] = useState(() => {
     try { const n = Number(localStorage.getItem("aivhub_accounts_page_size")); return ACCOUNT_PAGE_SIZES.includes(n) ? n : 100; } catch (_) { return 25; }
   });
   const [pageNo, setPageNo] = useState(0);
-  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId, googleOnly, tpsOnly, fromSource]);
-  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}|${googleOnly}|${tpsOnly}|${fromSource}`); // ids ticked for the bulk actions; a new filter or list clears them
+  useEffect(() => { setPageNo(0); }, [filter, tabPref, moreFilter, picksOnly, listId, googleOnly, tpsOnly, fromSource, fromOrigin]);
+  const sel = useBulkSelect(`${filter}|${tabPref}|${moreFilter}|${picksOnly}|${listId}|${googleOnly}|${tpsOnly}|${fromSource}|${fromOrigin}`); // ids ticked for the bulk actions; a new filter or list clears them
   const [checking, setChecking] = useState(null); // { ids, pendingOnly, mode } while the cost box is open
   const [tpsNumbers, setTpsNumbers] = useState(null); // numbers of the ticked companies while the TPS and CTPS check is open
   const [listing, setListing] = useState(false); // the Add to list box is open
@@ -702,7 +703,10 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const flags = duplicateFlags(base);
   const sourceChoices = sourceOptions(inTab);
   const activeSource = sourceChoices.some((o) => o.key === fromSource) ? fromSource : "";
+  const originChoices = originOptions(inTab);
+  const activeOrigin = originChoices.some((o) => o.key === fromOrigin) ? fromOrigin : "";
   const matching = inTab
+    .filter((a) => !activeOrigin || originKey(a.source) === activeOrigin)
     .filter(activeChip ? activeChip[2] : () => true)
     .filter((a) => !googleOnly || hasGoogleData(a))
     .filter((a) => !tpsOnly || hasTpsCheck(a))
@@ -837,6 +841,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         </button>
         <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
         <SourceSelect options={sourceChoices} value={activeSource} onChange={setFromSource} />
+        <OriginSelect options={originChoices} value={activeOrigin} onChange={setFromOrigin} />
         {available.length ? (
           <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
             <option value="">More filters</option>

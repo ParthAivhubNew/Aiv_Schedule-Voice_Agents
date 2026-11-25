@@ -3,6 +3,8 @@
 GET  /leadgen/connectors             every connector the company can see, with its real status and counts (any signed-in user)
 POST /leadgen/connectors/{id}/test   runs the connector's real check and shows its real result, failures included (organisation admin)
 GET  /leadgen/sources                every origin and provenance key a screen may meet, with its label (any signed-in user)
+GET  /leadgen/sources/summary        the company's saved companies by origin and how far they got, and where their phones, e-mails and
+                                     websites came from (any signed-in user; only the company's own saved companies)
 
 Clients never see supplier names here. Staff see a company's connectors with supplier names, each e-mail finder and the registers' last
 errors on GET /admin-api/connectors?orgId=... (api/admin_portal.py).
@@ -42,3 +44,9 @@ async def test_connector(connector_id: str, request: Request) -> Dict[str, Any]:
 async def list_sources(request: Request) -> Dict[str, Any]:
     current(request)
     return SC.catalog()
+
+
+@router.get("/sources/summary")
+async def sources_summary(request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    current(request)
+    return await SC.summary(db)

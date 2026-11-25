@@ -26,6 +26,19 @@ export function SourceSelect({ options, value, onChange }) {
   );
 }
 
+// "Came from": how the companies joined the account (Find Leads, your file, a web form...), one at a time, with how many each gave.
+// Renders nothing when every row came the same way.
+export function OriginSelect({ options, value, onChange }) {
+  if (options.length < 2) return null;
+  const active = options.some((o) => o.key === value) ? value : "";
+  return (
+    <select className="ui-input" aria-label="Came from" title="Show only companies that joined your account one way" value={active} onChange={(e) => onChange(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
+      <option value="">Came from</option>
+      {options.map((o) => <option key={o.key} value={o.key}>{o.label} ({o.count.toLocaleString()})</option>)}
+    </select>
+  );
+}
+
 export function TpsNote() {
   return <div role="status" style={{ ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 }}>{TPS_NOTE}</div>;
 }

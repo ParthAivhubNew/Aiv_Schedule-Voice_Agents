@@ -8,6 +8,7 @@ import { C, FONT_BODY } from "../../tokens";
 import { AccountsView, contactFor, emailFor, MoreMenu, openFixes, phoneFor } from "./AccountsViews";
 import { ExportDialog } from "./ExportDialog";
 import { EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
+import { LeadSourcesCard } from "./LeadSources";
 import { useIcp } from "./FitParts";
 import { listStats } from "./listLogic";
 import { useConnection } from "../../hooks/useConnections";
@@ -325,6 +326,7 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign, 
         </div>
       )}
       {exportTarget && canExport ? <ExportDialog kind="companies" scope={exportTarget} onClose={() => setExportTarget(null)} /> : null}
+      {(store.accounts || []).length ? <LeadSourcesCard /> : null}
       <EnrichmentSourcesModal open={enrichModalOpen} onClose={() => setEnrichModalOpen(false)} />
     </div>
   );

@@ -485,6 +485,7 @@ export const api = {
   getConnectors: () => apiRequest('/leadgen/connectors'),
   testConnector: (id) => apiRequest(`/leadgen/connectors/${encodeURIComponent(id)}/test`, { method: 'POST' }),
   getLeadSources: () => apiRequest('/leadgen/sources'),
+  getLeadSourcesSummary: () => apiRequest('/leadgen/sources/summary'),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),

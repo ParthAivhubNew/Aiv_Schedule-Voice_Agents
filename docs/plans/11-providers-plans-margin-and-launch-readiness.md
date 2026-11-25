@@ -402,7 +402,7 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 
 Steps 1–2 are the minimum before letting the public sign up. Steps 3–5 are what make a fixed monthly price safe as usage grows.
 
-**Step 6, first part (2026-11-25, branch):** the Connectors screen is now built on the registry and the server (`GET /leadgen/connectors`, real Test), with one list of lead sources (`GET /leadgen/sources`). The BN file's Google phones and websites are now view-only. Plan 10's Phase 0, Phase 1 and Phase 3 are done (plan 10, section 3.1). On live, staff must run the provenance repair after deploying (dry run first). Next: plan 10, Phase 2.
+**Step 6, first part (2026-11-25, branch):** the Connectors screen is now built on the registry and the server (`GET /leadgen/connectors`, real Test), with one list of lead sources (`GET /leadgen/sources`). The BN file's Google phones and websites are now view-only. Plan 10's Phases 0–3 are done (plan 10, section 3.1). Cost per source is not done yet: look-ups need to record the lead they were for. On live, staff must run the provenance repair after deploying (dry run first). Next: step 7 (remove FSB-specific code paths, production config check, onboarding) or step 8 / plan 10 Phase 4 (look and feel).
 
 ---
 

@@ -20,6 +20,7 @@ import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfi
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
 import { originWords } from "./originLabels";
+import { WhereFrom } from "./WhereFrom";
 
 // The register-led tabs, plus the team's notes. Research and editable details live on the saved company's panel, not here.
 const PAGE_TABS = [...TABS.filter(([k]) => k !== "activity"), ["notes", "Notes"], ...TABS.filter(([k]) => k === "activity")];
@@ -334,6 +335,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
               <>{c.address} <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}`} target="_blank" rel="noreferrer" aria-label="Open the address in a map" title="Open the address in a map" style={{ color: C.cobalt }}><ExternalLink size={12} /></a></>) : ""}</Fact>
           </Facts>
           {c.mine ? <FromYou mine={c.mine} /> : null}
+          <WhereFrom c={c} />
           <GoogleView companyId={c.id} />
           <ContactPoints id={c.id} stamp={`${c.phone || ""}|${c.email || ""}|${c.website || ""}|${JSON.stringify(c.links || {})}`} />
           <Facts title="In your account">

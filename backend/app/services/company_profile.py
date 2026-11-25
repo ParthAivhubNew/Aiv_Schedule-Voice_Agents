@@ -193,6 +193,18 @@ def _contact(card: Dict[str, Any], biz: Any = None) -> Dict[str, Any]:
     return out
 
 
+def _registers_of(raw_data: Any) -> List[str]:
+    from app.services.source_catalog import registers_of
+
+    return registers_of(raw_data)
+
+
+def _origin_detail(source_url: Any) -> Dict[str, str]:
+    from app.services.source_catalog import origin_detail
+
+    return origin_detail(source_url)
+
+
 async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     lead = (await db.execute(select(LeadAccount).where(LeadAccount.business_record_id == biz.id).limit(1))).scalars().first()
     if not lead:
@@ -211,7 +223,8 @@ async def _saved(db: AsyncSession, biz: BusinessRecord) -> Dict[str, Any]:
     activity = [{"kind": ev.kind, "summary": ev.summary, "at": ev.at.isoformat() + "Z" if ev.at else None} for ev in events]
     verdict = lead.verification or {}
     mine = {
-        "name": lead.name or "", "source": lead.source or "", "contact_name": lead.contact_name or "", "contact_title": lead.contact_title or "",
+        "name": lead.name or "", "source": lead.source or "", "source_detail": _origin_detail(lead.source_url), "field_sources": lead.field_sources or {},
+        "contact_name": lead.contact_name or "", "contact_title": lead.contact_title or "",
         "phone": lead.phone or "", "email": lead.email or "", "website": lead.website or "", "notes": lead.notes or "",
         "registration_number": getattr(lead, "registration_number", "") or "", "postcode": getattr(lead, "postcode", "") or "",
         "checks": {"email": ((verdict.get("email") or {}).get("state") or ""), "phone_ok": (verdict.get("phone") or {}).get("verified"),
@@ -259,6 +272,7 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
         "type": biz.company_category or "", "incorporated": _human(born), "age": age_words(born, today), "size": SIZE_WORDS.get(biz.size_band or "", ""),
         "region": biz.region or "", "postcode": biz.postcode or "", "address": biz.address or "", "sic": sic,
         "profile": business_records.profile_of(biz.rank_score), "contact": contact, "linkedin": (linked.get("company") or {}).get("url", ""),
+        "registers": _registers_of(biz.raw_data),
         "links": links_of(biz.raw_data),
         "listing_page": {k: v for k, v in ((biz.raw_data or {}).get("listing_page") or {}).items() if k in ("url", "site", "kind", "confirmed", "how", "why", "at", "also_seen")},
         "missing": [k for k in ("website", "phone", "email") if contact[k]["source"] == "missing"],

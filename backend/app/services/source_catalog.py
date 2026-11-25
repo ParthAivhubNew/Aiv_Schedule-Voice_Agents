@@ -84,6 +84,32 @@ def origin_label(value: Any) -> str:
     return next(o["label"] for o in ORIGINS if o["key"] == k)
 
 
+def origin_detail(source_url: Any) -> Dict[str, str]:
+    """What a saved company's source_url says about how it joined, in words: {"text", "url"}. "file:<name>" is the file it was imported
+    from, "form:<id>" a web form, "booking:<post>" the booking page, "api:<id>" the API; a web address is the post or profile it came from."""
+    raw = str(source_url or "").strip()
+    if not raw:
+        return {"text": "", "url": ""}
+    head, _, rest = raw.partition(":")
+    if head == "file" and rest:
+        return {"text": f"From the file {rest[:120]}", "url": ""}
+    if head == "form":
+        return {"text": "From one of your web forms", "url": ""}
+    if head == "booking":
+        return {"text": "Booked through your booking page", "url": ""}
+    if head == "api":
+        return {"text": "Added through the API", "url": ""}
+    if head in ("http", "https"):
+        return {"text": "From this post or profile", "url": raw[:500]}
+    return {"text": "", "url": ""}
+
+
+def registers_of(raw_data: Any) -> List[str]:
+    """The registers a shared company record appears on, by name (Companies House, Charity Commission, ...)."""
+    keys = raw_data.keys() if isinstance(raw_data, dict) else []
+    return [REGISTERS[k]["label"] for k in REGISTERS if k in keys]
+
+
 def google_fields(raw_key: str, entry: Any = None) -> FrozenSet[str]:
     """The fields of one raw_data entry that came from Google, for a bulk dataset that says so."""
     ds = DATASETS.get(str(raw_key or ""))
@@ -126,6 +152,45 @@ def provenance_label(source: Any, staff: bool = False) -> str:
     if entry:
         return entry["label"]
     return "Other source"
+
+
+# How far a saved company got, for "results by origin": each stage counts the companies at it or past it.
+REACHED = {"contacted": ("contacted", "interested", "meeting", "won", "lost"), "interested": ("interested", "meeting", "won"),
+           "meeting": ("meeting", "won"), "won": ("won",)}
+
+
+async def summary(db) -> Dict[str, Any]:
+    """GET /leadgen/sources/summary for the company in scope (row-level security keeps it to its own saved companies):
+    companies by origin with how far they got, and for each of phone, e-mail and website how many have one and where it came from."""
+    from sqlalchemy import text
+
+    from app.services import data_policy as DP
+
+    by: Dict[str, Dict[str, Any]] = {}
+    for src, stage, n in (await db.execute(text("SELECT coalesce(source, 'manual'), coalesce(stage, 'new'), count(*) FROM lead_accounts GROUP BY 1, 2"))).all():
+        key = origin_key(src)
+        row = by.setdefault(key, {"key": key, "label": origin_label(key), "count": 0, "reached": {k: 0 for k in REACHED}})
+        row["count"] += int(n)
+        for k, stages in REACHED.items():
+            if stage in stages:
+                row["reached"][k] += int(n)
+    fields = ("phone", "email", "website")
+    coverage: Dict[str, Dict[str, Any]] = {f: {"with": 0, "bySource": {}} for f in fields}
+    total = 0
+    for phone, email, website, sources in (await db.execute(text("SELECT phone, email, website, field_sources FROM lead_accounts"))).all():
+        total += 1
+        values = {"phone": phone, "email": email, "website": website}
+        for f in fields:
+            if not str(values[f] or "").strip():
+                continue
+            src = DP.public_source((sources or {}).get(f) if isinstance(sources, dict) else "")
+            label = PROVENANCE[src]["label"] if src in PROVENANCE else "Not recorded"
+            coverage[f]["with"] += 1
+            coverage[f]["bySource"][label] = coverage[f]["bySource"].get(label, 0) + 1
+    order = {o["key"]: i for i, o in enumerate(ORIGINS)}
+    return {"total": total, "origins": sorted(by.values(), key=lambda r: (-r["count"], order.get(r["key"], 99))),
+            "coverage": [{"field": f, "with": coverage[f]["with"], "bySource": sorted(({"label": k, "count": v} for k, v in coverage[f]["bySource"].items()),
+                                                                                      key=lambda x: -x["count"])} for f in fields]}
 
 
 def catalog(staff: bool = False) -> Dict[str, Any]:

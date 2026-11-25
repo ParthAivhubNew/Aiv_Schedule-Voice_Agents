@@ -23,3 +23,10 @@ export const originKey = (source) => {
 };
 export const originLabel = (source) => ORIGIN_LABEL[originKey(source)];
 export const originWords = (source) => ORIGIN_WORDS[originKey(source)];
+
+// [{key, label, count}] for each origin with at least one row, in the list's order: the choices of the "Came from" filter.
+export function originOptions(rows) {
+  const counts = {};
+  (rows || []).forEach((a) => { const k = originKey(a.source); counts[k] = (counts[k] || 0) + 1; });
+  return ORIGINS.filter(([k]) => counts[k]).map(([k, label]) => ({ key: k, label, count: counts[k] }));
+}
