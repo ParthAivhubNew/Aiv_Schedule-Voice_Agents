@@ -81,7 +81,7 @@ describe("SourceBadge", () => {
 
   it("opens with details and checks, and a not-checked company says so", () => {
     const open = renderToStaticMarkup(<SourceBadge account={full} defaultOpen />);
-    expect(open).toContain("position:fixed");
+    expect(open).toMatch(/role="tooltip" style="position:(fixed|absolute)/); // under its button until it has measured the screen
     expect(open).toContain("Details from");
     expect(open).toContain("Checked against");
     expect(open).toContain("Phone:");

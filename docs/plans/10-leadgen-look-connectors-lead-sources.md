@@ -28,6 +28,14 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - a colour that is already a `var(--x, #hex)` fallback;
   - files where a colour is data or leaves the app (e-mail design, web-form embeds, map pins and drawing, the vendor logos).
 - **Still to do:** the near-matches (several greens, blues and greys that are nearly but not exactly a token). Unifying them changes the look slightly, so do it screen by screen with a look in the browser.
+
+**Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
+- **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).
+- **`EmptyState`:** icon, title, text and actions. Used by Saved companies and Saved people.
+- **`Banner`:** one notice with info, warn, bad, good and neutral tones on the status tokens. A "bad" one is an alert. The data-access notice (`AccessNotice`) uses it.
+- `app/constants.jsx` had its own copy of `C`. It now spreads `tokens.js` `C` and keeps only its two shadow values.
+- **Still to do in item 4:** `Pill` / `StatusPill` / `StatTile` / `Toast`, and the lock and plan notices in Leads, then the other apps' hand-built versions.
+- Tests: `app/uiBlocks.test.jsx`.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 

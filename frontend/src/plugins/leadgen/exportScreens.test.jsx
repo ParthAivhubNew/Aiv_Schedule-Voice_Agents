@@ -19,7 +19,8 @@ const esc = (s) => s.replace(/'/g, "&#x27;");
 describe("SourceMark", () => {
   it("carries the tooltip, a screen reader label and is focusable", () => {
     const h = html(<SourceMark note={GOOGLE_NOTE} source="google_places" />);
-    expect(h).toContain(`title="${esc(GOOGLE_NOTE)}"`);
+    // the note is the button's described tooltip (the shared Tooltip; no native title, which showed a second tooltip on hover)
+    expect(h).toMatch(new RegExp(`role="tooltip"[^>]*>${esc(GOOGLE_NOTE).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<`));
     expect(h).toContain("From Google");
     expect(h).toContain("aria-describedby");
     expect(h).toContain("<button");

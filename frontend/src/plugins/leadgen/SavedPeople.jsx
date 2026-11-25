@@ -13,6 +13,7 @@ import { personHasSource, personSources, personTps } from "./peopleFilters";
 import { sourceOptions } from "./listFilters";
 import { TpsCheckDialog } from "./TpsCheckDialog";
 import { uniqueNumbers } from "./tpsCheck";
+import { EmptyState } from "../../app/ui";
 
 // Saved records > People: every named person across the companies you saved, in one table. A person is the contact you saved or
 // imported on a company, plus the team members a research run found there. Nothing is invented: a person with no email shows a dash.
@@ -47,12 +48,10 @@ export function SavedPeople({ store, onOpen, onGo }) {
   if (store.loading) return <CardsSkeleton count={4} label="Loading your people" />;
   if (!people.length) {
     return (
-      <div className="ui-card" style={{ padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-        <Users size={28} color={C.cobalt} aria-hidden="true" />
-        <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No people yet</div>
-        <div style={{ ...muted, maxWidth: 440 }}>A person appears here when a saved company has a contact name, from your import or from a company check that found the team. Open Companies to check and improve them.</div>
+      <EmptyState icon={Users} title="No people yet"
+        body="A person appears here when a saved company has a contact name, from your import or from a company check that found the team. Open Companies to check and improve them.">
         <button type="button" className="ui-btn ui-btn--primary" title="Open your saved companies" onClick={() => onGo("saved_companies")}>Go to Companies</button>
-      </div>
+      </EmptyState>
     );
   }
   const q = filter.trim().toLowerCase();

@@ -44,6 +44,7 @@ import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./list
 import { SelectionBar } from "./FindLeadsParts";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
 import { ORIGIN_LABEL, ORIGIN_WORDS, originKey, originOptions, originWords } from "./originLabels";
+import { EmptyState } from "../../app/ui";
 
 // The Leads screens built on saved accounts (stored on the server, per company): Find Leads results,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
@@ -303,18 +304,6 @@ function TipsCard({ account }) {
   );
 }
 
-function EmptyState({ icon: Icon, title, body, children }) {
-  return (
-    <div className="ui-card" style={{ padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: C.cobaltSoft, color: C.cobalt }}>
-        <Icon size={20} />
-      </div>
-      <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink, marginTop: 4 }}>{title}</div>
-      <div style={{ ...muted, maxWidth: "46ch" }}>{body}</div>
-      {children ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 6 }}>{children}</div> : null}
-    </div>
-  );
-}
 
 function Loading({ store }) {
   if (store.error) return <div role="alert" style={{ ...muted, color: C.red }}>{store.error}</div>;

@@ -11,7 +11,7 @@ import {
   Radio,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { dedupeNotifications, notificationActionLabel, notificationFingerprint, resolveNotificationTarget } from "../tokens";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER, STATUS_MAP } from "./constants";
 
@@ -521,3 +521,85 @@ export function PluginCard({ icon: Icon, title, blurb, accent, ready, onClick })
 
 
 /* ---------------------------------- Common AI Configuration Modal & Views ---------------------------------- */
+
+// ── Shared building blocks (plan 10, Phase 4 item 4): one look for tooltips, empty states and notices across the apps ─────────────
+// Clipped off screen but still read aloud, so a closed tooltip stays the button's description.
+const SR_ONLY = { position: "absolute", width: 1, height: 1, margin: -1, padding: 0, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 };
+
+// A small "what is this" card: opens on hover, focus or a tap, closes with Escape or when the pointer leaves. It is fixed to the screen,
+// so a table's scroll box never clips it, kept inside the screen at 375px, and opens above the button when there is no room below.
+// `trigger` is what the button shows (an icon); `label` is what a screen reader says for it; the children are the card.
+export function Tooltip({ trigger, label, children, width = 300, defaultOpen = false, triggerStyle }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [pos, setPos] = useState(null);
+  const id = useId();
+  const btn = useRef(null);
+  const show = () => {
+    const r = btn.current?.getBoundingClientRect?.();
+    if (r && typeof window !== "undefined") {
+      const w = Math.min(width, window.innerWidth - 32);
+      const left = Math.max(16, Math.min(r.left, window.innerWidth - w - 16));
+      const below = r.bottom + 6;
+      setPos(below + 220 > window.innerHeight && r.top > 240 ? { left, bottom: window.innerHeight - r.top + 6, width: w } : { left, top: below, width: w });
+    }
+    setOpen(true);
+  };
+  return (
+    <span style={{ position: "relative", display: "inline-flex", verticalAlign: "middle" }} onMouseEnter={show} onMouseLeave={() => setOpen(false)} onClick={(e) => e.stopPropagation()}>
+      <button ref={btn} type="button" aria-describedby={id} aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); if (open) setOpen(false); else show(); }}
+        onFocus={show} onBlur={() => setOpen(false)}
+        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); e.stopPropagation(); } }}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4, minWidth: 24, minHeight: 24, padding: 0, border: 0, background: "transparent", color: C.slate, cursor: "help", borderRadius: 6, ...triggerStyle }}>
+        {trigger}
+        {label ? <span style={SR_ONLY}>{label}</span> : null}
+      </button>
+      <span id={id} role="tooltip"
+        style={open ? { position: pos ? "fixed" : "absolute", zIndex: 60, ...(pos || { left: 0, top: "100%", width: Math.min(width, 300) }), boxSizing: "border-box", maxWidth: "calc(100vw - 32px)",
+          maxHeight: "60vh", overflowY: "auto", padding: "10px 12px", borderRadius: 10, background: "#fff", color: C.textInk, border: `1px solid ${C.border}`,
+          boxShadow: "0 8px 24px rgba(15,23,42,.18)", fontFamily: FONT_BODY, fontSize: 12.5, lineHeight: 1.45, fontWeight: 400, whiteSpace: "normal", textAlign: "left" } : SR_ONLY}>
+        {children}
+      </span>
+    </span>
+  );
+}
+
+// What a page shows when it has nothing yet: an icon, a title, a line on how to get started, and the buttons that do it.
+export function EmptyState({ icon: Icon, title, body, children }) {
+  return (
+    <div className="ui-card" style={{ padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10, fontFamily: FONT_BODY }}>
+      {Icon ? (
+        <div aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: C.cobaltSoft, color: C.cobalt }}>
+          <Icon size={20} />
+        </div>
+      ) : null}
+      <div style={{ fontSize: 15, fontWeight: 600, color: C.ink, marginTop: 4 }}>{title}</div>
+      {body ? <div style={{ fontSize: 13, color: C.slate, lineHeight: 1.5, maxWidth: "46ch" }}>{body}</div> : null}
+      {children ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 6 }}>{children}</div> : null}
+    </div>
+  );
+}
+
+const BANNER_TONES = {
+  info: { bg: C.infoSoft, ink: C.infoInk, line: C.infoSoft },
+  warn: { bg: C.warningBg, ink: C.warningInk, line: C.warningSoft },
+  bad: { bg: C.dangerBg, ink: C.dangerInk, line: C.dangerBg },
+  good: { bg: C.successBg, ink: C.successInk, line: C.successSoft },
+  neutral: { bg: C.neutralBg, ink: C.textInk, line: C.border },
+};
+
+// A notice across a page or a card: a plan limit, an access rule, a problem, a done. The icon and the words carry the meaning, not only the colour.
+export function Banner({ tone = "info", icon: Icon, title, children, action, role }) {
+  const t = BANNER_TONES[tone] || BANNER_TONES.info;
+  return (
+    <div role={role || (tone === "bad" ? "alert" : "status")}
+      style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10, background: t.bg, border: `1px solid ${t.line}`, color: C.textInk, fontFamily: FONT_BODY, fontSize: 13, lineHeight: 1.5 }}>
+      {Icon ? <Icon size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2, color: t.ink }} /> : null}
+      <div style={{ minWidth: 0, flex: 1 }}>
+        {title ? <div style={{ fontWeight: 600, color: t.ink }}>{title}</div> : null}
+        {children}
+      </div>
+      {action ? <div style={{ flexShrink: 0 }}>{action}</div> : null}
+    </div>
+  );
+}

@@ -1,33 +1,21 @@
-import React, { useId, useState } from "react";
+import React from "react";
 import { MapPin } from "lucide-react";
 import { C } from "../../tokens";
+import { Tooltip } from "../../app/ui";
 
 export const GOOGLE_NOTE = "From Google. You can see and use it in Outreach, but it can't be downloaded.";
 export const ENRICHMENT_NOTE = "From our enrichment data. You can see and use it in Outreach, but it can't be downloaded.";
 
 const isGoogle = (source) => /google/i.test(String(source || ""));
 
-// Clipped off screen, still read aloud: the label must not depend on the icon or its colour.
-const hidden = { position: "absolute", width: 1, height: 1, margin: -1, padding: 0, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 };
 
-// A small pin beside a phone, website or email that can be used here but not downloaded.
+// A small pin beside a phone, website or email that can be used here but not downloaded. The shared Tooltip shows the note.
 export function SourceMark({ note, source = "", size = 13 }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
   const google = isGoogle(source);
   const text = note || (google ? GOOGLE_NOTE : ENRICHMENT_NOTE);
   return (
-    <span style={{ position: "relative", display: "inline-flex", verticalAlign: "middle", marginLeft: 4 }}
-      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" title={text} aria-describedby={id} aria-expanded={open}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
-        onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, minHeight: 24, padding: 0, border: 0, background: "transparent", color: C.slate, cursor: "help", borderRadius: 6 }}>
-        <MapPin size={size} aria-hidden="true" />
-        <span style={hidden}>{google ? "From Google" : "Restricted source"}</span>
-      </button>
-      <span id={id} role="tooltip" style={open ? { position: "absolute", zIndex: 30, left: 0, top: "100%", width: 230, padding: "8px 10px", borderRadius: 8, background: C.ink, color: "#fff", fontSize: 12, lineHeight: 1.4, whiteSpace: "normal", fontWeight: 400 } : hidden}>{text}</span>
+    <span style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 4 }}>
+      <Tooltip trigger={<MapPin size={size} aria-hidden="true" />} label={google ? "From Google" : "Restricted source"} width={240}>{text}</Tooltip>
     </span>
   );
 }

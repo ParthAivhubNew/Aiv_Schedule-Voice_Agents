@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
+import { C as TOKEN_C } from "../tokens";
 
 export const INITIAL_BUILTIN_PROVIDERS = [
   { id: "xai", name: "xAI (Grok)", type: "llm", badge: "xAI Voice & LPU", status: "not_configured", latencyMs: null, baseUrl: "https://api.x.ai/v1", apiKey: "", phoneNumber: "", agentId: "", models: ["grok-4.20-0309-non-reasoning"] },
@@ -310,30 +311,9 @@ export const INITIAL_COMMON_AI_CONFIG = {
 
 /* ---------------------------------- tokens ---------------------------------- */
 
+// The screens' colours come from tokens.js (one source, read from CSS variables); only these shadow values are this file's own.
 export const C = {
-  ink: "#12141C",
-  inkSoft: "#1B1E29",
-  inkLine: "#2A2D3A",
-  paper: "#F5F6F8",
-  paperCard: "#FFFFFF",
-  paperSoft: "#F0F2F5",
-  border: "#E3E6EB",
-  cobalt: "#3457D5",
-  cobaltSoft: "#EAEEFC",
-  cobaltDeep: "#26409E",
-  teal: "#0C8C7D",
-  tealSoft: "#E4F5F2",
-  amber: "#B8760A",
-  amberSoft: "#FCEFDA",
-  red: "#C2410C",
-  redSolid: "#DC2626",
-  redSoft: "#FBEAE8",
-  green: "#15803D",
-  greenSoft: "#E7F5EB",
-  slate: "#6B7280",
-  slateLight: "#9CA3AF",
-  textInk: "#1B1D24",
-  gradientTeal: "linear-gradient(135deg, #0C8C7D 0%, #15803D 100%)",
+  ...TOKEN_C,
   glowTeal: "0 8px 24px rgba(12,140,125,0.25)",
   shadowCard: "0 2px 8px rgba(0,0,0,0.04)",
 };
