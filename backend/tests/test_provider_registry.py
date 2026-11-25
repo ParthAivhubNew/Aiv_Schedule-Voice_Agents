@@ -12,7 +12,8 @@ from app.providers.base import EmailFinder, Manifest, Pricing
 
 def test_every_provider_file_is_found_with_a_valid_manifest():
     ids = {p.manifest.id for p in registry.reload().values()}
-    assert ids == {"icypeas", "leadmagic", "hunter", "findymail", "bettercontact", "apollo"}
+    assert ids == {"icypeas", "leadmagic", "hunter", "findymail", "bettercontact", "apollo", "tavily", "google_places", "telnyx_lookup",
+                   "provero_tps"}
     assert registry.problems() == {}
 
 
@@ -36,7 +37,7 @@ def test_a_saved_key_s_name_finds_its_provider():
 def test_the_export_rule_comes_from_the_licences():
     from app.services import data_policy as DP
 
-    assert registry.non_exportable() == {"apollo"}
+    assert registry.non_exportable() == {"apollo", "google_places"}
     assert DP.NON_EXPORTABLE == frozenset({"google_places", "apollo"})
 
 
@@ -57,6 +58,10 @@ TESTS = {
     "bettercontact": ("https://app.bettercontact.rocks/api/v2/account", {"credits_left": 12}, 12),
     "icypeas": ("https://app.icypeas.com/api/bulk-single-searchs/read", {"success": False}, None),
     "apollo": ("https://api.apollo.io/v1/auth/health", {"healthy": True, "is_logged_in": True}, None),
+    "tavily": ("https://api.tavily.com/usage", {"account": {"plan_limit": 4000, "plan_usage": 1500}}, 2500),
+    "google_places": ("https://places.googleapis.com/v1/places:searchText", {"places": [{"id": "x"}]}, None),
+    "telnyx_lookup": ("https://api.telnyx.com/v2/balance", {"data": {"balance": "12.50", "available_credit": "12.50", "currency": "USD"}}, 12.5),
+    "provero_tps": ("https://api.provero.io/api/validate/phone-tps", {"onTps": False, "onCtps": False}, None),
 }
 
 
@@ -94,7 +99,11 @@ async def test_a_refused_key_or_an_empty_account_fails(pid, fake_vendor):
     for status, words in ((401, "rejected"), (403, "rejected"), (402, "out of credits")):
         fake_vendor["status"] = status
         out = await registry.test_key(pid, "k-123")
-        assert out["ok"] is False and words in out["detail"], (pid, status)
+        assert out["ok"] is False, (pid, status)
+        if pid == "google_places":  # Google answers the same way for a bad key and a Places API that is switched off
+            assert "refused the key" in out["detail"]
+        else:
+            assert words in out["detail"], (pid, status, out["detail"])
 
 
 async def test_the_platform_keys_test_button_no_longer_passes_any_key(fake_vendor):
@@ -158,7 +167,9 @@ async def test_prices_are_seeded_once_and_never_overwrite_what_staff_set(db):
     made = await registry.seed_prices(db)
     await db.commit()
     rows = {r.provider: r for r in (await db.execute(select(ProviderPrice).where(ProviderPrice.kind == "lookup"))).scalars().all()}
-    assert made == 4 and set(rows) == {"hunter", "icypeas", "leadmagic", "findymail", "bettercontact"}  # Apollo has no known price
+    assert made == 8 and set(rows) == {"hunter", "icypeas", "leadmagic", "findymail", "bettercontact", "tavily", "google_places", "telnyx_lookup",
+                                       "provero_tps"}  # Apollo has no known price
+    assert rows["tavily"].billing == "per_search" and rows["icypeas"].billing == "per_find"
     assert rows["hunter"].price_in_usd == 0.07 and rows["icypeas"].price_in_usd == 0.01 and rows["icypeas"].confirmed is False
     assert await registry.seed_prices(db) == 0
 
@@ -169,6 +180,8 @@ async def test_staff_see_every_provider_and_test_a_saved_key(db, staff, anon):
     assert got.status_code == 200, got.text
     body = got.json()
     assert [p["id"] for p in body["providers"] if p["category"] == "email_finder"] == ["icypeas", "leadmagic", "hunter", "findymail", "bettercontact"]
+    assert {p["id"]: p["category"] for p in body["providers"] if p["id"] in ("tavily", "google_places", "telnyx_lookup", "provero_tps")} == {
+        "tavily": "web_search", "google_places": "company_data", "telnyx_lookup": "phone_lookup", "provero_tps": "tps_screening"}
     apollo = next(p for p in body["providers"] if p["id"] == "apollo")
     assert apollo["licence"]["exportable"] is False and apollo["keySaved"] is False and body["problems"] == {}
     none = await staff.post("/api/admin-api/providers/hunter/test")
@@ -176,3 +189,12 @@ async def test_staff_see_every_provider_and_test_a_saved_key(db, staff, anon):
     assert (await staff.post("/api/admin-api/providers/nobody/test")).status_code == 404
     assert (await anon.get("/api/admin-api/providers")).status_code in (401, 403)
     json.dumps(body)  # the screen gets plain JSON
+
+
+async def test_the_platform_keys_test_button_knows_google_places_from_gemini(fake_vendor):
+    from app.services import key_validator
+
+    fake_vendor["body"] = {"places": [{"id": "x"}]}
+    out = await key_validator.validate_api_key("Google Places", "AIza-test")
+    assert out["valid"] is True and out["provider"] == "Google Places" and fake_vendor["seen"] == ["https://places.googleapis.com/v1/places:searchText"]
+    assert registry.match_key_name("Google Gemini") is None  # a Gemini key keeps its own check

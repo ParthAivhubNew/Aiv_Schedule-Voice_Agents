@@ -1937,15 +1937,14 @@ async def revenue(request: Request, month: str = "", include_aivhub: bool = Fals
 
 # ── Provider registry (app/providers) ───────────────────────────────────────
 async def _saved_provider_key(provider_id: str) -> str:
-    """The key staff saved for a provider: an e-mail finder's under Email Finder, Apollo's from its key pool. "" when none."""
-    if provider_id == "apollo":
-        from app.services import apollo_pool
+    """The key staff saved for a provider (each provider file knows where its key lives). "" when none or unreadable."""
+    from app.providers import registry
 
-        pool = await apollo_pool.keys()
-        return pool[0][2] if pool else ""
-    from app.services.enrichment_waterfall import finder_keys
-
-    return (await finder_keys()).get(provider_id, "")
+    p = registry.get(provider_id)
+    try:
+        return (await p.saved_key()) if p is not None else ""
+    except Exception:
+        return ""
 
 
 @router.get("/providers")

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ClipboardList, Coins, Handshake, KeyRound, Plug, LayoutDashboard, LogOut, Mail, Palette, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog, Wallet } from "lucide-react";
+import { Boxes, ClipboardList, Coins, Handshake, KeyRound, Plug, LayoutDashboard, LogOut, Mail, Palette, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
@@ -14,6 +14,7 @@ import { Logs } from "./Logs";
 import { PlatformKeys } from "./PlatformKeys";
 import { PlatformMailbox } from "./PlatformMailbox";
 import { Partners } from "./Partners";
+import { Providers } from "./Providers";
 import { Revenue } from "./Revenue";
 import { Queue } from "./Queue";
 import { SignIn } from "./SignIn";
@@ -28,6 +29,7 @@ const PAGES = [
   { id: "billing", label: "Plans & pricing", icon: Coins },
   { id: "balances", label: "Balances", icon: Wallet },
   { id: "keys", label: "Platform keys", icon: KeyRound },
+  { id: "providers", label: "Providers", icon: Boxes },
   { id: "mailbox", label: "Mailbox", icon: Mail },
   { id: "api", label: "API access", icon: Plug },
   { id: "partners", label: "Partners", icon: Handshake },
@@ -123,6 +125,7 @@ export function AdminApp() {
         {page === "billing" && <Billing canEdit={canEdit} />}
         {page === "balances" && <Balances canEdit={canEdit} />}
         {page === "keys" && <PlatformKeys canEdit={canEdit} />}
+        {page === "providers" && <Providers />}
         {page === "mailbox" && (
           <>
             <PageTitle title="Platform mailbox" sub="The one mailbox that sends every system email: invites, password resets, low-balance alerts." />

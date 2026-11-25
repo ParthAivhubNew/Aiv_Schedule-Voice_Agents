@@ -120,6 +120,15 @@ class Provider:
     def label(self) -> str:
         return self.manifest.name
 
+    async def saved_key(self) -> str:
+        """The key staff saved for this provider, "" when none. E-mail finders read theirs from Platform Keys -> Email Finder; a provider
+        whose key lives elsewhere overrides this."""
+        if self.manifest.key_group == "Email Finder":
+            from app.services.enrichment_waterfall import finder_keys
+
+            return (await finder_keys()).get(self.manifest.id, "")
+        return ""
+
 
 class EmailFinder(Provider):
     async def find_email(self, client: httpx.AsyncClient, key: str, person: Dict[str, str]) -> Tuple[str, str]:

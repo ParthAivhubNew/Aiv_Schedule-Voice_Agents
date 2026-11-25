@@ -45,6 +45,12 @@ class Apollo(EmailFinder):
             return email_addr, "catch_all"
         return "", ""
 
+    async def saved_key(self) -> str:
+        from app.services import apollo_pool
+
+        pool = await apollo_pool.keys()
+        return pool[0][2] if pool else ""
+
     async def test(self, client: httpx.AsyncClient, key: str) -> TestResult:
         res = await client.get("https://api.apollo.io/v1/auth/health", headers={"X-Api-Key": key, "Cache-Control": "no-cache"})
         bad = rejected(res, self.label())

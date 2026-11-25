@@ -112,8 +112,17 @@ call_provider(capability, request, org, feature)
 - **Checked against the real keys on new.outreach:** Apollo, Icypeas, Hunter (50 searches left), Findymail (15 credits left) and
   BetterContact (44 credits left) all pass. LeadMagic has no key saved.
 - **Adding an e-mail finder is now one file.** A test proves a new file joins the order with no other change.
+- **Second part (2026-11-25):**
+  - Tavily (`search/tavily.py`), Google Places (`company/google_places.py`), Telnyx number lookup (`phone/telnyx_lookup.py`) and
+    Provero TPS (`phone/provero_tps.py`) are provider files too, each with its key source (`saved_key()`) and real test. All ten
+    providers are now on the registry.
+  - The Platform Keys Test button knows a "Google Places" key from a Gemini key. It used to check Places keys as Gemini.
+  - New **Providers** page in the admin portal: every provider by category, with key saved or not, price and billing, licence,
+    the credit item clients pay, and a Test button.
+  - Real keys on new.outreach: **Tavily has 0 credits left this month** and **Telnyx has $6.57**. Both are the live accounts.
 - **Still to do in step 4:**
-  - Tavily, Google Places, Telnyx lookup and TPS screening as provider files,
+  - the call sites of Tavily, Google Places, Telnyx lookup and Provero still call those vendors directly; move them behind the
+    provider files,
   - one generic key pool in place of `apollo_pool` and `tavily_pool`,
   - the `call_provider()` wrapper (plan and cost-cap check, shared cache, circuit breaker, one `provider_calls` table),
   - config-only providers (`generic_http`),
