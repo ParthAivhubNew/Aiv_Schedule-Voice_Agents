@@ -123,7 +123,7 @@ export function ConnectorDetail({ c, kinds, canTest, onClose, initialResult = nu
           <button type="button" onClick={onClose} aria-label="Close" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ minHeight: 36 }}><X size={16} /></button>
         </div>
         <p style={{ margin: 0, fontSize: 13.5, color: C.textInk, lineHeight: 1.5 }}>{c.desc}</p>
-        {c.statusText ? <div style={{ fontSize: 13, color: C.textInk, background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", lineHeight: 1.5 }}>{c.statusText}</div> : null}
+        {c.statusText ? <div style={{ fontSize: 13, color: C.textInk, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", lineHeight: 1.5 }}>{c.statusText}</div> : null}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
           <Fact label="Records" value={num(c.records)} />
           <Fact label="Your companies using it" value={c.leads ? num(c.leads) : null} />
@@ -134,7 +134,7 @@ export function ConnectorDetail({ c, kinds, canTest, onClose, initialResult = nu
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>{c.status === "coming_soon" ? "It would give you" : "It gives you"}</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {gives.map((g) => <span key={g} style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "#F1F5F9", color: C.textInk }}>{g}</span>)}
+              {gives.map((g) => <span key={g} style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: C.neutralSoft, color: C.textInk }}>{g}</span>)}
             </div>
           </div>
         ) : null}
@@ -209,7 +209,7 @@ export function ConnectorsView({ initialData = null }) {
           <p style={{ fontSize: 13, color: C.slate, margin: "4px 0 0" }}>Where your leads' data comes from, and what's switched on for your account.</p>
         </div>
         {data ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", fontSize: 12.5, padding: "10px 14px", background: "#F8FAFC", borderRadius: 8, border: `1px solid ${C.borderLight}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", fontSize: 12.5, padding: "10px 14px", background: C.neutralBg, borderRadius: 8, border: `1px solid ${C.borderLight}` }}>
             <span style={{ color: TONE_COLOURS.good.ink, fontWeight: 600 }}>{totals.connected} connected</span>
             {totals.attention ? <span style={{ color: TONE_COLOURS.warn.ink, fontWeight: 600 }}>{totals.attention} need a look</span> : null}
             <span style={{ color: C.slate }}>{totals.soon} coming soon</span>

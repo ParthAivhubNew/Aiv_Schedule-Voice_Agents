@@ -40,7 +40,7 @@ const label = { fontSize: 12, fontWeight: 600, color: C.slate, display: "grid", 
 const small = { fontSize: 12, color: C.slate };
 
 // The one thing a person needs to know about a mailbox right now, with its colour and any action.
-const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", ink: "#92400e" }, blue: { bg: "#eff6ff", ink: "#1e40af" }, green: { bg: "#f0fdf4", ink: "#166534" } };
+const TONES = { red: { bg: C.dangerBg, ink: C.dangerInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: "#eff6ff", ink: "#1e40af" }, green: { bg: C.successBg, ink: C.successInk } };
 export function readiness(m) {
   if (m.status === "error") return { tone: "red", title: "Connection problem.", body: "The mailbox login is failing, so nothing can send. Check the password in Settings, then use Test connection." };
   if (!m.spf_verified) return { tone: "red", title: "Permission to send is not set up (SPF).", body: "Add the setting below. Without it most inboxes reject your emails, so this mailbox cannot send yet." };
@@ -250,7 +250,7 @@ export function MailboxesView({ outreach, onViewSent }) {
               </span>
             </div>
             {m.last_error && <div style={{ fontSize: 12, color: C.red }}>{m.last_error}</div>}
-            {m.campaign_quota && m.today_campaign_sent >= m.campaign_quota ? <div role="status" style={{ fontSize: 12, color: "#92400E" }}>This mailbox has sent everything it is allowed today. Connect another mailbox to send more today; the rest waits for tomorrow.</div> : null}
+            {m.campaign_quota && m.today_campaign_sent >= m.campaign_quota ? <div role="status" style={{ fontSize: 12, color: C.warningInk }}>This mailbox has sent everything it is allowed today. Connect another mailbox to send more today; the rest waits for tomorrow.</div> : null}
 
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ ...row, gap: 14 }}>
@@ -508,7 +508,7 @@ export function SentList({ outreach, initialMailbox = "" }) {
                   <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{detail.body || "(no text saved)"}</div>
                   <div style={small}>Shown as it was written. Your signature and the unsubscribe link are added when it is sent.</div>
                   {detail.bounce_reason ? <div style={{ fontSize: 12.5, color: C.red }}>Bounced: {detail.bounce_reason}</div> : null}
-                  {detail.reply ? <div style={{ ...card, background: "#f0fdf4" }}><div style={small}>Their reply{detail.replied_at ? ` · ${when(detail.replied_at)}` : ""}</div><div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{detail.reply}</div></div> : null}
+                  {detail.reply ? <div style={{ ...card, background: C.successBg }}><div style={small}>Their reply{detail.replied_at ? ` · ${when(detail.replied_at)}` : ""}</div><div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{detail.reply}</div></div> : null}
                 </>
               )}
             </div>

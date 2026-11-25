@@ -23,7 +23,7 @@ export const cardsCss = `
 .as-view-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
 .as-view-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:6px;background:#fff;font:12px Inter,sans-serif;color:var(--ui-ink,#111827)}
 .as-view-go{flex:none;color:var(--ui-muted,#6B7280);margin-top:7px}
-.as-tag--draft{background:#EEF2FE;color:#2F4BB8}
+.as-tag--draft{background:${C.cobaltSoft};color:#2F4BB8}
 .as-choice{padding:12px 12px 6px}
 .as-choice-h{font:12.5px Inter,sans-serif;color:var(--ui-muted,#6B7280);margin-bottom:6px}
 .as-choice-o{all:unset;box-sizing:border-box;width:100%;display:flex;gap:10px;align-items:flex-start;padding:9px 6px;border-radius:8px;cursor:pointer}

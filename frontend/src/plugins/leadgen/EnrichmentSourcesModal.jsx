@@ -40,7 +40,7 @@ export function EnrichmentSourcesModal({ open, onClose, initialData = null }) {
       style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15, 23, 42, 0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div className="ui-card" onClick={(e) => e.stopPropagation()}
         style={{ ...text, width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column", background: "#FFFFFF", borderRadius: 14, overflow: "hidden", border: `1px solid ${C.border}` }}>
-        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#F8FAFC" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: C.neutralBg }}>
           <div>
             <h2 id="enrichment-modal-title" style={{ ...head, margin: 0, fontSize: 18, color: C.ink }}>Where your data comes from</h2>
             <p style={{ margin: "4px 0 0", fontSize: 13, color: C.slate }}>The sources switched on for your account. Values from Google or enrichment data can be used here but not downloaded.</p>
@@ -84,11 +84,11 @@ export function EnrichmentSourcesModal({ open, onClose, initialData = null }) {
 // Compact banner shown on Import and Lists.
 export function EnrichmentBanner({ onOpenModal }) {
   return (
-    <div style={{ ...text, background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center",
+    <div style={{ ...text, background: C.successBg, border: "1px solid #BBF7D0", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center",
       justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
       <div>
         <div style={{ ...head, fontSize: 13.5, fontWeight: 700, color: "#14532D" }}>Where your data comes from</div>
-        <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: C.successInk, marginTop: 2 }}>
           Companies are matched to the official registers. Phones, e-mails and websites come from the sources switched on for your account.
         </div>
       </div>

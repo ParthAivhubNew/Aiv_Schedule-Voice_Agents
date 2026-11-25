@@ -67,7 +67,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "0 22px 8px", fontSize: 13, color: C.ink }}>
           <strong>{headers.length} {headers.length === 1 ? "column" : "columns"} found</strong>
           <span style={{ background: "#E7F6EC", color: "#136F3A", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{standard.length} matched</span>
-          {own.length ? <span style={{ background: "#EEF2FE", color: "#26409E", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{own.length} kept as your own</span> : null}
+          {own.length ? <span style={{ background: C.cobaltSoft, color: C.cobaltDeep, borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{own.length} kept as your own</span> : null}
           {left.length ? <span style={{ background: "#FEF3E2", color: "#9A5B00", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{left.length} left out</span> : null}
           <label style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
             <input type="checkbox" checked={hideMatched} onChange={(e) => setHideMatched(e.target.checked)} /> Hide matched columns
@@ -88,7 +88,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
                 <tr key={h} style={{ borderTop: `1px solid ${C.borderLight || C.border}` }}>
                   <td style={{ padding: "7px 6px", fontWeight: 600, color: C.ink }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      {standard.includes(h) ? <CheckCircle2 size={15} color="#16A34A" aria-label="Matched" /> : null}{h}
+                      {standard.includes(h) ? <CheckCircle2 size={15} color={C.success} aria-label="Matched" /> : null}{h}
                     </span>
                   </td>
                   <td style={{ padding: "7px 6px" }}>
@@ -121,7 +121,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
               : "Match a Company number or Postcode column and rows we find on the company register show what it holds wherever your file is blank."}
           </div>
           {warnings.map((w) => (
-            <div key={w} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#B45309", marginBottom: 4 }}>
+            <div key={w} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.warning, marginBottom: 4 }}>
               <AlertTriangle size={13} /> {w}
             </div>
           ))}

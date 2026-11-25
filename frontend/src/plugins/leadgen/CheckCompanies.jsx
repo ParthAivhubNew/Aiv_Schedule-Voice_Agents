@@ -492,7 +492,7 @@ export function CheckDialog({ ids, pendingOnly = false, onStart, onClose, mode =
         </label>}
         {contacts ? null : costBox}
         {short ? (
-          <div role="status" style={{ ...li, background: "#FEF3C7", borderRadius: 6, padding: "10px 12px", display: "grid", gap: 8 }}>
+          <div role="status" style={{ ...li, background: C.warningSoft, borderRadius: 6, padding: "10px 12px", display: "grid", gap: 8 }}>
             <span>The most this could cost is more than your {est.balance.toLocaleString()} credits. You only pay for what is found, so it may fit, but it can stop part-way.</span>
             <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => { onClose(); openPlans("leads"); }}>Top up {(max.total - est.balance).toLocaleString()} credits</button>

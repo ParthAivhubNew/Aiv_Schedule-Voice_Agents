@@ -1,6 +1,7 @@
 import React from "react";
 import { ExternalLink, KeyRound, Tag } from "lucide-react";
 import { CONNECTOR_PRICING } from "./connectorPrices";
+import { C } from "../../tokens";
 
 const FONT = "Inter, system-ui, sans-serif";
 const INK = "#0F172A";
@@ -40,12 +41,12 @@ export function ConnectorPricing({ id }) {
           <Tag size={15} aria-hidden="true" /> Pricing page <ExternalLink size={12} aria-hidden="true" />
         </a>
         {p.free ? (
-          <span style={{ alignSelf: "flex-start", fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#DCFCE7", color: "#15803D" }}>Free tier</span>
+          <span style={{ alignSelf: "flex-start", fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: C.successSoft, color: C.green }}>Free tier</span>
         ) : null}
       </div>
 
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, overflow: "hidden", background: "#FFFFFF" }}>
-        <div style={{ padding: "10px 14px", background: "#F8FAFC", borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 700, color: INK }}>Estimated cost</div>
+        <div style={{ padding: "10px 14px", background: C.neutralBg, borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 700, color: INK }}>Estimated cost</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
           <thead>
             <tr style={{ color: SLATE, textAlign: "left" }}>

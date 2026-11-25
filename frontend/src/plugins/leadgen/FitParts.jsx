@@ -68,7 +68,7 @@ export function SignalTags({ signals, max = 2 }) {
   return (
     <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
       {list.slice(0, max).map((s) => (
-        <span key={s.key} title={s.detail} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: "#1D4ED8", background: "#DBEAFE", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{s.label}</span>
+        <span key={s.key} title={s.detail} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.infoInk, background: C.infoSoft, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{s.label}</span>
       ))}
       {list.length > max ? <span title={list.slice(max).map((s) => s.label).join(", ")} style={{ ...text, fontSize: 10.5, color: C.slate }}>+{list.length - max}</span> : null}
     </span>

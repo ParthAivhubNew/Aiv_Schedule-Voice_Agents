@@ -29,7 +29,7 @@ const TAB_TIPS = { overview: "Why now, in plain words, and who to speak to", peo
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
-const TONE = { green: { bg: "#f0fdf4", ink: "#166534" }, amber: { bg: "#fffbeb", ink: "#92400e" }, blue: { bg: "#eff6ff", ink: "#1e40af" }, red: { bg: "#fef2f2", ink: "#b91c1c" } };
+const TONE = { green: { bg: C.successBg, ink: C.successInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: "#eff6ff", ink: "#1e40af" }, red: { bg: C.dangerBg, ink: C.dangerInk } };
 const SOURCE_TONE = { register: "green", website: "green", web: "amber", licensed: "amber", scrape: "amber", research: "amber", google_places: "slate",
   apollo: "slate", record: "slate", missing: "slate" };
 const ICON = { website: Globe, phone: Phone, email: Mail };
@@ -50,7 +50,7 @@ function Fact({ label, children, warn }) {
   return (
     <div style={{ display: "flex", gap: 10, fontSize: 13, lineHeight: 1.45 }}>
       <span style={{ width: 96, flexShrink: 0, color: C.slate }}>{label}</span>
-      <span style={{ minWidth: 0, overflowWrap: "anywhere", color: warn ? "#b91c1c" : C.textInk }}>{children}</span>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere", color: warn ? C.dangerInk : C.textInk }}>{children}</span>
     </div>
   );
 }

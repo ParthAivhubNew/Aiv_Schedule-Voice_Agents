@@ -49,7 +49,7 @@ export function WhereFrom({ c }) {
       {rows.map((r) => line(r.name, r.label, r.kind))}
       {registers.length ? line("Registers", (
         <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {registers.map((r) => <span key={r} style={{ fontSize: 12, fontWeight: 600, padding: "2px 9px", borderRadius: 999, background: "#f0fdf4", color: "#166534" }}>{r}</span>)}
+          {registers.map((r) => <span key={r} style={{ fontSize: 12, fontWeight: 600, padding: "2px 9px", borderRadius: 999, background: C.successBg, color: C.successInk }}>{r}</span>)}
         </span>
       )) : null}
     </section>

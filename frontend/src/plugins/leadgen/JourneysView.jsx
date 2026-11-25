@@ -22,7 +22,7 @@ import {
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
-const TONES = { red: { bg: "#fef2f2", ink: "#b91c1c" }, amber: { bg: "#fffbeb", ink: "#92400e" }, green: { bg: "#f0fdf4", ink: "#166534" } };
+const TONES = { red: { bg: C.dangerBg, ink: C.dangerInk }, amber: { bg: C.warningBg, ink: C.warningInk }, green: { bg: C.successBg, ink: C.successInk } };
 const label = { display: "grid", gap: 4, fontSize: 12, fontWeight: 600, color: C.slate };
 const ICONS = { email: Mail, call: Phone, manual_email: PenLine, call_task: Phone, task: CheckSquare, social_task: Share2, linkedin_task: Users, letter_task: FileText };
 const ACCENT = { email: [C.cobalt, C.cobaltSoft], manual_email: [C.cobalt, C.cobaltSoft], call: [C.teal, C.tealSoft], call_task: [C.teal, C.tealSoft], social_task: [C.amber, C.amberSoft], task: [C.slate, C.paperSoft], linkedin_task: [C.slate, C.paperSoft], letter_task: [C.slate, C.paperSoft] };

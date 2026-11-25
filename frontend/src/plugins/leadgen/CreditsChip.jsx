@@ -101,7 +101,7 @@ export function PlanStrip({ onOpen }) {
           {c.used_30d.toLocaleString()} used in the last 30 days{c.held ? ` · ${c.held.toLocaleString()} on hold` : ""}
           {canBuy ? ` · enough for about ${canBuy.toLocaleString()} web-found companies` : ""}
         </span>
-        {c.empty ? <strong style={{ ...small, color: C.red }}>Out of credits</strong> : c.low ? <strong style={{ ...small, color: "#B45309" }}>Running low</strong> : null}
+        {c.empty ? <strong style={{ ...small, color: C.red }}>Out of credits</strong> : c.low ? <strong style={{ ...small, color: C.warning }}>Running low</strong> : null}
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6 }}>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm phone-gone" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? "Hide prices" : "See prices"}
@@ -114,7 +114,7 @@ export function PlanStrip({ onOpen }) {
           {tiles.map(([what, price, per, note]) => (
             <div key={what} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 12px" }}>
               <div style={{ ...small, fontWeight: 600, color: C.ink }}>{what}</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: price === "Free" ? "#15803D" : C.ink }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: price === "Free" ? C.green : C.ink }}>
                 {price}<span style={{ ...small, fontSize: 11.5, fontWeight: 400 }}>{per}</span>
               </div>
               <div style={{ ...small, fontSize: 11.5 }}>{note}</div>

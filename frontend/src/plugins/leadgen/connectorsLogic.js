@@ -1,3 +1,4 @@
+import { C } from "../../tokens";
 // The Connectors screen's pure helpers. Every connector, status and count comes from the server (GET /leadgen/connectors); nothing here
 // decides that something is connected.
 
@@ -12,10 +13,10 @@ export const STATUS_TONE = {
 };
 
 export const TONE_COLOURS = {
-  good: { bg: "#DCFCE7", ink: "#166534", border: "#BBEBDC" },
-  warn: { bg: "#FEF3C7", ink: "#92400E", border: "#FDE68A" },
+  good: { bg: C.successSoft, ink: C.successInk, border: "#BBEBDC" },
+  warn: { bg: C.warningSoft, ink: C.warningInk, border: "#FDE68A" },
   bad: { bg: "#FEE2E2", ink: "#991B1B", border: "#FECACA" },
-  muted: { bg: "#F1F5F9", ink: "#475569", border: "#E2E8F0" },
+  muted: { bg: C.neutralSoft, ink: C.neutralInk, border: "#E2E8F0" },
   soon: { bg: "#EEF2FF", ink: "#3730A3", border: "#E0E7FF" },
 };
 

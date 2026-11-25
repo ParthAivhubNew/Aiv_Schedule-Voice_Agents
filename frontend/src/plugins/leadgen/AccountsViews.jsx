@@ -294,7 +294,7 @@ function TipsCard({ account }) {
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 8, background: "rgba(245, 158, 11, .05)" }}>
       <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
-        <Lightbulb size={14} color="#B45309" /> How to get this to 100%
+        <Lightbulb size={14} color={C.warning} /> How to get this to 100%
       </div>
       {tips.map(([title, body]) => (
         <div key={title} style={{ ...muted, fontSize: 12.5 }}><strong style={{ color: C.textInk }}>{title}.</strong> {body}</div>
@@ -347,13 +347,13 @@ export function wasLookedUp(a) {
 }
 
 function NewTag() {
-  return <span title="We found this: it was empty before" style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "#15803D", background: "#DCFCE7", borderRadius: 4, padding: "1px 5px" }}>NEW</span>;
+  return <span title="We found this: it was empty before" style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: C.green, background: C.successSoft, borderRadius: 4, padding: "1px 5px" }}>NEW</span>;
 }
 
 // A cell with nothing to show leaves the value empty: whether we have looked is told by a hover note and the Check column, never in place of the data.
 function Empty({ a, field }) {
   if (field && (a.on_file || []).includes(field)) {
-    return <span title="Our records hold this. Open the company to see it." style={{ ...text, fontSize: 11.5, fontWeight: 600, color: "#1D4ED8", background: "#DBEAFE", borderRadius: 4, padding: "1px 6px" }}>On file</span>;
+    return <span title="Our records hold this. Open the company to see it." style={{ ...text, fontSize: 11.5, fontWeight: 600, color: C.infoInk, background: C.infoSoft, borderRadius: 4, padding: "1px 6px" }}>On file</span>;
   }
   return <span title={wasLookedUp(a) ? "We looked and found nothing." : "Nothing here yet. Use Get contacts to look for it."} style={{ color: C.slateLight }}>—</span>;
 }
@@ -830,13 +830,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         </div>
         {pickRows.length ? (
           <button type="button" aria-pressed={picks} title="We found more than one phone or email for these. Pick the right one" onClick={() => setPicksOnly((v) => !v)}
-            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? "#B45309" : "#FEF3C7", color: picks ? "#fff" : "#92400E", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? C.warning : C.warningSoft, color: picks ? "#fff" : C.warningInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
             Needs your choice {pickRows.length.toLocaleString()}
           </button>
         ) : null}
         <button type="button" aria-pressed={googleOnly} title="Show only companies whose phone, email or website came from Google"
           onClick={() => setGoogleOnly((v) => !v)}
-          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? "#1D4ED8" : "#93B4F5"}`, background: googleOnly ? "#1D4ED8" : "#EFF5FF", color: googleOnly ? "#fff" : "#1D4ED8", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? "#1D4ED8" : "#93B4F5"}`, background: googleOnly ? C.infoInk : "#EFF5FF", color: googleOnly ? "#fff" : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
           Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
         </button>
         <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
@@ -933,8 +933,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <div className="fl-co-body">
                     <div style={{ minWidth: 0 }}>
                       <button type="button" className="fl-co-name" onClick={(e) => { stop(e); onOpen(a); }}>{displayName(a.name)}</button>
-                      {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: "#F59E0B", marginLeft: 5 }}>★</span> : null}
-                      {a.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
+                      {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: C.warningBright, marginLeft: 5 }}>★</span> : null}
+                      {a.registration_number ? <span title="Verified registration" style={{ color: C.success, marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                       {legalTag(a.registry?.company_category, a.registration_number) ? <div className="fl-co-sub">{legalTag(a.registry?.company_category, a.registration_number)}</div> : null}
                     </div>
                     <div onClick={stop}><SourceBadge account={a} /></div>
@@ -944,7 +944,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       {ph ? (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>{ph.text}
                           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label={`Call ${a.name} in the browser`} onClick={() => openPhone({ number: ph.text, leadId: a.id, name: a.name })}><PhoneCall size={14} /></button>
-                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}>✓</span> : null}
+                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: C.success }}>✓</span> : null}
                         </span>
                       ) : <Empty a={a} field="phone" />}
                       {em ? (
@@ -1005,8 +1005,8 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <td style={{ padding: 0, width: 48 }} onClick={(e) => e.stopPropagation()}><label className="row-tick" title="Select this company"><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></label></td>
                   <td>
                     <button type="button" title={a.name} onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{displayName(a.name)}</button>
-                    {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: "#F59E0B", marginLeft: 5 }}>★</span> : null}
-                    {a.registration_number ? <span title="Verified registration" style={{ color: "#16A34A", marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
+                    {a.favourite || a.pinned ? <span title="Pinned favourite" style={{ color: C.warningBright, marginLeft: 5 }}>★</span> : null}
+                    {a.registration_number ? <span title="Verified registration" style={{ color: C.success, marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
                     {legalTag(a.registry?.company_category, a.registration_number) ? <span style={{ ...text, marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(a.registry?.company_category, a.registration_number)}</span> : null}
                     <span style={{ marginLeft: 4 }}><NotesButton companyId={a.id} name={a.name} /></span>
                     {a.kind === "person" ? <span title="A person with no company on the row. Only their phone and email are checked." style={{ ...text, fontSize: 11, color: C.slate, background: C.paperSoft, borderRadius: 999, padding: "1px 7px", marginLeft: 6 }}>Person</span> : null}
@@ -1014,7 +1014,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                     {a.signals?.length || flags[a.id] ? (
                       <div style={{ marginTop: 3, display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         <SignalTags signals={a.signals} />
-                        {flags[a.id] ? <span title={flags[a.id].map((f) => FLAG_WORDS[f][1]).join(" ")} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{flags[a.id].map((f) => FLAG_WORDS[f][0]).join(" · ")}</span> : null}
+                        {flags[a.id] ? <span title={flags[a.id].map((f) => FLAG_WORDS[f][1]).join(" ")} style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.warningInk, background: C.warningSoft, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{flags[a.id].map((f) => FLAG_WORDS[f][0]).join(" · ")}</span> : null}
                       </div>
                     ) : null}
                   </td>
@@ -1030,7 +1030,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                           <TpsChip screening={screeningOf(a, phoneFor(a).text)} />
                           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Call this number from your browser" aria-label={`Call ${a.name} in the browser`}
                             onClick={(e) => { e.stopPropagation(); openPhone({ number: phoneFor(a).text, leadId: a.id, name: a.name }); }}><PhoneCall size={13} /></button>
-                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: "#16A34A" }}> ✓</span> : null}
+                          {a.verification?.phone?.verified === true ? <span title={a.verification.phone.note} style={{ color: C.success }}> ✓</span> : null}
                           {a.verification?.phone?.state === "invalid" ? <span title={a.verification.phone.note || "Not a usable number"} style={{ color: C.red }}> ✕</span> : null}
                           {phoneFor(a).fromResearch ? <span style={{ color: C.slateLight, fontSize: 11.5 }}> · from research</span> : null}
                           {isNew(a, "phone") ? <NewTag /> : null}

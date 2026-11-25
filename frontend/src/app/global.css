@@ -58,6 +58,25 @@ button, input, select, textarea {
   --c-slate: #6B7280;
   --c-slate-light: #9CA3AF;
   --c-text-ink: #1B1D24;
+  --c-success-ink: #166534;
+  --c-success: #16A34A;
+  --c-success-soft: #DCFCE7;
+  --c-success-bg: #F0FDF4;
+  --c-warning-ink: #92400E;
+  --c-warning: #B45309;
+  --c-warning-bright: #F59E0B;
+  --c-warning-soft: #FEF3C7;
+  --c-warning-bg: #FFFBEB;
+  --c-danger-ink: #B91C1C;
+  --c-danger-bg: #FEF2F2;
+  --c-info-ink: #1D4ED8;
+  --c-info: #2563EB;
+  --c-info-soft: #DBEAFE;
+  --c-neutral-ink: #475569;
+  --c-neutral-soft: #F1F5F9;
+  --c-neutral-bg: #F8FAFC;
+  --c-line-cool: #E3E6EF;
+  --c-surface-cool: #F1F3F8;
 }
 
 /* ---------- The shared look (chosen 2026-10-03: soft corners, cool neutrals, dark sidebar) ----------

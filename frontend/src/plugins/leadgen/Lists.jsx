@@ -190,9 +190,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign, 
             className="ui-btn ui-btn--secondary ui-btn--sm"
             onClick={() => setEnrichModalOpen(true)}
             title="See where the data in this list comes from: the official registers and checks we use"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D", borderColor: "#0C8C7D", background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.teal, borderColor: C.teal, background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
           >
-            <ShieldCheck size={15} color="#0C8C7D" aria-hidden="true" /> Where this data comes from
+            <ShieldCheck size={15} color={C.teal} aria-hidden="true" /> Where this data comes from
           </button>
           {canExport && open ? (
             <button
@@ -244,9 +244,9 @@ export function ListsView({ store, listsStore, onGo, onOpen, onAdd, onCampaign, 
           className="ui-btn ui-btn--secondary ui-btn--sm"
           onClick={() => setEnrichModalOpen(true)}
           title="See where the data in your lists comes from: the official registers and checks we use"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#0C8C7D", borderColor: "#0C8C7D", background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.teal, borderColor: C.teal, background: "#F0FAF8", fontWeight: 600, minHeight: 36 }}
         >
-          <ShieldCheck size={15} color="#0C8C7D" aria-hidden="true" /> Where this data comes from
+          <ShieldCheck size={15} color={C.teal} aria-hidden="true" /> Where this data comes from
         </button>
         <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Search for companies, or bring in your own spreadsheet" onClick={() => onGo("find_leads")}>Find companies or import a file</button>
         <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" title="Create an empty list, then add companies to it" onClick={async () => {

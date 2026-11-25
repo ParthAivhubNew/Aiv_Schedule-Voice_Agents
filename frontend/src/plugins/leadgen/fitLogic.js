@@ -1,3 +1,4 @@
+import { C } from "../../tokens";
 // The fit score and "why now" signals as the lists show them. The server works the score out from facts we hold and sends
 // the reasons with it; these helpers only order, colour and word what it sent.
 
@@ -8,9 +9,9 @@ export const sortOptions = (icpSet) => [icpSet ? ["fit", "Best fit"] : ["best", 
 
 export function fitTone(score) {
   if (score == null) return null;
-  if (score >= 70) return { word: "Strong fit", fg: "#166534", bg: "#DCFCE7" };
-  if (score >= 40) return { word: "Some fit", fg: "#92400E", bg: "#FEF3C7" };
-  return { word: "Weak fit", fg: "#475569", bg: "#F1F5F9" };
+  if (score >= 70) return { word: "Strong fit", fg: C.successInk, bg: C.successSoft };
+  if (score >= 40) return { word: "Some fit", fg: C.warningInk, bg: C.warningSoft };
+  return { word: "Weak fit", fg: C.neutralInk, bg: C.neutralSoft };
 }
 
 // The hover text: the score, then each reason on its own line.

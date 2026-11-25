@@ -26,10 +26,31 @@ export const HEX = {
   slate: "#6B7280",
   slateLight: "#9CA3AF",
   textInk: "#1B1D24",
+  uiInk: "#111827", // the shared --ui-ink
+  // Status colours: a strong ink, the colour itself, a soft fill and a pale background, as the screens already used them.
+  successInk: "#166534",
+  success: "#16A34A",
+  successSoft: "#DCFCE7",
+  successBg: "#F0FDF4",
+  warningInk: "#92400E",
+  warning: "#B45309",
+  warningBright: "#F59E0B",
+  warningSoft: "#FEF3C7",
+  warningBg: "#FFFBEB",
+  dangerInk: "#B91C1C",
+  dangerBg: "#FEF2F2",
+  infoInk: "#1D4ED8",
+  info: "#2563EB",
+  infoSoft: "#DBEAFE",
+  neutralInk: "#475569",
+  neutralSoft: "#F1F5F9",
+  neutralBg: "#F8FAFC",
+  lineCool: "#E3E6EF",
+  surfaceCool: "#F1F3F8",
 };
 
 // The CSS variable each colour lives in. The accent ones are the shared --ui-accent variables, which hold the same colours.
-const ACCENT_VARS = { cobalt: "--ui-accent", cobaltSoft: "--ui-accent-soft", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent" };
+const ACCENT_VARS = { cobalt: "--ui-accent", cobaltSoft: "--ui-accent-soft", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent", uiInk: "--ui-ink" };
 export const CSS_VARS = Object.fromEntries(Object.keys(HEX).map((k) => [k, ACCENT_VARS[k] || "--c-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())]));
 
 export const C = {

@@ -218,7 +218,7 @@ const css = `
 .as-send[disabled]{opacity:.35;cursor:default}
 .as-mic{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;color:var(--ui-muted,#6B7280);display:inline-flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}
 .as-mic:hover{background:var(--ui-accent-soft,#EEF2FE);color:var(--ui-accent,#3457D5)}
-.as-mic[data-on="true"]{background:#DC2626;color:#fff;animation:as-listen 1.2s ease-in-out infinite}
+.as-mic[data-on="true"]{background:${C.redSolid};color:#fff;animation:as-listen 1.2s ease-in-out infinite}
 .as-mic:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 @keyframes as-listen{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.45)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
 .as-live{margin:0;padding:0 0 0 2px;list-style:none;display:grid;gap:5px}

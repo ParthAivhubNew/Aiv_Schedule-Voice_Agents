@@ -19,6 +19,15 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - Purple left alone: the map's "legal" category colour, and the AI and developer settings screens outside Leads.
   - Not checked in a browser yet.
 - The hard-coded colour count in Leads went from 681 to 676.
+
+**Phase 4, item 2, first pass (2026-11-25): 82 colours moved onto tokens, with no visual change; 676 → 594 left.**
+- New status tokens hold exactly the colours the screens already used: `success*`, `warning*`, `danger*`, `info*`, `neutral*`, `lineCool`, `surfaceCool` and `uiInk` (= `--ui-ink`).
+- `frontend/scripts/tokens-codemod.cjs` parses each file with Babel and changes a colour only where it is styling: a style property, an icon's `color`/`fill`/`stroke`, or page CSS in a template without HTML. It changes it only when it equals a token's value exactly.
+- It leaves alone:
+  - white and black, which need surface / on-accent names before dark mode;
+  - a colour that is already a `var(--x, #hex)` fallback;
+  - files where a colour is data or leaves the app (e-mail design, web-form embeds, map pins and drawing, the vendor logos).
+- **Still to do:** the near-matches (several greens, blues and greys that are nearly but not exactly a token). Unifying them changes the look slightly, so do it screen by screen with a look in the browser.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 
