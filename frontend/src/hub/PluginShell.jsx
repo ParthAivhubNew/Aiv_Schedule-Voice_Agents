@@ -128,7 +128,7 @@ export function PhoneTabBar({ items, nav, accent }) {
     };
   }, []);
   return (
-    <nav className="phone-tabs" aria-label="Main pages" style={{ "--tab-accent": accent || C.cobalt }}>
+    <nav className="phone-tabs" aria-label="Main pages" style={{ "--tab-accent": "var(--ui-accent, #3457D5)" }}>
       {items.map((it) => {
         const TabIcon = it.icon;
         return (

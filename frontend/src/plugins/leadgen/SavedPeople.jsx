@@ -48,7 +48,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
   if (!people.length) {
     return (
       <div className="ui-card" style={{ padding: "40px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-        <Users size={28} color="#8B5CF6" aria-hidden="true" />
+        <Users size={28} color={C.cobalt} aria-hidden="true" />
         <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink }}>No people yet</div>
         <div style={{ ...muted, maxWidth: 440 }}>A person appears here when a saved company has a contact name, from your import or from a company check that found the team. Open Companies to check and improve them.</div>
         <button type="button" className="ui-btn ui-btn--primary" title="Open your saved companies" onClick={() => onGo("saved_companies")}>Go to Companies</button>

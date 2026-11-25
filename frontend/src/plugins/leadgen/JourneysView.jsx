@@ -35,7 +35,7 @@ const WHEEL_CSS = `
 .jw-scroll[data-up="true"][data-down="false"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px);mask-image:linear-gradient(to bottom,transparent 0,#000 34px)}
 .jw-scroll[data-up="false"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%)}
 .jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #D5D9E0;color:#475467;box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
-.jw-arrow:hover{background:#F4F6FA}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#7C3AED);outline-offset:2px}
+.jw-arrow:hover{background:#F4F6FA}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .jw-arrow[data-dir="down"]{bottom:2px;animation:jw-nudge 1.8s ease-in-out infinite}
 .jw-arrow[data-dir="up"]{top:2px}
 .jw-quiet{scrollbar-width:none;-ms-overflow-style:none}.jw-quiet::-webkit-scrollbar{display:none}

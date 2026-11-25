@@ -118,3 +118,31 @@ export function resolveBrand({ host, me, policy } = {}) {
     social,
   };
 }
+
+// -- A brand's accent as the app's accent -----------------------------------------------------------------------------------------
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const hexOf = (rgb) => "#" + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("").toUpperCase();
+const mix = (hex, toward, share) => hexOf(rgbOf(hex).map((v, i) => v + (rgbOf(toward)[i] - v) * share));
+const lum = (hex) => {
+  const [r, g, b] = rgbOf(hex).map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+export const contrastWithWhite = (hex) => 1.05 / (lum(hex) + 0.05);
+
+// The accent shades the app uses (the same set the default cobalt has in app/global.css), from a brand's colour. A colour too light for white
+// text on a button is darkened until it reads (WCAG AA, 4.5:1). null when the colour isn't one.
+export function accentShades(value) {
+  let base = normaliseAccent(value);
+  if (!base) return null;
+  for (let i = 0; i < 20 && contrastWithWhite(base) < 4.5; i += 1) base = mix(base, "#000000", 0.08);
+  const [r, g, b] = rgbOf(base);
+  return {
+    "--ui-accent": base,
+    "--ui-accent-hover": mix(base, "#000000", 0.12),
+    "--ui-accent-soft": mix(base, "#FFFFFF", 0.92),
+    "--ui-accent-ink": mix(base, "#000000", 0.3),
+    "--ui-ring": `rgba(${r}, ${g}, ${b}, 0.22)`,
+    "--ui-side-active-icon": mix(base, "#FFFFFF", 0.45),
+  };
+}
+export const ACCENT_PROPS = ["--ui-accent", "--ui-accent-hover", "--ui-accent-soft", "--ui-accent-ink", "--ui-ring", "--ui-side-active-icon"];

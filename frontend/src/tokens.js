@@ -12,7 +12,7 @@ export const HEX = {
   borderLight: "#EDEFF2",
   borderHover: "#3457D5",
   cobalt: "#3457D5",
-  cobaltSoft: "#EAEEFC",
+  cobaltSoft: "#EEF2FE", // the shared --ui-accent-soft (was #EAEEFC, a near-identical second pale blue)
   cobaltDeep: "#26409E",
   teal: "#0C8C7D",
   tealSoft: "#E4F5F2",
@@ -29,7 +29,7 @@ export const HEX = {
 };
 
 // The CSS variable each colour lives in. The accent ones are the shared --ui-accent variables, which hold the same colours.
-const ACCENT_VARS = { cobalt: "--ui-accent", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent" };
+const ACCENT_VARS = { cobalt: "--ui-accent", cobaltSoft: "--ui-accent-soft", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent" };
 export const CSS_VARS = Object.fromEntries(Object.keys(HEX).map((k) => [k, ACCENT_VARS[k] || "--c-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())]));
 
 export const C = {

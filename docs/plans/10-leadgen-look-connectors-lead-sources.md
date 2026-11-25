@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 item 1 and the guard part of item 2 are done; the rest of Phase 4, and cost per source, are still to do. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, and the guard part of item 2, are done; the rest of Phase 4, and cost per source, are still to do. Details are in section 3.1.
 
 **Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
 - `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.
@@ -10,7 +10,15 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
 - Code that needs a real colour uses `HEX`: the chart attributes in Voice analytics and Social results do. Four `${C.x}33`-style alpha strings became `color-mix()`.
 - Nothing in the frontend writes these colours into outgoing HTML (e-mails are built by the backend), and no canvas uses them.
 - **Item 2, guard only:** `tokens.test.js` checks that the CSS and `HEX` agree. It also fails if any Leads file gains hard-coded hex colours: there are 681 in 58 files today, counted in `plugins/leadgen/hexBaseline.json`, to be moved onto tokens and the count lowered. The codemod itself isn't done.
-- **Item 3 needs decision 4:** whether Leads keeps purple `#8B5CF6` or uses the cobalt accent. Tying the accent to the brand (`--brand-accent`) comes with that.
+- **Item 3 (decision 4, left to me by the owner on 2026-11-25: "best professional looking application and good UX"): one accent across the product.**
+  - Buttons, links, selected items, focus rings and phone tab bars use the shared accent (`--ui-accent`, cobalt) in every app. People learn once what is clickable and what is selected.
+  - The app headers are white in Leads, Voice and Social alike (Leads used to be tinted purple and Social teal).
+  - Each app's own colour (Leads purple, Voice cobalt, Social teal) stays only where it tells the apps apart: its icon tile in the sidebar and its tile on the home screen.
+  - Leads' purple subscription gate, empty-state icon and saved-people icon now use the accent. `C.cobaltSoft` is now the shared `--ui-accent-soft` (`#EEF2FE`, was a near-identical `#EAEEFC`).
+  - **A brand's accent replaces the accent everywhere** (`brandLogic.accentShades`, set by `BrandContext`): the colour and its hover, soft, ink, focus-ring and dark-sidebar shades. A colour too light for white button text is darkened until it passes WCAG AA (4.5:1). FSB's brand sets no accent, so FSB looks the same.
+  - Purple left alone: the map's "legal" category colour, and the AI and developer settings screens outside Leads.
+  - Not checked in a browser yet.
+- The hard-coded colour count in Leads went from 681 to 676.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 
@@ -274,7 +282,7 @@ Phase 0 → Phase 1 (1–4) with Phase 4 (1, 3) in parallel → Phase 2 → Phas
 1. **Supplier names:** keep showing clients categories only ("Licensed business data", "Web scrape"), with supplier names for admins? (Recommended; it matches today's rule.)
 2. **BN file:** did its Website and Phone values come from Google Places? This decides whether they can be exported.
 3. **Connectors audience:** every account, admins only, or a paid-plan feature?
-4. **Leads accent:** keep purple `#8B5CF6`, or use the cobalt the buttons already use?
+4. ~~**Leads accent:** keep purple `#8B5CF6`, or use the cobalt the buttons already use?~~ **Decided 2026-11-25 (left to me): one cobalt accent across the product; each app's colour stays only in its icon and home tile; a brand's accent replaces it.**
 5. **Unbuilt connectors** (Experian, Market Location, CRMs, warehouses): show as "Coming soon", or hide until they're built?
 
 ## 5. Tests to add along the way

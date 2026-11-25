@@ -377,7 +377,7 @@ export default function LeadGenerationPlugin({
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
-        <PluginHeader assistant={false} accent="#8B5CF6" nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
+        <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
           {view === "find_leads" && !isLocked && !embedViews ? (
             <button
@@ -421,11 +421,11 @@ export default function LeadGenerationPlugin({
                   gap: 10,
                 }}
               >
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "#8B5CF6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: C.cobalt, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#5B21B6" }}>Subscription Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.cobaltDeep }}>Subscription Required</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Leads.</div>
                 </div>
               </div>

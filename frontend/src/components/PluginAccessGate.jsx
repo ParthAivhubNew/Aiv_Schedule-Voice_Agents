@@ -101,7 +101,7 @@ export function PluginAccessGate({
             }}
             style={{
               marginLeft: 8,
-              background: "#8B5CF6",
+              background: C.cobalt,
               color: "#fff",
               border: "none",
               borderRadius: 6,
@@ -143,7 +143,7 @@ export function PluginAccessGate({
                           width: 32,
                           height: 32,
                           borderRadius: 8,
-                          background: "#8B5CF6",
+                          background: C.cobalt,
                           color: "#fff",
                           display: "flex",
                           alignItems: "center",

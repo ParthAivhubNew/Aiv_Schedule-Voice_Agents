@@ -58,3 +58,16 @@ describe("wiring", () => {
     expect(src("../adminPortal/AdminApp.jsx")).toContain('id: "brands"');
   });
 });
+
+describe("a brand's accent is the app's accent (plan 10, Phase 4 item 3)", async () => {
+  const { accentShades, contrastWithWhite } = await import("./brandLogic");
+  it("gives the full set of shades, readable on buttons", () => {
+    const s = accentShades("#006972");
+    expect(s["--ui-accent"]).toBe("#006972");
+    expect(Object.keys(s)).toEqual(["--ui-accent", "--ui-accent-hover", "--ui-accent-soft", "--ui-accent-ink", "--ui-ring", "--ui-side-active-icon"]);
+    const light = accentShades("#FFE066"); // too light for white text: darkened until it reads
+    expect(contrastWithWhite(light["--ui-accent"])).toBeGreaterThanOrEqual(4.5);
+    expect(accentShades("not a colour")).toBe(null);
+    expect(contrastWithWhite("#3457D5")).toBeGreaterThan(4.5); // the default cobalt already reads
+  });
+});
