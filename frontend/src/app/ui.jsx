@@ -603,3 +603,25 @@ export function Banner({ tone = "info", icon: Icon, title, children, action, rol
     </div>
   );
 }
+
+// A small label: a status, a count, a source. The same look in the apps and the staff portal (the portal re-exports this one).
+const PILL_TONES = {
+  green: [C.green, C.greenSoft], red: [C.red, C.redSoft], amber: [C.amber, C.amberSoft], blue: [C.cobalt, C.cobaltSoft], slate: [C.slate, C.paperSoft],
+};
+PILL_TONES.good = PILL_TONES.green; PILL_TONES.bad = PILL_TONES.red; PILL_TONES.warn = PILL_TONES.amber; PILL_TONES.info = PILL_TONES.blue; PILL_TONES.muted = PILL_TONES.slate;
+export function Pill({ tone = "slate", children, title }) {
+  const [fg, bg] = PILL_TONES[tone] || PILL_TONES.slate;
+  return <span title={title} style={{ display: "inline-block", fontSize: 11.5, fontWeight: 600, color: fg, background: bg, padding: "2px 9px", borderRadius: 99 }}>{children}</span>;
+}
+
+// The short "done" message at the bottom of the screen after an action. Read aloud politely; nothing to press.
+export function Toast({ message }) {
+  if (!message) return null;
+  return (
+    <div role="status" aria-live="polite" className="app-toast"
+      style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999, maxWidth: "calc(100vw - 48px)", fontFamily: FONT_BODY }}>
+      {message}
+    </div>
+  );
+}

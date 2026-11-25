@@ -39,14 +39,8 @@ export function Table({ head, children, minWidth = 640 }) {
   );
 }
 
-export function Pill({ tone = "slate", children }) {
-  const tones = {
-    green: [C.green, C.greenSoft], red: [C.red, C.redSoft], amber: [C.amber, C.amberSoft],
-    blue: [C.cobalt, C.cobaltSoft], slate: [C.slate, C.paperSoft],
-  };
-  const [fg, bg] = tones[tone] || tones.slate;
-  return <span style={{ display: "inline-block", fontSize: 11.5, fontWeight: 600, color: fg, background: bg, padding: "2px 9px", borderRadius: 99 }}>{children}</span>;
-}
+// The shared label (app/ui.jsx), so the apps and the portal look the same.
+export { Pill } from "../app/ui";
 
 export function Note({ error, children }) {
   if (!children) return null;

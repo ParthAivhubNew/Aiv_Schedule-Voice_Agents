@@ -72,6 +72,7 @@ import { SavedPeople, SavedTabs, peopleOf } from "./SavedPeople";
 import { takeOpenLead } from "../../connections/ConnectedHome";
 import { openWorkflows } from "../../workflows/openWorkflows";
 import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
+import { Banner, Toast } from "../../app/ui";
 
 
 
@@ -410,25 +411,7 @@ export default function LeadGenerationPlugin({
         <div className={view === "find_leads" ? "app-page fl-fit" : "app-page"} style={view === "assistant" ? { flex: 1, minHeight: 0, overflow: "hidden", padding: 0, display: "flex" } : view === "outreach" && !wizard && !embedViews ? { flex: 1, minHeight: 0, overflow: "hidden", padding: "16px 24px 8px", display: "flex", flexDirection: "column" } : { flex: 1, overflowY: "auto", padding: "20px 24px 24px" }}>
           {isLocked && embedViews ? <EmbedPlanNotice app="Leads" /> : isLocked && view !== "subscription" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div
-                style={{
-                  background: "linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.03))",
-                  border: "1px solid rgba(139,92,246,0.30)",
-                  borderRadius: 14,
-                  padding: "18px 22px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: C.cobalt, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Lock size={16} />
-                </div>
-                <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.cobaltDeep }}>Subscription Required</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Leads.</div>
-                </div>
-              </div>
+              <Banner tone="info" icon={Lock} title="Subscription required">Choose a plan or buy a top-up below to unlock Leads.</Banner>
               <SubscriptionPage wallet="leadgen" back="/leadgen/subscription" />
             </div>
           ) : (
@@ -520,11 +503,7 @@ export default function LeadGenerationPlugin({
 
       {/* Toast */}
       <DialogHost />
-      {toastMessage && (
-        <div role="status" aria-live="polite" className="app-toast" style={{ position: "fixed", bottom: 24, right: 24, background: C.ink, color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", zIndex: 9999 }}>
-          {toastMessage}
-        </div>
-      )}
+      <Toast message={toastMessage} />
 
     </div>
   );

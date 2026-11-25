@@ -34,7 +34,14 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
 - **`EmptyState`:** icon, title, text and actions. Used by Saved companies and Saved people.
 - **`Banner`:** one notice with info, warn, bad, good and neutral tones on the status tokens. A "bad" one is an alert. The data-access notice (`AccessNotice`) uses it.
 - `app/constants.jsx` had its own copy of `C`. It now spreads `tokens.js` `C` and keeps only its two shadow values.
-- **Still to do in item 4:** `Pill` / `StatusPill` / `StatTile` / `Toast`, and the lock and plan notices in Leads, then the other apps' hand-built versions.
+- **Second part (2026-11-25):**
+  - **`Pill`** is now in `app/ui.jsx`, and the staff portal re-exports it, so a label looks the same in the apps and the portal. The Leads screens take it from the shared file instead of the staff portal's.
+  - **`Toast`** is shared too, and Leads uses it.
+  - The Leads **"Subscription required"** notice is a `Banner`. The leftover purple background is gone.
+- **Still to do in item 4:**
+  - `StatusPill` / `StatTile`.
+  - `Note` / `btn` / `card`, which Leads still takes from the staff portal.
+  - The Voice and Social screens' hand-built versions.
 - Tests: `app/uiBlocks.test.jsx`.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.

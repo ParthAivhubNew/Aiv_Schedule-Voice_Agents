@@ -2,7 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Building2, ShieldAlert } from "lucide-react";
-import { Banner, EmptyState, Tooltip } from "./ui";
+import { Banner, EmptyState, Pill, Toast, Tooltip } from "./ui";
+import { Pill as PortalPill } from "../adminPortal/ui";
 
 // Plan 10, Phase 4 item 4: one tooltip, one empty state and one notice for every screen.
 describe("shared building blocks", () => {
@@ -28,5 +29,12 @@ describe("shared building blocks", () => {
   it("a notice carries its meaning in words and icon, and a problem is an alert", () => {
     expect(renderToStaticMarkup(<Banner tone="warn" icon={ShieldAlert} title="Limited">Two areas only.</Banner>)).toMatch(/role="status".*Limited.*Two areas only/);
     expect(renderToStaticMarkup(<Banner tone="bad">It failed.</Banner>)).toContain('role="alert"');
+  });
+
+  it("a pill looks the same in the apps and the staff portal, and a toast is a polite status", () => {
+    expect(PortalPill).toBe(Pill);
+    expect(renderToStaticMarkup(<Pill tone="good">Ready</Pill>)).toBe(renderToStaticMarkup(<Pill tone="green">Ready</Pill>));
+    expect(renderToStaticMarkup(<Toast message="Saved." />)).toMatch(/role="status" aria-live="polite".*Saved\./);
+    expect(renderToStaticMarkup(<Toast message="" />)).toBe("");
   });
 });
