@@ -295,11 +295,18 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
   - for phones, emails and websites, how many have one and where they came from.
 
   It counts only the company's own saved companies, and it is hidden if it can't load.
-  - **Not done: cost per source.** A paid look-up (`EnrichmentAttempt`, the cost ledger) isn't linked to the saved company it was for, so cost can't be split by origin yet. The look-ups would need to record the lead id first.
+  - **Cost per source: done 2026-11-25.** The Lead sources card has a **Credits** column per origin, plus a line for credits spent on searches and on companies removed since. `source_catalog.credits_by_origin` works it out from what each Leads charge already names, so history counts too:
+    - a look-up for one company (`lead:<record>:<what>`, `deepsearch:<record>:<what>`) goes to that company's origin;
+    - a company check run (`chk_<run>:<step>`) is split evenly over the companies it checked (`checkids:<org>:<run>`);
+    - an e-mail (`email:<message>`) goes through its journey enrolment, else the saved company with that address;
+    - the rest (a search, the assistant) counts as "searches".
+
+    Credits are what the client paid. The cost to us stays in the staff cost ledger. On the test copy, Aivhub's 460 Leads credits split into 179 on companies from its own files, 23 on companies found with Find Leads, 171 on searches and 87 on companies removed since.
+  - **Defence in depth:** the summary's and the Connectors counts' queries now filter by company explicitly as well as through row-level security. A script reaching the database without the request's database role had seen every company's charges; requests never did.
   - The admin supplier view isn't needed: saved values now hold categories, not supplier names. Staff see suppliers on `GET /admin-api/connectors`.
 - Tests: `tests/test_connectors.py` (22 in total) and `leadSources.test.jsx`.
 
-**Still to do:** Phase 4 (look and feel), and cost per source once look-ups record the lead they were for.
+**Still to do:** the rest of Phase 4 (look and feel).
 
 ### Suggested order
 Phase 0 → Phase 1 (1–4) with Phase 4 (1, 3) in parallel → Phase 2 → Phase 3 → the rest of Phase 4.

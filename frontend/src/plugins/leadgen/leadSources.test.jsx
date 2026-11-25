@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../api/apiClient", () => ({ api: { getLeadSourcesSummary: () => Promise.resolve({}) } }));
 
-import { coverageLine, LeadSourcesCard } from "./LeadSources";
+import { coverageLine, creditsLine, LeadSourcesCard } from "./LeadSources";
 import { detailSources, WhereFrom } from "./WhereFrom";
 import { originOptions } from "./originLabels";
 
@@ -17,7 +17,8 @@ describe("lead sources", () => {
   });
 
   it("shows origins, how far each got, and where details came from", () => {
-    const data = { total: 4, origins: [{ key: "import", label: "Your file", count: 2, reached: { contacted: 2, interested: 1, meeting: 1, won: 1 } }],
+    const data = { total: 4, credits: { searches: 120, removed: 0, total: 160 },
+      origins: [{ key: "import", label: "Your file", count: 2, credits: 40, reached: { contacted: 2, interested: 1, meeting: 1, won: 1 } }],
       coverage: [{ field: "phone", with: 3, bySource: [{ label: "Your file", count: 2 }, { label: "Not recorded", count: 1 }] },
         { field: "email", with: 0, bySource: [] }, { field: "website", with: 0, bySource: [] }] };
     const html = renderToStaticMarkup(<LeadSourcesCard initialData={data} />);
@@ -25,6 +26,10 @@ describe("lead sources", () => {
     expect(html).toContain("Your file");
     expect(html).toContain("3 of 4 (75%)");
     expect(html).toContain("Your file 2, Not recorded 1");
+    expect(html).toContain(">Credits<");
+    expect(html).toContain("Also 120 on searches (Find Leads and the assistant).");
+    expect(creditsLine({ searches: 0, removed: 15 })).toBe("Also 15 on companies you&#x27;ve removed since.".replace("&#x27;", "'"));
+    expect(creditsLine(null)).toBe("");
     expect(coverageLine(0, 0)).toBe("0");
     expect(renderToStaticMarkup(<LeadSourcesCard initialData={{ total: 0, origins: [], coverage: [] }} />)).toBe("");
   });

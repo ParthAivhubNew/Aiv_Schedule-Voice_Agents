@@ -166,8 +166,11 @@ async def summary(db) -> Dict[str, Any]:
 
     from app.services import data_policy as DP
 
+    from app.core.tenancy import current_org
+
+    org = {"o": current_org()}  # row-level security keeps it to the company too; the filter says so plainly
     by: Dict[str, Dict[str, Any]] = {}
-    for src, stage, n in (await db.execute(text("SELECT coalesce(source, 'manual'), coalesce(stage, 'new'), count(*) FROM lead_accounts GROUP BY 1, 2"))).all():
+    for src, stage, n in (await db.execute(text("SELECT coalesce(source, 'manual'), coalesce(stage, 'new'), count(*) FROM lead_accounts WHERE org_id = :o GROUP BY 1, 2"), org)).all():
         key = origin_key(src)
         row = by.setdefault(key, {"key": key, "label": origin_label(key), "count": 0, "reached": {k: 0 for k in REACHED}})
         row["count"] += int(n)
@@ -177,7 +180,7 @@ async def summary(db) -> Dict[str, Any]:
     fields = ("phone", "email", "website")
     coverage: Dict[str, Dict[str, Any]] = {f: {"with": 0, "bySource": {}} for f in fields}
     total = 0
-    for phone, email, website, sources in (await db.execute(text("SELECT phone, email, website, field_sources FROM lead_accounts"))).all():
+    for phone, email, website, sources in (await db.execute(text("SELECT phone, email, website, field_sources FROM lead_accounts WHERE org_id = :o"), org)).all():
         total += 1
         values = {"phone": phone, "email": email, "website": website}
         for f in fields:
@@ -187,10 +190,86 @@ async def summary(db) -> Dict[str, Any]:
             label = PROVENANCE[src]["label"] if src in PROVENANCE else "Not recorded"
             coverage[f]["with"] += 1
             coverage[f]["bySource"][label] = coverage[f]["bySource"].get(label, 0) + 1
+    credits = await credits_by_origin(db)
+    for key, n in credits["byOrigin"].items():
+        row = by.setdefault(key, {"key": key, "label": origin_label(key), "count": 0, "reached": {k: 0 for k in REACHED}})
+        row["credits"] = n
+    for row in by.values():
+        row.setdefault("credits", 0)
     order = {o["key"]: i for i, o in enumerate(ORIGINS)}
     return {"total": total, "origins": sorted(by.values(), key=lambda r: (-r["count"], order.get(r["key"], 99))),
+            "credits": {"searches": credits["searches"], "removed": credits["removed"], "total": credits["total"]},
             "coverage": [{"field": f, "with": coverage[f]["with"], "bySource": sorted(({"label": k, "count": v} for k, v in coverage[f]["bySource"].items()),
                                                                                       key=lambda x: -x["count"])} for f in fields]}
+
+
+async def credits_by_origin(db) -> Dict[str, Any]:
+    """The Leads credits the company used, by how the companies they were spent on joined (plan 10, Phase 2: cost per source). Worked
+    out from what each charge already names (credit_ledger.ref):
+    - "lead:<company record>:<what>" and "deepsearch:<company record>:<what>": a look-up for one company;
+    - "chk_<run>:<step>": a company check run, split evenly over the companies it checked (kept under "checkids:<org>:<run>");
+    - "email:<message>": an e-mail, through its journey enrolment's saved company (or the company with that address);
+    - anything else ("lead:<random>": a search, the assistant): "searches", not tied to one company.
+    A company that was removed since counts under "removed". Row-level security keeps it to the company's own lines."""
+    from collections import defaultdict
+
+    from sqlalchemy import text
+
+    from app.core.tenancy import current_org
+    from app.services.credits import _get_doc
+
+    org = current_org()
+    leads = (await db.execute(text("SELECT id, source, business_record_id, lower(coalesce(email, '')) FROM lead_accounts WHERE org_id = :o"), {"o": org})).all()
+    by_lead = {lid: origin_key(src) for lid, src, _b, _e in leads}
+    by_biz: Dict[str, List[str]] = defaultdict(list)
+    by_email: Dict[str, str] = {}
+    for lid, src, biz, email in leads:
+        if biz:
+            by_biz[biz].append(origin_key(src))
+        if email:
+            by_email.setdefault(email, origin_key(src))
+    rows = (await db.execute(text("SELECT coalesce(ref, ''), -amount FROM credit_ledger WHERE org_id = :o AND kind = 'usage' AND wallet = 'leadgen' AND amount < 0"),
+                             {"o": org})).all()
+    out: Dict[str, float] = defaultdict(float)
+    searches = removed = 0.0
+    jobs: Dict[str, List[str]] = {}
+    mail_refs: Dict[str, float] = defaultdict(float)
+
+    def spread(origins: List[str], n: float) -> None:
+        nonlocal removed
+        if not origins:
+            removed += n
+            return
+        for o in origins:
+            out[o] += n / len(origins)
+
+    for ref, n in rows:
+        head, _, rest = ref.partition(":")
+        if head in ("lead", "deepsearch") and ":" in rest:
+            spread(by_biz.get(rest.split(":")[0], []), n)
+        elif head.startswith("chk_"):
+            if head not in jobs:
+                jobs[head] = list((await _get_doc(db, f"checkids:{org}:{head}")).get("ids") or [])
+            ids = jobs[head]
+            spread([by_lead[i] for i in ids if i in by_lead] if ids else [], n)
+        elif head == "email" and rest:
+            mail_refs[rest] += n
+        else:
+            searches += n
+    if mail_refs:
+        prefixes = list(mail_refs)
+        sent: Dict[str, Any] = {}
+        for i in range(0, len(prefixes), 500):
+            part = prefixes[i:i + 500]
+            for mid, lead_id, email in (await db.execute(text(
+                    "SELECT left(m.id, 16), e.lead_id, lower(coalesce(m.recipient_email, '')) FROM email_messages m "
+                    "LEFT JOIN email_enrollments e ON e.id = m.enrollment_id AND e.org_id = :o WHERE m.org_id = :o AND left(m.id, 16) = ANY(:p)"),
+                    {"p": part, "o": org})).all():
+                sent[mid] = by_lead.get(lead_id or "") or by_email.get(email)
+        for prefix, n in mail_refs.items():
+            spread([sent[prefix]] if sent.get(prefix) else [], n)
+    total = sum(n for _r, n in rows)
+    return {"byOrigin": {k: round(v) for k, v in out.items() if round(v)}, "searches": round(searches), "removed": round(removed), "total": round(total)}
 
 
 def catalog(staff: bool = False) -> Dict[str, Any]:

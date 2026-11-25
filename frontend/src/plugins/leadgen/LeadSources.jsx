@@ -16,6 +16,13 @@ export function coverageLine(withValue, total) {
   return `${num(withValue)} of ${num(total)} (${Math.round((withValue / total) * 100)}%)`;
 }
 
+// "Also 120 credits on searches and 15 on companies you removed since." from the summary's credits; "" when there are none.
+export function creditsLine(c) {
+  if (!c) return "";
+  const parts = [c.searches ? `${num(c.searches)} on searches (Find Leads and the assistant)` : "", c.removed ? `${num(c.removed)} on companies you've removed since` : ""].filter(Boolean);
+  return parts.length ? `Also ${parts.join(" and ")}.` : "";
+}
+
 export function LeadSourcesCard({ initialData = null }) {
   const [data, setData] = useState(initialData);
   const [error, setError] = useState("");
@@ -35,7 +42,7 @@ export function LeadSourcesCard({ initialData = null }) {
     <section aria-label="Lead sources" className="ui-card" style={{ ...text, padding: 16, display: "grid", gap: 14 }}>
       <div>
         <strong style={{ fontSize: 14, color: C.ink }}>Lead sources</strong>
-        <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>How your {num(data.total)} saved companies joined, how far each group got, and where their details came from.</div>
+        <div style={{ fontSize: 12.5, color: C.slate, marginTop: 2 }}>How your {num(data.total)} saved companies joined, how far each group got, what each group cost in credits, and where their details came from.</div>
       </div>
       <div className="ui-scroll" style={{ overflowX: "auto" }}>
         <table className="ui-table" style={{ minWidth: 460 }}>
@@ -44,6 +51,7 @@ export function LeadSourcesCard({ initialData = null }) {
               <th>Came from</th>
               <th style={{ textAlign: "right" }}>Companies</th>
               {STEPS.map(([k, label]) => <th key={k} style={{ textAlign: "right" }} title={`Reached ${label.toLowerCase()} or further`}>{label}</th>)}
+              <th style={{ textAlign: "right" }} title="Leads credits spent on look-ups, checks and e-mails for these companies">Credits</th>
             </tr>
           </thead>
           <tbody>
@@ -52,11 +60,13 @@ export function LeadSourcesCard({ initialData = null }) {
                 <td>{o.label}</td>
                 <td style={{ textAlign: "right" }}>{num(o.count)}</td>
                 {STEPS.map(([k]) => <td key={k} style={{ textAlign: "right", color: o.reached[k] ? C.textInk : C.slateLight }}>{num(o.reached[k])}</td>)}
+                <td style={{ textAlign: "right", color: o.credits ? C.textInk : C.slateLight }}>{num(o.credits)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {creditsLine(data.credits) ? <div style={{ fontSize: 12.5, color: C.slate }}>{creditsLine(data.credits)}</div> : null}
       <div style={{ display: "grid", gap: 6 }}>
         {data.coverage.map((f) => (
           <div key={f.field} style={{ fontSize: 13, lineHeight: 1.45 }}>

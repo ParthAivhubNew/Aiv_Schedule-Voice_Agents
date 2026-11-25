@@ -163,16 +163,20 @@ async def _stats(db) -> Dict[str, Any]:
 
 
 async def _leads_by_raw_key(db) -> Dict[str, int]:
-    """This company's saved companies, per source their shared company record holds (row-level security keeps it to the company)."""
+    """This company's saved companies, per source their shared company record holds (filtered to the company, as row-level security does too)."""
+    from app.core.tenancy import current_org
+
     rows = (await db.execute(text(
         "SELECT k, count(DISTINCT la.id) FROM lead_accounts la JOIN business_records br ON br.id = la.business_record_id, "
         "LATERAL jsonb_object_keys(CASE WHEN json_typeof(br.raw_data) = 'object' THEN br.raw_data::jsonb ELSE '{}'::jsonb END) k "
-        "WHERE la.business_record_id IS NOT NULL GROUP BY k"))).all()
+        "WHERE la.org_id = :o AND la.business_record_id IS NOT NULL GROUP BY k"), {"o": current_org()})).all()
     return {k: int(n) for k, n in rows}
 
 
 async def _leads_by_origin(db) -> Dict[str, int]:
-    rows = (await db.execute(text("SELECT coalesce(source, 'manual'), count(*) FROM lead_accounts GROUP BY 1"))).all()
+    from app.core.tenancy import current_org
+
+    rows = (await db.execute(text("SELECT coalesce(source, 'manual'), count(*) FROM lead_accounts WHERE org_id = :o GROUP BY 1"), {"o": current_org()})).all()
     out: Dict[str, int] = {}
     for k, n in rows:
         key = SC.origin_key(k)

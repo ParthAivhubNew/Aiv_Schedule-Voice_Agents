@@ -391,3 +391,28 @@ async def test_the_lead_sources_summary_counts_only_the_companys_own(db, client)
     assert rows["inbound_call"]["reached"]["meeting"] == 1 and rows["scout"]["reached"]["contacted"] == 0
     phones = next(f for f in body["coverage"] if f["field"] == "phone")
     assert phones["with"] == 3 and {s["label"]: s["count"] for s in phones["bySource"]} == {"Your file": 1, "Official register": 1, "Not recorded": 1}
+
+
+async def test_credits_are_counted_by_where_the_companies_came_from(db, client):
+    """Cost per source: each charge goes to the origin of the company it was for, from what the charge already names."""
+    from app.core.tenancy import org_scope
+    from app.models.models import BusinessRecord, CreditEntry, EmailMessage, LeadAccount
+    from app.services.credits import _put_doc
+
+    db.add_all([BusinessRecord(id="br_a", identity_hash="ha", name="A Ltd"), BusinessRecord(id="br_b", identity_hash="hb", name="B Ltd")])
+    await db.commit()
+    with org_scope("org_default"):
+        db.add_all([LeadAccount(id="la_a", org_id="org_default", name="A Ltd", source="import", business_record_id="br_a"),
+                    LeadAccount(id="la_b", org_id="org_default", name="B Ltd", source="scout", business_record_id="br_b"),
+                    LeadAccount(id="la_c", org_id="org_default", name="C Ltd", source="manual", email="ann@c.test")])
+        def use(ref, n):
+            return CreditEntry(id=f"cr_{ref[:20]}", kind="usage", wallet="leadgen", item="lead_lookup", quantity=1, amount=-n, ref=ref)
+        db.add_all([use("lead:br_a:email", 5), use("deepsearch:br_b:website", 5), use("chk_job1:web", 10), use("email:msg_0123456789ab", 1),
+                    use("lead:0123456789abcdef", 20), use("lead:br_gone:phone", 3)])
+        db.add(EmailMessage(id="msg_0123456789abcdef-x", recipient_email="ann@c.test"))
+        await _put_doc(db, "checkids:org_default:chk_job1", {"ids": ["la_a", "la_b"]})
+        await db.commit()
+    body = (await client.get("/api/leadgen/sources/summary")).json()
+    credits = {o["key"]: o["credits"] for o in body["origins"]}
+    assert credits == {"import": 10, "scout": 10, "manual": 1}  # the check run is split over the two companies it checked
+    assert body["credits"] == {"searches": 20, "removed": 3, "total": 44}
