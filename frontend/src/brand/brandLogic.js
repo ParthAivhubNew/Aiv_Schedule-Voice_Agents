@@ -5,7 +5,7 @@ export const DEFAULT_SIGNIN = { password: true, google: true, microsoft: true };
 // What the app uses when there is no brand: exactly today's look.
 export const NO_BRAND = {
   active: false, name: "", shortName: "", logoUrl: "", accent: "", poweredBy: false, hideCredits: false,
-  standingExclusions: false, memberSuppression: false, signin: DEFAULT_SIGNIN, accountLink: null,
+  standingExclusions: false, memberSuppression: false, signin: DEFAULT_SIGNIN, accountLink: null, social: null,
 };
 
 // The brand's own account link for the sidebar (theme.accountLink: {url, label}), or null. Only an https address is used.
@@ -65,6 +65,7 @@ export function defaultPolicy() {
     restricted_sources: { google: false, apollo: false, search_engines: false },
     signin: { ...DEFAULT_SIGNIN },
     screening: { block_unscreened: false },
+    social: { approver: "anyone", networks: [], ai_images: true, ai_video: true },
   };
 }
 
@@ -79,6 +80,7 @@ export function withPolicyDefaults(policy) {
     restricted_sources: { ...d.restricted_sources, ...(p.restricted_sources || {}) },
     signin: { ...d.signin, ...(p.signin || {}) },
     screening: { block_unscreened: Boolean(p.screening?.block_unscreened) },
+    social: { ...d.social, ...(p.social || {}), networks: Array.isArray(p.social?.networks) ? p.social.networks : [] },
   };
 }
 
@@ -99,7 +101,8 @@ export function resolveBrand({ host, me, policy } = {}) {
   const signedIn = Boolean(me && me.name);
   const standing = Boolean(pol.standingExclusions || (signedIn && me.standingExclusions));
   const memberSuppression = Boolean(pol.memberSuppression);
-  if (!look) return { ...NO_BRAND, standingExclusions: standing, memberSuppression };
+  const social = pol.social && typeof pol.social === "object" ? pol.social : null; // the company's Social rules (GET /org/policy)
+  if (!look) return { ...NO_BRAND, standingExclusions: standing, memberSuppression, social };
   return {
     active: true,
     name: look.displayName || look.name,
@@ -112,5 +115,6 @@ export function resolveBrand({ host, me, policy } = {}) {
     memberSuppression,
     signin: { ...DEFAULT_SIGNIN, ...(look.signin || {}) },
     accountLink: signedIn ? accountLinkOf(look.theme) : null,
+    social,
   };
 }

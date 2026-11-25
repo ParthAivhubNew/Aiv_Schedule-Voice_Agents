@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useBrand } from "../../brand/BrandContext";
+import { allowedChannels, networksLimited, RULE_NOTES } from "./socialRulesUi";
 import { CalendarClock, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
@@ -135,6 +137,7 @@ function statusPill(s) {
 }
 
 export function ScheduleWindow({ open, onClose, onChanged }) {
+  const { social } = useBrand(); // the networks the company's rules allow (socialRulesUi.js)
   const org = useOrg();
   const today = orgToday(org.timezone);
   const [list, setList] = useState([]);
@@ -488,7 +491,8 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                     )
                   ) : null}
                   <Field label="Channels" hint="With more than one, each date gets the same post on every channel.">
-                    <Chips options={CHANNELS} value={form.channels} onChange={(v) => set({ channels: v })} />
+                    <Chips options={allowedChannels(CHANNELS, social)} value={form.channels} onChange={(v) => set({ channels: v })} />
+                    {networksLimited(social) ? <div style={{ fontSize: 12, color: C.slate, marginTop: 4 }}>{RULE_NOTES.networks}</div> : null}
                   </Field>
                   <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: C.ink, cursor: "pointer" }}>
                     <input type="checkbox" checked={form.makeImage} onChange={(e) => set({ makeImage: e.target.checked })} />

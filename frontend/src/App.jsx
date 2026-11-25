@@ -674,6 +674,12 @@ function MainApp({ onSignedOut }) {
     window.addEventListener("aivhub:open-calendar-settings", open);
     return () => window.removeEventListener("aivhub:open-calendar-settings", open);
   }, []);
+  // Lets any screen open Users, roles, numbers & credits on a tab, e.g. Find Leads' "See rules" opens Company rules.
+  useEffect(() => {
+    const open = (ev) => { setTeamInitialTab((ev && ev.detail) || "users"); setShowTeamModal(true); };
+    window.addEventListener("aivhub:open-team-settings", open);
+    return () => window.removeEventListener("aivhub:open-team-settings", open);
+  }, []);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showDeveloperKeysModal, setShowDeveloperKeysModal] = useState(false);
   // "Connections" (how Leads, Voice and Social work together) opens from the menu and from any screen that links to it.

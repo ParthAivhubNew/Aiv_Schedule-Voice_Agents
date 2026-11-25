@@ -434,7 +434,7 @@ export default function LeadGenerationPlugin({
           ) : (
             <>
           {(findOpened || view === "find_leads") && (
-            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView access={access} store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} onOpenCompany={openCompany} /></div>
+            <div className="fl-host" style={view === "find_leads" ? undefined : { display: "none" }}><FindLeadsView access={access} isAdmin={isAdminOperator(operator)} store={store} listsStore={listsStore} onGo={goTo} incoming={incoming} importAsk={importAsk} onAskAssistant={() => setAssistantOpen(true)} onOpenCompany={openCompany} /></div>
           )}
 
 

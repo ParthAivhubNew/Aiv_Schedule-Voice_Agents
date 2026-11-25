@@ -143,7 +143,13 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
 
       <div style={card}>
         {sectionTitle("Rules")}
-        <Toggle label="FSB exclusion rules" help="Leaves out the kinds of company the membership body excludes, in every search." checked={policy.exclusions.fsb} disabled={off} onChange={(v) => setP("exclusions", "fsb", v)} />
+        <Toggle label="Standard B2B exclusions (FSB's rules)" help="Leaves out charities, public bodies, schools and the other kinds of company FSB excludes, in every search." checked={policy.exclusions.fsb} disabled={off}
+          onChange={(v) => setPolicy((p) => {
+            const n = withPolicyDefaults(p);
+            const sets = (n.exclusions.sets || []).filter((x) => x !== "standard_b2b");
+            n.exclusions = { ...n.exclusions, fsb: v, sets: v ? [...sets, "standard_b2b"] : sets }; // the rule set and its old flag stay in step
+            return n;
+          })} />
         <Toggle label="Locked: users cannot switch it off" help="Customers see a Standing exclusions note and have no switch." checked={policy.exclusions.locked} disabled={off} onChange={(v) => setP("exclusions", "locked", v)} />
         <Field label="Extra exclusions" help="Separate with commas or new lines. A SIC code (85200), a word (church), a postcode area (BN45) or a company number (01234567).">
           <textarea style={{ ...input, width: "100%", minHeight: 70 }} value={extra} disabled={off} onChange={(e) => setExtra(e.target.value)} />
@@ -156,7 +162,20 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
         {[["google", "Google", "Turn off Google-sourced details for this brand."], ["apollo", "Apollo", "Turn off Apollo-sourced details for this brand."], ["search_engines", "Search engines", "Turn off search-engine lookups for this brand."]].map(([k, l, h]) => (
           <Toggle key={k} label={l} help={h} checked={policy.restricted_sources[k]} disabled={off} onChange={(v) => setP("restricted_sources", k, v)} />
         ))}
-        <Toggle label="Block phone numbers that are not cleared by the TPS and CTPS check" help="When on, numbers that have not been checked, or are on either register, are left out of calls and exports for this brand." checked={policy.screening.block_unscreened} disabled={off} onChange={(v) => setP("screening", "block_unscreened", v)} />
+        <Toggle label="Block phone numbers that are not cleared by the TPS and CTPS check" help="When on, numbers that have not been checked, or are on either register, are left out of exports for this brand. Calls to them get a warning that names this rule (they are not blocked)." checked={policy.screening.block_unscreened} disabled={off} onChange={(v) => setP("screening", "block_unscreened", v)} />
+        <div style={{ fontSize: 13, fontWeight: 600, margin: "10px 0 4px" }}>Social posts</div>
+        <Toggle label="Only admins approve posts" help="Only a company admin can approve a post or publish it straight away. The approval e-mail's links then work only for an admin's address." checked={policy.social.approver === "admin"} disabled={off} onChange={(v) => setP("social", "approver", v ? "admin" : "anyone")} />
+        <div style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 4px" }}>Networks the brand's companies may post to (none ticked: every network)</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12.5, marginBottom: 6 }}>
+          {[["linkedin", "LinkedIn"], ["x", "X"], ["facebook", "Facebook"], ["instagram", "Instagram"], ["threads", "Threads"], ["reddit", "Reddit"]].map(([k, l]) => (
+            <label key={k} style={{ display: "flex", gap: 5 }}>
+              <input type="checkbox" disabled={off} checked={policy.social.networks.includes(k)}
+                onChange={(e) => setP("social", "networks", e.target.checked ? [...new Set([...policy.social.networks, k])] : policy.social.networks.filter((x) => x !== k))} /> {l}
+            </label>
+          ))}
+        </div>
+        <Toggle label="Allow AI pictures" help="Off: posts are written without AI pictures and the Generate image button is hidden." checked={policy.social.ai_images !== false} disabled={off} onChange={(v) => setP("social", "ai_images", v)} />
+        <Toggle label="Allow AI video" help="Off: AI video can't be made." checked={policy.social.ai_video !== false} disabled={off} onChange={(v) => setP("social", "ai_video", v)} />
         <div style={{ fontSize: 13, fontWeight: 600, margin: "10px 0 4px" }}>Allowed sign-in methods</div>
         {[["password", "Email and password", "People of the brand sign in with a password."], ["google", "Google", "Shows the Google button on the sign-in page."], ["microsoft", "Microsoft", "Shows the Microsoft button when it is set up."]].map(([k, l, h]) => (
           <Toggle key={k} label={l} help={h} checked={policy.signin[k]} disabled={off} onChange={(v) => setP("signin", k, v)} />

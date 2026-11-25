@@ -198,6 +198,11 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25 (notices):** F2 is done, and F4 is done in part.
+- **Find Leads:** the "Standing exclusions on" chip has a **See rules** link for admins. It opens Team settings → Company rules through a new app-wide event, `aivhub:open-team-settings`.
+- **Social:** the network pickers (post editor, posting accounts, schedules) offer only the networks the rules allow, with a note. "Generate image" and "Draw from this prompt" are hidden when AI pictures are off. AI video says the rules don't allow it. The brand context carries `social` from `GET /org/policy` (`plugins/scheduler/socialRulesUi.js`).
+- **F4, in part:** the staff Brands editor now edits the brand's Social rules, keeps them when other rules are saved (before this they were dropped on save), and keeps the Standard B2B set and its old flag in step. The TPS wording now says calls are warned, not blocked. The editor is still its own component and doesn't reuse the Company rules screen.
+
 **Status, 2026-11-25 (demos):** step 7 B7 is done on the branch: **admin portal → Demo organisations** (`services/demo_orgs.py`).
 - Staff enter a company, its admin's name and e-mail, 1–90 days, an optional brand, and whether to start with the Standard B2B exclusions as a filter.
 - The company is made exactly as sign-up makes one, with no credits. Its admin gets no password: an invite link (the reset-password link, valid 7 days, once only) is shown to staff once and can be e-mailed.

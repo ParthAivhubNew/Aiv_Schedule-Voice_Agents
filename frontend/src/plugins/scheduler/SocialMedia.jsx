@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useBrand } from "../../brand/BrandContext";
+import { aiVideoOff, RULE_NOTES } from "./socialRulesUi";
 import { Loader } from "../../app/Loader";
 import { createPortal } from "react-dom";
 import { Check, Film, Image as ImageIcon, Link2, Search, Trash2, Upload, X } from "lucide-react";
@@ -350,6 +352,7 @@ const SHAPES = [["9:16", "Tall", "Reels, Stories, Shorts"], ["16:9", "Wide", "Li
 // Make a short clip with the video AI. It takes a few minutes; the window can be closed and the clip
 // still lands in the media library (and on the post, when made from one).
 export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, showToast }) {
+  const { social } = useBrand(); // the company's rule on AI video (socialRulesUi.js)
   const [info, setInfo] = useState(null);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [shape, setShape] = useState("9:16");
@@ -458,7 +461,7 @@ export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, 
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
                 <div style={{ ...muted, flex: 1, minWidth: 180 }}>{info.credits} credits per clip, charged only if it is made.</div>
                 <button type="button" style={btn} onClick={onClose}>Cancel</button>
-                <button type="button" style={{ ...primary, background: C.teal, borderColor: C.teal }} disabled={busy || prompt.trim().length < 10} onClick={start}>
+                <button type="button" style={{ ...primary, background: C.teal, borderColor: C.teal }} disabled={busy || prompt.trim().length < 10 || aiVideoOff(social)} onClick={start} title={aiVideoOff(social) ? RULE_NOTES.video : undefined}>
                   <Film size={14} /> {busy ? "Starting…" : "Make the clip"}
                 </button>
               </div>

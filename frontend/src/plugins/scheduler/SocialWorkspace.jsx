@@ -1,5 +1,7 @@
 import React, { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "../../app/Loader";
+import { useBrand } from "../../brand/BrandContext";
+import { aiImagesOff, allowedChannels, networksLimited, RULE_NOTES } from "./socialRulesUi";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../leadgen/AssistantPanel";
 import { WORKFLOWS_HEADER, openWorkflows, workflowsOpenNow } from "../../workflows/openWorkflows";
 import { createPortal } from "react-dom";
@@ -1056,6 +1058,7 @@ function ApprovalsBoard({
   onRefresh,
   asPage = false,
 }) {
+  const { social } = useBrand(); // the company's Social rules: networks and AI pictures (socialRulesUi.js)
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
     const map = {};
@@ -1720,7 +1723,7 @@ function ApprovalsBoard({
                             onChange={(e) => saveField({ channel: e.target.value })}
                             style={{ fontWeight: 700, fontSize: 13, color: C.ink, border: "none", background: "transparent", padding: 0, fontFamily: FONT_BODY, cursor: "pointer" }}
                           >
-                            {CHANNELS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            {CHANNELS.filter((c) => allowedChannels(CHANNELS, social).includes(c) || c.id === String(expandedPost.channel || "linkedin").toLowerCase()).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                           </select>
                         ) : (
                           <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{chMeta.label}</div>
@@ -2034,8 +2037,10 @@ function ApprovalsBoard({
                           <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.4, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
                             Say the look, shape or quality in the prompt, for example "cinematic", "square" or "high quality". Otherwise your picture settings apply.
                           </div>
+                          {aiImagesOff(social) ? <div style={{ fontSize: 11.5, color: C.slate, lineHeight: 1.4 }}>{RULE_NOTES.images}</div> : null}
                           <button
                             type="button"
+                            hidden={aiImagesOff(social)}
                             disabled={imageBusy === expandedPost.id || !promptDraft.trim()}
                             onClick={async () => {
                               if (promptDraft !== (expandedPost.imagePrompt || "") && !(await saveField({ imagePrompt: promptDraft }))) return;
@@ -2048,7 +2053,7 @@ function ApprovalsBoard({
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
                           </button>
-                          <button type="button" onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
+                          <button type="button" hidden={aiImagesOff(social)} onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
                               : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
@@ -2695,6 +2700,7 @@ function SimpleAccountsPage({
   onExtrasChange,
   onOpenTheme,
 }) {
+  const { social } = useBrand();
   // Whether each network's shared app (Client ID/Secret) is set up -- read-only here. Staff set
   // that up once for the whole platform from the owner portal's Social OAuth Apps screen;
   // regular organisations only ever see this yes/no status, never the credentials themselves.
@@ -2735,8 +2741,9 @@ function SimpleAccountsPage({
         </div>
 
         <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 10 }}>Posting accounts</div>
+        {networksLimited(social) ? <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 10 }}>{RULE_NOTES.networks}</div> : null}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 22 }}>
-          {CHANNELS.map((ch) => {
+          {allowedChannels(CHANNELS, social).map((ch) => {
             const app = appFor(ch.id);
             const rows = accountsFor(ch.id);
             const liveCount = rows.filter((a) => a.status === "connected").length;

@@ -387,7 +387,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport }) {
+function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport, isAdmin = false }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -1209,7 +1209,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
             <Upload size={14} /> Import
           </button>
         ) : null}
-        <StandingChip />
+        <StandingChip canSeeRules={isAdmin} />
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
@@ -1644,7 +1644,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
   );
 }
 
-export function FindLeadsView({ access, store, listsStore, onGo, incoming, onAskAssistant, importAsk, onOpenCompany }) {
+export function FindLeadsView({ access, store, listsStore, onGo, incoming, onAskAssistant, importAsk, onOpenCompany, isAdmin = false }) {
   const [sub, setSub] = useState("search");
   useEffect(() => { if (importAsk) setSub("import"); }, [importAsk]);
   return (
@@ -1654,7 +1654,7 @@ export function FindLeadsView({ access, store, listsStore, onGo, incoming, onAsk
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch access={access} store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch access={access} isAdmin={isAdmin} store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

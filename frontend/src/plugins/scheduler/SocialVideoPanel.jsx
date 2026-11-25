@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useBrand } from "../../brand/BrandContext";
+import { aiVideoOff, RULE_NOTES } from "./socialRulesUi";
 import { Loader } from "../../app/Loader";
 import { Film, Sparkles } from "lucide-react";
 import { api } from "../../api/apiClient";
@@ -17,6 +19,7 @@ const secBtn = {
 const live = (j) => j && (j.state === "queued" || j.state === "making");
 
 export function VideoPanel({ post, canEdit, Chat, showToast, onRefresh }) {
+  const { social } = useBrand(); // the company's rule on AI video (socialRulesUi.js)
   const [info, setInfo] = useState(null);
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -71,6 +74,7 @@ export function VideoPanel({ post, canEdit, Chat, showToast, onRefresh }) {
   };
 
   if (!info) return <Loader compact label="Loading" />;
+  if (aiVideoOff(social)) return <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>{RULE_NOTES.video}</div>;
   if (!info.available) {
     return <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>Video making is not set up for your account yet. Ask Outreach support to switch it on.</div>;
   }
@@ -100,7 +104,7 @@ export function VideoPanel({ post, canEdit, Chat, showToast, onRefresh }) {
         <div style={{ fontSize: 11, color: C.slate, lineHeight: 1.4, background: HUB_PAPER, borderRadius: 8, padding: "6px 8px" }}>
           Say the shape or length in the prompt, for example "wide", "reel" or "8 seconds". Otherwise it is tall and about 5 seconds.
         </div>
-        <button type="button" disabled={!canEdit || busy || making || prompt.trim().length < 10} onClick={() => start(prompt)} style={secBtn}>
+        <button type="button" disabled={!canEdit || busy || making || prompt.trim().length < 10 || aiVideoOff(social)} onClick={() => start(prompt)} style={secBtn}>
           <Sparkles size={14} /> {busy ? "Starting…" : "Make video from this prompt"}
         </button>
         <div style={{ fontSize: 11, color: C.slate, textAlign: "center" }}>
