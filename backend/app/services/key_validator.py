@@ -129,6 +129,16 @@ async def _do_validate_api_key(
     if not api_key and not is_self_hosted(base_url):
         return {"valid": False, "error": "API Key cannot be empty."}
 
+    # A provider file in app/providers has its own real test (the vendor's cheapest call). It runs whatever the screen asked for:
+    # before this, e-mail finders fell through to the generic check, which accepted any key of three characters or more.
+    from app.providers import registry
+
+    known = registry.get(provider) or registry.match_key_name(provider)
+    if known is not None:
+        out = await registry.test_key(known.manifest.id, api_key)
+        return {"valid": bool(out["ok"]), "provider": known.manifest.name, **({"details": out["detail"]} if out["ok"] else {"error": out["detail"]}),
+                **({"balance": out["balance"], "unit": out.get("unit", "")} if "balance" in out else {})}
+
     prov_type = identify_provider(provider)
     timeout = httpx.Timeout(8.0, connect=5.0)
 

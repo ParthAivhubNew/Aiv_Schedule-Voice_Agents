@@ -10,7 +10,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Set
 
-NON_EXPORTABLE = frozenset({"google_places", "apollo"})
+def _non_exportable() -> frozenset:
+    """Sources whose values never leave the app in an export: every registered provider whose licence says so (app/providers, today
+    Apollo), plus Google Places, which is not a provider file yet."""
+    try:
+        from app.providers import registry
+
+        return frozenset({"google_places"} | registry.non_exportable())
+    except Exception:  # the registry must never make an export rule disappear
+        return frozenset({"google_places", "apollo"})
+
+
+NON_EXPORTABLE = _non_exportable()
 FIELDS = ("phone", "website", "email")
 
 TOOLTIP = "From Google. You can see and use it in Outreach, but it can't be downloaded."

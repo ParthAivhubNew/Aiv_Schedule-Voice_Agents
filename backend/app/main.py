@@ -637,6 +637,19 @@ async def lifespan(app: FastAPI):
             await create_view(conn)
     except Exception as view_err:
         logger.warning(f"[cost ledger] view not made: {view_err}")
+    try:  # every provider file with a known price gets its Model Pricing row once (app/providers/registry.py); staff prices always win
+        from app.core.tenancy import system_scope
+        from app.database import AsyncSessionLocal
+        from app.providers import registry as provider_registry
+
+        with system_scope():
+            async with AsyncSessionLocal() as s:
+                if await provider_registry.seed_prices(s):
+                    await s.commit()
+        for where, why in provider_registry.problems().items():
+            logger.warning(f"[providers] {where} left out: {why}")
+    except Exception as reg_err:
+        logger.warning(f"[providers] prices not seeded: {reg_err}")
     await seed_database()
     # Organisation isolation: org_id columns, per-org keys, app role and RLS policies.
     from app.core.tenancy import ensure_tenancy

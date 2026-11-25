@@ -73,9 +73,15 @@ def classify_pecr_entity(company_name: str, email: str = "") -> str:
     return "unknown"
 
 
-PROVIDERS = ["icypeas", "leadmagic", "hunter", "apollo", "findymail", "bettercontact"]  # cheapest per call first (provider_prices: 0.01, 0.02, 0.03, 0.03, 0.05 USD); Apollo's people database is large, so it comes before the last two
+# The e-mail finders are provider files (app/providers/email/*.py, app/providers/company/apollo.py), found by the registry: their
+# manifests give the default order (cheapest first; Apollo's large people database before the last two), the labels and the search.
+# A new finder is one new file there; nothing here changes.
+from app.providers import registry as _registry  # noqa: E402
+from app.providers.base import ProviderError, check_response  # noqa: E402,F401  (ProviderError: other modules import it from here)
+
+PROVIDERS = [p.manifest.id for p in _registry.email_finders()]
 MAX_PROVIDERS_ASKED = 4  # a person nobody found costs at most four provider calls, never the whole chain. Two was too few: a person the first two did not know was never looked up by the rest, and that "nobody found" was then remembered
-LABELS = {"apollo": "Apollo", "icypeas": "Icypeas", "hunter": "Hunter", "findymail": "Findymail", "leadmagic": "LeadMagic", "bettercontact": "BetterContact"}
+LABELS = {p.manifest.id: p.manifest.name for p in _registry.email_finders()}
 # What one successful search costs us on each provider lives in the provider_prices table now
 # (Platform Keys -> Model Pricing), not here -- see app.services.ai_pricing.price_per_call.
 
@@ -85,10 +91,6 @@ LABELS = {"apollo": "Apollo", "icypeas": "Icypeas", "hunter": "Hunter", "findyma
 # real per-call costs from.
 OTHER_VENDOR_LABELS = {"deepseek_search": "DeepSeek (web search)", "deepseek_fetch": "DeepSeek (page fetch)", "tavily": "Tavily (web search)", "telnyx_lookup": "Telnyx (number lookup)"}
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
-
-
-class ProviderError(RuntimeError):
-    """The provider failed (bad key, out of credits, down); the next one is tried."""
 
 
 async def finder_keys() -> Dict[str, str]:
@@ -105,8 +107,8 @@ async def finder_keys() -> Dict[str, str]:
             async with AsyncSessionLocal() as s:
                 rows = (await s.execute(select(Connection).where(Connection.group_name == "Email Finder"))).scalars().all()
         for c in rows:
-            name = re.sub(r"[^a-z]", "", (c.name or "").lower())
-            prov = next((p for p in PROVIDERS if p in name), "")
+            match = _registry.match_key_name(c.name or "", "Email Finder") or _registry.match_key_name(c.name or "")
+            prov = match.manifest.id if match is not None and match.manifest.id in PROVIDERS else ""
             if prov and prov not in found:
                 key = config_get_secret(open_config(c.config if isinstance(c.config, dict) else {}), "api_key", "auth_token")
                 if key:
@@ -150,132 +152,12 @@ async def finder_order() -> List[str]:
 
 
 def _check(res: httpx.Response, provider: str) -> Any:
-    if res.status_code in (401, 403):
-        raise ProviderError(f"{LABELS[provider]}: key rejected ({res.status_code}).")
-    if res.status_code == 402:
-        raise ProviderError(f"{LABELS[provider]}: out of credits.")
-    if res.status_code == 429:
-        raise ProviderError(f"{LABELS[provider]}: rate limited.")
-    if res.status_code == 404:
-        return {}
-    if res.status_code >= 400:
-        raise ProviderError(f"{LABELS[provider]}: HTTP {res.status_code} {res.text[:160]}")
-    try:
-        return res.json()
-    except Exception:
-        raise ProviderError(f"{LABELS[provider]}: unreadable answer.")
+    """Kept for older callers: the shared answer check (app/providers/base.check_response) with the provider's label."""
+    return check_response(res, LABELS.get(provider, provider))
 
 
-# Each adapter: (key, person) -> (email, status). status is "verified", "catch_all" or "" (none).
-async def _hunter(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    params = {"first_name": p["first_name"], "last_name": p["last_name"], "api_key": key}
-    params["domain" if p["domain"] else "company"] = p["domain"] or p["company"]
-    data = (_check(await client.get("https://api.hunter.io/v2/email-finder", params=params), "hunter") or {}).get("data") or {}
-    email_addr = data.get("email") or ""
-    status = ((data.get("verification") or {}).get("status") or "").lower()
-    if email_addr and (status == "valid" or (not status and int(data.get("score") or 0) >= 90)):
-        return email_addr, "verified"
-    if email_addr and status == "accept_all":
-        return email_addr, "catch_all"
-    return "", ""
-
-
-async def _findymail(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    body = {"name": f"{p['first_name']} {p['last_name']}".strip(), "domain": p["domain"] or p["company"]}
-    res = await client.post("https://app.findymail.com/api/search/name", json=body,
-                            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
-    contact = (_check(res, "findymail") or {}).get("contact") or {}
-    email_addr = contact.get("email") or ""
-    return (email_addr, "verified") if email_addr else ("", "")  # Findymail returns verified emails only
-
-
-async def _leadmagic(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    body = {"first_name": p["first_name"], "last_name": p["last_name"], "domain": p["domain"], "company_name": p["company"]}
-    res = await client.post("https://api.leadmagic.io/email-finder", json=body, headers={"X-API-Key": key})
-    data = _check(res, "leadmagic") or {}
-    email_addr = data.get("email") or ""
-    status = str(data.get("status") or data.get("email_status") or "").lower()
-    if email_addr and status in ("valid", "verified", "deliverable"):
-        return email_addr, "verified"
-    if email_addr and "catch" in status:
-        return email_addr, "catch_all"
-    return "", ""
-
-
-async def _icypeas(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    headers = {"Authorization": key, "Content-Type": "application/json"}
-    body = {"firstname": p["first_name"], "lastname": p["last_name"], "domainOrCompany": p["domain"] or p["company"]}
-    started = _check(await client.post("https://app.icypeas.com/api/email-search", json=body, headers=headers), "icypeas") or {}
-    search_id = ((started.get("item") or {}).get("_id")) or ""
-    if not search_id:
-        raise ProviderError("Icypeas: search not started.")
-    for _ in range(10):  # the search runs in the background; it usually finishes in a few seconds
-        await asyncio.sleep(1.5)
-        read = _check(await client.post("https://app.icypeas.com/api/bulk-single-searchs/read",
-                                         json={"id": search_id}, headers=headers), "icypeas") or {}
-        item = (read.get("items") or [{}])[0]
-        if item.get("status") in ("DEBITED", "FOUND", "NOT_FOUND", "DEBITED_NOT_FOUND", "BAD_INPUT", "INSUFFICIENT_FUNDS", "ABORTED"):
-            emails = ((item.get("results") or {}).get("emails")) or []
-            best = next((e for e in emails if str(e.get("certainty", "")).lower() in ("ultra_sure", "sure")), None)
-            if best and best.get("email"):
-                return best["email"], "verified"
-            return "", ""
-    return "", ""
-
-
-async def _bettercontact(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    headers = {"X-API-Key": key, "Content-Type": "application/json"}
-    body = {"data": [{"first_name": p["first_name"], "last_name": p["last_name"], "company": p["company"],
-                      "company_domain": p["domain"]}], "enrich_email_address": True, "enrich_phone_number": False}
-    started = _check(await client.post("https://app.bettercontact.rocks/api/v2/async", json=body, headers=headers), "bettercontact") or {}
-    req_id = started.get("id") or ""
-    if not req_id:
-        raise ProviderError("BetterContact: request not started.")
-    for _ in range(12):  # BetterContact runs its own waterfall; allow it up to ~30 seconds
-        await asyncio.sleep(2.5)
-        got = _check(await client.get(f"https://app.bettercontact.rocks/api/v2/async/{req_id}", headers=headers), "bettercontact") or {}
-        if str(got.get("status") or "").lower() in ("terminated", "completed", "done"):
-            row = (got.get("data") or [{}])[0]
-            email_addr = row.get("contact_email_address") or ""
-            status = str(row.get("contact_email_address_status") or "").lower()
-            if email_addr and status in ("deliverable", "valid", "verified"):
-                return email_addr, "verified"
-            if email_addr and "catch" in status:
-                return email_addr, "catch_all"
-            return "", ""
-    return "", ""
-
-
-async def _apollo(client: httpx.AsyncClient, key: str, p: Dict[str, str]) -> Tuple[str, str]:
-    """Apollo's people match. It only returns a real address on a plan that includes API email access; on a free plan the email comes back
-    locked ("email_not_unlocked@...") and is treated as nobody found."""
-    body = {"first_name": p["first_name"], "last_name": p["last_name"], "organization_name": p["company"], "reveal_personal_emails": False}
-    if p["domain"]:
-        body["domain"] = p["domain"]
-    from app.services import apollo_pool
-
-    def _email(j: Any) -> str:
-        return str((((j or {}).get("person")) or {}).get("email") or "")
-
-    who = f"{p['first_name']} {p['last_name']}".strip()
-    res = await apollo_pool.call(client, "post", "https://api.apollo.io/api/v1/people/match", json=body, headers={"Cache-Control": "no-cache"}, lead=key,
-                                 purpose="email_lookup", looked_for=f"{who} at {p['company'] or p['domain']}".strip(),
-                                 found=lambda j: "@" in _email(j) and "not_unlocked" not in _email(j))
-    if res is None:
-        raise ProviderError("Apollo: no key set.")
-    person = (_check(res, "apollo") or {}).get("person") or {}
-    email_addr = str(person.get("email") or "")
-    status = str(person.get("email_status") or "").lower()
-    if not email_addr or "not_unlocked" in email_addr or "@" not in email_addr:
-        return "", ""
-    if status == "verified":
-        return email_addr, "verified"
-    if status in ("likely to engage", "extrapolated", "catch-all", "catch_all"):
-        return email_addr, "catch_all"
-    return "", ""
-
-
-ADAPTERS = {"apollo": _apollo, "icypeas": _icypeas, "hunter": _hunter, "findymail": _findymail, "leadmagic": _leadmagic, "bettercontact": _bettercontact}
+# Each adapter: (client, key, person) -> (email, status), status "verified", "catch_all" or "" (none): the provider's own find_email.
+ADAPTERS = {p.manifest.id: p.find_email for p in _registry.email_finders()}
 
 
 def _person_out(email_addr: str, p: Dict[str, str], entity: str, status: str, source: str) -> Dict[str, Any]:

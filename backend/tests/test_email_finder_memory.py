@@ -121,8 +121,8 @@ async def test_apollo_is_one_of_the_finders_and_a_locked_email_is_not_an_answer(
         return httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"person": person_body})))
 
     async with client({"email": "mayur@aivhub.com", "email_status": "verified"}) as c:
-        assert await W._apollo(c, "k", person) == ("mayur@aivhub.com", "verified")
+        assert await W.ADAPTERS["apollo"](c, "k", person) == ("mayur@aivhub.com", "verified")
     async with client({"email": "email_not_unlocked@aivhub.com", "email_status": "verified"}) as c:
-        assert await W._apollo(c, "k", person) == ("", "")
+        assert await W.ADAPTERS["apollo"](c, "k", person) == ("", "")
     async with client({"email": "mayur@aivhub.com", "email_status": "guessed"}) as c:
-        assert await W._apollo(c, "k", person) == ("", "")
+        assert await W.ADAPTERS["apollo"](c, "k", person) == ("", "")

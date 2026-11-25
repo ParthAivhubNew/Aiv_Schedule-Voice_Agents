@@ -94,6 +94,31 @@ call_provider(capability, request, org, feature)
 2. In the admin portal: paste the key → **Test** (a real call) → set the price, licence flags and position in the order → choose which plans include it.
 3. Done. It appears on the Connectors screen and in the source labels, its cost reports and export rules apply, and it shows in the margin report. No frontend change.
 
+### A.3 Step 4, first part, done on the branch (2026-11-25)
+
+- **Registry:** `backend/app/providers/` holds `base.py` (Manifest, Pricing, Licence, Provider, EmailFinder, a shared answer check)
+  and `registry.py`, which finds every provider file automatically, checks its manifest, and leaves out a broken file without
+  stopping the app.
+- **Six providers moved onto it:** `email/icypeas.py`, `leadmagic.py`, `hunter.py`, `findymail.py`, `bettercontact.py` and
+  `company/apollo.py`. Their search code is unchanged, and each now has a real `test()` (balance or status call, no paid lookup).
+- **Generated from the manifests:**
+  - the waterfall's order, labels and searches,
+  - which saved key belongs to which provider,
+  - the export rule (Apollo's licence),
+  - a Model Pricing row for a new provider (staff prices are never overwritten),
+  - the Platform Keys **Test** button. That button used to accept any key of 3 or more characters for e-mail finders and Apollo.
+- **Staff API:** `GET /admin-api/providers` (manifests, whether a key is saved, files left out) and
+  `POST /admin-api/providers/{id}/test` (the saved key's real test).
+- **Checked against the real keys on new.outreach:** Apollo, Icypeas, Hunter (50 searches left), Findymail (15 credits left) and
+  BetterContact (44 credits left) all pass. LeadMagic has no key saved.
+- **Adding an e-mail finder is now one file.** A test proves a new file joins the order with no other change.
+- **Still to do in step 4:**
+  - Tavily, Google Places, Telnyx lookup and TPS screening as provider files,
+  - one generic key pool in place of `apollo_pool` and `tavily_pool`,
+  - the `call_provider()` wrapper (plan and cost-cap check, shared cache, circuit breaker, one `provider_calls` table),
+  - config-only providers (`generic_http`),
+  - a Providers screen in the admin portal. Today it's the API only; the Connectors screen comes in plan 10, phase 3.
+
 ---
 
 ## Part B — Plans, credits and margin

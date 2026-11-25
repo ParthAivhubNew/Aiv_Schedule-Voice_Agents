@@ -1935,6 +1935,47 @@ async def revenue(request: Request, month: str = "", include_aivhub: bool = Fals
         return await R.report(db, month, include_aivhub)
 
 
+# ── Provider registry (app/providers) ───────────────────────────────────────
+async def _saved_provider_key(provider_id: str) -> str:
+    """The key staff saved for a provider: an e-mail finder's under Email Finder, Apollo's from its key pool. "" when none."""
+    if provider_id == "apollo":
+        from app.services import apollo_pool
+
+        pool = await apollo_pool.keys()
+        return pool[0][2] if pool else ""
+    from app.services.enrichment_waterfall import finder_keys
+
+    return (await finder_keys()).get(provider_id, "")
+
+
+@router.get("/providers")
+async def list_providers(request: Request):
+    """Every provider file the registry found, with its manifest, whether a key is saved, and any file it had to leave out. Staff only."""
+    from app.providers import registry
+
+    _who(request)
+    out = []
+    for p in registry.all_providers():
+        view = registry.manifest_view(p)
+        view["keySaved"] = bool(await _saved_provider_key(p.manifest.id))
+        out.append(view)
+    return {"providers": out, "problems": registry.problems()}
+
+
+@router.post("/providers/{provider_id}/test")
+async def test_provider(provider_id: str, request: Request):
+    """Runs a provider's real test with the key staff saved for it: ok, detail and the balance when the vendor reports one."""
+    from app.providers import registry
+
+    _who(request)
+    if registry.get(provider_id) is None:
+        raise HTTPException(status_code=404, detail="No such provider.")
+    key = await _saved_provider_key(provider_id)
+    if not key:
+        return {"ok": False, "detail": "No key is saved for this provider yet."}
+    return await registry.test_key(provider_id, key)
+
+
 @router.get("/revenue/clients")
 async def revenue_clients(request: Request, month: str = "", include_internal: bool = False):
     """Profit and loss per client for a month, in pounds: paid, our recorded and estimated cost, margin and flags, worst first
