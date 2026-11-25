@@ -10,7 +10,18 @@ NAME = "Teddy Bears Pre-School"
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Runs a coroutine in its own event loop. The search code now reads the company's plan (plan_rules.provider_allowed), which opens a
+    database connection in that loop: it must not go back into the shared pool, or a later test on the session loop gets a connection
+    whose loop is closed (the same fix as tests/test_company_lookup.py)."""
+    async def go():
+        try:
+            return await coro
+        finally:
+            from app.database import engine
+
+            await engine.dispose(close=False)  # drop this loop's connections without touching the other loop's
+
+    return asyncio.run(go())
 
 
 def test_no_search_api_means_no_scraped_fallback(monkeypatch):

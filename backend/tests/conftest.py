@@ -29,6 +29,29 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _loop_safe_asyncio_run(monkeypatch):
+    """A test that runs code with asyncio.run gets a fresh event loop. Database connections opened in it (a plan check, a policy read)
+    must not go back into the shared pool, or a later test on the session loop gets a connection whose loop is closed ("attached to a
+    different loop"). So every asyncio.run in a test drops its own loop's connections when it finishes."""
+    import asyncio
+
+    real = asyncio.run
+
+    def run(coro, **kw):
+        async def go():
+            try:
+                return await coro
+            finally:
+                from app.database import engine
+
+                await engine.dispose(close=False)
+
+        return real(go(), **kw)
+
+    monkeypatch.setattr(asyncio, "run", run)
+
+
+@pytest.fixture(autouse=True)
 def isolated_voice_stack(tmp_path, monkeypatch):
     """Every test starts with an empty in-memory voice stack and no legacy stack file."""
     from app.services import voice_plugin_plan
