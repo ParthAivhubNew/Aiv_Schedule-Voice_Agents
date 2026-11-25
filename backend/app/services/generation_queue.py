@@ -373,6 +373,11 @@ async def _run_text(jobs: List[Dict[str, Any]]) -> None:
 
     # The whole post (writing, and its image unless skipped) is held at today's price first.
     # A post that would take the company below zero pauses, with everything after it.
+    from app.services.social_rules import ai_images_allowed
+
+    if any(not j["skip_image"] for j in jobs) and not await ai_images_allowed():
+        for j in jobs:  # the company's rules don't allow AI images: the posts are written without pictures, not refused
+            j["skip_image"] = True
     affordable = []
     for i, j in enumerate(jobs):
         ok, why = await _hold(j, ["ai_post"] if j["skip_image"] else ["ai_post", "ai_image"])

@@ -4,6 +4,9 @@ import { parseDistricts, parseExtra, withPolicyDefaults } from "../brand/brandLo
 
 export const SOURCE_NAMES = { google: "Google", apollo: "Enrichment data", search_engines: "Web search engines" };
 export const SIGNIN_NAMES = { password: "Password", google: "Google", microsoft: "Microsoft" };
+export const NETWORK_NAMES = { linkedin: "LinkedIn", x: "X", facebook: "Facebook", instagram: "Instagram", threads: "Threads", reddit: "Reddit" };
+const SOCIAL_DEFAULT = { approver: "anyone", networks: [], ai_images: true, ai_video: true };
+const socialOf = (p) => ({ ...SOCIAL_DEFAULT, ...((p && p.social) || {}) });
 
 // The form's starting values, from the company's own rules.
 export function draftFrom(company) {
@@ -18,6 +21,10 @@ export function draftFrom(company) {
     sources: { ...p.restricted_sources },
     blockUnscreened: Boolean(p.screening.block_unscreened),
     signin: { ...p.signin },
+    approver: socialOf(company).approver === "admin" ? "admin" : "anyone",
+    networks: [...(socialOf(company).networks || [])],
+    aiImages: socialOf(company).ai_images !== false,
+    aiVideo: socialOf(company).ai_video !== false,
   };
 }
 
@@ -35,6 +42,8 @@ export function toPayload(draft) {
       restricted_sources: { ...draft.sources },
       signin: { ...draft.signin },
       screening: { block_unscreened: Boolean(draft.blockUnscreened) },
+      social: { approver: draft.approver === "admin" ? "admin" : "anyone", networks: [...(draft.networks || [])], ai_images: draft.aiImages !== false,
+        ai_video: draft.aiVideo !== false },
     },
   };
 }
@@ -42,7 +51,8 @@ export function toPayload(draft) {
 // What the brand already set, so the screen shows it as set and can't be changed here.
 export function fromBrand(brand) {
   const b = brand ? withPolicyDefaults(brand) : null;
-  if (!b) return { sets: [], memberList: false, districts: [], sources: {}, blockUnscreened: false, signinOff: {}, extra: 0 };
+  if (!b) return { sets: [], memberList: false, districts: [], sources: {}, blockUnscreened: false, signinOff: {}, extra: 0, approverAdmin: false, networks: [], aiImagesOff: false, aiVideoOff: false };
+  const so = socialOf(brand);
   return {
     sets: Array.isArray(brand.exclusions?.sets) ? brand.exclusions.sets : b.exclusions.fsb ? ["standard_b2b"] : [],
     memberList: b.member_suppression,
@@ -51,6 +61,10 @@ export function fromBrand(brand) {
     blockUnscreened: Boolean(b.screening.block_unscreened),
     signinOff: Object.fromEntries(Object.entries(b.signin).filter(([, on]) => !on).map(([k]) => [k, true])),
     extra: b.exclusions.extra.length,
+    approverAdmin: so.approver === "admin",
+    networks: so.networks || [],
+    aiImagesOff: so.ai_images === false,
+    aiVideoOff: so.ai_video === false,
   };
 }
 

@@ -198,7 +198,20 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
-**Status, 2026-11-25 (latest):** step 4 is done for sign-in and Voice. Social is still to do.
+**Status, 2026-11-25 (Social):** step 4 is done, and the Social section of the Rules screen with it.
+- **Policy:** a new `social` block: `approver` (`anyone` or `admin`), `networks` (allowed; empty means all), `ai_images` and `ai_video`.
+  - The merge only tightens: admins-only if either level says so; the networks both levels allow (`networks_none` when they don't meet); AI only when both allow it.
+  - With no company rules, FSB's combined rules still equal its brand rules exactly.
+- **Checks** (`services/social_rules.py`):
+  - **Networks:** when a post is saved or its channel changed (400 `rules_network`), and again by the publisher for every channel, the only place a post leaves. A refused network is a "permanent" failure.
+  - **Admins-only approval:** when a post becomes approved in the Social screens or is published straight away (403 `rules_approver`), and on the approval e-mail's page, where the approver's address must belong to an admin of the company.
+  - **AI images and video:** at the credit check every paid action passes. A batch of AI-written posts is written without pictures instead of being refused.
+  - If the rules can't be read, nothing is posted or drawn, and the answer says so.
+- **Not held to "admins only":** a partner's API key with the `social:approve` scope. The company granted that key, and it isn't a person.
+- **Rules screen:** a Social posts section (who approves, networks, AI pictures, AI video). Brand-set rules show as set.
+- Tests: `tests/test_social_rules.py`.
+
+**Status, 2026-11-25 (latest):** step 4 is done for sign-in and Voice.
 - **B9, sign-in rules by company:** every sign-in (password, Google) is checked against the combined rules on every web address (`api/auth.signin_refusal`), not only on the brand's own address. Each session records how it began (`auth_sessions.method`, migration `2026_12_12_session_method`). Switching a method off ends the sessions it began at their next refresh. There is no Microsoft sign-in in the code yet, so its switch does nothing until one is built.
 - **B8, Voice, decision 3:** **keep warning only**, decided 2026-11-25. A call to an unscreened number is never blocked. When the rules ask for screening, the warning says so ("Your company's rules ask for a TPS and CTPS check before calling…"). Exports keep leaving those numbers out.
 - **Still to do in step 4:** Social rules (approval, who approves, networks, AI images and video). They need new fields in the policy shape, then checks in the publish and approve paths, then a Social section on the Rules screen.

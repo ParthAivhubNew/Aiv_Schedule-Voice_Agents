@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { C, FONT_BODY } from "../tokens";
 import { getOrgRules, getRuleSets, previewOrgRules, saveOrgRules } from "../brand/brandApi";
-import { draftFrom, fromBrand, previewLine, SIGNIN_NAMES, SOURCE_NAMES, toPayload } from "./rulesLogic";
+import { draftFrom, fromBrand, NETWORK_NAMES, previewLine, SIGNIN_NAMES, SOURCE_NAMES, toPayload } from "./rulesLogic";
 
 // Company rules (plan 12, F1): what the company's admins decide for everyone in it. A rule the brand set (a white-label reseller such as
 // FSB) shows as set and can't be relaxed here; the server checks that again on save (PUT /org/rules) and audits every change.
-// Sign-in methods hold on every sign-in and refresh (api/auth.signin_refusal). Social rules come next; calling hours and the
-// do-not-call list stay in Voice settings.
+// Sign-in methods hold on every sign-in and refresh (api/auth.signin_refusal); the Social rules where posts are saved, approved, published
+// and drawn (services/social_rules.py). Calling hours and the do-not-call list stay in Voice settings.
 
 const text = { fontFamily: FONT_BODY };
 const section = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: "grid", gap: 10 };
@@ -137,6 +137,39 @@ export function RulesTab({ flash, initial = null, initialSets = null }) {
         <Check label="Leave phone numbers out of exports unless they have a clear TPS / CTPS check" checked={draft.blockUnscreened}
           onChange={(on) => set({ blockUnscreened: on })} lockedBy={brand.blockUnscreened ? by : ""}
           note="Calls aren't blocked: calling a number that hasn't been checked shows a warning that names this rule." />
+      </section>
+
+      <section aria-label="Social" style={section}>
+        <strong style={{ fontSize: 14 }}>Social posts</strong>
+        <div role="radiogroup" aria-label="Who can approve posts" style={{ display: "grid", gap: 6, fontSize: 13 }}>
+          <span>Who can approve a post (or publish it straight away)</span>
+          <label style={{ display: "flex", gap: 8, color: brand.approverAdmin ? C.slate : C.textInk }}>
+            <input type="radio" checked={!brand.approverAdmin && draft.approver !== "admin"} disabled={brand.approverAdmin} onChange={() => set({ approver: "anyone" })} /> Anyone who can use Social
+          </label>
+          <label style={{ display: "flex", gap: 8 }}>
+            <input type="radio" checked={brand.approverAdmin || draft.approver === "admin"} disabled={brand.approverAdmin} onChange={() => set({ approver: "admin" })} /> Only admins
+            {brand.approverAdmin ? <span style={hint}>(set by {by})</span> : null}
+          </label>
+          <span style={hint}>The approval e-mail's links then work only for an approver whose address belongs to an admin.</span>
+        </div>
+        <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+          <span>Networks you post to <span style={hint}>(none ticked: every network{brand.networks.length ? ` ${by} allows` : ""})</span></span>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            {Object.entries(NETWORK_NAMES).filter(([k]) => !brand.networks.length || brand.networks.includes(k)).map(([k, label]) => (
+              <label key={k} style={{ display: "flex", gap: 6 }}>
+                <input type="checkbox" checked={draft.networks.includes(k)}
+                  onChange={(e) => set({ networks: e.target.checked ? [...new Set([...draft.networks, k])] : draft.networks.filter((x) => x !== k) })} /> {label}
+              </label>
+            ))}
+          </div>
+          {brand.networks.length ? <span style={hint}>{by} allows {brand.networks.map((n) => NETWORK_NAMES[n] || n).join(", ")}.</span> : null}
+        </div>
+        {[["aiImages", "aiImagesOff", "Allow AI pictures for posts", "Without them, AI-written posts come without a picture."], ["aiVideo", "aiVideoOff", "Allow AI video", ""]].map(([key, off, label, note]) => (
+          <label key={key} style={{ display: "flex", gap: 8, fontSize: 13, color: brand[off] ? C.slate : C.textInk, alignItems: "flex-start" }}>
+            <input type="checkbox" checked={!brand[off] && draft[key]} disabled={brand[off]} onChange={(e) => set({ [key]: e.target.checked })} style={{ marginTop: 2 }} />
+            <span>{label}{brand[off] ? ` (switched off by ${by})` : ""}{note ? <span style={{ ...hint, display: "block" }}>{note}</span> : null}</span>
+          </label>
+        ))}
       </section>
 
       <section aria-label="Sign-in" style={section}>

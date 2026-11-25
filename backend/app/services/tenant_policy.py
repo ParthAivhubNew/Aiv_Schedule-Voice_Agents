@@ -13,7 +13,8 @@ Policy shape (Brand.policy, cleaned by clean_policy):
    "geo": {"districts": ["BN1", "BN2"]},
    "restricted_sources": {"google": bool, "apollo": bool, "search_engines": bool},
    "signin": {"password": bool, "google": bool, "microsoft": bool},
-   "screening": {"block_unscreened": bool}}
+   "screening": {"block_unscreened": bool},
+   "social": {"approver": "anyone" | "admin", "networks": [allowed networks; [] = all], "ai_images": bool, "ai_video": bool}}
 
 `exclusions.sets` names rule sets from services/exclusion_rules.PRESETS ("standard_b2b": the Standard B2B exclusions, FSB's rules).
 `exclusions.fsb` is the older flag for that same set; cleaning keeps the two in step.
@@ -35,6 +36,7 @@ from sqlalchemy import func, or_, select
 logger = logging.getLogger(__name__)
 
 SOURCES = ("google", "apollo", "search_engines")
+NETWORKS = ("linkedin", "x", "facebook", "instagram", "threads", "reddit")  # services/social_publisher.TITLES
 _TTL = 60.0
 _MAX_EXTRA = 300
 _DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
@@ -43,7 +45,8 @@ _DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
 def default_policy() -> Dict[str, Any]:
     return {"exclusions": {"sets": [], "fsb": False, "extra": [], "locked": True}, "member_suppression": False, "geo": {"districts": []},
             "restricted_sources": {s: False for s in SOURCES}, "signin": {"password": True, "google": True, "microsoft": True},
-            "screening": {"block_unscreened": False}}
+            "screening": {"block_unscreened": False},
+            "social": {"approver": "anyone", "networks": [], "ai_images": True, "ai_video": True}}
 
 
 def _flag(value: Any, default: bool) -> bool:
@@ -74,6 +77,11 @@ def clean_policy(raw: Any) -> Dict[str, Any]:
     out["signin"] = {k: _flag(si.get(k), True) for k in ("password", "google", "microsoft")}
     sc = raw.get("screening") if isinstance(raw.get("screening"), dict) else {}
     out["screening"] = {"block_unscreened": _flag(sc.get("block_unscreened"), False)}
+    so = raw.get("social") if isinstance(raw.get("social"), dict) else {}
+    nets = so.get("networks") if isinstance(so.get("networks"), list) else []
+    out["social"] = {"approver": "admin" if so.get("approver") == "admin" else "anyone",
+                     "networks": sorted({str(n).strip().lower() for n in nets} & set(NETWORKS)),
+                     "ai_images": _flag(so.get("ai_images"), True), "ai_video": _flag(so.get("ai_video"), True)}
     return out
 
 
@@ -102,7 +110,9 @@ def merge_policy(upper: Dict[str, Any], lower: Dict[str, Any]) -> Dict[str, Any]
     - territory: the brand's districts are kept apart as geo.locked (they hold for everyone, admins included); the company's districts are
       the default area of its people and only count inside the brand's. No overlap at all leaves geo.none set: the search shows nothing,
     - blocked sources and "block unscreened numbers": on when either level turns them on,
-    - sign-in methods: allowed only when both allow them. If that would leave none, the brand's methods are used.
+    - sign-in methods: allowed only when both allow them. If that would leave none, the brand's methods are used,
+    - Social: approval by admins only when either says so; the networks both allow (social.networks_none when the two lists don't meet);
+      AI images and AI video only when both allow them.
     The result is not passed through clean_policy again (that would cap the lists and drop geo.locked)."""
     import copy
 
@@ -124,6 +134,13 @@ def merge_policy(upper: Dict[str, Any], lower: Dict[str, Any]) -> Dict[str, Any]
     signin = {k: bool(u["signin"].get(k, True) and l["signin"].get(k, True)) for k in ("password", "google", "microsoft")}
     out["signin"] = signin if any(signin.values()) else dict(u["signin"])
     out["screening"] = {"block_unscreened": bool(u["screening"]["block_unscreened"] or l["screening"]["block_unscreened"])}
+    us, ls = u.get("social") or default_policy()["social"], l.get("social") or default_policy()["social"]
+    un, ln = set(us["networks"]), set(ls["networks"])
+    nets = sorted(un & ln) if un and ln else sorted(un or ln)
+    out["social"] = {"approver": "admin" if "admin" in (us["approver"], ls["approver"]) else "anyone", "networks": nets,
+                     "ai_images": bool(us["ai_images"] and ls["ai_images"]), "ai_video": bool(us["ai_video"] and ls["ai_video"])}
+    if un and ln and not nets:  # both levels name networks and none is in both: nothing may be posted (only set then, so merging with no
+        out["social"]["networks_none"] = True  # company rules gives exactly the brand's rules)
     return out
 
 
@@ -295,6 +312,16 @@ class Policy:
     def restricted(self, source: str) -> bool:
         return bool(self.data["restricted_sources"].get(source))
 
+    @property
+    def social(self) -> Dict[str, Any]:
+        return self.data.get("social") or default_policy()["social"]
+
+    def network_allowed(self, network: str) -> bool:
+        so = self.social
+        if so.get("networks_none"):
+            return False
+        return not so["networks"] or str(network or "").lower() in so["networks"]
+
     def summary(self) -> Dict[str, Any]:
         """What is on for this account, for its own people to read. No lists of numbers and nothing secret."""
         return {"brandId": self.brand_id or None, "standingExclusions": self._exclusions_on,
@@ -303,7 +330,8 @@ class Policy:
                 "extraExclusions": len(self.data["exclusions"]["extra"]) if self._exclusions_on else 0, "locked": bool(self.data["exclusions"]["locked"]),
                 "memberSuppression": self.suppression_on, "geoDistricts": len(self.geo_districts), "geoLocked": len(self.locked_districts),
                 "geoNone": self.geo_none,
-                "restrictedSources": [s for s in SOURCES if self.restricted(s)], "signin": dict(self.data["signin"])}
+                "restrictedSources": [s for s in SOURCES if self.restricted(s)], "signin": dict(self.data["signin"]),
+                "social": {k: self.social.get(k) for k in ("approver", "networks", "networks_none", "ai_images", "ai_video")}}
 
 
 # -- resolution and cache ---------------------------------------------------------

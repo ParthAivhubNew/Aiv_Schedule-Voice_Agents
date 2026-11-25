@@ -379,6 +379,12 @@ async def review_action(db: AsyncSession, token: str, action: str, post_id: str,
     targets = ids if post_id == "all" else [post_id] if post_id in ids else []
     posts = (await db.execute(select(SocialPost).where(SocialPost.id.in_(targets)))).scalars().all() if targets else []
     who = str(data.get("m") or "email")
+    if action == "approve":
+        from app.services.social_rules import email_approver_refusal
+
+        refused = await email_approver_refusal(db, who, getattr(row, "org_id", None))  # the company's rule on who may approve
+        if refused:
+            return refused
     done = 0
     for p in posts:
         if _post_state(p, requested_at) != "waiting":

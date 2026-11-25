@@ -529,6 +529,11 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
         refused = await cap_refusal([v["item"] for v in new.values()])  # the plan's fair-use cost cap
         if refused:
             return False, refused
+        from app.services.social_rules import ai_refusal
+
+        refused = await ai_refusal([v["item"] for v in new.values()])  # the company's rules on AI images and video
+        if refused:
+            return False, refused
         if s["enforce"]:
             for wallet, cost in need.items():
                 if await wallet_balance(db, wallet) < cost:
@@ -702,6 +707,11 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
         from app.services.plan_rules import cap_refusal
 
         refused = await cap_refusal([it for it, _q in [(item, quantity), *(extra or [])]])  # the plan's fair-use cost cap
+        if refused:
+            return False, refused
+        from app.services.social_rules import ai_refusal
+
+        refused = await ai_refusal([it for it, _q in [(item, quantity), *(extra or [])]])  # the company's rules on AI images and video
         if refused:
             return False, refused
         if item == "email_send":

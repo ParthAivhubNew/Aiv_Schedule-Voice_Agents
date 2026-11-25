@@ -20,6 +20,8 @@ describe("company rules", () => {
     expect(toPayload({ ...d, districtsText: "nowhere" }).problems[0]).toContain("NOWHERE");
     expect(toPayload({ ...d, signin: { password: false, google: false, microsoft: false } }).problems[0]).toContain("at least one sign-in");
     expect(draftFrom({ exclusions: { fsb: true } }).sets).toEqual(["standard_b2b"]);  // the old flag reads as the rule set
+    const social = toPayload({ ...d, approver: "admin", networks: ["linkedin"], aiImages: false }).payload.social;
+    expect(social).toEqual({ approver: "admin", networks: ["linkedin"], ai_images: false, ai_video: true });
   });
 
   it("shows what the brand set as set", () => {
@@ -27,6 +29,8 @@ describe("company rules", () => {
     expect(brand.sets).toEqual(["standard_b2b"]);
     expect(brand.sources).toEqual({ google: true });
     expect(brand.signinOff).toEqual({ password: true });
+    const fsb = fromBrand({ social: { approver: "admin", networks: ["linkedin", "x"], ai_video: false } });
+    expect([fsb.approverAdmin, fsb.networks, fsb.aiVideoOff, fsb.aiImagesOff]).toEqual([true, ["linkedin", "x"], true, false]);
     const html = renderToStaticMarkup(<RulesTab initial={{ brand: { exclusions: { fsb: true }, restricted_sources: { google: true } }, brandName: "FSB", company: {} }} initialSets={SETS} />);
     expect(html).toContain("Standard B2B exclusions");
     expect(html).toContain("Set by FSB");

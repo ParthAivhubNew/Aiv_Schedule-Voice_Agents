@@ -860,6 +860,22 @@ async def retry_generation(payload: Dict[str, Any], db: AsyncSession = Depends(g
     return {"status": "ok", "retried": retried}
 
 
+async def _social_rules_check(db: AsyncSession, request: Request, post_id: str, channels: List[str], status: Optional[str] = None) -> None:
+    """The company's Social rules (services/social_rules.py): the networks it may post to, and who may approve. 400 / 403 with the reason."""
+    from app.core.auth_middleware import current
+    from app.services import social_rules
+
+    refused = await social_rules.network_refusal([channels] if isinstance(channels, str) else channels)
+    if refused:
+        raise HTTPException(status_code=400, detail={"message": refused, "code": "rules_network"})
+    if status in APPROVED:
+        before = (await db.execute(select(SocialPost.status).where(SocialPost.id == post_id))).scalar()
+        if before not in APPROVED:  # newly approved here
+            refused = await social_rules.approval_refusal(bool(current(request).get("is_admin")))
+            if refused:
+                raise HTTPException(status_code=403, detail={"message": refused, "code": "rules_approver"})
+
+
 @router.post("/posts/create")
 async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: AsyncSession = Depends(get_db)):
     post_id = payload.get("id") or f"post_{uuid.uuid4().hex[:8]}"
@@ -867,6 +883,7 @@ async def create_post_endpoint(payload: Dict[str, Any], request: Request, db: As
     copy = payload.get("copy") or payload.get("linkedin_copy") or payload.get("linkedinCopy") or ""
     channels = payload.get("channels") or ["linkedin", "x"]
     status = payload.get("status", "awaiting_approval")
+    await _social_rules_check(db, request, post_id, channels, status)
     slot_date_ms = payload.get("slotDateMs") or (time.time() * 1000 + 86400000)
     time_str = payload.get("time", "10:00")
     theme = payload.get("theme", "Operations")
@@ -1010,6 +1027,7 @@ async def edit_post(post_id: str, payload: Dict[str, Any], request: Request, db:
         channel = normalize_platform(payload.get("channel"))
         if channel not in PLATFORM_TITLES:
             raise HTTPException(status_code=400, detail=f"Unknown channel: {payload.get('channel')}")
+        await _social_rules_check(db, request, post.id, [channel])
         post.channels = [channel]
     if "date" in payload or "time" in payload:
         time_str = str(payload.get("time") or post.time or "09:00").strip()
@@ -1602,6 +1620,10 @@ async def publish_post_endpoint(post_id: str, request: Request, db: AsyncSession
         }
     if post and post.status == "publishing":
         raise HTTPException(status_code=409, detail="This post is already being published.")
+    # Publishing now approves it: under "only admins approve", only an admin may do it for a post that isn't approved yet.
+    chans = (post.channels if post else None) or payload.get("channels") or ["linkedin"]
+    await _social_rules_check(db, request, post_id, [chans] if isinstance(chans, str) else list(chans),
+                              None if post and post.status in APPROVED else "approved")
 
     if not post:
         post = SocialPost(

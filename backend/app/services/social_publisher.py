@@ -1331,6 +1331,12 @@ async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optio
         if rewrite:
             text = await rewrite(text, plat)
             first_comment = await rewrite(first_comment, plat) if first_comment else ""
+        from app.services.social_rules import UNREADABLE, network_refusal
+
+        refused = await network_refusal([plat])  # the company's rules: the one place a post leaves, so it is checked here too
+        if refused:  # a network the rules leave out needs the post changed; rules that couldn't be read are tried again later
+            results.append({"ok": False, "platform": plat, "error": refused, "kind": "temporary" if refused == UNREADABLE else "permanent"})
+            continue
         if test is not None:
             results.append(_test_result(plat, text, str(test.get("outcome") or "ok")))
             continue
@@ -1349,7 +1355,7 @@ async def publish_post_to_accounts(post, accounts: List[Any], public_base: Optio
         result["handle"] = acc.handle
         results.append(result)
     for r in results:
-        if not r.get("ok"):
+        if not r.get("ok") and not r.get("kind"):
             r["kind"] = failure_kind(r)
 
     ok_any = any(r.get("ok") for r in results)
