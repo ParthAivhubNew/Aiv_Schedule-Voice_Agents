@@ -2054,6 +2054,73 @@ async def company_connectors(request: Request, orgId: str):
             return await CC.catalogue(db, orgId, staff=True)
 
 
+class DemoBody(BaseModel):
+    company: str
+    adminName: str
+    adminEmail: str
+    days: int = 14
+    brandId: str = ""
+    standardRules: bool = False
+    emailInvite: bool = False
+
+
+@router.get("/demo-orgs")
+async def list_demo_orgs(request: Request):
+    """Demo organisations (services/demo_orgs.py): each with its end date, days left and status."""
+    from app.services import demo_orgs
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return {"demos": await demo_orgs.listing(db), "maxDays": demo_orgs.MAX_DAYS, "inviteDays": demo_orgs.INVITE_DAYS}
+
+
+@router.post("/demo-orgs")
+async def create_demo_org(body: DemoBody, request: Request):
+    """Makes a demo company with an end date. Its admin gets an invite link (shown here once), never a password."""
+    from app.services import audit, demo_orgs
+
+    who = _admin_only(request)
+    name = who.get("email") or who.get("name") or "staff"
+    async with AsyncSessionLocal() as db:
+        try:
+            out = await demo_orgs.create(db, company=body.company, admin_name=body.adminName, admin_email=body.adminEmail, days=body.days,
+                                         brand_id=body.brandId, standard_rules=body.standardRules, email_invite=body.emailInvite, staff=name)
+        except demo_orgs.DemoProblem as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        await audit.record(db, "demo.created", target=f"org:{out['orgId']}", detail={"company": body.company, "endsOn": out["endsOn"],
+                           "brandId": body.brandId, "emailed": out["emailed"]}, actor_id=str(who.get("id") or name), actor_name=name)
+        await db.commit()
+    return out
+
+
+class DemoExtendBody(BaseModel):
+    days: int
+
+
+@router.post("/demo-orgs/{org_id}/extend")
+async def extend_demo_org(org_id: str, body: DemoExtendBody, request: Request):
+    from app.services import demo_orgs
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            return await demo_orgs.extend(db, org_id, body.days)
+        except demo_orgs.DemoProblem as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+
+@router.post("/demo-orgs/{org_id}/invite")
+async def reinvite_demo_org(org_id: str, request: Request):
+    from app.services import demo_orgs
+
+    _admin_only(request)
+    async with AsyncSessionLocal() as db:
+        try:
+            return await demo_orgs.new_invite(db, org_id)
+        except demo_orgs.DemoProblem as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+
 @router.get("/config-check")
 async def config_check_list(request: Request):
     """The production config check: each problem with the server's settings, "block" (fix before launch) or "warn". Never shows a value."""

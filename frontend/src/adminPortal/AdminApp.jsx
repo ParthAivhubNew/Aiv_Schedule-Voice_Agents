@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Boxes, ClipboardList, Coins, Handshake, KeyRound, Plug, LayoutDashboard, LogOut, Mail, Palette, PoundSterling, ScrollText, ShieldCheck, Sparkles, Users, UserCog, Wallet } from "lucide-react";
+import { Boxes, ClipboardList, Coins, Handshake, KeyRound, Plug, LayoutDashboard, LogOut, Mail, Palette, PoundSterling, Presentation, ScrollText, ShieldCheck, Sparkles, Users, UserCog, Wallet } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../tokens";
 import { STAFF_SIGNED_OUT, adminApi, savedStaff, signOut } from "./adminApi";
 import { AlertsBanner } from "./Alerts";
@@ -10,6 +10,7 @@ import { Billing } from "./Billing";
 import { Brands } from "./Brands";
 import { Clients } from "./Clients";
 import { Dashboard } from "./Dashboard";
+import { DemoOrgs } from "./DemoOrgs";
 import { Logs } from "./Logs";
 import { PlatformKeys } from "./PlatformKeys";
 import { PlatformMailbox } from "./PlatformMailbox";
@@ -24,6 +25,7 @@ import { PageTitle } from "./ui";
 const PAGES = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "clients", label: "Clients", icon: Users },
+  { id: "demos", label: "Demo organisations", icon: Presentation },
   { id: "queue", label: "Queue", icon: ClipboardList },
   { id: "revenue", label: "Revenue", icon: PoundSterling },
   { id: "billing", label: "Plans & pricing", icon: Coins },
@@ -126,6 +128,7 @@ export function AdminApp() {
         {page === "balances" && <Balances canEdit={canEdit} />}
         {page === "keys" && <PlatformKeys canEdit={canEdit} />}
         {page === "providers" && <Providers />}
+        {page === "demos" && <DemoOrgs />}
         {page === "mailbox" && (
           <>
             <PageTitle title="Platform mailbox" sub="The one mailbox that sends every system email: invites, password resets, low-balance alerts." />

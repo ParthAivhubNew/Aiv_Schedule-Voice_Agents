@@ -383,6 +383,21 @@ async def _connector_stats_loop():
         await asyncio.sleep(3600)
 
 
+async def _demo_expiry_loop():
+    """Every hour: demo organisations past their end date are suspended (services/demo_orgs.py)."""
+    from app.services import demo_orgs
+
+    await asyncio.sleep(120)
+    while True:
+        try:
+            await demo_orgs.end_expired()
+        except asyncio.CancelledError:
+            raise
+        except Exception as demo_err:
+            logger.warning(f"[demo_orgs] expiry check failed: {demo_err}")
+        await asyncio.sleep(3600)
+
+
 async def _human_calls_loop():
     """Every 5 minutes, per organisation: close browser calls whose tab died, start waiting transcripts, delete old audio."""
     from app.database import AsyncSessionLocal
@@ -976,12 +991,14 @@ async def lifespan(app: FastAPI):
     workflow_task = job("workflows", workflow_loop)
     fx_task = job("fx_rates", _fx_rates_loop)
     connector_stats_task = job("connector_stats", _connector_stats_loop)
+    demo_expiry_task = job("demo_expiry", _demo_expiry_loop)
 
     yield
 
     workflow_task.cancel()
     fx_task.cancel()
     connector_stats_task.cancel()
+    demo_expiry_task.cancel()
     call_schedule_task.cancel()
     human_calls_task.cancel()
     find_leads_warm_task.cancel()

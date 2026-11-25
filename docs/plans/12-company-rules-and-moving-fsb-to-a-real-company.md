@@ -198,6 +198,13 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25 (demos):** step 7 B7 is done on the branch: **admin portal → Demo organisations** (`services/demo_orgs.py`).
+- Staff enter a company, its admin's name and e-mail, 1–90 days, an optional brand, and whether to start with the Standard B2B exclusions as a filter.
+- The company is made exactly as sign-up makes one, with no credits. Its admin gets no password: an invite link (the reset-password link, valid 7 days, once only) is shown to staff once and can be e-mailed.
+- An hourly job (`demo_expiry`) suspends a demo the day after it ends, which signs everyone in it out. "Extend" brings it back, and "New invite link" makes another.
+- Audited as `demo.created`. Tests: `tests/test_demo_orgs.py`.
+- **Not done:** F4 (reusing the Rules screen as the brand policy editor on Brands); sample data in a demo (it searches the shared register from the start).
+
 **Status, 2026-11-25 (Social):** step 4 is done, and the Social section of the Rules screen with it.
 - **Policy:** a new `social` block: `approver` (`anyone` or `admin`), `networks` (allowed; empty means all), `ai_images` and `ai_video`.
   - The merge only tightens: admins-only if either level says so; the networks both levels allow (`networks_none` when they don't meet); AI only when both allow it.
