@@ -223,6 +223,7 @@ export const adminApi = {
   editBrand: (id, body) => request(`/brands/${q(id)}`, { method: "PATCH", body }),
   deleteBrand: (id) => request(`/brands/${q(id)}`, { method: "DELETE" }),
   setBrandPolicy: (id, policy) => request(`/brands/${q(id)}/policy`, { method: "PUT", body: policy }),
+  ruleSets: () => request("/rule-sets"),
   addBrandDomain: (id, host) => request(`/brands/${q(id)}/domains`, { method: "POST", body: { host } }),
   removeBrandDomain: (id, domainId) => request(`/brands/${q(id)}/domains/${q(domainId)}`, { method: "DELETE" }),
   brandOrganizations: () => request("/brand-organizations"),

@@ -83,3 +83,8 @@ async def test_a_company_switches_a_rule_set_on_and_it_is_enforced(db, client):
     finally:
         await client.put("/api/org/rules", json={})
         TP.invalidate()
+
+
+async def test_staff_see_the_rule_sets_for_the_brands_editor(staff):
+    body = (await staff.get("/api/admin-api/rule-sets")).json()
+    assert body["sets"][0]["id"] == "standard_b2b" and body["sets"][0]["label"] == "Standard B2B exclusions"

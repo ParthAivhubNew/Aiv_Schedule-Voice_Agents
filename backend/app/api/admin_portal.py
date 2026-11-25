@@ -2121,6 +2121,15 @@ async def reinvite_demo_org(org_id: str, request: Request):
             raise HTTPException(status_code=400, detail=str(err))
 
 
+@router.get("/rule-sets")
+async def staff_rule_sets(request: Request):
+    """The exclusion rule sets a brand or a company can switch on (services/exclusion_rules.py), for the Brands page's rules editor."""
+    from app.services import exclusion_rules as ER
+
+    _who(request)
+    return {"sets": ER.catalogue()}
+
+
 @router.get("/config-check")
 async def config_check_list(request: Request):
     """The production config check: each problem with the server's settings, "block" (fix before launch) or "warn". Never shows a value."""

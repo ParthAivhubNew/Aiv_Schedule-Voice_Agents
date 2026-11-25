@@ -198,6 +198,12 @@ Nothing is deleted or disabled. Both people keep their login, their history and 
 
 About three weeks in total. Steps 1–2 change nothing FSB can see, except the company name losing "(demo)".
 
+**Status, 2026-11-25 (F4 done):** the staff Brands page now uses the same rules editor as Company rules.
+- `team/RulesTab.jsx` `RulesForm` holds every section. It takes `level="brand"`, which changes the wording, shows no "set by" locks, hides the preview (a count needs one company's area) and goes read-only for staff who can't edit.
+- Brands keeps the brand's rules in the same draft shape and saves them with the same payload. The rule sets come from the new staff route `GET /admin-api/rule-sets`.
+- The old hand-built brand editor is gone, so a new rule now appears in both places by itself.
+- **Plan 12 is done**, apart from sample data in demos.
+
 **Status, 2026-11-25 (notices):** F2 is done, and F4 is done in part.
 - **Find Leads:** the "Standing exclusions on" chip has a **See rules** link for admins. It opens Team settings → Company rules through a new app-wide event, `aivhub:open-team-settings`.
 - **Social:** the network pickers (post editor, posting accounts, schedules) offer only the networks the rules allow, with a note. "Generate image" and "Draw from this prompt" are hidden when AI pictures are off. AI video says the rules don't allow it. The brand context carries `social` from `GET /org/policy` (`plugins/scheduler/socialRulesUi.js`).

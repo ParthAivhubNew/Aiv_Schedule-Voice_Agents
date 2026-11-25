@@ -8,7 +8,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 
 **Where things are**
 - **Live app** (https://outreach.aivhub.com) runs from `/opt/flow` on `main`. Its backend container bind-mounts `/opt/flow/backend` and restarts on its own. Never switch branches, edit code or restart anything there. Only untracked plan copies live in `/opt/flow/docs/plans/`.
-- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 25 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
+- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 26 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
 - **Test app:** https://new.outreach.aivhub.com runs `/opt/flow-new` as compose project `flownew` (`docker-compose.new.yml`, containers `aivhub_new_*`). It has its own Postgres and Redis, holding a copy of live data.
   - `/opt/flow-new/.env` has `TEST_COPY=true` (`backend/app/core/test_copy.py`): live keys can't make outward writes. **Never remove it** while that file holds the live `SECRET_KEY`.
   - Reach it from the server with `--resolve new.outreach.aivhub.com:443:62.171.163.98`.
@@ -50,7 +50,6 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
    - Social's small inline `Stat`.
    - Near-match colours (several almost-identical greens, blues and greys) unified screen by screen, checked in a browser.
    - Split `AccountsViews.jsx` and `FindLeadsView.jsx` into feature folders.
-   - Have the Brands page reuse the Company rules editor (plan 12, F4).
    - Dark mode later.
 3. **Cost per source:** look-ups must record the saved company they were for. Then add cost by origin to the Lead sources card.
 

@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../brand/brandApi", () => ({ getOrgRules: () => Promise.resolve({}), getRuleSets: () => Promise.resolve({ sets: [] }),
   previewOrgRules: () => Promise.resolve({}), saveOrgRules: () => Promise.resolve({}) }));
 
-import { RulesTab } from "./RulesTab";
+import { readFileSync } from "node:fs";
+import { RulesForm, RulesTab } from "./RulesTab";
 import { draftFrom, fromBrand, previewLine, toPayload } from "./rulesLogic";
 
 const SETS = [{ id: "standard_b2b", label: "Standard B2B exclusions", desc: "Active Companies House companies only." }];
@@ -37,5 +38,18 @@ describe("company rules", () => {
     expect(html).toContain("Save rules");
     expect(previewLine({ total: 65210, kept: 59349, hidden: 5861, inArea: true })).toBe("Hides 5,861 of 65,210 companies in your area. 59,349 stay in your searches.");
     expect(previewLine({ tooBig: true, note: "Too many" })).toBe("Too many");
+  });
+
+  it("the staff Brands page uses the same editor, at brand level (plan 12, F4)", () => {
+    const html = renderToStaticMarkup(<RulesForm draft={draftFrom({ exclusions: { fsb: true } })} set={() => {}} sets={SETS} level="brand" />);
+    expect(html).toContain("every company on this brand");
+    expect(html).toContain("The brand&#x27;s area");
+    expect(html).not.toContain("See how many this hides"); // a count needs one company's area
+    expect(html).not.toContain("Set by");
+    const ro = renderToStaticMarkup(<RulesForm draft={draftFrom({})} set={() => {}} sets={SETS} level="brand" disabled />);
+    expect(ro).toMatch(/<fieldset disabled=""/);
+    const brands = readFileSync(new URL("../adminPortal/Brands.jsx", import.meta.url), "utf8");
+    expect(brands).toContain('<RulesForm draft={draft}');
+    expect(brands).not.toMatch(/FSB exclusion rules|Restricted sources/); // the old hand-built editor is gone
   });
 });

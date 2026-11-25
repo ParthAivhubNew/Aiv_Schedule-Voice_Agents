@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { btn, card, cell, heading, input, Note, PageTitle, Pill, Table, useLoad } from "./ui";
-import { isHost, normaliseAccent, parseDistricts, parseExtra, withPolicyDefaults } from "../brand/brandLogic";
+import { isHost, normaliseAccent } from "../brand/brandLogic";
+import { RulesForm } from "../team/RulesTab";
+import { draftFrom, toPayload } from "../team/rulesLogic";
 
 const DENIED = "Only a staff admin can change this";
 const say = (e) => (e && e.status === 403 ? DENIED : (e && e.message) || "Something went wrong.");
@@ -32,9 +34,8 @@ const NEW = { name: "", displayName: "", logoUrl: "", accent: "", poweredBy: tru
 function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
   const isNew = !brand;
   const [look, setLook] = useState(brand ? lookOf(brand) : NEW);
-  const [policy, setPolicy] = useState(withPolicyDefaults(brand && brand.policy));
-  const [extra, setExtra] = useState(withPolicyDefaults(brand && brand.policy).exclusions.extra.join("\n"));
-  const [districts, setDistricts] = useState(withPolicyDefaults(brand && brand.policy).geo.districts.join(", "));
+  const [draft, setDraft] = useState(draftFrom(brand && brand.policy)); // the same editor as Company rules (team/RulesTab.jsx RulesForm)
+  const [ruleSets] = useLoad(adminApi.ruleSets);
   const [host, setHost] = useState("");
   const [pick, setPick] = useState("");
   const [msg, setMsg] = useState({ text: "", error: false });
@@ -54,21 +55,16 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
     }
   };
   const fail = (text) => setMsg({ text, error: true });
-  const setP = (a, b, v) => setPolicy((p) => {
-    const n = withPolicyDefaults(p);
-    n[a] = b ? { ...n[a], [b]: v } : v;
-    return n;
-  });
 
   const accent = normaliseAccent(look.accent);
   const lookBody = () => ({ name: look.name.trim(), displayName: look.displayName.trim(), logoUrl: look.logoUrl.trim(), accent: accent || "", poweredBy: look.poweredBy, hideCredits: look.hideCredits, status: look.status });
   const policyBody = () => {
-    const d = parseDistricts(districts);
-    if (d.invalid.length) {
-      fail(`Not a postcode district: ${d.invalid.join(", ")}. Use forms like BN1, BN3.`);
+    const { payload, problems } = toPayload(draft);
+    if (problems.length) {
+      fail(problems.join(" "));
       return null;
     }
-    return { ...policy, exclusions: { ...policy.exclusions, extra: parseExtra(extra) }, geo: { districts: d.districts } };
+    return payload;
   };
   const checkLook = () => {
     if (!look.name.trim()) { fail("A brand needs a name."); return false; }
@@ -143,43 +139,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
 
       <div style={card}>
         {sectionTitle("Rules")}
-        <Toggle label="Standard B2B exclusions (FSB's rules)" help="Leaves out charities, public bodies, schools and the other kinds of company FSB excludes, in every search." checked={policy.exclusions.fsb} disabled={off}
-          onChange={(v) => setPolicy((p) => {
-            const n = withPolicyDefaults(p);
-            const sets = (n.exclusions.sets || []).filter((x) => x !== "standard_b2b");
-            n.exclusions = { ...n.exclusions, fsb: v, sets: v ? [...sets, "standard_b2b"] : sets }; // the rule set and its old flag stay in step
-            return n;
-          })} />
-        <Toggle label="Locked: users cannot switch it off" help="Customers see a Standing exclusions note and have no switch." checked={policy.exclusions.locked} disabled={off} onChange={(v) => setP("exclusions", "locked", v)} />
-        <Field label="Extra exclusions" help="Separate with commas or new lines. A SIC code (85200), a word (church), a postcode area (BN45) or a company number (01234567).">
-          <textarea style={{ ...input, width: "100%", minHeight: 70 }} value={extra} disabled={off} onChange={(e) => setExtra(e.target.value)} />
-        </Field>
-        <Toggle label="Member suppression" help="The brand's administrators upload a member list, and those companies never appear as prospects." checked={policy.member_suppression} disabled={off} onChange={(v) => setP("member_suppression", null, v)} />
-        <Field label="Geography: postcode districts" help="Searches stay inside these districts, for example BN1, BN3. Empty means no limit.">
-          <input style={{ ...input, width: "100%" }} value={districts} disabled={off} placeholder="BN1, BN3" onChange={(e) => setDistricts(e.target.value)} />
-        </Field>
-        <div style={{ fontSize: 13, fontWeight: 600, margin: "4px 0" }}>Restricted sources</div>
-        {[["google", "Google", "Turn off Google-sourced details for this brand."], ["apollo", "Apollo", "Turn off Apollo-sourced details for this brand."], ["search_engines", "Search engines", "Turn off search-engine lookups for this brand."]].map(([k, l, h]) => (
-          <Toggle key={k} label={l} help={h} checked={policy.restricted_sources[k]} disabled={off} onChange={(v) => setP("restricted_sources", k, v)} />
-        ))}
-        <Toggle label="Block phone numbers that are not cleared by the TPS and CTPS check" help="When on, numbers that have not been checked, or are on either register, are left out of exports for this brand. Calls to them get a warning that names this rule (they are not blocked)." checked={policy.screening.block_unscreened} disabled={off} onChange={(v) => setP("screening", "block_unscreened", v)} />
-        <div style={{ fontSize: 13, fontWeight: 600, margin: "10px 0 4px" }}>Social posts</div>
-        <Toggle label="Only admins approve posts" help="Only a company admin can approve a post or publish it straight away. The approval e-mail's links then work only for an admin's address." checked={policy.social.approver === "admin"} disabled={off} onChange={(v) => setP("social", "approver", v ? "admin" : "anyone")} />
-        <div style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 4px" }}>Networks the brand's companies may post to (none ticked: every network)</div>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12.5, marginBottom: 6 }}>
-          {[["linkedin", "LinkedIn"], ["x", "X"], ["facebook", "Facebook"], ["instagram", "Instagram"], ["threads", "Threads"], ["reddit", "Reddit"]].map(([k, l]) => (
-            <label key={k} style={{ display: "flex", gap: 5 }}>
-              <input type="checkbox" disabled={off} checked={policy.social.networks.includes(k)}
-                onChange={(e) => setP("social", "networks", e.target.checked ? [...new Set([...policy.social.networks, k])] : policy.social.networks.filter((x) => x !== k))} /> {l}
-            </label>
-          ))}
-        </div>
-        <Toggle label="Allow AI pictures" help="Off: posts are written without AI pictures and the Generate image button is hidden." checked={policy.social.ai_images !== false} disabled={off} onChange={(v) => setP("social", "ai_images", v)} />
-        <Toggle label="Allow AI video" help="Off: AI video can't be made." checked={policy.social.ai_video !== false} disabled={off} onChange={(v) => setP("social", "ai_video", v)} />
-        <div style={{ fontSize: 13, fontWeight: 600, margin: "10px 0 4px" }}>Allowed sign-in methods</div>
-        {[["password", "Email and password", "People of the brand sign in with a password."], ["google", "Google", "Shows the Google button on the sign-in page."], ["microsoft", "Microsoft", "Shows the Microsoft button when it is set up."]].map(([k, l, h]) => (
-          <Toggle key={k} label={l} help={h} checked={policy.signin[k]} disabled={off} onChange={(v) => setP("signin", k, v)} />
-        ))}
+        <RulesForm draft={draft} set={(patch) => setDraft((d) => ({ ...d, ...patch }))} sets={ruleSets?.sets || []} level="brand" disabled={off} />
         {isNew ? null : <button type="button" style={{ ...btn(true, off), marginTop: 8 }} disabled={off} onClick={savePolicy}>Save the rules</button>}
       </div>
 
