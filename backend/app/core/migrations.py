@@ -1072,6 +1072,11 @@ async def _per_request_lookups(conn: AsyncConnection) -> None:
                             "AND provider IN ('tavily', 'google_places', 'telnyx_lookup', 'provero_tps') AND coalesce(billing, 'per_find') = 'per_find'"))
 
 
+async def _billing_plan_rules(conn: AsyncConnection) -> None:
+    """What a plan includes and its fair-use cost cap (services/plan_rules.py). Empty means every provider and no cap."""
+    await conn.execute(text("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS rules JSON"))
+
+
 async def _organization_policy(conn: AsyncConnection) -> None:
     """Each company's own rules (services/tenant_policy.py), combined with its brand's. Empty means no company rules."""
     await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS policy JSON"))
@@ -1178,6 +1183,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_07_operator_username_unique", _operator_username_unique),
     ("2026_12_08_provider_price_billing", _provider_price_billing),
     ("2026_12_09_per_request_lookups", _per_request_lookups),
+    ("2026_12_10_billing_plan_rules", _billing_plan_rules),
 ]
 
 

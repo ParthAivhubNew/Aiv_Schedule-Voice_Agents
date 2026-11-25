@@ -137,7 +137,14 @@ async def plans(db, active_only: bool = True) -> List[Any]:
 def plan_json(p) -> Dict[str, Any]:
     return {"id": p.id, "wallet": p.wallet, "kind": p.kind, "name": p.name, "description": p.description,
             "priceUsdCents": p.price_usd_cents, "currency": p.currency or "usd", "credits": p.credits, "features": p.features or [],
-            "active": bool(p.active), "sort": p.sort, "stripePriceId": p.stripe_price_id, "inStripe": bool(p.stripe_price_id)}
+            "active": bool(p.active), "sort": p.sort, "stripePriceId": p.stripe_price_id, "inStripe": bool(p.stripe_price_id),
+            "rules": _rules(p)}
+
+
+def _rules(p) -> Dict[str, Any]:
+    from app.services.plan_rules import clean_rules
+
+    return clean_rules(getattr(p, "rules", None))
 
 
 async def sync_plan_to_stripe(p) -> None:

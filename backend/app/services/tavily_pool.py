@@ -55,7 +55,8 @@ async def _main_key() -> str:
 def _pool():
     from app.providers.keypool import KeyPool
 
-    return KeyPool(name="tavily", backups_doc=BACKUPS_DOC, main_key=_main_key, main_label="Tavily key", log_row=_row, cool=_COOL)
+    return KeyPool(name="tavily", backups_doc=BACKUPS_DOC, main_key=_main_key, main_label="Tavily key", log_row=_row, cool=_COOL,
+                    plan_provider="tavily")  # a plan without web search gets no key, so its lookups report nothing found
 
 
 async def backups() -> List[Dict[str, Any]]:

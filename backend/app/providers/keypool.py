@@ -44,7 +44,7 @@ def retry_after(headers: Any, default: int, floor: int = 30, ceiling: int = 8640
 
 class KeyPool:
     def __init__(self, *, name: str, backups_doc: str, main_key: Callable[[], Awaitable[str]], main_label: str,
-                 log_row: Callable[..., Any], cool: Optional[Dict[str, float]] = None, source: str = ""):
+                 log_row: Callable[..., Any], cool: Optional[Dict[str, float]] = None, source: str = "", plan_provider: str = ""):
         self.name = name
         self.backups_doc = backups_doc
         self.main_key = main_key
@@ -52,6 +52,7 @@ class KeyPool:
         self.log_row = log_row  # (entry, purpose, looked_for, status, outcome, **extra) -> a model row to add
         self.cool: Dict[str, float] = cool if cool is not None else {}
         self.source = source  # a tenant_policy source name: when the organisation's rules block it, the pool has no keys
+        self.plan_provider = plan_provider  # a provider id: when the company's plan leaves it out, the pool has no keys (services/plan_rules.py)
 
     async def backups(self) -> List[Dict[str, Any]]:
         from app.database import AsyncSessionLocal
@@ -74,6 +75,11 @@ class KeyPool:
             from app.services import tenant_policy
 
             if not await tenant_policy.source_allowed(None, self.source):
+                return []
+        if self.plan_provider:
+            from app.services.plan_rules import provider_allowed
+
+            if not await provider_allowed(self.plan_provider):
                 return []
         out: List[Entry] = []
         main = (lead or await self.main_key() or "").strip()

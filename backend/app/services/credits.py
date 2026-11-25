@@ -524,6 +524,11 @@ async def hold(db, parts: List[Dict[str, Any]]) -> Tuple[bool, str]:
         ok, why = await _cap_check(db, current_actor(), sum(need.values()), holds)
         if not ok:
             return False, why
+        from app.services.plan_rules import cap_refusal
+
+        refused = await cap_refusal([v["item"] for v in new.values()])  # the plan's fair-use cost cap
+        if refused:
+            return False, refused
         if s["enforce"]:
             for wallet, cost in need.items():
                 if await wallet_balance(db, wallet) < cost:
@@ -694,6 +699,11 @@ async def can_start(db, item: str, quantity: float = 1, extra: Optional[List[Tup
         ok, why = await _cap_check(db, current_actor(), sum(need.values()), _holds(await _get_doc(db, _settings_id())))
         if not ok:
             return False, why
+        from app.services.plan_rules import cap_refusal
+
+        refused = await cap_refusal([it for it, _q in [(item, quantity), *(extra or [])]])  # the plan's fair-use cost cap
+        if refused:
+            return False, refused
         if not (await org_settings(db))["enforce"]:
             return True, ""
         for wallet, cost in need.items():

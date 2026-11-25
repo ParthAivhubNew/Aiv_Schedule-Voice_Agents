@@ -684,6 +684,40 @@ class PlanBody(BaseModel):
     features: list = []
     active: bool = True
     sort: int = 0
+    rules: Optional[Dict[str, Any]] = None  # included providers and fair-use cost cap (services/plan_rules.py); None keeps what it has
+    override: bool = False  # save although the margin guard says an activity would sell below the floor
+    reason: str = ""  # why, when overriding (kept in the audit log)
+
+
+async def _margin_gate(db, who: Dict[str, Any], *, rates: Optional[Dict[str, Any]] = None, plans: Optional[list] = None,
+                       override: bool = False, reason: str = "", what: str = "") -> None:
+    """Refuses a change that would sell an activity below the margin floor (services/margin_guard.py), unless staff override it with a
+    reason, which is audited."""
+    from app.services import audit, margin_guard as MG
+
+    bad = await MG.problems(db, rates=rates, plans=plans)
+    if not bad:
+        return
+    floor = (await MG.settings(db))["floor_pct"]
+    listing = [{"item": r["item"], "label": r["label"], "marginPct": r["marginPct"], "credits": r["credits"],
+                "creditsNeeded": MG.needed_credits(r, floor)} for r in bad]
+    if not override:
+        raise HTTPException(status_code=409, detail={"code": "margin_floor", "floorPct": floor, "items": listing,
+                                                     "message": f"This would sell {len(bad)} activit{'y' if len(bad) == 1 else 'ies'} below the {floor}% margin floor: "
+                                                                + ", ".join(f"{r['label']} ({r['marginPct']}%)" for r in listing[:5]) + "."})
+    if len((reason or "").strip()) < 5:
+        raise HTTPException(status_code=400, detail="Say why you are saving below the margin floor.")
+    name = who.get("email") or who.get("name") or "staff"
+    await audit.record(db, "margin.override", target=what, detail={"reason": reason.strip()[:300], "items": listing}, actor_id=str(who.get("id") or name),
+                       actor_name=name)
+
+
+def _plans_with(current: list, body: "PlanBody", plan_id: str = "") -> list:
+    """The plans on sale if this change were saved, in the shape the margin guard reads."""
+    mine = {"id": plan_id or "new", "wallet": body.wallet, "kind": body.kind, "name": body.name, "price_cents": body.priceUsdCents,
+            "currency": next((p["currency"] for p in current if p["id"] == plan_id), "usd"),  # a plan made here is priced in USD cents (the model default)
+            "credits": body.credits, "active": body.active}
+    return [p for p in current if p["id"] != plan_id] + [mine]
 
 
 def _check_plan(body: PlanBody) -> None:
@@ -742,12 +776,17 @@ async def create_plan(body: PlanBody, request: Request):
     from app.models.models import BillingPlan
     from app.services import billing as B
 
-    _admin_only(request)
+    from app.services import margin_guard as MG
+    from app.services.plan_rules import clean_rules, invalidate
+
+    who = _admin_only(request)
     _check_plan(body)
     async with AsyncSessionLocal() as db:
+        await _margin_gate(db, who, plans=_plans_with(await MG._plans(db), body), override=body.override, reason=body.reason, what=f"plan:{body.name}")
         p = BillingPlan(id=f"plan_{uuid.uuid4().hex[:10]}", wallet=body.wallet, kind=body.kind, name=body.name.strip()[:80],
                         description=body.description[:300], price_usd_cents=body.priceUsdCents, credits=body.credits,
-                        features=body.features[:12], active=body.active, sort=body.sort)
+                        features=body.features[:12], active=body.active, sort=body.sort, rules=clean_rules(body.rules))
+        invalidate()
         db.add(p)
         await db.commit()
         return B.plan_json(p)
@@ -758,12 +797,21 @@ async def update_plan(plan_id: str, body: PlanBody, request: Request):
     from app.models.models import BillingPlan
     from app.services import billing as B
 
-    _admin_only(request)
+    from app.services import margin_guard as MG
+    from app.services.plan_rules import clean_rules, invalidate
+
+    who = _admin_only(request)
     _check_plan(body)
     async with AsyncSessionLocal() as db:
         p = (await db.execute(select(BillingPlan).where(BillingPlan.id == plan_id))).scalars().first()
         if not p:
             raise HTTPException(status_code=404, detail="Plan not found.")
+        if (p.price_usd_cents, p.credits, bool(p.active), p.wallet) != (body.priceUsdCents, body.credits, body.active, body.wallet):
+            await _margin_gate(db, who, plans=_plans_with(await MG._plans(db), body, plan_id), override=body.override, reason=body.reason,
+                               what=f"plan:{plan_id}")
+        if body.rules is not None:
+            p.rules = clean_rules(body.rules)
+        invalidate()
         if (p.price_usd_cents != body.priceUsdCents or p.kind != body.kind) and p.stripe_price_id:
             p.stripe_price_id = ""  # needs a new Stripe price; current subscribers keep theirs
         p.wallet, p.kind, p.name, p.description = body.wallet, body.kind, body.name.strip()[:80], body.description[:300]
@@ -904,20 +952,53 @@ async def get_rates(request: Request):
 
 class RatesBody(BaseModel):
     rates: Dict[str, float]  # half credits are allowed (a contact email check is 2.5)
+    override: bool = False  # save although the margin guard says an activity would sell below the floor
+    reason: str = ""
 
 
 @router.put("/rates")
 async def put_rates(body: RatesBody, request: Request):
     from app.services import credits as K
 
-    _admin_only(request)
+    who = _admin_only(request)
     unknown = [k for k in body.rates if k not in K.DEFAULT_RATES]
     if unknown:
         raise HTTPException(status_code=400, detail=f"Not an activity we price: {', '.join(unknown)}.")
     if any(v < 0 or v > 100000 for v in body.rates.values()):
         raise HTTPException(status_code=400, detail="A price must be between 0 and 100,000 credits.")
     async with AsyncSessionLocal() as db:
+        await _margin_gate(db, who, rates=body.rates, override=body.override, reason=body.reason, what="rate card")
         out = await K.set_rates(db, body.rates)
+        await db.commit()
+        return out
+
+
+@router.get("/margins")
+async def get_margins(request: Request):
+    """Every activity's margin at the cheapest credit on sale, against its worst-case cost (services/margin_guard.py), worst first."""
+    from app.services import margin_guard as MG
+
+    _who(request)
+    async with AsyncSessionLocal() as db:
+        return await MG.table(db)
+
+
+class MarginSettingsBody(BaseModel):
+    floorPct: Optional[float] = None
+    pricesIncludeVat: Optional[bool] = None
+    stripePct: Optional[float] = None
+    stripeFixedPence: Optional[float] = None
+
+
+@router.put("/margin-settings")
+async def put_margin_settings(body: MarginSettingsBody, request: Request):
+    from app.services import margin_guard as MG
+
+    _admin_only(request)
+    patch = {k: v for k, v in {"floor_pct": body.floorPct, "prices_include_vat": body.pricesIncludeVat, "stripe_pct": body.stripePct,
+                               "stripe_fixed_pence": body.stripeFixedPence}.items() if v is not None}
+    async with AsyncSessionLocal() as db:
+        out = await MG.set_settings(db, patch)
         await db.commit()
         return out
 

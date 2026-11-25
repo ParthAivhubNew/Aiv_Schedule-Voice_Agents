@@ -333,3 +333,25 @@ async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: 
                        "marginPct": round(margin_total / totals["paid"] * 100, 1) if totals["paid"] > 0 else None},
             "notes": ["Paid is before VAT and Stripe fees.", "Fixed costs (TPS licence, bought data) are not shared out yet.",
                       "Tavily, Apollo and number lookups are costed at today's price."]}
+
+
+async def org_cost_gbp(db, org_id: str, start: datetime, end: datetime) -> float:
+    """One organisation's variable cost in [start, end), in pounds: recorded provider calls (cost ledger) plus estimated usage not logged
+    per call (ESTIMATED_ITEMS). The fair-use cap reads it (services/plan_rules.py). Run under the system scope."""
+    from app.services import fx
+
+    total = 0.0
+    try:
+        async with db.begin_nested():
+            usd = (await db.execute(text("SELECT coalesce(sum(cost_usd), 0) FROM provider_calls WHERE org_id = :o AND at >= :s AND at < :e"),
+                                    {"o": org_id, "s": start, "e": end})).scalar()
+        total += (await fx.convert(db, float(usd or 0), "USD", REPORT_CURRENCY))[0]
+    except Exception:  # no cost ledger view yet: the estimate below still counts
+        pass
+    unit = await _estimate_unit_costs(db)
+    for item, qty in (await db.execute(text(
+            "SELECT item, sum(quantity) FROM credit_ledger WHERE org_id = :o AND kind = 'usage' AND created_at >= :s AND created_at < :e "
+            "AND item = ANY(:items) GROUP BY 1"), {"o": org_id, "s": start, "e": end, "items": list(ESTIMATED_ITEMS)})).all():
+        if item in unit:
+            total += (await fx.convert(db, float(qty or 0) * unit[item][0], unit[item][1], REPORT_CURRENCY))[0]
+    return total

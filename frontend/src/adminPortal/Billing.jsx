@@ -18,6 +18,25 @@ const guessCredits = (s, rates) => {
 
 const EMPTY_PLAN = { wallet: "voice", kind: "plan", name: "", priceUsd: "", credits: "" };
 
+// Runs a save; when the margin guard refuses it (an activity would sell below the floor), asks staff whether to save anyway and why.
+async function withMarginCheck(save) {
+  try {
+    return await save({});
+  } catch (err) {
+    if (err.status !== 409 || err.info?.code !== "margin_floor") throw err;
+    const needs = (err.info.items || []).filter((i) => i.creditsNeeded).map((i) => `${i.label}: at least ${i.creditsNeeded} credits`).join("; ");
+    const reason = window.prompt(`${err.message}${needs ? `\n\nTo meet the floor: ${needs}.` : ""}\n\nTo save anyway, say why (kept in the audit log):`);
+    if (!reason) throw new Error("Not saved: it would sell below the margin floor.");
+    return save({ override: true, reason });
+  }
+}
+
+const rulesText = (rules, providerNames) => {
+  const r = rules || {};
+  const who = r.providers == null ? "All providers" : r.providers.length === 0 ? "No providers" : r.providers.map((id) => providerNames[id] || id).join(", ");
+  return `${who}${r.cost_cap_pct ? ` · fair-use cap ${r.cost_cap_pct}%` : ""}`;
+};
+
 // Plans and top-ups on sale, prices already made in Stripe, the rate card and the Telnyx margin.
 export function Billing({ canEdit }) {
   const [plans, setPlans] = useState([]);
@@ -28,6 +47,8 @@ export function Billing({ canEdit }) {
   const [sell, setSell] = useState({});
   const [plan, setPlan] = useState(EMPTY_PLAN);
   const [loadErr, setLoadErr] = useState("");
+  const [providers, setProviders] = useState([]);
+  const [rulesFor, setRulesFor] = useState(null); // {id, providers: null | [...], cost_cap_pct} being edited
 
   const load = useCallback(async () => {
     try {
@@ -35,7 +56,8 @@ export function Billing({ canEdit }) {
       setStripeReady(Boolean(platform.stripe));
       // Stripe first: it also refreshes the names and descriptions of the plans on sale.
       if (platform.stripe) setStripePrices(await adminApi.stripePrices().catch((err) => { setLoadErr(err.message); return []; }));
-      const [p, r] = await Promise.all([adminApi.plans(), adminApi.rates()]);
+      const [p, r, prov] = await Promise.all([adminApi.plans(), adminApi.rates(), adminApi.providers().catch(() => ({ providers: [] }))]);
+      setProviders(prov.providers || []);
       setPlans(p);
       setRates(r);
       setRateDraft(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v.credits)])));
@@ -53,10 +75,11 @@ export function Billing({ canEdit }) {
       <Note error={msg.error}>{msg.text}</Note>
 
       <div style={heading}>On sale</div>
-      <Table head={["App", "Kind", "Name", "Price", "Credits", "Active", "Stripe"]} minWidth={760}>
-        {plans.length === 0 && <tr><td colSpan={7} style={{ ...cell, color: C.slate }}>None yet.</td></tr>}
+      <Table head={["App", "Kind", "Name", "Price", "Credits", "Active", "Stripe", "Includes"]} minWidth={920}>
+        {plans.length === 0 && <tr><td colSpan={8} style={{ ...cell, color: C.slate }}>None yet.</td></tr>}
         {plans.map((p) => (
-          <tr key={p.id} style={{ opacity: p.active ? 1 : 0.55 }}>
+          <React.Fragment key={p.id}>
+          <tr style={{ opacity: p.active ? 1 : 0.55 }}>
             <td style={cell}>{p.wallet}</td>
             <td style={cell}>{p.kind === "plan" ? "Monthly" : "Top-up"}</td>
             <td style={cell}>{p.name}</td>
@@ -67,20 +90,59 @@ export function Billing({ canEdit }) {
                   style={{ ...input, padding: "4px 8px", width: 100, ...mono }}
                   onBlur={(e) => {
                     const credits = Number(e.target.value);
-                    if (credits > 0 && credits !== p.credits) run(() => adminApi.updatePlan(p.id, { ...p, credits }), `${p.name} now gives ${fmt(credits)} credits.`);
+                    if (credits > 0 && credits !== p.credits) run(() => withMarginCheck((extra) => adminApi.updatePlan(p.id, { ...p, credits, ...extra })), `${p.name} now gives ${fmt(credits)} credits.`);
                   }} />
               ) : fmt(p.credits)}
             </td>
             <td style={cell}>
               <input type="checkbox" aria-label={`${p.name} on sale`} checked={p.active} disabled={!canEdit}
-                onChange={() => run(() => adminApi.updatePlan(p.id, { ...p, active: !p.active }), p.active ? `${p.name} taken off sale.` : `${p.name} back on sale.`)} />
+                onChange={() => run(() => withMarginCheck((extra) => adminApi.updatePlan(p.id, { ...p, active: !p.active, ...extra })), p.active ? `${p.name} taken off sale.` : `${p.name} back on sale.`)} />
             </td>
             <td style={cell}>
               {p.inStripe ? <span style={{ color: C.teal, fontWeight: 600 }}>In Stripe</span> : canEdit && stripeReady ? (
                 <button type="button" style={btn(false)} onClick={() => run(() => adminApi.syncPlan(p.id), "Created in Stripe.")}>Create in Stripe</button>
               ) : "Not yet"}
             </td>
+            <td style={{ ...cell, fontSize: 12.5 }}>
+              {rulesText(p.rules, Object.fromEntries(providers.map((x) => [x.id, x.name])))}
+              {canEdit && (
+                <button type="button" style={{ ...btn(false), marginLeft: 8, padding: "2px 8px" }}
+                  onClick={() => setRulesFor(rulesFor?.id === p.id ? null : { id: p.id, providers: p.rules?.providers ?? null, cost_cap_pct: p.rules?.cost_cap_pct ?? "" })}>
+                  {rulesFor?.id === p.id ? "Close" : "Edit"}
+                </button>
+              )}
+            </td>
           </tr>
+          {rulesFor?.id === p.id && (
+            <tr>
+              <td colSpan={8} style={{ ...cell, background: "#F9FAFB" }}>
+                <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 6 }}>
+                  Providers this plan may use (a company on several plans may use any provider one of them includes), and the fair-use cap:
+                  how much our cost may reach, as a share of what the company paid this billing period. At 80% its admins are told; at 100% paid lookups pause until a top-up or the next period.
+                </div>
+                <label style={{ fontSize: 13, marginRight: 14 }}>
+                  <input type="checkbox" checked={rulesFor.providers == null} onChange={(e) => setRulesFor({ ...rulesFor, providers: e.target.checked ? null : providers.map((x) => x.id) })} /> All providers
+                </label>
+                {rulesFor.providers != null && providers.map((x) => (
+                  <label key={x.id} style={{ fontSize: 13, marginRight: 12, whiteSpace: "nowrap" }}>
+                    <input type="checkbox" checked={rulesFor.providers.includes(x.id)}
+                      onChange={(e) => setRulesFor({ ...rulesFor, providers: e.target.checked ? [...rulesFor.providers, x.id] : rulesFor.providers.filter((id) => id !== x.id) })} /> {x.name}
+                  </label>
+                ))}
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 13 }}>Fair-use cap</span>
+                  <input type="number" min="5" max="100" placeholder="off" aria-label={`Fair-use cap for ${p.name}`} value={rulesFor.cost_cap_pct}
+                    onChange={(e) => setRulesFor({ ...rulesFor, cost_cap_pct: e.target.value })} style={{ ...input, width: 80 }} />
+                  <span style={{ fontSize: 13, color: C.slate }}>% (empty: no cap)</span>
+                  <button type="button" style={btn(true)} onClick={() => run(async () => {
+                    await adminApi.updatePlan(p.id, { ...p, rules: { providers: rulesFor.providers, cost_cap_pct: rulesFor.cost_cap_pct === "" ? null : Number(rulesFor.cost_cap_pct) } });
+                    setRulesFor(null);
+                  }, `${p.name}: what it includes is saved.`)}>Save</button>
+                </div>
+              </td>
+            </tr>
+          )}
+          </React.Fragment>
         ))}
       </Table>
 
@@ -131,7 +193,7 @@ export function Billing({ canEdit }) {
             <input aria-label="Price in USD" type="number" min="0.5" step="0.01" placeholder="Price $" value={plan.priceUsd} onChange={(e) => setPlan({ ...plan, priceUsd: e.target.value })} style={{ ...input, width: 100 }} />
             <input aria-label="Plan credits" type="number" min="1" placeholder="Credits" value={plan.credits} onChange={(e) => setPlan({ ...plan, credits: e.target.value })} style={{ ...input, width: 110 }} />
             <button type="button" style={btn(true)} onClick={() => run(async () => {
-              await adminApi.createPlan({ wallet: plan.wallet, kind: plan.kind, name: plan.name, priceUsdCents: Math.round(Number(plan.priceUsd) * 100), credits: Number(plan.credits) });
+              await withMarginCheck((extra) => adminApi.createPlan({ wallet: plan.wallet, kind: plan.kind, name: plan.name, priceUsdCents: Math.round(Number(plan.priceUsd) * 100), credits: Number(plan.credits), ...extra }));
               setPlan(EMPTY_PLAN);
             }, "Plan added. Create it in Stripe to put it on sale.")}><Plus size={13} /> Add</button>
           </div>
@@ -170,7 +232,8 @@ export function Billing({ canEdit }) {
               <button type="button" style={btn(true)} onClick={() => {
                 const bad = Object.entries(rateDraft).find(([, v]) => v === "" || !(Number(v) >= 0));
                 if (bad) return run(async () => { throw new Error(`Enter a price for "${rates[bad[0]].label}" (0 or more).`); });
-                return run(() => adminApi.setRates(Object.fromEntries(Object.entries(rateDraft).map(([k, v]) => [k, Number(v)]))).then(load), "Prices saved.");
+                const draft = Object.fromEntries(Object.entries(rateDraft).map(([k, v]) => [k, Number(v)]));
+                return run(() => withMarginCheck((extra) => adminApi.setRates(draft, extra)).then(load), "Prices saved.");
               }}>Save prices</button>
               <button type="button" style={btn(false)} onClick={() => setRateDraft(Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, String(v.standard)])))}>Fill in standard prices</button>
             </div>
@@ -178,6 +241,7 @@ export function Billing({ canEdit }) {
         </>
       )}
 
+      <MarginCheck canEdit={canEdit} key={JSON.stringify(rates || {}) + plans.length} />
       <TelnyxMargin canEdit={canEdit} />
       <MonthReport canEdit={canEdit} />
     </>
@@ -185,6 +249,58 @@ export function Billing({ canEdit }) {
 }
 
 const right = { ...cell, textAlign: "right", ...mono, whiteSpace: "nowrap" };
+const pence = (v) => (v == null ? "—" : v >= 100 ? `£${(v / 100).toFixed(2)}` : `${Number(v).toFixed(1)}p`);
+const STATUS = { below: ["Below the floor", C.red], unknown: ["Cost not known", C.amber], ok: ["OK", C.teal], free: ["No cost to us", C.slate] };
+
+// Every activity's margin at the cheapest credit on sale against its worst-case cost (services/margin_guard.py). Saving a price or a
+// plan that would put an activity below the floor asks for a reason first.
+function MarginCheck({ canEdit }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => adminApi.margins().then(setData, (e) => setErr(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  const [msg, run] = useAction(load);
+  if (err) return <Note error>{err}</Note>;
+  if (!data) return null;
+  const s = data.settings;
+  const floor = s.floor_pct;
+  return (
+    <>
+      <div style={heading}>Margin check</div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 8 }}>
+        Each activity at the cheapest credit on sale ({s.prices_include_vat ? "prices taken to include 20% VAT" : "prices taken to be before VAT"}, less Stripe's {s.stripe_pct}% + {s.stripe_fixed_pence}p),
+        against the most one unit can cost us. $1 = £{data.usdToGbp}. Below {floor}% is flagged, and a change that causes it asks for a reason.
+      </div>
+      <Note error={msg.error}>{msg.text}</Note>
+      {canEdit && (
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 13 }}>Margin floor <input type="number" min="0" max="95" defaultValue={floor} aria-label="Margin floor"
+            onBlur={(e) => Number(e.target.value) !== floor && run(() => adminApi.setMarginSettings({ floorPct: Number(e.target.value) }), "Floor saved.")} style={{ ...input, width: 70 }} /> %</label>
+          <label style={{ fontSize: 13 }}><input type="checkbox" checked={s.prices_include_vat}
+            onChange={(e) => run(() => adminApi.setMarginSettings({ pricesIncludeVat: e.target.checked }), "Saved.")} /> Prices include VAT</label>
+        </div>
+      )}
+      <Table head={["Activity", "App", "Credits", "Net a credit", "Brings in", "Worst cost", "Margin", ""]} minWidth={820}>
+        {data.items.map((r) => {
+          const [label, tone] = STATUS[r.status] || [r.status, C.slate];
+          const needed = r.status === "below" && r.creditPence && r.worstCostPence != null ? Math.ceil(r.worstCostPence / (r.creditPence * (1 - floor / 100))) : null;
+          return (
+            <tr key={r.item}>
+              <td style={cell}>{r.label}</td>
+              <td style={cell}>{WALLETS.find(([w]) => w === r.wallet)?.[1] || r.wallet}</td>
+              <td style={right}>{r.credits}</td>
+              <td style={right}>{pence(r.creditPence)}</td>
+              <td style={right}>{pence(r.revenuePence)}</td>
+              <td style={right}>{pence(r.worstCostPence)}</td>
+              <td style={{ ...right, color: tone }}>{r.marginPct == null ? "—" : `${r.marginPct}%`}</td>
+              <td style={{ ...cell, fontSize: 12, color: tone }}>{label}{needed ? ` · needs ${needed} credits` : ""}</td>
+            </tr>
+          );
+        })}
+      </Table>
+    </>
+  );
+}
 const amount = (v, cur) => `${Number(v || 0).toFixed(2)} ${(cur || "").toUpperCase()}`;
 
 // For a month: what Telnyx charged us for each customer's billing group next to the minutes we

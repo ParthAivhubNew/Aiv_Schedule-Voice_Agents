@@ -803,6 +803,7 @@ class BillingPlan(Base):
     currency = Column(String, default="usd")  # of price_usd_cents (prices made in Stripe can be e.g. gbp)
     credits = Column(Integer, nullable=False)
     features = Column(JSON, default=list)
+    rules = Column(JSON, nullable=True)  # what the plan includes and its fair-use cost cap (services/plan_rules.clean_rules)
     stripe_product_id = Column(String, default="")
     stripe_price_id = Column(String, default="", index=True)
     active = Column(Boolean, default=True)

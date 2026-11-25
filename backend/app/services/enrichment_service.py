@@ -419,6 +419,10 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
     key is configured or nothing matches; never raises."""
     if not await _source_allowed("google"):
         return None  # the organisation's brand policy restricts this source: the same as nothing found
+    from app.services.plan_rules import provider_allowed
+
+    if not await provider_allowed("google_places"):
+        return None  # the company's plan leaves Google out: the same as nothing found
     key = await google_places_key()
     if not key or not query.strip():
         return None
@@ -466,6 +470,10 @@ async def google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
     pid = str(place_id or "").strip()
     if not pid or not re.fullmatch(r"[A-Za-z0-9_\-]{5,300}", pid):
         return None  # the ID goes into the URL path: nothing but what Google issues
+    from app.services.plan_rules import provider_allowed
+
+    if not await provider_allowed("google_places"):
+        return None  # the company's plan leaves Google out
     key = await google_places_key()
     if not key:
         return None

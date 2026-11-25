@@ -283,6 +283,11 @@ async def lookup_person_waterfall(
     if not keys:
         return {"found": False, "error": "not_configured",
                 "detail": "Email finding isn't set up yet. The Outreach team adds it in the owner portal."}
+    from app.services.plan_rules import provider_allowed
+
+    keys = {prov: k for prov, k in keys.items() if await provider_allowed(prov)}  # only the finders the company's plan includes
+    if not keys:
+        return {"found": False, "error": "not_in_plan", "detail": "E-mail finding isn't included in your plan."}
 
     # A recent "nobody found" for this same person is answered without asking (or paying) anyone again.
     miss = (await db.execute(_same_person(select(PersonCache).where(PersonCache.verification_status == "not_found"), p)

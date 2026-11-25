@@ -47,8 +47,10 @@ async function request(path, { method = "GET", body } = {}) {
     throw new Error("Your staff session ended. Please sign in again.");
   }
   if (!res.ok) {
-    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : data.detail;
-    throw Object.assign(new Error(detail || `Request failed (${res.status})`), { status: res.status });
+    // A detail object (e.g. the margin guard's {code, message, items}) keeps its fields on the error as `info`.
+    const info = data.detail && typeof data.detail === "object" && !Array.isArray(data.detail) ? data.detail : null;
+    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : info ? info.message : data.detail;
+    throw Object.assign(new Error(detail || `Request failed (${res.status})`), { status: res.status, info });
   }
   return data;
 }
@@ -87,7 +89,9 @@ export const adminApi = {
   voiceCheck: (month) => request(`/voice-reconciliation?month=${q(month)}`),
   runVoiceCheck: (month) => request(`/voice-reconciliation/run?month=${q(month)}`, { method: "POST" }),
   rates: () => request("/rates"),
-  setRates: (rates) => request("/rates", { method: "PUT", body: { rates } }),
+  setRates: (rates, extra = {}) => request("/rates", { method: "PUT", body: { rates, ...extra } }),
+  margins: () => request("/margins"),
+  setMarginSettings: (body) => request("/margin-settings", { method: "PUT", body }),
   revenue: (month, includeAivhub = false) => request(`/revenue?month=${q(month)}&include_aivhub=${includeAivhub}`),
   revenueClients: (month, includeInternal = false) => request(`/revenue/clients?month=${q(month)}&include_internal=${includeInternal}`),
   providers: () => request("/providers"),

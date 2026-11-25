@@ -238,6 +238,30 @@ Live data is too small to check these against real bills: 9 AI calls and 2 brows
 - **Not yet:** sharing out fixed costs (step 5), VAT and Stripe fees (decision 4), and the cost of voice engines other than
   Telnyx's AI.
 
+### B.3c Step 5, first part, done on the branch (2026-11-25)
+
+- **What a plan includes:** `BillingPlan.rules.providers` (none = every provider). The e-mail waterfall, the Apollo and Tavily
+  key pools and Google Places use only the providers a company's live plans include. A company with no live plan isn't limited.
+- **Fair-use cost cap:** `rules.cost_cap_pct`, a share of what the company paid this billing period (net of VAT when prices
+  include it). At 80% the company's admins get the low-credits e-mail and staff get CAP-01; at 100% paid lookups are refused
+  (USR-08) until a top-up or the next period. Calls and phone rent are never paused. Off unless a plan sets it.
+- **Margin guard** (`services/margin_guard.py`):
+  - shows every activity's margin at the cheapest net credit (VAT and Stripe 1.5% + 20p taken off) against its worst-case cost,
+  - saving rates or a plan that puts an activity below the floor, or further below it, is refused unless staff give a reason,
+    which is audited as `margin.override`,
+  - a price that was already low doesn't block an unrelated change,
+  - floor 60% and "prices include VAT" are settings.
+- **On the Plans & pricing page:** the Margin check table, an Includes column with an editor per plan, and a "save anyway?"
+  prompt with a reason.
+- **What the guard found on today's prices** (cheapest net credit: Voice 10.9p, Leads and Social 14.8p):
+  - **AI video clip 23%**: 39 credits needed for 60%,
+  - **Phone number 53%**: 18 credits needed; the 15 set in step 2 assumed prices before VAT and fees,
+  - premium voice minutes, call transcripts, AI posts and images have no known cost yet.
+- **Still to do in step 5:**
+  - fixed costs and the break-even panel,
+  - monthly limits (users, exports, e-mails a day, assistant messages),
+  - Leads and Social top-ups: the mechanism exists, but they need prices.
+
 ### B.4 Target: plans that can't go below a margin floor
 
 **1. Every call has a known cost** (fixes 1–4)
