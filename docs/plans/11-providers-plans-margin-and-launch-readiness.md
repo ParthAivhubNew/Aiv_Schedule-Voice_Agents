@@ -390,7 +390,13 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
   - Each step is ticked from what the account really holds.
   - A line explains that credits are per app, with a link to "How credits work".
   - **Not done:** a pre-filled sample search.
-- Pricing page and in-app "what this will cost" before every paid action. Cost boxes exist in places; make them consistent.
+- ✅ **"What this will cost" before every paid action: done on the branch 2026-11-25.** Every paid button or help line next to one now reads its price from the company's own rate card, through one shared hook (`app/usePrice.js`: `useRate`, `priceWord` → "1 credit per 5 lines"). One request is made per app's wallet. While the price is loading, the screen says "Charged" or leaves the number out; it never shows a guess.
+  - **Covered:**
+    - **Leads:** the Google view line, AI e-mail lines, the e-mail finder and web search tooltips on the company page and in Find Leads, and the number check.
+    - **Social:** AI pictures and rewrites.
+  - **Wrong prices fixed:** these screens said "1 Leads credit", but a lead researched costs 5 at the standard rate. The API docs said the same and now quote the standard rate.
+  - **Guard:** `app/noTypedPrices.test.js` fails if a screen types in a credit price. Help pages may still quote "the standard rate".
+  - **Not done:** a public pricing page.
 - Honest Connectors screen (plan 10, Phase 0) and real empty states.
 - ✅ Help pages: checked 2026-11-25, and there's no FSB-specific wording. The Lists help now names the real origins.
 

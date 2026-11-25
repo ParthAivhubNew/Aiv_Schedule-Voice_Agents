@@ -22,7 +22,7 @@ import { IcpPrompt, useIcp } from "./FitParts";
 import { sortOptions } from "./fitLogic";
 import { CompanyDrawer } from "./CompanyDrawer";
 import { NotesButton, notesChanged } from "./Notes";
-import { LookupCost, announceCreditsChanged } from "./CreditsChip";
+import { LookupCost, announceCreditsChanged, useLookupPrice } from "./CreditsChip";
 import { useBulkSelect } from "../../components/bulkSelect";
 import { SelectAllNotice } from "../../components/SelectAllNotice";
 import { notice } from "../../utils/notice";
@@ -200,6 +200,7 @@ function personLine(o) {
 }
 
 function ContactsPanel({ company }) {
+  const lookupPrice = useLookupPrice();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(true);  // the registry is read as soon as the panel opens, so it starts in the loading state
   const [error, setError] = useState("");
@@ -267,7 +268,7 @@ function ContactsPanel({ company }) {
                     : e.none ? <span style={{ ...muted, fontSize: 12.5 }}>No email found for this person. Nothing charged.</span>
                     : <>
                         {e.error ? <span style={{ ...muted, fontSize: 12.5, color: C.red }}>{e.error}</span> : null}
-                        <button type="button" title="Look for this person's work email. 1 Leads credit only if one is found" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
+                        <button type="button" title={`Look for this person's work email. ${lookupPrice || "Charged"} only if one is found`} className="ui-btn ui-btn--secondary ui-btn--sm" disabled={e.busy} onClick={() => findEmail(o)}>
                           {e.busy ? <Spinner size={13} /> : null} Find email · <LookupCost />
                         </button>
                       </>}
@@ -310,7 +311,7 @@ function ContactsPanel({ company }) {
                 </div>
               )
             ) : (
-              <button type="button" title="Search the web for this company's website and phone. 1 Leads credit only if something is found" className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 8 }}>
+              <button type="button" title={`Search the web for this company's website and phone. ${lookupPrice || "Charged"} only if something is found`} className="ui-btn ui-btn--primary ui-btn--sm" disabled={busy} onClick={() => load(true)} style={{ marginTop: 8 }}>
                 {busy ? <Spinner size={13} /> : <Globe size={13} />} Look for website &amp; phone on the web · <LookupCost />
               </button>
             )}

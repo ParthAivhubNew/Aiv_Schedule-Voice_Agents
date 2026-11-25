@@ -15,7 +15,7 @@ import { PersonPage } from "./PersonPage";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { ArrowLeft, Bot, Check, ExternalLink, Globe, Link2, Mail, Phone, Plus, Search, XCircle } from "lucide-react";
 import { SIGNAL_TONES, STATUS_PILL, TABS, activityRows, contactRows, filingRows, niceName, orderSignals, peopleCount, personEmail, personMeta, sameOfficer, personName, shortDate, subLine } from "./companyLogic";
-import { LookupCost, announceCreditsChanged, useRatePrice } from "./CreditsChip";
+import { LookupCost, announceCreditsChanged, useLookupPrice, useRatePrice } from "./CreditsChip";
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
@@ -79,6 +79,7 @@ function FromYou({ mine }) {
 
 // The people on the register, one row each, with the reason they are worth a look and a way to find their email.
 function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
+  const lookupPrice = useLookupPrice();
   const [view, setView] = useState("chart");
   const { officers, leavers, read, from_registry: fromRegistry } = c.people;
   const controllers = c.people.controllers;
@@ -111,7 +112,7 @@ function People({ c, onFindEmail, onOpenPerson, found, onOverview }) {
                   : f.none ? <span style={small}>No email found. Nothing charged.</span>
                   : <>
                       {f.error ? <span style={{ ...small, color: C.red }}>{f.error}</span> : null}
-                      <button type="button" style={btn(false, f.busy)} disabled={f.busy} title="Look for this person's work email. 1 Leads credit only if one is found"
+                      <button type="button" style={btn(false, f.busy)} disabled={f.busy} title={`Look for this person's work email. ${lookupPrice || "Charged"} only if one is found`}
                         onClick={() => onFindEmail(o)}>{f.busy ? <Spinner size={12} /> : <Mail size={13} />} Find email · <LookupCost /></button>
                     </>}
               </div>

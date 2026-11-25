@@ -8,6 +8,7 @@ import { askText } from "./Dialogs";
 import { SearchStatus } from "./SearchStatus";
 import { IcpEditor } from "./IcpEditor";
 import { LiaCard } from "./LiaCard"; // Phase 7c
+import { priceWord, useRate } from "../../app/usePrice";
 
 // Smart email writing. The AI is given two things only: what the user told us about their own business
 // ("About your business") and what we hold about each company, every fact labelled with where it came from.
@@ -144,6 +145,7 @@ export function ProfileBox({ onReady, onManage, page = false, compact = false })
 
 // "Write with AI" for the whole sequence.
 export function SequenceWriter({ accountIds, personalise, setPersonalise, ready, onWritten }) {
+  const linePrice = priceWord(useRate("lead_email_write")); // "1 credit per 5 lines", from the rate card
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [instruction, setInstruction] = useState("");
@@ -170,7 +172,7 @@ export function SequenceWriter({ accountIds, personalise, setPersonalise, ready,
           {busy ? <Spinner size={14} /> : <Sparkles size={14} />} Write the emails with AI
         </button>
         <label style={{ ...muted, display: "inline-flex", gap: 6, alignItems: "center" }} title="Adds an opening line about each company, built from facts we hold about it. You review every line before sending">
-          <input type="checkbox" checked={personalise} onChange={(e) => setPersonalise(e.target.checked)} /> Open each email with a line about that company
+          <input type="checkbox" checked={personalise} onChange={(e) => setPersonalise(e.target.checked)} /> Open each email with a line about that company{linePrice ? ` (${linePrice})` : ""}
         </label>
       </div>
       <input className="ui-input" value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={400} aria-label="Anything the AI should know"
@@ -235,6 +237,7 @@ export function CheckNote({ email, aiWritten }) {
 
 // Opening lines per company: written from the facts we hold, shown with those facts, editable, and charged only when written.
 export function PersonalLines({ leads, lines, setLines, ready }) {
+  const linePrice = priceWord(useRate("lead_email_write"));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState({}); // account id -> { facts, reason }
   const [error, setError] = useState("");
@@ -269,7 +272,7 @@ export function PersonalLines({ leads, lines, setLines, ready }) {
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>Opening lines about each company</div>
-      <div style={muted}>Each line is built only from facts we hold about that company, and you can see which. If we hold nothing solid, the email simply opens without one. You are charged only for lines actually written: 1 credit per 5.</div>
+      <div style={muted}>Each line is built only from facts we hold about that company, and you can see which. If we hold nothing solid, the email simply opens without one. You are charged only for lines actually written{linePrice ? `: ${linePrice}` : ""}.</div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button type="button" className="ui-btn ui-btn--secondary" disabled={busy || !ready || !ids.length} onClick={write}
           title={ready ? "Write an opening line for each company from the facts we hold" : "Fill in About your business first"}>

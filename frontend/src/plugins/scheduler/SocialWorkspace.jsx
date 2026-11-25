@@ -73,6 +73,7 @@ import { ListeningPage } from "./SocialListening";
 import { ThemePage } from "./SocialTheme";
 import { approvalBatch, approvalQuestion } from "./approveAll";
 import { NOTICE_EVENT, notice } from "../../utils/notice";
+import { creditWord, priceWord, useRate } from "../../app/usePrice";
 
 const LS_POSTS = "aivhub_social_v2_posts";
 const LS_PLAN = "aivhub_social_v2_plan";
@@ -737,6 +738,7 @@ function quickChanges(post) {
 
 // Live length check for the post's channel, plus what the network needs before it can go out.
 function ChannelFit({ post }) {
+  const imagePrice = priceWord(useRate("ai_image", "scheduler"));
   const id = String(post.channel || "").toLowerCase();
   const limit = TEXT_LIMITS[id];
   const len = String(post.caption || "").length;
@@ -754,7 +756,7 @@ function ChannelFit({ post }) {
       ) : null}
       {needsPicture ? (
         <div style={{ fontSize: 11.5, color: C.amberInk || "#92400E" }}>
-          Instagram needs a picture. Add one, or one is drawn when it posts (1 image credit).
+          Instagram needs a picture. Add one, or one is drawn when it posts{imagePrice ? ` (${imagePrice})` : ""}.
         </div>
       ) : null}
       {problems.map((i) => (
@@ -1022,6 +1024,9 @@ function PostResults({ post }) {
   );
 }
 
+// "1 credit" for a button, "" until the price is known.
+const creditOnly = (rate) => (rate ? creditWord(rate.credits).toLowerCase() : "");
+
 function ApprovalsBoard({
   waitingList,
   doneList,
@@ -1059,6 +1064,8 @@ function ApprovalsBoard({
   asPage = false,
 }) {
   const { social } = useBrand(); // the company's Social rules: networks and AI pictures (socialRulesUi.js)
+  const imagePrice = creditOnly(useRate("ai_image", "scheduler")); // prices from the rate card, shown on the buttons that spend them
+  const postPrice = creditOnly(useRate("ai_post", "scheduler"));
   const allPosts = useMemo(() => [...(waitingList || []), ...(doneList || [])], [waitingList, doneList]);
   const dateTabs = useMemo(() => {
     const map = {};
@@ -2005,7 +2012,7 @@ function ApprovalsBoard({
                           placeholder="What should change in the caption?"
                         />
                         <button type="button" onClick={() => fillPackages([expandedPost], { skipImage: true })} disabled={expandedPost.enriching} style={{ ...secBtn, width: "100%", justifyContent: "center", height: 42, fontSize: 14 }}>
-                          <Sparkles size={15} /> Fresh rewrite
+                          <Sparkles size={15} /> Fresh rewrite{postPrice ? ` · ${postPrice}` : ""}
                         </button>
                       </div>
                     ) : editTab === "video" ? (
@@ -2048,7 +2055,7 @@ function ApprovalsBoard({
                             }}
                             style={{ ...secBtn, width: "100%", justifyContent: "center" }}
                           >
-                            <Sparkles size={14} /> Draw from this prompt
+                            <Sparkles size={14} /> Draw from this prompt{imagePrice ? ` · ${imagePrice}` : ""}
                           </button>
                           <button type="button" onClick={() => uploadRef.current && uploadRef.current.click()} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> Upload my own picture
@@ -2056,7 +2063,7 @@ function ApprovalsBoard({
                           <button type="button" hidden={aiImagesOff(social)} onClick={() => regenImage(expandedPost)} disabled={imageBusy === expandedPost.id} style={{ ...secBtn, width: "100%", justifyContent: "center" }}>
                             <ImageIcon size={14} /> {imageBusy === expandedPost.id
                               ? (expandedProg ? ("Generating… " + Math.round(expandedProg.pct) + "%") : "Generating…")
-                              : (expandedPost.imageUrl ? "Regenerate" : "Generate image")}
+                              : `${expandedPost.imageUrl ? "Regenerate" : "Generate image"}${imagePrice ? ` · ${imagePrice}` : ""}`}
                           </button>
                           {expandedPost.imageUrl && expandedPost.batchId && !expandedPost.uniqueForChannel ? (
                             <button type="button" onClick={() => applyImageToBatch(expandedPost)} style={{ ...secBtn, width: "100%", justifyContent: "center", fontSize: 11 }}>

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Coins } from "lucide-react";
 import { api } from "../../api/apiClient";
 import { C, FONT_BODY } from "../../tokens";
+import { creditWord, useRate } from "../../app/usePrice";
 
 // Leads credits, always in view: what is left, what a running job has on hold, and what was used lately.
 // Refreshes on its own, and straight away when something that spends credits finishes (see announceCreditsChanged).
@@ -26,40 +27,24 @@ export function useLeadCredits(wallet = "leadgen") {
   return c;
 }
 
-// What one web lookup (a website, phone or email for a company) costs, read once from the price list so no button promises a wrong number.
-let lookupPrice = null;
-let lookupPricePending = null;
+// What one web lookup (a website, phone or email for a company) costs, read from the price list so no button promises a wrong number.
 export function useLookupPrice() {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    if (lookupPrice != null) return;
-    if (!lookupPricePending) {
-      lookupPricePending = api.getLeadCredits().then((c) => { lookupPrice = c?.rates?.lead_lookup?.credits ?? null; }).catch(() => {});
-    }
-    lookupPricePending.then(() => bump((n) => n + 1));
-  }, []);
-  return lookupPrice == null ? "" : creditWord(lookupPrice).toLowerCase();
+  const r = useRate("lead_lookup");
+  return r ? creditWord(r.credits).toLowerCase() : "";
 }
 
-// The price of any one lookup by its rate key ("lead_social" for a LinkedIn, Facebook, X or Instagram page), as "2 credits", from the same price list.
-let allRates = null;
-let allRatesPending = null;
-export function useRatePrice(key) {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    if (allRates != null) return;
-    if (!allRatesPending) allRatesPending = api.getLeadCredits().then((c) => { allRates = c?.rates || {}; }).catch(() => {});
-    allRatesPending.then(() => bump((n) => n + 1));
-  }, []);
-  const credits = allRates?.[key]?.credits;
-  return credits == null ? "" : creditWord(credits).toLowerCase();
+// The price of any one item by its rate key ("lead_social" for a LinkedIn, Facebook, X or Instagram page), as "2 credits", from the
+// company's own rate card (app/usePrice.js). `wallet` is the app whose rate card it is in.
+export function useRatePrice(key, wallet = "leadgen") {
+  const r = useRate(key, wallet);
+  return r ? creditWord(r.credits).toLowerCase() : "";
 }
 
 // "5 credits if found", for a button label.
 export const LookupCost = () => <>{useLookupPrice() || "Charged"} if found</>;
 
-// "1 credit", "2.5 credits", "Free".
-export const creditWord = (n) => (!n ? "Free" : `${n} credit${n === 1 ? "" : "s"}`);
+// "1 credit", "2.5 credits", "Free" (app/usePrice.js).
+export { creditWord };
 
 // What the main things cost, as price tiles: [what, price, what you get]. Missing prices are left out.
 export function priceLines(rates) {

@@ -7,6 +7,7 @@ import {
   hasChecks, itemsFor, statusOf,
 } from "./numberCheck";
 import { Pill } from "../../../app/ui";
+import { priceWord, useRate } from "../../../app/usePrice";
 
 const TONE = { ok: "green", warn: "amber", bad: "red", mute: "slate" }; // numberCheck.STATUS tones as the shared Pill's
 
@@ -40,6 +41,7 @@ const Line = ({ label, value, strong }) => (
 // The strip above the list: check numbers (selected rows, or the whole list), filter by result,
 // and keep the answers on the rows themselves.
 export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, phoneOf, filter, setFilter, showToast }) {
+  const checkPrice = priceWord(useRate("number_check", "voice")); // "1 credit per 5 numbers", from the rate card
   const [dialog, setDialog] = useState("");
   const [est, setEst] = useState(null);
   const [chosen, setChosen] = useState([]); // the rows this check was opened for
@@ -133,7 +135,7 @@ export function NumberCheckBar({ rows, setRows, selectedIds, setSelectedIds, pho
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { stop.current = true; }}>Stop</button>
           </>
         ) : null}
-        {!checked && !busy ? <span style={{ fontSize: 12.5, color: C.slate }}>See which numbers work before you call. 1 credit per 5 numbers.</span> : null}
+        {!checked && !busy ? <span style={{ fontSize: 12.5, color: C.slate }}>See which numbers work before you call.{checkPrice ? ` ${checkPrice[0].toUpperCase()}${checkPrice.slice(1)}.` : ""}</span> : null}
       </div>
 
       {checked ? (

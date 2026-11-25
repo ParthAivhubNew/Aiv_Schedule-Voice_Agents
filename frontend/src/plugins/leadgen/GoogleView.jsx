@@ -3,14 +3,16 @@ import { MapPin, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { getOrgPolicy } from "../../brand/brandApi";
-import { announceCreditsChanged } from "./CreditsChip";
+import { announceCreditsChanged, useRatePrice } from "./CreditsChip";
 import { accessFlags } from "./accessLogic";
 
 export const GOOGLE_OFF_LINE = "Live Google details are switched off for your account. Ask your administrator.";
 
 // Details read live from Google when the person asks. They live in this component's state only: closing the card drops them.
 
-export const IDLE_LINE = "Shown live from Google. Uses 1 credit the first time you open it each day.";
+// The price comes from the rate card (google_view); "a credit" only while it loads.
+export const idleLine = (price) => `Shown live from Google. Uses ${price || "a credit"} the first time you open it each day.`;
+export const IDLE_LINE = idleLine("");
 export const NOT_FOUND = "Google has nothing for this company.";
 
 const STATUS_WORD = { OPERATIONAL: "Open", CLOSED_TEMPORARILY: "Temporarily closed", CLOSED_PERMANENTLY: "Permanently closed" };
@@ -83,6 +85,7 @@ export function GoogleCard({ result, onClose }) {
 
 // The drawing, apart from the loading, so each state can be shown on its own.
 export function GoogleViewBody({ policy, phase, result, error, onShow, onClose }) {
+  const googlePrice = useRatePrice("google_view");
   if (!googleAllowed(policy)) return null;
   if (accessFlags(null, policy).googleOff) return <div style={muted} role="status">{GOOGLE_OFF_LINE}</div>;
   return (
@@ -92,7 +95,7 @@ export function GoogleViewBody({ policy, phase, result, error, onShow, onClose }
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" style={{ minHeight: 44 }} disabled={phase === "loading"} onClick={onShow}>
             <MapPin size={14} aria-hidden="true" /> {phase === "loading" ? "Asking Google…" : "Show Google details"}
           </button>
-          <div style={muted}>{IDLE_LINE}</div>
+          <div style={muted}>{idleLine(googlePrice)}</div>
         </div>
       ) : null}
       <div role="status" aria-live="polite">{error ? <div style={{ ...text, fontSize: 13, color: C.red }}>{error}</div> : null}</div>
