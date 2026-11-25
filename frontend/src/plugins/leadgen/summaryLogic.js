@@ -1,5 +1,5 @@
 // What the Summary tab shows, worked out from the company profile and the saved company. No screens here.
-import { niceName, personName, shortDate } from "./companyLogic";
+import { contactSourceWord, niceName, personName, shortDate } from "./companyLogic";
 
 const GOOD = new Set(["ok", "verified", "found"]);
 
@@ -34,13 +34,13 @@ export function summaryRows({ profile, account } = {}) {
   let email = null;
   if (savedEmail) email = { value: savedEmail, source: savedSource(account, "email"), checked: when(emailChecked) };
   else if (best?.email) email = { value: best.email, source: "Register", checked: "" };
-  else if (profile?.contact?.email?.value) email = { value: profile.contact.email.value, source: profile.contact.email.source === "web" ? "Web" : "Register", checked: "" };
+  else if (profile?.contact?.email?.value) email = { value: profile.contact.email.value, source: contactSourceWord(profile.contact.email.source), checked: "" };
 
   const phoneOk = verification.phone?.verified === true || checks.phone_ok === true;
   const phoneChecked = phoneOk ? verification.checked_at || checks.checked_at : "";
   let phone = null;
   if (savedPhone) phone = { value: savedPhone, source: savedSource(account, "phone"), checked: when(phoneChecked) };
-  else if (profile?.contact?.phone?.value) phone = { value: profile.contact.phone.value, source: profile.contact.phone.source === "web" ? "Web" : "Register", checked: "" };
+  else if (profile?.contact?.phone?.value) phone = { value: profile.contact.phone.value, source: contactSourceWord(profile.contact.phone.source), checked: "" };
 
   return {
     fit: account?.fit ?? profile?.fit ?? null,

@@ -3,7 +3,10 @@
 export const TABS = [["overview", "Overview"], ["people", "People"], ["filings", "Filings and money"], ["activity", "Activity"]];
 export const STATUS_PILL = { green: "green", amber: "amber", red: "red", slate: "slate" };
 export const SIGNAL_TONES = { opportunity: "green", caution: "amber", info: "blue" };
-export const SOURCE_WORDS = { register: "Register", web: "Web", missing: "Not known" };
+export const SOURCE_WORDS = { register: "Register", web: "Web", missing: "Not known", website: "Company site", licensed: "Business data", scrape: "Web scrape",
+  research: "Research", google_places: "Google", apollo: "Enrichment data", record: "Company record" };
+// The word for where a company page contact came from (the server's contact.source), "Register" only for a register.
+export const contactSourceWord = (source) => SOURCE_WORDS[source] || "Company record";
 
 // "BRIGHT CAFE LIMITED" -> "Bright Cafe Limited". Names that are already mixed case are left as they are.
 export function niceName(name) {

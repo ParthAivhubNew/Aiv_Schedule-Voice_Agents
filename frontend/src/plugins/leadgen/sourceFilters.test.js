@@ -48,6 +48,6 @@ describe("TPS and source filters in Find Leads", () => {
   });
 
   it("names sources in plain words with no supplier", () => {
-    expect(DATA_FROM_OPTIONS.map(([, name]) => name)).toEqual(["Official register", "Web search", "Google", "Enrichment data"]);
+    expect(DATA_FROM_OPTIONS.map(([, name]) => name)).toEqual(["Official register", "Web search", "Business data (licensed or scraped)", "Google", "Enrichment data"]);
   });
 });

@@ -9,7 +9,8 @@ import { Pill, card } from "../../adminPortal/ui";
 const KIND_TITLE = { website: "Websites", phone: "Phones", email: "Emails", linkedin: "LinkedIn", facebook: "Facebook", x: "X", instagram: "Instagram", youtube: "YouTube", tiktok: "TikTok" };
 const KIND_ORDER = Object.keys(KIND_TITLE);
 // Where a value came from, in words a person knows. Suppliers are never named.
-const SOURCE_WORD = { record: "Register", register: "Register", web: "Web search", linkedin: "Page search", social: "Page search", research: "Research", apollo: "Deep web search", google_places: "Deep web search" };
+const SOURCE_WORD = { record: "Company record", register: "Register", web: "Web search", linkedin: "Page search", social: "Page search", research: "Research",
+  licensed: "Business data", scrape: "Web scrape", apollo: "Deep web search", google_places: "Deep web search" };
 
 const href = (p) => (p.kind === "phone" ? `tel:${p.value.replace(/\s+/g, "")}` : p.kind === "email" ? `mailto:${p.value}` : /^https?:/i.test(p.value) ? p.value : `https://${p.value}`);
 

@@ -64,6 +64,7 @@ class Manifest:
     default_order: int = 100  # lower is tried first within its capability
     docs_url: str = ""
     note: str = ""
+    test_spends: bool = False  # its test uses a paid lookup, so only staff may run it
 
     def names(self) -> Tuple[str, ...]:
         return self.key_names or (self.id,)

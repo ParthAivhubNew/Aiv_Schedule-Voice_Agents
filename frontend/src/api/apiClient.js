@@ -482,6 +482,9 @@ export const api = {
   // Per-person data access (admins only)
   getDataAccess: () => apiRequest('/org/data-access'),
   getPlatformProvided: () => apiRequest('/connections/platform-provided'),
+  getConnectors: () => apiRequest('/leadgen/connectors'),
+  testConnector: (id) => apiRequest(`/leadgen/connectors/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  getLeadSources: () => apiRequest('/leadgen/sources'),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),

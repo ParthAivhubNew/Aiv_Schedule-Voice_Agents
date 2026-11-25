@@ -2,11 +2,13 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../api/apiClient", () => ({ api: { getPlatformProvided: () => Promise.resolve({}), latestCompanyCheck: () => Promise.resolve({}) } }));
+vi.mock("../../api/apiClient", () => ({ api: { getPlatformProvided: () => Promise.resolve({}), latestCompanyCheck: () => Promise.resolve({}), getConnectors: () => Promise.resolve({}) } }));
 
 import { describeSources } from "./sourceBadgeLogic";
 import { SourceBadge } from "./SourceBadge";
-import { ConnectorsView, NOT_CONNECTED_CONNECTORS, NOT_CONNECTED_LABEL, NOT_CONNECTED_TEXT, NotConnectedPanel } from "./ConnectorsView";
+import { readFileSync } from "node:fs";
+import { ConnectorDetail, ConnectorsView, TestResult } from "./ConnectorsView";
+import { EnrichmentBanner, EnrichmentSourcesModal } from "./EnrichmentSourcesModal";
 
 const full = {
   name: "Acme Ltd",
@@ -98,29 +100,73 @@ describe("SourceBadge", () => {
   });
 });
 
-describe("the two new connectors", () => {
-  const html = renderToStaticMarkup(<ConnectorsView operator={{}} toast={() => {}} />);
+// The Connectors screen shows only what the server sent (plan 10, Phases 0 and 3).
+const SERVER = {
+  canTest: true,
+  countsAt: "2026-11-25T09:00:00",
+  groups: [{ id: "registers", label: "Official registers" }, { id: "data", label: "Business data" }, { id: "services", label: "Look-ups we run for you" }],
+  kinds: [{ id: "company", label: "Company details" }, { id: "credit", label: "Financial & credit" }, { id: "email", label: "Emails" }],
+  connectors: [
+    { id: "ds_companies_house", name: "Companies House (UK)", group: "registers", status: "paused", statusLabel: "Updates paused", logo: "companies_house",
+      statusText: "Its records are searchable. New updates are paused.", desc: "Every UK registered company.", provides: ["company"], records: 71797, leads: 12 },
+    { id: "experian", name: "Experian", group: "data", status: "coming_soon", statusLabel: "Coming soon", logo: "experian", desc: "Company credit and business data.",
+      provides: ["credit"], askable: true, pricing: "experian" },
+    { id: "email_finders", name: "E-mail finder (verified)", group: "services", status: "connected", statusLabel: "Connected", logo: "email",
+      desc: "Finds a work e-mail.", provides: ["email"], testable: true, uses30d: 40 },
+  ],
+};
 
-  it("sit with the data connectors and say Not connected yet", () => {
-    expect(html).toContain("Experian");
-    expect(html).toContain("Market Location");
-    expect(html.split(NOT_CONNECTED_LABEL).length - 1).toBe(2);
-    const ex = NOT_CONNECTED_CONNECTORS();
-    expect(ex.map((c) => [c.name, c.category])).toEqual([["Experian", "Enrichment & Registry"], ["Market Location", "Enrichment & Registry"]]);
-    expect(ex.every((c) => c.defaultStatus === "not_connected")).toBe(true);
+describe("the Connectors screen", () => {
+  const html = renderToStaticMarkup(<ConnectorsView initialData={SERVER} />);
+
+  it("shows the server's statuses and counts, and nothing made up", () => {
+    expect(html).toContain("Updates paused");
+    expect(html).toContain("71,797 records · 12 of your companies");
+    expect(html).toContain("Coming soon");
+    expect(html).toContain("1 connected");
+    expect(html).toContain("1 need a look");
+    expect(html).not.toMatch(/Authentication verified|\d+ms|5,200,000|Connected &amp; Active/);
   });
 
-  it("have a plain panel that fakes no connection, test or key field", () => {
-    const panel = renderToStaticMarkup(<NotConnectedPanel connector={NOT_CONNECTED_CONNECTORS()[0]} />);
-    expect(panel).toContain("Status: Not connected yet");
-    expect(panel).toContain("Company credit and business data.");
-    expect(panel).toContain(NOT_CONNECTED_TEXT.replace("'", "&#x27;"));
-    expect(panel).not.toMatch(/<input|Test API|Authorize/);
+  it("keeps nothing in the browser and fakes no test", () => {
+    const src = readFileSync(new URL("./ConnectorsView.jsx", import.meta.url), "utf8");
+    expect(src).not.toMatch(/localStorage|setTimeout|status: 200/);
+    expect(src).toContain("api.testConnector(c.id)");
   });
 
-  it("links Market Location out safely", () => {
-    const ml = NOT_CONNECTED_CONNECTORS()[1];
-    expect(ml.docsUrl).toBe("https://www.marketlocation.com/business-data/");
-    expect(ml.linkText).toBe("marketlocation.com/business-data");
+  it("shows a failed check as a failure", () => {
+    const bad = renderToStaticMarkup(<TestResult result={{ ok: false, detail: "0 of 1 e-mail finders answered." }} />);
+    expect(bad).toContain("0 of 1 e-mail finders answered.");
+    expect(bad).toContain("#FEE2E2");
+    const good = renderToStaticMarkup(<TestResult result={{ ok: true, detail: "It answered: it's working." }} />);
+    expect(good).toContain("#DCFCE7");
+  });
+
+  it("offers Ask for it, not a key field, on a connector that isn't built", () => {
+    const panel = renderToStaticMarkup(<ConnectorDetail c={SERVER.connectors[1]} kinds={SERVER.kinds} canTest onClose={() => {}} />);
+    expect(panel).toContain("Ask for it");
+    expect(panel).toContain("It would give you");
+    expect(panel).not.toMatch(/<input|Test connection|Authorize/);
+  });
+
+  it("lets only admins press Test", () => {
+    const user = renderToStaticMarkup(<ConnectorDetail c={SERVER.connectors[2]} kinds={SERVER.kinds} canTest={false} onClose={() => {}} />);
+    expect(user).toContain("An account admin can test this connection.");
+    expect(user).not.toContain("Test connection");
+    const admin = renderToStaticMarkup(<ConnectorDetail c={SERVER.connectors[2]} kinds={SERVER.kinds} canTest onClose={() => {}} />);
+    expect(admin).toContain("Test connection");
+  });
+});
+
+describe("where your data comes from, on Lists", () => {
+  it("lists only the sources the server says are on, with no made-up speeds", () => {
+    const html = renderToStaticMarkup(<EnrichmentSourcesModal open onClose={() => {}} initialData={SERVER} />);
+    expect(html).toContain("Companies House (UK)");
+    expect(html).toContain("E-mail finder (verified)");
+    expect(html).not.toContain("Experian");  // coming soon is not a source of anything yet
+    expect(html).not.toMatch(/latency|\d+ms|Verified APIs|PAF/);
+    const banner = renderToStaticMarkup(<EnrichmentBanner onOpenModal={() => {}} />);
+    expect(banner).toContain("See the sources");
+    expect(banner).not.toMatch(/9 Verified APIs|automatically/);
   });
 });

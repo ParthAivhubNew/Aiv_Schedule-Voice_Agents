@@ -19,6 +19,7 @@ import { LookupCost, announceCreditsChanged, useRatePrice } from "./CreditsChip"
 import { BottomBar, Collapsible, JourneyControl, ProfileTabs, TabPanel, useProfileTab } from "./ProfileLayout";
 import { LatestNote, NotesButton, NotesTab, useNotes } from "./Notes";
 import { LeadActivity } from "./LeadActivity";
+import { originWords } from "./originLabels";
 
 // The register-led tabs, plus the team's notes. Research and editable details live on the saved company's panel, not here.
 const PAGE_TABS = [...TABS.filter(([k]) => k !== "activity"), ["notes", "Notes"], ...TABS.filter(([k]) => k === "activity")];
@@ -28,7 +29,8 @@ const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary
 const small = { fontSize: 12, color: C.slate };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const TONE = { green: { bg: "#f0fdf4", ink: "#166534" }, amber: { bg: "#fffbeb", ink: "#92400e" }, blue: { bg: "#eff6ff", ink: "#1e40af" }, red: { bg: "#fef2f2", ink: "#b91c1c" } };
-const SOURCE_TONE = { register: "green", web: "amber", missing: "slate" };
+const SOURCE_TONE = { register: "green", website: "green", web: "amber", licensed: "amber", scrape: "amber", research: "amber", google_places: "slate",
+  apollo: "slate", record: "slate", missing: "slate" };
 const ICON = { website: Globe, phone: Phone, email: Mail };
 const KIND_WORDS = { email: "Email", call: "Call", meeting: "Meeting", post: "Post", note: "Note", status: "Update" };
 
@@ -54,7 +56,6 @@ function Fact({ label, children, warn }) {
 
 const personCard = (o) => ({ key: `officer:${o.name}`, kind: "officer", name: `${o.first_name} ${o.last_name}`.trim(), raw: o, role: o.role || "Officer", meta: personMeta(o), reason: o.reason || "", alsoOwner: false, ownership: "" });
 
-const SOURCE_WORDS = { import: "Imported from your file", manual: "You added it", scout: "From a search", copilot: "From the assistant" };
 
 // What the person gave us about this company (their file's own columns, notes, the contact they named) and what the check said, apart from the register's facts.
 function FromYou({ mine }) {
@@ -62,7 +63,7 @@ function FromYou({ mine }) {
   const flags = mine.import_flags || [];
   return (
     <Facts title="From you">
-      <div style={small}>{SOURCE_WORDS[mine.source] || "Saved by you"}{mine.added ? ` · ${shortDate(mine.added)}` : ""}</div>
+      <div style={small}>{mine.source ? originWords(mine.source) : "Saved by you"}{mine.added ? ` · ${shortDate(mine.added)}` : ""}</div>
       <Fact label="Contact">{[mine.contact_name, mine.contact_title].filter(Boolean).join(" · ")}</Fact>
       <Fact label="Website">{mine.website ? <>{mine.website}<FieldMark flags={mine.restricted} notes={mine.restricted_note} sources={mine.field_sources} field="website" /></> : null}</Fact>
       <Fact label="Phone">{mine.phone ? <>{mine.phone}<FieldMark flags={mine.restricted} notes={mine.restricted_note} sources={mine.field_sources} field="phone" /></> : null}</Fact>

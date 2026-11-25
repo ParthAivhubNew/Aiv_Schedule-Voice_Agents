@@ -152,7 +152,7 @@ def _contact_value(obj: Any, record: Any, field: str, tally: Tally, tps: Dict[st
         tally.fields[field] += 1
         tally.sources.add(_restricted_source(obj, record, field, value))
         return "", "", "", 1
-    src = DP.source_of_value(getattr(obj, "field_sources", None), field) or "saved"
+    src = DP.public_source(DP.source_of_value(getattr(obj, "field_sources", None), field)) or "saved"
     status = ""
     if field == "phone":
         status = tps.get(normalize_phone(value), "unknown")
@@ -310,13 +310,12 @@ def _same(field: str, a: str, b: str) -> bool:
 
 
 def _label(rec: BusinessRecord, field: str, value: str) -> str:
-    """"website" when the company's own site gave the value, else "register"; "" when the source is view-only or unknown."""
+    """Where the value came from, for the file: "website" (the company's own site), "register", "scrape", "licensed", "research" or "web";
+    "" when the source is view-only or unknown, so the value is left out."""
     src = DP.record_source(rec, field, value, default="")
     if not src or DP.is_restricted(src):
         return ""
-    cw = (rec.raw_data or {}).get("contacts_web") or {}
-    mine = {DP._norm("website", cw.get("website"))} | {DP._norm("phone", p.get("value") if isinstance(p, dict) else p) for p in cw.get("phones") or []}
-    return "website" if DP._norm(field, value) in mine else "register"
+    return DP.public_source(src)
 
 
 async def salesforce(db, import_id: str, fields: Optional[List[str]], fmt: str, operator_id: Optional[str] = None) -> Tuple[List[List[Any]], Tally, int]:
@@ -371,7 +370,7 @@ async def salesforce(db, import_id: str, fields: Optional[List[str]], fmt: str, 
             new, src, when = "", "", ""
             if acc is not None and str(getattr(acc, f, "") or "").strip() and f not in DP.restricted_fields(acc, rec):
                 new = str(getattr(acc, f)).strip()
-                src = DP.source_of_value(acc.field_sources, f) or "saved"
+                src = DP.public_source(DP.source_of_value(acc.field_sources, f)) or "saved"
                 when = acc.updated_at.date().isoformat() if acc.updated_at else ""
             elif rec is not None and str(getattr(rec, f, "") or "").strip():
                 val = str(getattr(rec, f)).strip()

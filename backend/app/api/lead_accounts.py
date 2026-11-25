@@ -1,7 +1,7 @@
 """Leads: the companies a user saved (Saved Accounts, Decision Makers, Account Dossiers).
 
-Accounts come from AI Lead Scout (a live web search), the Copilot, a spreadsheet import or the
-user. Only what a search, a research run or the user supplied is stored: nothing is made up.
+Accounts come from Find Leads, the AI Assistant, a spreadsheet import, a web form, a call, social media, the API or the
+user (services/source_catalog.ORIGINS). Only what a search, a research run or the user supplied is stored: nothing is made up.
 Each company sees only its own accounts (lead_accounts is a tenant table, see core/tenancy).
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from app.api.enrichment import _can_deep_search, _can_research, _charge_deep_sea
 from app.database import get_db
 from app.models.models import BusinessRecord, LeadAccount
 from app.services import company_check, lead_cleaner, next_action, normalise, send_readiness
-from app.services import business_lookup, business_records, site_check
+from app.services import business_lookup, business_records, site_check, source_catalog
 from app.services import data_access as DA
 from app.services import tenant_policy as TP
 from app.services import contact_points as CP
@@ -37,7 +37,6 @@ router = APIRouter(prefix="/leads", tags=["Leads"])
 
 MAX_PER_REQUEST = 2000
 _FIELDS = ("name", "website", "phone", "email", "contact_name", "contact_title", "industry", "region", "notes")
-_SOURCES = {"scout", "copilot", "import", "manual", "inbound_form"}
 
 
 class AccountIn(BaseModel):
@@ -2001,7 +2000,7 @@ async def save_accounts(db: AsyncSession, body: AccountsIn, owner: str) -> Dict[
             phone=normalise.phone_display(_clean(item.phone, 60)), email=_clean(item.email, 200).lower(),
             contact_name=normalise.person_name(_clean(item.contact_name, 120)),
             contact_title=_clean(item.contact_title, 120), industry=_clean(item.industry, 120), region=_clean(item.region, 120),
-            notes=_clean(item.notes, 2000), source=item.source if item.source in _SOURCES else "manual",
+            notes=_clean(item.notes, 2000), source=source_catalog.origin_key(item.source),
             source_url=_clean(item.source_url, 500), custom=clean_custom(item.custom),
             registration_number=regno, postcode=postcode, address=_clean(item.address, 300), country=_clean(item.country, 60),
             linkedin_url=_clean(item.linkedin_url, 300), import_flags=flags or None,
@@ -2267,10 +2266,10 @@ async def _apply_shared_record(db: AsyncSession, row: LeadAccount) -> Optional[B
         row.phone = _phone(row.phone)
         if not row.phone and _phone(shared.phone):
             row.phone = _phone(shared.phone)
-            _CF.set_source(row, "phone", _DP.record_source(shared, "phone"))
+            _CF.set_source(row, "phone", _DP.record_source(shared, "phone", default="record"))
         if not row.email and _clean(shared.email, 200):
             row.email = _clean(shared.email, 200).lower()
-            _CF.set_source(row, "email", _DP.record_source(shared, "email"))
+            _CF.set_source(row, "email", _DP.record_source(shared, "email", default="record"))
         if shared.shared_research and not row.research:
             row.research = shared.shared_research
             row.researched_at = row.updated_at = shared.updated_at or datetime.utcnow()

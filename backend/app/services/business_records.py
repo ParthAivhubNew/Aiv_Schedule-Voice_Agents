@@ -902,8 +902,10 @@ def _record_source(picked: List[str]) -> Any:
 
 TPS_STATUSES = ("clear", "listed")
 # Where a phone, email or website on a company came from, as the contact list (company_contact_points) records it. "website" (read from the company's
-# own site) is not here: the list files a value its own site confirmed under "web", so the two cannot be told apart.
-DATA_FROM = {"register": ("register",), "web": ("web", "research"), "google": ("google_places",), "enrichment": ("apollo",)}
+# own site) is not here: the list files a value its own site confirmed under "web", so the two cannot be told apart. "data" is the bulk datasets
+# (a licensed file, a web scrape): before plan 10, Phase 1 the list filed those as "register".
+DATA_FROM = {"register": ("register",), "web": ("web", "research"), "data": ("licensed", "scrape"), "google": ("google_places",),
+             "enrichment": ("apollo",)}
 
 
 def _tps_screened(status: str = "") -> Any:
@@ -929,8 +931,6 @@ def _data_from(also: List[str], picked: List[str]) -> Any:
     def one(label: str) -> Any:
         names = DATA_FROM[label]
         src = P.source.in_(names)
-        if label == "register":
-            src = or_(src, and_(P.source == "record", P.confidence == "register"))
         return select(P.id).where(P.business_record_id == BusinessRecord.id, P.kind.in_(("phone", "email", "website")), src).exists()
 
     parts = [one(k) for k in dict.fromkeys(picked)]

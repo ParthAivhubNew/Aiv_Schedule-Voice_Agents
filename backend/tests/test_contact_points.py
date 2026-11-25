@@ -55,9 +55,13 @@ def test_points_are_read_from_every_place_a_record_keeps_them():
 
 
 def test_one_row_per_contact_and_the_strongest_claim_wins():
-    biz = _biz(phone="0113 550 0101", confidence_tier="verified_registry", raw_data={"contacts_web": {"phones": ["+44 113 550 0101"]}})
+    biz = _biz(phone="0113 550 0101", confidence_tier="verified_registry",
+               raw_data={"contacts_web": {"phones": ["+44 113 550 0101"]}, "ds_cqc": {"phone": "0113 5500101"}})
     phones = [p for p in CP.points_of(biz) if p["kind"] == "phone"]
-    assert len(phones) == 1 and phones[0]["confidence"] == "register"
+    assert len(phones) == 1 and (phones[0]["source"], phones[0]["confidence"]) == ("register", "register")
+    # A register's company record doesn't make a phone the register's: only the company's own site lists this one (plan 10, Phase 1).
+    biz = _biz(phone="0113 550 0101", confidence_tier="verified_registry", raw_data={"contacts_web": {"phones": ["+44 113 550 0101"]}})
+    assert [(p["source"], p["confidence"]) for p in CP.points_of(biz) if p["kind"] == "phone"] == [("web", "found")]
 
 
 def test_a_picked_contact_is_marked_as_picked():

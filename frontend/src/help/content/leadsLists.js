@@ -39,7 +39,7 @@ export const leadsListsDoc = {
             ["With an email", "Companies with any email we can send to."],
             ["Avg fit", "The average fit score of the companies that have one. Only appears after you set your ideal customer under “About your business”."],
             ["Owner", "Who created the list. Only appears when lists have owners."],
-            ["Source", "Where most of the companies came from: AI Lead Scout, AI Lead Copilot, Import, Added by hand or Web form. “Mixed” means no single source has more than half."],
+            ["Source", "Where most of the companies came from: Find Leads, the AI Assistant, your file, a web form, an inbound call, social media, the API or added by hand. “Mixed” means no single source has more than half."],
             ["Last changed", "When companies were last added or taken out: Today, Yesterday, or the date."],
           ],
         },

@@ -250,7 +250,8 @@ async def _lead_from_booking(db, meeting, name: str, email: str, post_id: str) -
     lead = await C.lead_for(db, email=email)
     if lead is None:
         lead = LeadAccount(id=f"la_{uuid.uuid4().hex[:12]}", name=name, contact_name=name, email=email, source="social",
-                           stage="meeting", source_post_id=post_id, last_contact_at=datetime.utcnow())
+                           source_url=f"booking:{post_id}" if post_id else "booking", stage="meeting", source_post_id=post_id,
+                           last_contact_at=datetime.utcnow())
         db.add(lead)
         await db.flush()
     meeting.lead_id = lead.id

@@ -43,15 +43,16 @@ import { displayName, legalTag, niceName } from "./companyLogic";
 import { bucket, duplicateFlags, FLAG_WORDS, firstSeen, openPicks } from "./listLogic";
 import { SelectionBar } from "./FindLeadsParts";
 import { FindContactButton, SummaryTab, useCompanyProfile } from "./SummaryParts";
+import { ORIGIN_LABEL, ORIGIN_WORDS, originWords } from "./originLabels";
 
-// The Leads screens built on saved accounts (stored on the server, per company): AI Lead Scout,
+// The Leads screens built on saved accounts (stored on the server, per company): Find Leads results,
 // Saved Accounts, Decision Makers, Account Dossiers and Import, plus the account panel and the
 // add-account form. Nothing here is made up: a field nobody found stays empty.
 
-export const SOURCE_LABEL = { scout: "AI Lead Scout", copilot: "AI Lead Copilot", import: "Import", manual: "Added by hand", inbound_form: "Web form" };
+export const SOURCE_LABEL = ORIGIN_LABEL;
 // Where a company came from, in a sentence a person understands.
-export const SOURCE_WORDS = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported from your file", manual: "Added by hand", inbound_form: "Sent through your web form" };
-const sourceWords = (src) => SOURCE_WORDS[src] || SOURCE_WORDS.manual;
+export const SOURCE_WORDS = ORIGIN_WORDS;
+const sourceWords = originWords;
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 
@@ -660,7 +661,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   if (store.loading || (store.error && !store.accounts.length)) return <Loading store={store} />;
   if (!store.accounts.length) {
     return (
-      <EmptyState icon={Building2} title="No saved accounts yet" body="Find companies with AI Lead Scout, import a spreadsheet, or add one by hand.">
+      <EmptyState icon={Building2} title="No saved accounts yet" body="Find companies with Find Leads, import a spreadsheet, or add one by hand.">
         <button title="Search the company register for new companies" type="button" className="ui-btn ui-btn--primary" onClick={() => onGo("find_leads")}><Search size={15} /> Find companies</button>
         <button title="Type in one company yourself" type="button" className="ui-btn ui-btn--ghost" onClick={onAdd}><Plus size={15} /> Add by hand</button>
       </EmptyState>
@@ -1763,7 +1764,7 @@ export function ImportView({ store, onGo, onAskAi }) {
   const importNow = async () => {
     setBusy(true);
     const name = listName.trim() || "Unsorted";
-    const rows = usable.map((x) => ({ ...x, source: "import" }));
+    const rows = usable.map((x) => ({ ...x, source: "import", source_url: file?.name ? `file:${file.name}`.slice(0, 500) : "" }));  // which file it came from
     const total = { added: 0, matched: 0, repeats: 0, quarantined: [], warned: 0, unnamed: fields.length - usable.length, list: null, rows: rows.length, file: file?.name || "", blanks: blanks(rows), custom: customColumns(fields) };
     try {
       // In batches, so a big file shows how far it has got and never hits the size limit of one request.

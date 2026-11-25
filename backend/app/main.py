@@ -46,6 +46,7 @@ from app.api.sip_webhook import router as sip_webhook_router
 from app.api.telnyx_assistant_webhook import router as telnyx_assistant_webhook_router
 from app.api.enrichment import router as enrichment_router
 from app.api.lead_accounts import router as lead_accounts_router
+from app.api.leadgen_connectors import router as leadgen_connectors_router
 from app.api.lead_notes import router as lead_notes_router
 from app.api.lead_checks import router as lead_checks_router
 from app.api.lead_assistant import router as lead_assistant_router
@@ -362,6 +363,24 @@ async def _fx_rates_loop():
         except Exception as fx_err:
             logger.warning(f"[fx] refresh failed: {fx_err}")
         await asyncio.sleep(12 * 3600)
+
+
+async def _connector_stats_loop():
+    """The Leads Connectors screen's record counts (services/connector_catalog.refresh_stats): read-only, but it reads every shared company
+    record, so it waits 10 minutes after start, runs only when the last count is a day old, and checks again every hour."""
+    from app.services import connector_catalog
+
+    await asyncio.sleep(600)
+    while True:
+        try:
+            if await connector_catalog.stats_due():
+                done = await connector_catalog.refresh_stats()
+                logger.info(f"[connectors] counted {len(done['records'])} sources in {done['seconds']}s")
+        except asyncio.CancelledError:
+            raise
+        except Exception as stats_err:
+            logger.warning(f"[connectors] count failed: {stats_err}")
+        await asyncio.sleep(3600)
 
 
 async def _human_calls_loop():
@@ -946,11 +965,13 @@ async def lifespan(app: FastAPI):
     from app.services.workflows import workflow_loop
     workflow_task = job("workflows", workflow_loop)
     fx_task = job("fx_rates", _fx_rates_loop)
+    connector_stats_task = job("connector_stats", _connector_stats_loop)
 
     yield
 
     workflow_task.cancel()
     fx_task.cancel()
+    connector_stats_task.cancel()
     call_schedule_task.cancel()
     human_calls_task.cancel()
     find_leads_warm_task.cancel()
@@ -1096,6 +1117,7 @@ app.include_router(telnyx_assistant_webhook_router, prefix=settings.API_PREFIX)
 app.include_router(telnyx_assistant_webhook_router)  # Direct /telnyx-assistant compatibility
 app.include_router(enrichment_router, prefix=settings.API_PREFIX)
 app.include_router(lead_accounts_router, prefix=settings.API_PREFIX)
+app.include_router(leadgen_connectors_router, prefix=settings.API_PREFIX)  # plan 10/11 step 6: the Connectors screen and lead sources
 app.include_router(lead_notes_router, prefix=settings.API_PREFIX)
 app.include_router(lead_checks_router, prefix=settings.API_PREFIX)
 app.include_router(lead_assistant_router, prefix=settings.API_PREFIX)

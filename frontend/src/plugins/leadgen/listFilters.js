@@ -7,7 +7,7 @@ import { hasAnyTpsCheck, screeningOfNumber } from "./phoneNumbers";
 export const TPS_NOTE = "Showing contacts with at least one phone number checked against the TPS and CTPS registers (any number on the record).";
 
 // The sources offered in the "Data from" select, in the order they are listed. "You" (typed by hand) is not offered.
-export const SOURCE_KEYS = ["register", "website", "import", "web", "check", "google_places", "apollo"];
+export const SOURCE_KEYS = ["register", "website", "import", "web", "licensed", "scrape", "research", "record", "check", "google_places", "apollo"];
 const SOURCE_FIELDS = ["phone", "email", "website"];
 
 const baseKey = (raw) => String(raw || "").split(":")[0];

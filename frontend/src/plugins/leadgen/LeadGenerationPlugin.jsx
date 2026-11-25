@@ -64,7 +64,6 @@ import { useBrand } from "../../brand/BrandContext";
 import { ImportMatchView } from "./ImportMatch";
 import { MonthlyChangesView } from "./MonthlyChanges";
 import { ConnectorsView } from "./ConnectorsView";
-import { isFsbAccount } from "../../hub/SidebarAccountBadge";
 import { canUseRecords, isAdminOperator } from "./importMatchLogic";
 import { returnToList } from "./openList";
 import { CompanyPage } from "./CompanyPage";
@@ -292,9 +291,7 @@ export default function LeadGenerationPlugin({
     { id: "outreach", label: "Journeys", icon: Route, group: "Outreach" },
     { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
     { id: "inbound_forms", label: "Forms", icon: FileText, group: "Inbound", title: "Web forms that turn visitors into leads" },
-    ...(isFsbAccount(operator) ? [
-      { id: "connectors", label: "Connectors", short: "Connectors", icon: Plug, group: "Setup", title: "Backend API connectors, data sources and custom AI integrations" },
-    ] : []),
+    { id: "connectors", label: "Connectors", short: "Connectors", icon: Plug, group: "Setup", title: "Where your leads' data comes from, and what's switched on" },
     { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
     { id: "business", label: "About your business", icon: Building2, group: "Setup" },
     ...(showDataAccess ? [{ id: "administration", label: "Administration", icon: Shield, group: "Setup", title: "Users, roles and what each person can see and do" }] : []),
@@ -489,7 +486,7 @@ export default function LeadGenerationPlugin({
           {view === "inbound_forms" && <InboundFormsView toast={showToast} onOpenLead={async (id) => { await Promise.all([store.reload(), listsStore.reload()]); setWantedLead(id); setView("saved_companies"); }} />}
           {view === "import_match" && !embedViews && canUseRecords(operator) && <ImportMatchView operator={operator} toast={showToast} onReviewCount={setReviewWaiting} />}
           {view === "changes" && !embedViews && canUseRecords(operator) && <MonthlyChangesView toast={showToast} />}
-          {view === "connectors" && !embedViews && isFsbAccount(operator) && <ConnectorsView operator={operator} toast={showToast} />}
+          {view === "connectors" && !embedViews && <ConnectorsView />}
           {view === "retention" && !embedViews && <RetentionReview toast={showToast} onGo={goTo} />}
           {view === "business" && <ProfileBox page />}
           {view === "member_list" && memberSuppression && operator?.is_admin && <MemberList toast={showToast} />}

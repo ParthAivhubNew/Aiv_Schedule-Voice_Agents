@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { CONNECTOR_PRICING } from "./connectorPrices";
-import { CONNECTOR_PROVIDES } from "./ConnectorsView";
+
+// The pricing ids the server's catalogue names (backend services/connector_catalog.py: COMING_SOON and KEYS).
+const SERVER_PRICING_IDS = ["experian", "market_location", "salesforce", "hubspot", "dynamics365", "zoho_crm", "pipedrive", "bigquery", "postgres",
+  "snowflake", "s3_lake", "airtable", "key_openai", "key_deepseek", "key_tavily", "key_apollo", "key_google_places"];
 
 describe("connector pricing", () => {
   it("every entry has two https links and at least one price row", () => {
@@ -11,10 +14,7 @@ describe("connector pricing", () => {
       p.pricing.forEach((r) => expect(r.plan && r.price && r.note, id).toBeTruthy());
     }
   });
-  it("every data connector from a vendor has a price entry", () => {
-    for (const id of Object.keys(CONNECTOR_PROVIDES)) {
-      if (id === "web_dossier" || id === "csv_pipeline") continue;
-      expect(CONNECTOR_PRICING[id], id).toBeTruthy();
-    }
+  it("every pricing id the server names has an entry", () => {
+    for (const id of SERVER_PRICING_IDS) expect(CONNECTOR_PRICING[id], id).toBeTruthy();
   });
 });

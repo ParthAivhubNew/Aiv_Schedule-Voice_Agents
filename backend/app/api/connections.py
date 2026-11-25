@@ -567,8 +567,8 @@ async def connection_uses(db: AsyncSession, conn: Connection) -> List[str]:
 _PLATFORM_PROVIDER_WORDS = {"openai": "openai", "deepseek": "deepseek", "tavily": "tavily", "apollo": "apollo"}
 
 
-async def _provider_key_present(word: str) -> bool:
-    """True when a saved connection for this provider holds a key, in whichever organisation is in scope."""
+async def provider_key(word: str) -> str:
+    """The key a saved connection for this provider holds, in whichever organisation is in scope; "" when none."""
     from app.core.tenancy import current_org
 
     for c in await _provider_rows():
@@ -576,9 +576,16 @@ async def _provider_key_present(word: str) -> bool:
         if (c.org_id or current_org()) != current_org():
             continue
         cfg = open_config(c.config if isinstance(c.config, dict) else {})
-        if word in f"{c.name or ''} {cfg.get('provider') or ''}".lower() and config_get_secret(cfg, "api_key", "apiKey", "auth_token"):
-            return True
-    return False
+        if word in f"{c.name or ''} {cfg.get('provider') or ''}".lower():
+            key = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
+            if key:
+                return str(key)
+    return ""
+
+
+async def _provider_key_present(word: str) -> bool:
+    """True when a saved connection for this provider holds a key, in whichever organisation is in scope."""
+    return bool(await provider_key(word))
 
 
 async def _provider_rows() -> list:

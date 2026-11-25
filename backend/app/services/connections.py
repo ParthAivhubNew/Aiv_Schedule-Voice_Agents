@@ -481,7 +481,8 @@ async def resolve_lead_id(db: AsyncSession, raw: str) -> Optional[str]:
     # A lead a partner added through the API (kept as a call target): it becomes a saved company the first time a
     # call or meeting refers to it, so everything that follows is on one contact.
     company = LeadAccount(id=f"la_{uuid.uuid4().hex[:12]}", name=(p.name or "Lead")[:200], contact_name=(p.contact_person or "")[:120] if p.contact_person not in (None, "—") else "",
-                          phone=p.phone or "", email=(p.email or "").strip().lower(), website=p.site or "", notes=(p.note or "")[:2000], source="api")
+                          phone=p.phone or "", email=(p.email or "").strip().lower(), website=p.site or "", notes=(p.note or "")[:2000], source="api",
+                          source_url=f"api:{p.id}")
     db.add(company)
     p.lead_id = company.id
     await db.flush()

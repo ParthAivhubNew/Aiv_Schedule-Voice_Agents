@@ -1,6 +1,8 @@
 # 10 — Leads: look and feel, real connectors, and showing where every lead came from
 
-Written 2026-11-24 from a read of the code plus read-only queries on the live database. Nothing has been changed yet.
+Written 2026-11-24 from a read of the code plus read-only queries on the live database.
+
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phase 0, Phase 1 and Phase 3 items 1–4 are done. Phases 2 and 4 are still to do. Details are in section 3.1.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.
 
@@ -179,6 +181,62 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
    - Page headers: shorter descriptions. (M)
 6. **Split the big files.** `AccountsViews.jsx` and `FindLeadsView.jsx` become feature folders. Do this alongside Phase 2 so the new code goes into the smaller files. (M)
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
+
+### 3.1 Done on the branch (2026-11-25)
+
+**Phase 0 (stop showing false information): done.**
+- The fake "Test connection" is gone. **Test connection** now calls `POST /leadgen/connectors/{id}/test`, which runs the provider's real check (`registry.test_key`) and shows the real result, failures included.
+  - Only organisation admins can press it, at most once every 30 seconds per connector.
+  - A check that spends a paid look-up (Provero, `Manifest.test_spends`) is refused for clients.
+  - Clients see "It answered: it's working." or "…it isn't working right now. Aivhub has been told." The vendor's own wording and balances stay with staff, and a failure raises staff alert **CON-01**.
+- The hard-coded latency figures, record counts, sample responses, "Connected" defaults and the made-up "Leads AI engines" ("Outreach-LeadReasoning-70B" and others) are gone. Companies House shows **Updates paused** while its DataSource is paused. A register whose last run failed shows **Last update failed**. Either way, its records stay searchable.
+- Origins: `social`, `inbound_call` and `api` have labels. `save_accounts` keeps every known origin (`source_catalog.origin_key`): unknown values still become `manual`, and `find_leads` / `assistant` are accepted as aliases. "AI Lead Scout" and "AI Lead Copilot" are now **Find Leads** and **AI Assistant**. The frontend has one list (`originLabels.js`) in place of the four maps.
+- **BN file (decision 2): its phones and websites came from Google.** Every one of the 9,367 BN rows that has a phone (4,289) or a website (4,022) also has a Google match, and the file has Google's `PhoneInternational` column. So `source_catalog.DATASETS["import_bn_leads"].google_fields = ("phone", "website")`, and `data_policy` treats those values as Google's: you can view them, but they can't be exported. The exception is a value an open source also lists, such as the company's own site or the web scrape. BN e-mails stay exportable.
+  - The FSB sample run's phones are treated the same way, and so is its website when it says it came from Google Places.
+  - A saved value recorded as `register` / `record` is now checked against the company record again, because older copies called BN values "register".
+  - **This was live:** on main, the Salesforce update file (Import & match) labelled BN phones and websites "register" and wrote them into the file. On the branch they're left out and counted as withheld.
+
+**Phase 1, item 1: done.** `services/source_catalog.py` holds the origins, registers, bulk datasets and provenance keys. Each has a client label, a kind, an exportable flag, and (staff only) the supplier. It is served at `GET /leadgen/sources`.
+
+**Phase 3 (real connectors): items 1–4 done.**
+- `GET /leadgen/connectors` (`services/connector_catalog.py`) builds one list from what is real:
+  - **Official registers:** the DataSource rows, with their runs.
+  - **Business data:** the bulk datasets that are loaded. Experian and Market Location show as coming soon.
+  - **Look-ups we run for you:** one verified e-mail finder entry (staff see each finder), phone number check, TPS / CTPS screening, company websites and postcode locations.
+  - **Provider keys:** the company's own key, the platform's, or none. Company rules can switch Google, enrichment data and search engines off. A plan can leave a provider out.
+  - **Your own systems:** file import, web forms and the Salesforce update file are built in. CRMs, warehouses and your own AI model are coming soon.
+- Counts:
+  - Records per source come from a daily read-only job (`connector_stats`, safe in the test copy). It is slow on the full register: about 8 s for 82k records, so roughly 10 minutes for 5.7M.
+  - The company's saved companies per source.
+  - Look-ups in the last 30 days, from the cost ledger.
+- Staff see a company's list with supplier names, each finder and the registers' last errors at `GET /admin-api/connectors?orgId=`. Nobody signs in to the platform organisation, so the client screen never shows them.
+- `ConnectorsView.jsx` went from 2,606 lines to about 270. It reads only the API, keeps nothing in `localStorage`, and has no custom connectors (hidden until there's a backend). Its logic is in `connectorsLogic.js`, and the two vendor logos moved to `ConnectorLogos.jsx`. The vendor pricing panel shows only for coming-soon connectors and provider keys.
+- **Decision 3 (audience), taken as the default:** every signed-in user sees Connectors, and only admins can test. `isFsbAccount()` no longer gates the screen. Say if it should be admins only or a plan feature instead.
+- **Decision 5:** unbuilt connectors show as **Coming soon** with **Ask for it**.
+- Tests: `tests/test_connectors.py` (14), `connectorKinds.test.js`, `connectorPrices.test.js`, `sourceBadge.test.jsx` (the screen), `listLogic.test.js` (origins).
+
+**Phase 1, items 2–6 (second part, 2026-11-25): done.**
+- **Item 2, a deliberate change from the plan:** there is no new `BusinessRecord.field_sources` column. Every value's source is worked out from the record's own `raw_data`, which already keeps what each source said. That's `data_policy._claims` / `value_source`, one list that the export rules, the contact list and the company page all use. So the bulk loaders don't need changing, and 5.7M records don't need migrating.
+  - The keys are `register:<x>`, `website`, `licensed`, `scrape`, `research`, `web`, `google_places` and `apollo`.
+  - An open source wins over a view-only one.
+  - The research sample's `phones` / `emails` lists are now read too.
+- **Item 3:** `contact_points.points_of` no longer files the record's own website, phone and email as `record` / `register`, and no longer files every bulk dataset as `register`.
+  - Each value gets the source that lists it.
+  - Only a register is `register`. The datasets are `licensed` / `scrape` / `research`, and the BN file's Google fields are `google_places`.
+  - A value nothing lists is `record` / `found`.
+  - When two sources list the same value, the strongest claim wins, then a real source over the record's own copy, then a source whose values may be exported.
+  - Find Leads' "Data from" filter has a new **Business data (licensed or scraped)** option and no longer counts `record` / `register` as register data.
+- **Item 4:**
+  - `record_source` never returns `register` for a scraped or licensed value.
+  - The company page says "On the register" only for a register. Otherwise it says "From a web scrape", "From business data we licensed", "From Google" and so on.
+  - Export files and the Salesforce update file write the source without its detail (`public_source`: `register`, `website`, `scrape`, `licensed`, `research`, `web`).
+- **Item 5, the repair:** `POST /admin-api/maintenance/provenance` (`services/provenance_fix.py`). It's a dry run unless `apply` is true, it's audited when applied, and it's safe to run twice. It relabels the old contact points and records a source for saved companies' values that have none: the matching source on their company record, or "Your file" for an imported company.
+  - **Dry run on the test copy:** 68,469 contact points across 28,259 companies would change. That includes 7,386 Google values that were passing as register data, 57,254 web-scrape values and 3,504 licensed ones. 3,046 saved-company values would get a source (2,980 "Your file", from the FSB import), and 58 would be left alone. It takes about 50 s.
+  - **On live it must be run by staff after the branch is deployed**: the dry run first, then with `apply`.
+- **Item 6:** an import records its file name (`source_url = file:<name>`), a booking-page lead its post (`booking:<post>`) and an API lead its prospect (`api:<id>`). Web forms (`form:<id>`) and social engagement (the profile link) already did. An inbound call has only the caller's number, which is the lead's phone.
+- New words on the screens: "Licensed business data", "Web scrape", "Research" and "Company record" (`SourceMark`, `ContactPoints`, `companyLogic.contactSourceWord`, the Lists "Data from" filter).
+
+**Still to do:** Phase 2 (a Source column on Lists, the "Where this came from" panel, the Lead sources summary) and Phase 4 (look and feel).
 
 ### Suggested order
 Phase 0 → Phase 1 (1–4) with Phase 4 (1, 3) in parallel → Phase 2 → Phase 3 → the rest of Phase 4.

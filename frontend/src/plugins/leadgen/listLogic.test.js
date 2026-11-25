@@ -65,13 +65,18 @@ describe("duplicate flags ignore what is not a duplicate", () => {
 
 describe("list numbers", () => {
   it("words where a company first came from", () => {
-    expect(firstSeen({ source: "import", created_at: "2026-11-03T10:00:00Z" })).toBe("Imported · 3 Nov 2026");
+    expect(firstSeen({ source: "import", created_at: "2026-11-03T10:00:00Z" })).toBe("Imported from your file · 3 Nov 2026");
     expect(firstSeen({ source: "weird" })).toBe("Added by hand");
+    // the origins the server writes that used to show as "Added by hand" (plan 10, Phase 0)
+    expect(firstSeen({ source: "inbound_call" })).toBe("Called you");
+    expect(firstSeen({ source: "social" })).toBe("Engaged on social media or booked through your page");
+    expect(firstSeen({ source: "api" })).toBe("Added through the API");
+    expect(firstSeen({ source: "scout" })).toBe("Found with Find Leads");
   });
   it("averages only scored rows, counts ready ones, and says Mixed without a clear majority", () => {
     const rows = [ready("a", { source: "import", fit: { score: 80 } }), row("b", { source: "scout", fit: { score: 40 } }), row("c", { source: "import" }), row("d", { source: "manual" })];
     expect(listStats(rows)).toEqual({ ready: 1, avgFit: 60, source: "Mixed", held: 0 });
-    expect(listStats([row("x", { source: "import" }), row("y", { source: "import" })])).toEqual({ ready: 0, avgFit: null, source: "Import", held: 0 });
+    expect(listStats([row("x", { source: "import" }), row("y", { source: "import" })])).toEqual({ ready: 0, avgFit: null, source: "Your file", held: 0 });
     expect(listStats([])).toEqual({ ready: 0, avgFit: null, source: "", held: 0 });
   });
 });

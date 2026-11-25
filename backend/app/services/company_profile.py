@@ -162,15 +162,26 @@ def summary(biz: BusinessRecord, ch: Dict[str, str], today: date) -> str:
     return " ".join(parts)
 
 
-def _contact(card: Dict[str, Any]) -> Dict[str, Any]:
-    """Website, phone and email, each with where it came from: the register, a web lookup that passed the checks, or missing."""
+# What the company page says about where the record's own website, phone or email came from (data_policy.value_source).
+OWN_WORDS = {"register": "On the register", "website": "From the company's website", "licensed": "From business data we licensed",
+             "scrape": "From a web scrape", "research": "From our research", "web": "Found on the web", "google_places": "From Google",
+             "apollo": "From our enrichment data", "record": "On our company record"}
+
+
+def _contact(card: Dict[str, Any], biz: Any = None) -> Dict[str, Any]:
+    """Website, phone and email, each with where it came from: the source that lists the record's own value (a register, the company's
+    site, a dataset, a web search...), a web lookup that passed the checks, or missing. Only a register's value says "On the register"."""
+    from app.services import data_policy as DP
+
     closed = card.get("closed") or {}
 
-    def one(own: str, web: str, own_word: str = "On the register", kind: str = "") -> Dict[str, str]:
+    def one(own: str, web: str, kind: str = "") -> Dict[str, str]:
         if kind and closed.get(kind):  # held by our registry and not opened yet: shown as held, never as missing
             return {"value": "", "source": "register", "label": "We hold this. Open it to see it", "closed": True}
         if own:
-            return {"value": own, "source": "register", "label": own_word}
+            src = DP.public_source(DP.value_source(biz, kind, own)) if biz is not None else "register"
+            src = src if src in OWN_WORDS else "record"
+            return {"value": own, "source": src, "label": OWN_WORDS[src]}
         if web:
             return {"value": web, "source": "web", "label": "Found on the web"}
         return {"value": "", "source": "missing", "label": "Not known yet"}
@@ -225,7 +236,7 @@ async def build(db: AsyncSession, biz: BusinessRecord, today: Optional[date] = N
     from app.services.social_lookup import links_of
 
     card = await RV.mask_one(db, lead_filters.card(biz))
-    contact = _contact(card)
+    contact = _contact(card, biz)
     linked = (biz.raw_data or {}).get("linkedin") or {}
     for o in officers:
         li = (linked.get("people") or {}).get(f"{o.get('first_name', '')} {o.get('last_name', '')}".strip()) or {}

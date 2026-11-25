@@ -65,8 +65,9 @@ async def _world(db):
                 _rec(5, "Epsilon Plumbing Ltd", postcode="BN2 2AA"), _rec(6, "Zeta Plumbing Ltd", phone="0113 496 0606")])
     await db.commit()
     db.add_all([
-        _point("s1", "phone", "0113 496 0101", "record", "register"),
-        _point("s2", "phone", "0113 496 0202", "record", "found"),
+        _point("s1", "phone", "0113 496 0101", "register", "register"),
+        _point("s2", "phone", "0113 496 0202", "record", "register"),  # the old label for a copied value: not register data (plan 10, Phase 1)
+        _point("s2", "email", "info@beta.example", "scrape"),
         _point("s3", "phone", "0113 496 0303", "google_places"),
         _point("s4", "phone", "0113 496 0404", "google_places"),  # outside a BN1 person's areas
         _point("s5", "email", "info@epsilon.example", "apollo"),
@@ -112,6 +113,7 @@ async def test_google_data_and_data_from(db):
     assert await _names(db, {**BASE, "data_from": ["google"]}) == ["Delta", "Gamma"]
     assert await _names(db, {**BASE, "data_from": ["enrichment"]}) == ["Epsilon"]
     assert await _names(db, {**BASE, "data_from": ["register", "web"]}) == ["Alpha", "Zeta"]  # any of the picked sources
+    assert await _names(db, {**BASE, "data_from": ["data"]}) == ["Beta"]  # a licensed file or a web scrape
     assert await _names(db, {**BASE, "data_from": ["register", "google"], "has_google_data": True}) == ["Delta", "Gamma"]
     assert await _names(db, {**BASE, "has_google_data": True, "tps_status": "listed"}) == ["Gamma"]
     assert await _names(db, {"postcode_prefixes": ["LS"], "has_google_data": True, "has_phone": True}) == ["Delta"]

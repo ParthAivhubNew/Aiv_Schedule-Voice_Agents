@@ -1,7 +1,7 @@
 // What the saved-companies list and the lists page work out from rows. No screens here, so it can be tested on its own.
-import { emailFor, phoneFor, readiness, SOURCE_LABEL } from "./AccountsViews";
+import { emailFor, phoneFor, readiness } from "./AccountsViews";
+import { originLabel, originWords } from "./originLabels";
 
-const FIRST_SEEN = { scout: "Found by AI Lead Scout", copilot: "Found by AI Lead Copilot", import: "Imported", manual: "Added by hand", inbound_form: "Web form" };
 
 // Where a company stands: already in touch, ready to write to, or still needs a way to reach it.
 export function bucket(a) {
@@ -56,7 +56,7 @@ export const FLAG_WORDS = {
 
 // "Imported · 3 Nov 2026" from where it came from and when it was saved.
 export function firstSeen(a) {
-  const how = FIRST_SEEN[a.source] || FIRST_SEEN.manual;
+  const how = originWords(a.source);
   const d = a.created_at ? new Date(a.created_at) : null;
   const when = d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
   return [how, when].filter(Boolean).join(" · ");
@@ -69,7 +69,7 @@ export function listStats(members) {
   const scored = rows.map((a) => a.fit?.score).filter((s) => typeof s === "number");
   const avgFit = scored.length ? Math.round(scored.reduce((x, y) => x + y, 0) / scored.length) : null;
   const counts = {};
-  rows.forEach((a) => { const k = SOURCE_LABEL[a.source] || SOURCE_LABEL.manual; counts[k] = (counts[k] || 0) + 1; });
+  rows.forEach((a) => { const k = originLabel(a.source); counts[k] = (counts[k] || 0) + 1; });
   const top = Object.entries(counts).sort((x, y) => y[1] - x[1])[0];
   const source = !top ? "" : top[1] > rows.length / 2 ? top[0] : "Mixed";
   // With an email, but held until the register match or consent is settled: why the Ready to email count can drop after a check.

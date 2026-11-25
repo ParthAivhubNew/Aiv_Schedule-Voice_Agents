@@ -36,6 +36,7 @@ export function SourceMark({ note, source = "", size = 13 }) {
 export const SOURCE_LABELS = {
   website: "Company website", register: "Official register", user: "You", import: "Your file",
   web: "Web search", check: "Number check", google_places: "Google", apollo: "Enrichment data",
+  licensed: "Licensed business data", scrape: "Web scrape", research: "Research", record: "Company record",
 };
 const FIELD_NAMES = { phone: "Phone", email: "Email", website: "Website" };
 

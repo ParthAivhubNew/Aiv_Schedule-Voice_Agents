@@ -9,7 +9,8 @@ const TYPE_NAMES = { ltd: "Ltd", plc: "PLC", llp: "LLP", cic: "CIC", guarantee: 
 const SOURCE_NAMES = { food: "Food hygiene register", care: "Care register", other: "Imported or web-found" };
 const LEGAL_NAMES = { company: "Registered company", sole: "Sole trader / no company number" };
 // The sources the server can tell apart (business_records.DATA_FROM), in the plain names clients see.
-export const DATA_FROM_OPTIONS = [["register", SOURCE_LABELS.register], ["web", SOURCE_LABELS.web], ["google", SOURCE_LABELS.google_places], ["enrichment", SOURCE_LABELS.apollo]];
+export const DATA_FROM_OPTIONS = [["register", SOURCE_LABELS.register], ["web", SOURCE_LABELS.web], ["data", "Business data (licensed or scraped)"],
+  ["google", SOURCE_LABELS.google_places], ["enrichment", SOURCE_LABELS.apollo]];
 const DATA_FROM_NAMES = Object.fromEntries(DATA_FROM_OPTIONS);
 // "" = any result; the server treats a result choice as "checked" too.
 export const TPS_OPTIONS = [["", "Any result"], ["listed", "On TPS"], ["clear", "Not on TPS"]];

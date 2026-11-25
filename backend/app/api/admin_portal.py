@@ -2042,6 +2042,40 @@ async def list_providers(request: Request):
     return {"providers": out, "problems": registry.problems()}
 
 
+@router.get("/connectors")
+async def company_connectors(request: Request, orgId: str):
+    """A company's Leads Connectors screen as staff see it: supplier names, each e-mail finder and the registers' last errors."""
+    from app.core.tenancy import org_scope
+    from app.services import connector_catalog as CC
+
+    _who(request)
+    with org_scope(orgId):
+        async with AsyncSessionLocal() as db:
+            return await CC.catalogue(db, orgId, staff=True)
+
+
+class ProvenanceFixBody(BaseModel):
+    apply: bool = False
+
+
+@router.post("/maintenance/provenance")
+async def fix_provenance(body: ProvenanceFixBody, request: Request):
+    """Plan 10, Phase 1: relabel the contact points the old code called "register", and record a source for saved companies' values that
+    have none. A dry run (nothing written) unless apply is true; staff run the dry run first and read the numbers."""
+    from app.services import audit
+    from app.services import provenance_fix as PF
+
+    who = _who(request)
+    out = {"contactPoints": await PF.relabel_contact_points(apply=body.apply), "savedCompanies": await PF.backfill_field_sources(apply=body.apply)}
+    if body.apply:
+        name = who.get("email") or who.get("name") or "staff"
+        async with AsyncSessionLocal() as db:
+            await audit.record(db, "provenance.fixed", target="platform", detail={"contactPoints": out["contactPoints"]["rows"],
+                               "savedCompanies": out["savedCompanies"]["values"]}, actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+    return out
+
+
 @router.post("/providers/{provider_id}/test")
 async def test_provider(provider_id: str, request: Request):
     """Runs a provider's real test with the key staff saved for it: ok, detail and the balance when the vendor reports one."""

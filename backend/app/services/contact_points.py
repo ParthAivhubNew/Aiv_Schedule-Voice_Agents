@@ -124,13 +124,22 @@ def _strings(items: Any) -> List[str]:
     return out
 
 
-def _source_name(key: str) -> str:
+def _source_of(key: str, kind: str, rec: Any) -> Tuple[str, str]:
+    """(source, confidence) of a contact one raw_data entry lists. Only a register is "register"; a bulk dataset is "licensed", "scrape" or
+    "research" (and "google_places" for the fields its Google match gave); anything else is "web". Never "register" by default: a value
+    copied from a scrape or a licensed file must not pass as published by a register (plan 10, Phase 1)."""
+    from app.services import source_catalog as SC
+
     head = key.split(":")[0]
     if head in ("google_places", "apollo"):
-        return head
+        return head, "found"
     if head == "website_confirmed":
-        return "web"
-    return "register"
+        return "web", "found"
+    if key in SC.REGISTERS or head.startswith("ds_"):
+        return "register", "register"
+    if key in SC.DATASETS:
+        return ("google_places" if kind in SC.google_fields(key, rec) else SC.DATASETS[key]["kind"]), "found"
+    return "web", "found"
 
 
 def points_of(biz: Any) -> List[Dict[str, str]]:
@@ -142,10 +151,6 @@ def points_of(biz: Any) -> List[Dict[str, str]]:
         if p:
             out.append(p)
 
-    register = (getattr(biz, "confidence_tier", "") or "") == "verified_registry"
-    add("website", getattr(biz, "website", "") or getattr(biz, "domain", ""), "record", "register" if register else "found")
-    add("phone", getattr(biz, "phone", ""), "record", "register" if register else "found")
-    add("email", getattr(biz, "email", ""), "record", "register" if register else "found")
     raw = getattr(biz, "raw_data", None) or {}
 
     cw = raw.get("contacts_web") if isinstance(raw.get("contacts_web"), dict) else {}
@@ -199,18 +204,31 @@ def points_of(biz: Any) -> List[Dict[str, str]]:
     for key, rec in raw.items():
         if key in skip or not isinstance(rec, dict):
             continue
-        source = _source_name(str(key))
-        confidence = "register" if source == "register" else "found"
         for field, value in rec.items():
             kind = _SOURCE_KEYS.get(str(field).strip().lower())
             if kind and isinstance(value, str):
-                add(kind, value, source, confidence)
-    # one row per (kind, comparable value): the first, strongest claim wins
+                add(kind, value, *_source_of(str(key), kind, rec))
+        for list_key, kind in (("phones", "phone"), ("emails", "email")):
+            if isinstance(rec.get(list_key), list):
+                for v in _strings(rec[list_key]):
+                    add(kind, v, *_source_of(str(key), kind, rec))
+    # The company record's own website, phone and email were copied from one of the sources above; only a value none of them lists is
+    # filed as the record's own, and never as published by a register.
+    add("website", getattr(biz, "website", "") or getattr(biz, "domain", ""), "record")
+    add("phone", getattr(biz, "phone", ""), "record")
+    add("email", getattr(biz, "email", ""), "record")
+    # one row per (kind, comparable value): the strongest claim wins, then any real source over the record's own copy, then a source whose
+    # values may be exported, then the first
     order = {"register": 0, "picked": 1, "confirmed": 2, "found": 3}
+    view_only = {"google_places", "apollo"}
+
+    def rank(p: Dict[str, str]) -> Tuple[int, bool, bool]:
+        return order.get(p["confidence"], 9), p["source"] == "record", p["source"] in view_only
+
     seen: Dict[Tuple[str, str], Dict[str, str]] = {}
     for p in out:
         k = (p["kind"], p["norm"])
-        if k not in seen or order.get(p["confidence"], 9) < order.get(seen[k]["confidence"], 9):
+        if k not in seen or rank(p) < rank(seen[k]):
             seen[k] = p
     return list(seen.values())
 

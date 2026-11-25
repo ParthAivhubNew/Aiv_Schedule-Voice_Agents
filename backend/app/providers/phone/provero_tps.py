@@ -12,7 +12,8 @@ class ProveroTps(Provider):
         id="provero_tps", name="Provero (TPS / CTPS)", category="tps_screening", capabilities=("tps_screening",), provides=("tps", "ctps"),
         key_group="Leads", pricing=Pricing(usd=0.0053, unit="call", billing="per_search"),
         licence=Licence(exportable=True, cache_days=28, client_label="TPS / CTPS register"), credit_item="tps_check", default_order=10,
-        docs_url="https://provero.io", note="Its test runs one real check of a number Ofcom reserves for drama, so it costs one check.")
+        docs_url="https://provero.io", note="Its test runs one real check of a number Ofcom reserves for drama, so it costs one check.",
+        test_spends=True)
 
     async def saved_key(self) -> str:
         from app.services import provero
