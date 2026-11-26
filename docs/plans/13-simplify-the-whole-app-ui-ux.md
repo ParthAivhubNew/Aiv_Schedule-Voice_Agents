@@ -4,7 +4,25 @@ Written 2026-11-26, after the owner looked at the test copy and said the app is 
 name sits where Outreach should be, and the staff portal looks complicated. Based on a read of the frontend code (menus, shell,
 brand logic, staff portal) and the owner's screenshots of Home, Find Leads and the staff Dashboard. **No code has been changed.**
 
-**Status (2026-11-26):** plan only. Waiting on the owner's answers to the decisions in section 6 before step 1 starts.
+**Status (2026-11-26):** the owner answered the decisions (section 6). **Steps 1 and 2 are done on the branch**, deployed on the
+test copy and waiting for the owner's look in a browser. Step 3 is next.
+
+- ✅ **Step 1, identity:**
+  - `BrandMark` and `BrandLockup` are always Outreach's. Home, sign-in, pricing, help and staff sign-in no longer swap in a brand's
+    name or logo.
+  - The company shows only in the account badge at the bottom of an app's sidebar.
+  - "Powered by Outreach" is gone (Outreach is at the top now), with its switch on the staff Brands page. The Brands page's help says
+    the display name and logo are for that badge.
+  - Tests: `brand/BrandUi.test.jsx`.
+- ✅ **Step 2, staff portal:**
+  - The menu is in five groups (Overview, Customers, Money, Platform, Operations). The labels hide on phones.
+  - **The same alert again, while the last one is unseen, updates that one** (`ai_errors.alert_staff`: how many times, first and last
+    seen) instead of adding a row. A new reference is still its own row.
+  - **The banner groups older stored repeats by kind**, with "N times, since …", and Dismiss clears the whole group.
+  - Checked on the test copy: a backend restart turned the newest CFG-01 into "count 2" instead of a 37th alert.
+  - Tests: `tests/test_staff_alerts_repeat.py`, `adminPortal/alertsGroup.test.js`.
+  - **Not done:** "expected findings are no alert" (Stripe in test mode on the test copy) and the Dashboard leading with numbers;
+    with the grouping, the banner is already a few lines. Both fit step 3's rework.
 
 ---
 
@@ -200,12 +218,13 @@ The aim is fewer clicks for each, and no task that needs the person to know whic
 
 ---
 
-## 6. Decisions the owner needs to make
-1. **White-label.** Should any customer ever see its own name and logo in place of Outreach's?
-   - Recommended: only a paying partner on its own web address (e.g. outreach.fsb.org.uk).
-   - Everyone else, FSB on new.outreach / outreach.aivhub.com included, sees Outreach, with their company in the account switcher.
-2. **One menu for all apps (3.1), or keep an app switcher** with one shared menu layout inside each app?
-   - Recommended: one menu. It removes the switching, and most customers will own one or two apps.
-3. **Apps not bought:** show them in the menu as one "Try" line each (recommended), or hide them and offer them only on Home?
-4. **Order of work:** steps 1–2 first (small, visible quickly), then 3–4 together. Or would you rather see a clickable mock-up of
-   the new shell and Settings on the test copy before step 3 starts?
+## 6. Decisions (answered by the owner, 2026-11-26)
+1. **White-label: "brand name should show in bottom of side bar only."**
+   - Outreach's name and logo everywhere: Home, the sidebar head, the sign-in page.
+   - The customer's company appears only in the account badge at the bottom of an app's sidebar.
+   - No brand's name or logo replaces Outreach's anywhere else.
+   - Partner embeds (`embed/`) are inside the partner's own page and are left as they are.
+2. **Keep the app switcher.** Section 3.1 changes: each app keeps its own menu, but all three use one short layout. The work goes in
+   the menu, setup goes to Settings, and the AI Assistant, Support and Documentation each appear once.
+3. **Apps not bought:** one quiet "Try" line in the app switcher, and a neutral offer card on Home. Never "Out of credits" in red.
+4. **Start with steps 1 and 2.**

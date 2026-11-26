@@ -22,23 +22,24 @@ import { SignIn } from "./SignIn";
 import { Staff } from "./Staff";
 import { PageTitle } from "./ui";
 
+// The staff menu in five groups (plan 13): who our customers are, money, the platform we run, and day-to-day operations.
 const PAGES = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "clients", label: "Clients", icon: Users },
-  { id: "demos", label: "Demo organisations", icon: Presentation },
-  { id: "queue", label: "Queue", icon: ClipboardList },
-  { id: "revenue", label: "Revenue", icon: PoundSterling },
-  { id: "billing", label: "Plans & pricing", icon: Coins },
-  { id: "balances", label: "Balances", icon: Wallet },
-  { id: "keys", label: "Platform keys", icon: KeyRound },
-  { id: "providers", label: "Providers", icon: Boxes },
-  { id: "mailbox", label: "Mailbox", icon: Mail },
-  { id: "api", label: "API access", icon: Plug },
-  { id: "partners", label: "Partners", icon: Handshake },
-  { id: "brands", label: "Brands", icon: Palette },
-  { id: "assistant", label: "Assistant", icon: Sparkles },
-  { id: "logs", label: "Logs", icon: ScrollText },
-  { id: "staff", label: "Staff", icon: UserCog },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Overview" },
+  { id: "clients", label: "Clients", icon: Users, group: "Customers" },
+  { id: "demos", label: "Demo organisations", icon: Presentation, group: "Customers" },
+  { id: "partners", label: "Partners", icon: Handshake, group: "Customers" },
+  { id: "brands", label: "Brands", icon: Palette, group: "Customers" },
+  { id: "revenue", label: "Revenue", icon: PoundSterling, group: "Money" },
+  { id: "billing", label: "Plans & pricing", icon: Coins, group: "Money" },
+  { id: "balances", label: "Balances", icon: Wallet, group: "Money" },
+  { id: "providers", label: "Providers", icon: Boxes, group: "Platform" },
+  { id: "keys", label: "Platform keys", icon: KeyRound, group: "Platform" },
+  { id: "mailbox", label: "Mailbox", icon: Mail, group: "Platform" },
+  { id: "api", label: "API access", icon: Plug, group: "Platform" },
+  { id: "assistant", label: "Assistant", icon: Sparkles, group: "Platform" },
+  { id: "queue", label: "Queue", icon: ClipboardList, group: "Operations" },
+  { id: "logs", label: "Logs", icon: ScrollText, group: "Operations" },
+  { id: "staff", label: "Staff", icon: UserCog, group: "Operations" },
 ];
 
 // /admin/<page>[/<client id>]
@@ -89,6 +90,7 @@ export function AdminApp() {
           .admin-shell { grid-template-columns: minmax(0, 1fr); }
           .admin-nav { position: static; height: auto; }
           .admin-nav-links { flex-direction: row; overflow-x: auto; }
+          .admin-nav-group { display: none; }
           .admin-nav-foot { display: none !important; }
         }
       `}</style>
@@ -101,12 +103,15 @@ export function AdminApp() {
           </div>
         </div>
         <div className="admin-nav-links">
-          {PAGES.map(({ id: pid, label, icon: Icon }) => (
-            <button key={pid} type="button" onClick={() => go(pid)} aria-current={page === pid ? "page" : undefined}
+          {PAGES.map(({ id: pid, label, icon: Icon, group }, i) => (
+            <React.Fragment key={pid}>
+            {group !== PAGES[i - 1]?.group ? <div className="admin-nav-group" style={{ padding: i ? "14px 10px 4px" : "2px 10px 4px", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7C8293" }}>{group}</div> : null}
+            <button type="button" onClick={() => go(pid)} aria-current={page === pid ? "page" : undefined}
               style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", whiteSpace: "nowrap",
                 background: page === pid ? C.inkLine : "transparent", color: page === pid ? "#fff" : "#C7CAD3", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, textAlign: "left" }}>
               <Icon size={15} /> {label}
             </button>
+            </React.Fragment>
           ))}
           <button type="button" onClick={signOut} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: "transparent", color: "#C7CAD3", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
             <LogOut size={15} /> Sign out

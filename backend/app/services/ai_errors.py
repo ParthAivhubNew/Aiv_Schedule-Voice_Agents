@@ -126,9 +126,21 @@ async def alert_staff(code: str, detail: str, *, ref: str = "", org_id: Optional
                 items: List[Dict[str, Any]] = list(doc.get("items") or [])
                 last = (doc.get("emailed") or {}).get(f"{code}:{org}")
                 send = not last or datetime.fromisoformat(last) < now - EMAIL_EVERY
-                items.insert(0, {"id": uuid.uuid4().hex[:12], "code": code, "level": STAFF_CODES.get(code, "alert"),
-                                 "org": org, "detail": str(detail)[:1000], "ref": ref, "at": now.isoformat(timespec="seconds"),
-                                 "seen": False})
+                text = str(detail)[:1000]
+                # The same alert again while the last one is still unseen (a restart re-running the config check, say) updates
+                # that one: how many times, and when it was last seen. A new reference is a new incident, so it gets its own row.
+                same = next((a for a in items if not a.get("seen") and a.get("code") == code and a.get("org") == org
+                             and a.get("detail") == text and (a.get("ref") or "") == (ref or "")), None)
+                if same:
+                    items.remove(same)
+                    same.setdefault("first_at", same.get("at"))
+                    same["count"] = int(same.get("count") or 1) + 1
+                    same["at"] = now.isoformat(timespec="seconds")
+                    items.insert(0, same)
+                else:
+                    items.insert(0, {"id": uuid.uuid4().hex[:12], "code": code, "level": STAFF_CODES.get(code, "alert"),
+                                     "org": org, "detail": text, "ref": ref, "at": now.isoformat(timespec="seconds"),
+                                     "seen": False})
                 doc["items"] = items[:MAX_ALERTS]
                 if send:
                     doc.setdefault("emailed", {})[f"{code}:{org}"] = now.isoformat()
