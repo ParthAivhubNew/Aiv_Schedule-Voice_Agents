@@ -289,6 +289,40 @@ async def signup_config(request: Request):
             **({"formToken": _sign({"typ": "signup_form"}, G.FORM_TTL_S)} if allowed else {})}
 
 
+# ── The public price list (/pricing) ────────────────────────────────────────
+def _public_plan(p) -> Dict[str, Any]:
+    """A plan or top-up as anyone may see it: no Stripe ids, no supplier names, no cost cap."""
+    from app.services.plan_rules import LIMITS, clean_rules
+
+    limits = (clean_rules(getattr(p, "rules", None)) or {}).get("limits") or {}
+    words = [f"Up to {int(n):,} {LIMITS[k]}" for k, n in limits.items() if k in LIMITS and isinstance(n, (int, float))]
+    return {"id": p.id, "name": p.name, "description": p.description or "", "priceCents": int(p.price_usd_cents or 0),
+            "currency": (p.currency or "usd").upper(), "credits": int(p.credits or 0),
+            "features": [str(f) for f in (p.features or []) if str(f).strip()][:12], "limits": words}
+
+
+@router.get("/pricing")
+async def public_pricing(request: Request, db: AsyncSession = Depends(get_db)):
+    """Each app's plans and top-ups, and what each paid action costs in credits at the standard rate, for the public pricing page.
+    A brand's own address sells at the brand's prices, so nothing is shown there."""
+    if await brand_signin(request) is not None:
+        return {"available": False}
+    from app.services import billing as B
+    from app.services import credits as K
+
+    rows = await B.plans(db)
+    rates = await K.rates(db)
+    apps = []
+    for wallet, name in K.WALLETS.items():
+        plans = [_public_plan(p) for p in rows if p.wallet == wallet and p.kind == "plan"]
+        topups = [_public_plan(p) for p in rows if p.wallet == wallet and p.kind == "topup"]
+        actions = [{"item": k, "label": r["label"], "unit": r.get("unit") or "", "credits": r["credits"]}
+                   for k, r in rates.items() if r.get("wallet") == wallet and r.get("charged")]
+        if plans or topups:
+            apps.append({"id": wallet, "name": name, "plans": plans, "topups": topups, "actions": actions})
+    return {"available": True, "apps": apps, "vatAdded": B.automatic_tax(), "signupOpen": signup_allowed()}
+
+
 class SignupBody(BaseModel):
     company: str
     name: str

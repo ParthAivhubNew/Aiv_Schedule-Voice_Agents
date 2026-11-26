@@ -456,7 +456,14 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
     - **Social:** AI pictures and rewrites.
   - **Wrong prices fixed:** these screens said "1 Leads credit", but a lead researched costs 5 at the standard rate. The API docs said the same and now quote the standard rate.
   - **Guard:** `app/noTypedPrices.test.js` fails if a screen types in a credit price. Help pages may still quote "the standard rate".
-  - **Not done:** a public pricing page.
+  - ✅ **Public pricing page: done 2026-11-26** at `/pricing`, open to anyone, linked as "Prices" from the sign-in page.
+    - **Everything comes from the server** (`GET /auth/pricing`): each app's active plans and top-ups as staff set them, and the
+      standard rate card for each app's paid actions.
+    - **Leaves out:** Stripe ids, supplier names and cost caps. Plan limits show in plain words ("Up to 3 users"), and plan codes
+      such as "starterlead" read "Starter".
+    - **VAT:** "Prices are before VAT, which is added at checkout" shows only when Stripe adds VAT (`STRIPE_AUTOMATIC_TAX`).
+      Otherwise the page says nothing about VAT, because decision 4 is still open.
+    - **On a brand's own address** it shows no prices, because a brand may sell at its own prices; it says to ask the organisation.
 - Honest Connectors screen (plan 10, Phase 0) and real empty states.
 - ✅ Help pages: checked 2026-11-25, and there's no FSB-specific wording. The Lists help now names the real origins.
 

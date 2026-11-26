@@ -403,6 +403,7 @@ export function LoginScreen({ onLogin }) {
           ) : null}
           <InstallStepsSheet open={installOpen} onClose={() => setInstallOpen(false)} />
           <nav className="auth-legal" aria-label="Legal">
+            {brand.active ? null : <a href="/pricing">Prices</a>}
             <a href="/terms" target="_blank" rel="noreferrer">Terms</a>
             <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
             <a href="/data-deletion" target="_blank" rel="noreferrer">Data deletion</a>

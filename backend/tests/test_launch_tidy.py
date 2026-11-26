@@ -104,3 +104,37 @@ async def test_the_search_step_opens_on_a_sample_or_on_the_company_s_own_ideal_c
     step = next(x for x in (await client.get("/api/auth/onboarding")).json()["steps"] if x["key"] == "search")
     assert step["sample"]["own"] is True and step["sample"]["label"] == "Opens on a search for the customers you described"
     assert step["sample"]["filters"]["sic_codes"] == ["56102"] and step["sample"]["filters"]["size_bands"] == ["micro"]
+
+
+@pytest.mark.db
+async def test_the_public_price_list_shows_plans_and_rates_and_nothing_internal(anon, db):
+    from app.models.models import BillingPlan, Brand, BrandDomain
+    from app.services import tenant_policy as TP
+
+    db.add_all([
+        BillingPlan(id="pl_lead", wallet="leadgen", kind="plan", name="Leads Starter", description="For a small team", price_usd_cents=4999,
+                    currency="gbp", credits=500, features=["Saved lists"], active=True, stripe_price_id="price_secret_1",
+                    rules={"providers": ["hunter", "apollo"], "cost_cap_pct": 40, "limits": {"users": 3}}),
+        BillingPlan(id="pl_top", wallet="leadgen", kind="topup", name="500 credits", price_usd_cents=2500, currency="gbp", credits=500,
+                    active=True),
+        BillingPlan(id="pl_old", wallet="leadgen", kind="plan", name="Retired", price_usd_cents=100, credits=1, active=False),
+    ])
+    await db.commit()
+    r = await anon.get("/api/auth/pricing")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    leads = next(a for a in body["apps"] if a["id"] == "leadgen")
+    assert [p["name"] for p in leads["plans"]] == ["Leads Starter"] and leads["topups"][0]["credits"] == 500
+    plan = leads["plans"][0]
+    assert plan["priceCents"] == 4999 and plan["currency"] == "GBP" and plan["limits"] == ["Up to 3 users"]
+    assert any(a["item"] == "lead_lookup" for a in leads["actions"])
+    assert not any(a["id"] == "voice" for a in body["apps"])  # no plans for Voice yet: not shown
+    for secret in ("price_secret_1", "hunter", "apollo", "cost_cap", "stripe"):
+        assert secret not in r.text  # no Stripe ids, supplier names or cost caps leave the server
+
+    db.add(Brand(id="brd_p", name="FSB", status="active", policy=TP.clean_policy({})))
+    await db.flush()
+    db.add(BrandDomain(host="outreach.fsb.example", brand_id="brd_p", verified=True))
+    await db.commit()
+    TP.invalidate()
+    assert (await anon.get("/api/auth/pricing", headers={"host": "outreach.fsb.example"})).json() == {"available": False}

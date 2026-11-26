@@ -29,7 +29,7 @@ PUBLIC_HTTP = [re.compile(p) for p in (
     r"^/$",
     r"^/health$",
     r"^/(privacy|privacy-policy|terms|terms-of-service|data-deletion|build-with-outreach)$",
-    _OPT_API + r"auth/(login|refresh|signup|signup-config|verify-email|resend-verification|forgot-password|reset-password)$",
+    _OPT_API + r"auth/(login|refresh|signup|signup-config|pricing|verify-email|resend-verification|forgot-password|reset-password)$",
     _OPT_API + r"auth/firebase$",  # Google sign-in through Firebase
     _OPT_API + r"brand$",  # the look of a white-label sign-in page, by host name (never returns policy)
     # Carrier / provider webhooks (verified by their own signatures inside the handlers)

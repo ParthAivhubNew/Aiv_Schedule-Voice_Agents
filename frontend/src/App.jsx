@@ -2,6 +2,7 @@ import JobDock from "./hub/JobDock";
 import HumanCallHost from "./hub/HumanCallHost";
 import { SupportWidgetBridge } from "./hub/SupportWidgetBridge";
 import { HelpPage } from "./help/HelpPage";
+import { PricingPage } from "./pricing/PricingPage";
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { api } from "./api/apiClient";
 import { AUTH_LOST_EVENT, authStorage, hasSession, PASSWORD_CHANGE_EVENT, restoreSession } from "./api/authStore";
@@ -165,12 +166,22 @@ function isHelpPath() {
   return false;
 }
 
+// The public price list, open to anyone (signed in or not).
+function isPricingPath() {
+  try {
+    return (window.location.pathname || "").replace(/\/+$/, "") === "/pricing";
+  } catch (_) {
+    return false;
+  }
+}
+
 // Sign-in gate: nothing of the app mounts (or calls the API) until the user is signed in and
 // has a password of their own.
 export default function App() {
   const [onHelp, setOnHelp] = useState(() => isHelpPath());
+  const [onPricing, setOnPricing] = useState(() => isPricingPath());
   useEffect(() => {
-    const check = () => setOnHelp(isHelpPath());
+    const check = () => { setOnHelp(isHelpPath()); setOnPricing(isPricingPath()); };
     window.addEventListener("popstate", check);
     window.addEventListener("outreach-route", check);
     return () => {
@@ -222,6 +233,9 @@ export default function App() {
 
   if (onHelp) {
     return <HelpPage />;
+  }
+  if (onPricing) {
+    return <PricingPage />;
   }
 
   if (!session && restoring) return <AppChrome />;
