@@ -6,7 +6,6 @@ import { AssistantButton, AssistantPanel, assistantHasChat } from "../leadgen/As
 import { WORKFLOWS_HEADER, openWorkflows, workflowsOpenNow } from "../../workflows/openWorkflows";
 import { createPortal } from "react-dom";
 import {
-  Bot,
   CalendarClock,
   CalendarDays,
   Check,
@@ -38,6 +37,7 @@ import {
   Film,
   FlaskConical,
   Upload,
+  Wallet,
   Workflow,
 } from "lucide-react";
 import { AppChrome } from "../../app/ui";
@@ -3991,7 +3991,6 @@ export function SocialWorkspace({
   };
   const navGroups = [
     { label: "Posts", items: [
-      { id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, active: page === "assistant" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("assistant") },
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
       { id: "approvals", label: "Post approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
       { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights"),
@@ -4006,13 +4005,14 @@ export function SocialWorkspace({
           { id: "import", label: "Import posts", icon: Upload, title: "Add many posts at once from a CSV or Excel file", active: page === "import" && !approvalOpen, onClick: () => goPage("import") },
         ] },
     ] },
-    { label: "Setup", items: [
-      { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", locked: pluginLocked,
-        onClick: () => { if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; } openWorkflows({ from: "social", event: "post.published" }); } },
-      { id: "documentation", label: "Documentation", icon: BookOpen, external: true, title: "Open the documentation in a new tab", onClick: () => window.open("/help/social", "_blank") },
-      { id: "theme", label: "Theme", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
-      { id: "accounts", label: "Accounts", icon: Plug, active: (page === "accounts" || page === "subscription") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
-    ] },
+  ];
+  // Plan 13: the setup pages sit under one Settings entry at the bottom of the menu; the AI Assistant is the header's button.
+  const settingsItems = [
+    { id: "accounts", label: "Accounts", icon: Plug, title: "The social accounts your posts go out on", active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
+    { id: "theme", label: "Theme", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
+    { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", locked: pluginLocked,
+      onClick: () => { if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; } openWorkflows({ from: "social", event: "post.published" }); } },
+    { id: "subscription", label: "Plan & credits", icon: Wallet, title: "Your Social plan and credits", active: page === "subscription" && !approvalOpen, onClick: () => { setApprovalOpen(false); setPage("subscription"); } },
   ];
   const topTitles = {
     overview: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
@@ -4034,7 +4034,7 @@ export function SocialWorkspace({
     <div className={nav.open ? "app-shell is-nav-open" : "app-shell"} style={{ display: "flex", height: "100vh", background: C.paper, fontFamily: FONT_BODY, "--ui-accent": "#0C8C7D", "--ui-accent-hover": "#0A7468", "--ui-accent-soft": "#E4F5F2", "--ui-accent-ink": "#065F54", "--ui-ring": "rgba(12, 140, 125, 0.22)", "--ui-side-active-icon": "#5FD3C3" }}>
       <MobileNavBackdrop nav={nav} />
       <AppChrome />
-      <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} wallet="scheduler" operator={operator}
+      <PluginSidebar appId="scheduler" name="Social" icon={CalendarDays} accent={C.teal} groups={navGroups} settings={settingsItems} wallet="scheduler" operator={operator}
         onOpenPlan={() => { setApprovalOpen(false); setPage("subscription"); }} onHome={onBackToHub} onLogout={onLogout} refreshKey={page} nav={nav} tabs={["plan", "approvals", "insights", "accounts"]} />
 
       <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>

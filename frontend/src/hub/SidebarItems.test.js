@@ -13,39 +13,41 @@ describe("Support and Documentation in the sidebars", () => {
   const leads = read("../plugins/leadgen/LeadGenerationPlugin.jsx");
   const social = read("../plugins/scheduler/SocialWorkspace.jsx");
 
-  it("Support sits directly above the credits in the shared sidebar, and is hidden when embedded", () => {
-    const support = shell.indexOf('id: "support"');
-    const credits = shell.indexOf('className="sb-credits"');
-    expect(support).toBeGreaterThan(-1);
-    expect(support).toBeLessThan(credits);
-    expect(shell.slice(shell.lastIndexOf("{!embedded", support), support)).toContain("{!embedded");
+  // Plan 13: every app's menu has the same shape. The everyday work, then one Settings entry with the setup pages, then credits and
+  // the company badge. The AI Assistant is the header's button; Support and Documentation are in the profile menu, following the app.
+  it("has no Support, Documentation or AI Assistant item in any app's menu", () => {
+    for (const src of [shell, voice, leads, social]) {
+      expect(src).not.toContain('id: "support"');
+      expect(src).not.toContain('id: "documentation"');
+    }
+    expect(social).not.toContain('{ id: "assistant", label: "AI Assistant"');
+    expect(voice).toContain('{ label: "Outreach", ids: ["list", "logs", "schedule", "analytics"] }');
+    // Leads lists the assistant as a page only inside a partner's embed, which has no header of ours.
+    expect(leads).toContain('...(embedViews ? [{ id: "assistant", label: "AI Assistant"');
   });
 
-  it("Support sits directly above the credits in Voice's own sidebar", () => {
-    const support = voice.indexOf('id: "support"');
-    const credits = voice.indexOf('className="sb-credits"');
-    expect(support).toBeGreaterThan(-1);
-    expect(support).toBeLessThan(credits);
+  it("puts one Settings entry, holding the setup pages, between the work and the credits", () => {
+    const settings = shell.indexOf("{setup ? <NavItem item={setup} /> : null}");
+    expect(settings).toBeGreaterThan(shell.indexOf("<SidebarGroups"));
+    expect(settings).toBeLessThan(shell.indexOf('className="sb-credits"'));
+    const vSettings = voice.indexOf("{setupItem ? <NavItem item={setupItem} /> : null}");
+    expect(vSettings).toBeGreaterThan(-1);
+    expect(vSettings).toBeLessThan(voice.indexOf('className="sb-credits"'));
+    expect(leads).toContain("settings={embedViews ? null : setupGroup.items}");
+    expect(social).toContain("settings={settingsItems}");
   });
 
-  it("Documentation is a tab among the others, not at the bottom", () => {
-    expect(shell.includes('id: "documentation"')).toBe(false); // nothing in the bottom block any more
-    expect(leads).toContain('id: "documentation"');
-    expect(social).toContain('id: "documentation"');
-    expect(voice).toContain('id: "documentation"');
-    // Voice: right after Workflows, inside the nav list and before the spacer above the bottom block
-    expect(voice.indexOf('id: "workflows"')).toBeLessThan(voice.indexOf('id: "documentation"'));
-    expect(voice.indexOf('id: "documentation"')).toBeLessThan(voice.indexOf('className="app-sidebar-spacer"', voice.indexOf('id: "documentation"')));
+  it("opens each app's own guide and tells Support which app you are in, from the profile menu", async () => {
+    const { helpForHere } = await import("./PluginHub");
+    expect(helpForHere("#/leadgen/find_leads")).toEqual({ plugin: "leadgen", docs: "/help/leads" });
+    expect(helpForHere("#/voice/list")).toEqual({ plugin: "voice", docs: "/help/voice" });
+    expect(helpForHere("#/scheduler/plan")).toEqual({ plugin: "scheduler", docs: "/help/social" });
+    expect(helpForHere("")).toEqual({ plugin: "home", docs: "/help" });
   });
 
-  it("each app's Documentation tab opens its own guide in a new tab", () => {
-    expect(leads).toContain('window.open("/help/leads", "_blank")');
-    expect(social).toContain('window.open("/help/social", "_blank")');
-    expect(voice).toContain('window.open("/help/voice", "_blank")');
-  });
-
-  it("Documentation stays available when a plan is locked", () => {
-    expect(leads).toContain('item.id !== "documentation"');
+  it("keeps the Settings entry's pages reachable when a plan is locked (Plan & credits always opens)", () => {
+    expect(leads).toContain('locked: isLocked && item.id !== "subscription"');
+    expect(voice).toContain('locked: pluginLocked && id !== "subscription"');
   });
 
   it("places FSB account badge directly below credits in PluginShell and CallingWorkspace", () => {

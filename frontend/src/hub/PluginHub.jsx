@@ -16,6 +16,15 @@ import { openSupport } from "./openSupport";
 import { C, FONT_BODY, FONT_MONO } from "../app/constants";
 import { CallTimer } from "../app/ui";
 import { routeHash } from "../utils/route";
+
+// The app you are in, from the address: Support is told it, and Documentation opens that app's own guide (plan 13: both left the
+// app sidebars for this menu, so they follow the app instead).
+const APP_HELP = { leadgen: ["leadgen", "/help/leads"], voice: ["voice", "/help/voice"], scheduler: ["scheduler", "/help/social"] };
+export function helpForHere(hash = routeHash()) {
+  const app = String(hash || "").replace(/^#\/?/, "").split("/")[0];
+  const [plugin, docs] = APP_HELP[app] || ["home", "/help"];
+  return { plugin, docs };
+}
 import { Avatar } from "./Avatar";
 import { AdminCrown } from "../components/AdminCrown";
 import { InstallStepsSheet } from "../components/InstallSteps";
@@ -121,8 +130,8 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           {onOpenConnections ? (
             <MenuItem icon={Link2} title="Connections" sub="How Leads, Voice & Social work together" onClick={() => { setOpen(false); onOpenConnections(); }} />
           ) : null}
-          <MenuItem icon={Headset} title="Support" sub="Report an issue or ask a question" onClick={() => { setOpen(false); openSupport({ plugin: "home" }); }} />
-          <MenuItem icon={BookOpen} title="Documentation" sub="Open documentation in a new tab" onClick={() => { setOpen(false); window.open("/help", "_blank"); }} />
+          <MenuItem icon={Headset} title="Support" sub="Report an issue or ask a question" onClick={() => { setOpen(false); openSupport({ plugin: helpForHere().plugin }); }} />
+          <MenuItem icon={BookOpen} title="Documentation" sub="Open documentation in a new tab" onClick={() => { setOpen(false); window.open(helpForHere().docs, "_blank"); }} />
 
           {installable ? (
             <MenuItem icon={Smartphone} title="Install the app" sub="Add Outreach to your home screen" onClick={() => { setOpen(false); setInstallOpen(true); }} />

@@ -35,7 +35,7 @@ import {
   FileSpreadsheet,
   Upload,
   Workflow,
-  FileText, BookOpen, FileUp, CalendarClock } from "lucide-react";
+  FileText, FileUp, CalendarClock, Wallet } from "lucide-react";
 import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
@@ -292,21 +292,23 @@ export default function LeadGenerationPlugin({
     return () => window.removeEventListener(OPEN_JOURNEY_EVENT, onOpen);
   });
 
-  // Pages of the app, in the same two groups as Voice's: the work, then the setup.
+  // Pages of the app (plan 13): the everyday work in the menu, the setup under Settings. The AI Assistant is the header's button
+  // (the same chat); only a partner's embed, which has no header of ours, lists it as a page.
   const navItems = onlyEmbedViews([
-    { id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, group: "Outreach", embedIds: ["assistant"] },
+    ...(embedViews ? [{ id: "assistant", label: "AI Assistant", short: "Ask", icon: Bot, group: "Outreach", embedIds: ["assistant"] }] : []),
     { id: "find_leads", label: "Find Leads", short: "Find", icon: Sparkles, group: "Outreach" },
     { id: "lists", label: "Lists", short: "Lists", icon: ListChecks, count: store.accounts.length || null, group: "Outreach", embedIds: ["lists", "saved_people", "saved_companies"] }, // Companies and People are tabs on the same page
     { id: "outreach", label: "Journeys", icon: Route, group: "Outreach" },
-    { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // Mail has two pages, listed under it in the menu
-    { id: "inbound_forms", label: "Forms", icon: FileText, group: "Inbound", title: "Web forms that turn visitors into leads" },
-    { id: "connectors", label: "Connectors", short: "Connectors", icon: Plug, group: "Setup", title: "Where your leads' data comes from, and what's switched on" },
-    { id: "workflows", label: "Workflows", icon: Workflow, group: "Setup" },
-    { id: "business", label: "About your business", icon: Building2, group: "Setup" },
-    ...(showDataAccess ? [{ id: "administration", label: "Administration", icon: Shield, group: "Setup", title: "Users, roles and what each person can see and do" }] : []),
-    { id: "documentation", label: "Documentation", icon: BookOpen, group: "Setup", external: true },
+    { id: "mail", label: "Mail", icon: Mail, group: "Outreach", embedIds: ["mail", "mailboxes"] }, // its Email accounts page is under Settings
+    { id: "inbound_forms", label: "Forms", icon: FileText, group: "Outreach", title: "Web forms that turn visitors into leads" },
+    { id: "connectors", label: "Connectors", short: "Connectors", icon: Plug, group: "Settings", title: "Where your leads' data comes from, and what's switched on" },
+    { id: "mailboxes", label: "Email accounts", icon: Mail, group: "Settings", title: "Connect the email accounts you send from, warm them up and check their health" },
+    { id: "business", label: "About your business", icon: Building2, group: "Settings", title: "What the AI may say about you, and who your ideal customer is" },
+    { id: "workflows", label: "Workflows", icon: Workflow, group: "Settings", title: "When something happens, do something automatically" },
+    ...(showDataAccess ? [{ id: "administration", label: "Administration", icon: Shield, group: "Settings", title: "Users, roles and what each person can see and do" }] : []),
+    { id: "subscription", label: "Plan & credits", icon: Wallet, group: "Settings", title: "Your Leads plan and credits" },
   ], embedViews);
-  const navGroups = ["Outreach", "Inbound", "Setup"].map((label) => ({
+  const [workGroup, setupGroup] = [["Outreach"], ["Settings"]].map(([label]) => ({
     label,
     items: navItems.filter((item) => item.group === label).map((item) => ({
       id: item.id,
@@ -315,24 +317,12 @@ export default function LeadGenerationPlugin({
       icon: item.icon,
       external: item.external,
       count: item.count,
-      active: view === item.id || (item.id === "administration" && view === "data_access") || (item.id === "mail" && view === "mailboxes") || (item.id === "lists" && SAVED_VIEWS.includes(view)),
-      locked: isLocked && item.id !== "subscription" && item.id !== "documentation",
-      title: isLocked && item.id !== "subscription" && item.id !== "documentation" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
-      // Mail's two pages are sub-items under it, the way the other apps list theirs.
-      children: item.id === "mail" ? (() => {
-        const subs = onlyEmbedViews([
-          { id: "mail", label: "Inbox and sent", icon: Mail, title: "Replies, sent emails and the do-not-email list" },
-          { id: "mailboxes", label: "Email accounts", icon: Plug, title: "Connect the email accounts you send from, warm them up and check their health" },
-        ], embedViews).map((t) => ({ ...t, active: view === t.id, onClick: () => { if (t.id === "mail") setInboxStart(null); setView(t.id); } }));
-        return subs.length > 1 && !isLocked ? subs : undefined;
-      })() : undefined,
+      active: view === item.id || (item.id === "administration" && view === "data_access") || (item.id === "lists" && SAVED_VIEWS.includes(view)),
+      locked: isLocked && item.id !== "subscription",
+      title: isLocked && item.id !== "subscription" ? "Choose a plan or top up to unlock this" : `Open ${item.label}`,
       onClick: () => {
-        if (isLocked && item.id !== "subscription" && item.id !== "documentation") {
+        if (isLocked && item.id !== "subscription") {
           showToast("Choose a plan or buy a top-up to unlock Leads.");
-          return;
-        }
-        if (item.id === "documentation") {  // the guide is its own web page, opened beside the app
-          window.open("/help/leads", "_blank");
           return;
         }
         if (item.id === "workflows") {  // one page for the whole company, not a Leads screen
@@ -345,8 +335,8 @@ export default function LeadGenerationPlugin({
         }
         if (item.id === "mail") {
           setInboxStart(null);
-          // Opens on Mail, or on Email accounts when that is the only half this screen may show
-          setView(embedViews && !embedViews.includes("mail") ? "mailboxes" : view === "mailboxes" ? "mailboxes" : "mail");
+          // Opens on Mail, or on Email accounts when that is the only half this screen may show (Email accounts is under Settings)
+          setView(embedViews && !embedViews.includes("mail") ? "mailboxes" : "mail");
           return;
         }
         setView(item.id);
@@ -380,7 +370,7 @@ export default function LeadGenerationPlugin({
       <MobileNavBackdrop nav={nav} />
       
       <AppChrome />
-      <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent={LEADS_ACCENT} groups={navGroups} wallet="leadgen" operator={operator}
+      <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent={LEADS_ACCENT} groups={[embedViews ? { ...workGroup, items: [...workGroup.items, ...setupGroup.items] } : workGroup]} settings={embedViews ? null : setupGroup.items} wallet="leadgen" operator={operator}
         onOpenPlan={() => setView("subscription")} onHome={onBackToHub} onLogout={onLogout} refreshKey={view} nav={nav} tabs={["find_leads", "lists", "outreach", "mail"]} />
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}

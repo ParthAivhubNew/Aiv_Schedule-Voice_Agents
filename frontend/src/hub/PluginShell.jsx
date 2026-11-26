@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Headset, BookOpen, ExternalLink } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { C } from "../tokens";
 import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
@@ -11,9 +11,11 @@ import { NavItem } from "./NavItem";
 import { GlobalAssistant } from "./GlobalAssistant";
 import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 import { WORKFLOWS_HEADER, useWorkflowsOpen } from "../workflows/openWorkflows";
-import { openSupport } from "./openSupport";
 import { useBrand } from "../brand/BrandContext";
 import { SidebarAccountBadge } from "./SidebarAccountBadge";
+import { settingsNavItem } from "./settingsNav";
+
+export { settingsNavItem };
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
 // It only applies on wide screens (global.css); phones keep their slide-out menu.
@@ -68,38 +70,40 @@ export function SidebarHead({ icon, accent, name, collapsed, onToggle, onHome })
   );
 }
 
-// The left side of every app, built the same way as Voice's: the app's name and icon, the Home/app switcher,
-// the pages in labelled groups, then (at the bottom) the app's credits and Log out.
-// groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]
-export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet, operator, onOpenPlan, onHome, onLogout, refreshKey, nav, tabs }) {
+// The menu's groups of pages. With only one group, its label adds nothing and is left out.
+export function SidebarGroups({ groups, label }) {
+  const shown = groups.map((g) => ({ ...g, items: g.items.filter(Boolean) })).filter((g) => g.items.length);
+  return (
+    <nav className="app-sidebar-nav" aria-label={label} style={{ display: "flex", flexDirection: "column" }}>
+      {shown.map((group) => (
+        <React.Fragment key={group.label}>
+          {shown.length > 1 ? <div className="ui-nav-label">{group.label}</div> : null}
+          {group.items.map((it) => <NavItem key={it.id} item={it} />)}
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
+// The left side of every app, the same in Leads, Voice and Social (plan 13): Outreach, the app switcher, the app's everyday work,
+// then Settings (its setup pages), the app's credits and the company badge. The AI Assistant, Support and Documentation each live
+// once, in the header (the assistant button and the profile menu).
+// groups: [{ label, items: [{ id, label, icon, active, locked, count, title, onClick }] }]; settings: the same item shape.
+export function PluginSidebar({ appId, name, icon: Icon, accent, groups, settings, wallet, operator, onOpenPlan, onHome, refreshKey, nav, tabs }) {
   const [collapsed, toggleCollapsed] = useSidebarCollapse();
-  const [logoutTip, logoutNode] = useRailTip();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, no credits or log out (the partner owns those)
   const { hideCredits } = useBrand();
-  const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
+  const all = [...groups.flatMap((g) => g.items.filter(Boolean)), ...(settings || []).filter(Boolean)];
+  const tabItems = tabs ? tabs.map((id) => all.find((it) => it.id === id)).filter(Boolean) : [];
+  const setup = settingsNavItem(settings);
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
       <SidebarHead icon={Icon} accent={accent} name={name} collapsed={collapsed} onToggle={toggleCollapsed} onHome={onHome} />
-      {!embedded && <AppSwitcher current={appId} />}
-      <nav className="app-sidebar-nav" aria-label={name} style={{ display: "flex", flexDirection: "column" }}>
-        {groups.map((group) => {
-          const items = group.items.filter(Boolean);
-          if (!items.length) return null;
-          return (
-            <React.Fragment key={group.label}>
-              <div className="ui-nav-label">{group.label}</div>
-              {items.map((it) => <NavItem key={it.id} item={it} />)}
-            </React.Fragment>
-          );
-        })}
-      </nav>
+      {!embedded && <AppSwitcher current={appId} operator={operator} />}
+      <SidebarGroups groups={groups} label={name} />
       <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {!embedded && (
-        <>
-          <NavItem item={{ id: "support", className: "ui-nav-support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: appId }) }} />
-        </>
-      )}
+      {setup ? <NavItem item={setup} /> : null}
       {wallet && !embedded && !hideCredits ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded ? <SidebarAccountBadge operator={operator} collapsed={collapsed} /> : null}
     </div>

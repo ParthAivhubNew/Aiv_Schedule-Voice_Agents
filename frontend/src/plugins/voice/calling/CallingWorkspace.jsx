@@ -61,6 +61,7 @@ import {
   Headset,
   BookOpen,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
 import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
@@ -73,7 +74,7 @@ import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { BulkActions, CallListSummary, ContactPanel, DetailsBar } from "./CallListTools";
 import { bulkCallPrompt, filterCalls, rowAsAccount, rowDetails } from "./callListLogic";
-import { PhoneTabBar, SidebarHead, headerTint, useSidebarCollapse } from "../../../hub/PluginShell";
+import { PhoneTabBar, SidebarGroups, SidebarHead, headerTint, settingsNavItem, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
 import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen, workflowsOpenNow } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
@@ -131,7 +132,7 @@ const PAGES = [
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
 const NAV_GROUPS = [
-  { label: "Outreach", ids: ["assistant", "list", "logs", "schedule", "analytics"] },
+  { label: "Outreach", ids: ["list", "logs", "schedule", "analytics"] }, // the AI Assistant is the header's button (plan 13)
   { label: "Settings", ids: ["ai", "company"] },
 ];
 
@@ -2864,43 +2865,39 @@ export function CallingWorkspace({
           }
           onBackToHub();
         }} />
-        {!embedded && <AppSwitcher current="voice" />}
-        <nav className="app-sidebar-nav" aria-label="Voice" style={{ display: "flex", flexDirection: "column" }}>
-          {NAV_GROUPS.map((group) => {
-            const items = visiblePages.filter((p) => group.ids.includes(p.id));
-            if (!items.length) return null;
-            return (
-              <React.Fragment key={group.label}>
-                <div className="ui-nav-label">{group.label}</div>
-                {items.map((p) => {
-                  const active = page === p.id || (p.id === "logs" && page === "whatsapp") || (p.id === "company" && (page === "hours" || page === "templates" || page === "studio"));
-                  const sub = (id, label, Icon, hint, on, section) => (canSee(operator, section) ? { id, label, icon: Icon, title: hint, active: on, onClick: () => goPage(id) } : null);
-                  const children = p.id === "logs" && canSee(operator, "calling") ? [
-                    sub("logs", "Calls", PhoneCall, "Past calls with their summaries, and calls happening right now", page === "logs", "calling"),
-                    sub("whatsapp", "WhatsApp", MessageCircle, "Text chats with your contacts on WhatsApp", page === "whatsapp", "calling"),
-                  ] : p.id === "company" ? [
-                    sub("company", "Company profile", Users, "Who you are, what you sell and what the AI knows", page === "company", "company"),
-                    sub("hours", "Working hours", Clock, "When the AI may call", page === "hours", "company"),
-                    sub("templates", "What the AI says", Sparkles, "The opening line and wording the AI uses on calls", page === "templates", "calling"),
-                    sub("studio", "Voice & rules", SlidersHorizontal, "The voice, pace and rules the AI follows", page === "studio", "calling"),
-                  ].filter(Boolean) : undefined;
-                  return (
-                    <NavItem key={p.id} item={{ id: p.id, label: p.label, icon: p.icon, title: p.hint, active, locked: pluginLocked, onClick: () => goPage(p.id),
-                      count: p.id === "logs" && activeLive.length ? activeLive.length : null, countLive: true, children }} />
-                  );
-                })}
-              </React.Fragment>
-            );
-          })}
-          <NavItem item={{ id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", active: false, locked: pluginLocked, onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) }} />
-          <NavItem item={{ id: "documentation", label: "Documentation", icon: BookOpen, external: true, title: "Open the documentation in a new tab", onClick: () => window.open("/help/voice", "_blank") }} />
-        </nav>
-        <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-        {!embedded && (
-          <>
-            <NavItem item={{ id: "support", className: "ui-nav-support", label: "Support", icon: Headset, title: "Report an issue or ask a question", onClick: () => openSupport({ plugin: "voice", screen: page }) }} />
-          </>
-        )}
+        {!embedded && <AppSwitcher current="voice" operator={operator} />}
+        {(() => {
+          // Plan 13: the everyday work in the menu; the setup pages under one Settings entry at the bottom; the AI Assistant is the
+          // header's button, and Support and Documentation are in the profile menu.
+          const sub = (id, label, Icon, hint, on, section) => (canSee(operator, section) ? { id, label, icon: Icon, title: hint, active: on, locked: pluginLocked && id !== "subscription", onClick: () => goPage(id) } : null);
+          const work = visiblePages.filter((p) => NAV_GROUPS[0].ids.includes(p.id)).map((p) => {
+            const active = page === p.id || (p.id === "logs" && page === "whatsapp");
+            const children = p.id === "logs" && canSee(operator, "calling") ? [
+              sub("logs", "Calls", PhoneCall, "Past calls with their summaries, and calls happening right now", page === "logs", "calling"),
+              sub("whatsapp", "WhatsApp", MessageCircle, "Text chats with your contacts on WhatsApp", page === "whatsapp", "calling"),
+            ] : undefined;
+            return { id: p.id, label: p.label, icon: p.icon, title: p.hint, active, locked: pluginLocked, onClick: () => goPage(p.id),
+              count: p.id === "logs" && activeLive.length ? activeLive.length : null, countLive: true, children };
+          });
+          const setup = [
+            sub("company", "Company profile", Users, "Who you are, what you sell and what the AI knows", page === "company", "company"),
+            sub("hours", "Working hours", Clock, "When the AI may call", page === "hours", "company"),
+            sub("templates", "What the AI says", Sparkles, "The opening line and wording the AI uses on calls", page === "templates", "calling"),
+            sub("studio", "Voice & rules", SlidersHorizontal, "The voice, pace and rules the AI follows", page === "studio", "calling"),
+            visiblePages.some((p) => p.id === "ai") ? sub("ai", "AI config", Plug, "Keys for the AI services (staff only)", page === "ai", "connections") : null,
+            { id: "workflows", label: "Workflows", icon: Workflow, title: "When a call ends or a meeting is booked, do something automatically", locked: pluginLocked,
+              onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) },
+            { id: "subscription", label: "Plan & credits", icon: Wallet, title: "Your calling plan, credits and phone numbers", active: page === "subscription" || page === "numbers", onClick: () => goPage("subscription") },
+          ].filter(Boolean);
+          const setupItem = embedded ? null : settingsNavItem(setup);
+          return (
+            <>
+              <SidebarGroups groups={[{ label: "Voice", items: embedded ? [...work, ...setup] : work }]} label="Voice" />
+              <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
+              {setupItem ? <NavItem item={setupItem} /> : null}
+            </>
+          );
+        })()}
         {!embedded && !brand.hideCredits && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
         {!embedded && <SidebarAccountBadge operator={operator} collapsed={sidebarCollapsed} />}
       </div>

@@ -5,8 +5,29 @@ name sits where Outreach should be, and the staff portal looks complicated. Base
 brand logic, staff portal) and the owner's screenshots of Home, Find Leads and the staff Dashboard. **No code has been changed.**
 
 **Status (2026-11-26):** the owner answered the decisions (section 6). **Steps 1 and 2 are done on the branch**, deployed on the
-test copy and waiting for the owner's look in a browser. Step 3 is next.
+test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and waiting for the
+owner's look.
 
+- ✅ **Step 3, one menu layout (2026-11-26):**
+  - Leads, Voice and Social now have the same sidebar: Outreach, the app switcher, the everyday work (no group label, since there
+    is only one group), then **Settings**, then credits and the company badge. Shared pieces: `hub/PluginShell.jsx` (`SidebarGroups`)
+    and `hub/settingsNav.js` (`settingsNavItem`).
+  - **What each menu holds now:**
+    - **Leads:** Find Leads, Lists, Journeys, Mail, Forms. Under Settings: Connectors, Email accounts, About your business, Workflows,
+      Administration, Plan & credits.
+    - **Voice:** Call list, Conversations, Meetings & callbacks, Call stats. Under Settings: Company profile, Working hours, What the
+      AI says, Voice & rules, AI config (staff), Workflows, Plan & credits.
+    - **Social:** Post calendar, Post approve, Results & Ideas, Library. Under Settings: Accounts, Theme, Workflows, Plan & credits.
+  - **Settings** opens its pages in the panel beside the menu (under it on touch screens). Clicking it opens the first page, and it
+    shows as current while any of its pages is open.
+  - **Moved out of the menus:**
+    - The AI Assistant: it's the header's button (the same chat). A partner's embed still lists it, since the embed has no header
+      of ours.
+    - Support and Documentation: they're in the profile menu, which now follows the app you're in (that app's guide, and Support is
+      told the app).
+  - **Apps without a plan** show a quiet "Try" in the app switcher (admins, who see plans).
+  - Every page and old link still works; only the menus changed.
+  - Tests: `hub/SidebarItems.test.js`, `hub/settingsNav.test.jsx`, `plugins/leadgen/dataAccess.test.jsx`.
 - ✅ **Step 1, identity:**
   - `BrandMark` and `BrandLockup` are always Outreach's. Home, sign-in, pricing, help and staff sign-in no longer swap in a brand's
     name or logo.
