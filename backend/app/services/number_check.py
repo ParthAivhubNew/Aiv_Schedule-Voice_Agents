@@ -151,24 +151,36 @@ def credits_for(count: int, per_unit: int = 1) -> int:
     return int(math.ceil(count / PER_CREDIT * per_unit)) if count > 0 else 0
 
 
-async def _lookup_one(client, row: Dict[str, Any], gate: asyncio.Semaphore) -> Optional[Dict[str, str]]:
-    """The carrier's answer for one number; None when it could not be checked right now."""
+async def _ask_carrier(client, phone: str):
+    """One lookup, as the provider wrapper wants it. A number the network doesn't know is an answer too (not_working)."""
+    from app.providers.gateway import Answer
     from app.services.telnyx_client import TelnyxError
+
+    try:
+        return Answer({**classify(await client.lookup_number(phone)), "answered": "1"}, status=200)
+    except TelnyxError as err:
+        if err.status in (404, 422):
+            return Answer({"status": "not_working", "line_type": "", "carrier": "", "country": "", "found_name": "", "answered": "1"},
+                          status=err.status)
+        return Answer(outcome="error", status=err.status or None, error="rate_limited" if err.status == 429 else "")
+
+
+async def _lookup_one(client, row: Dict[str, Any], gate: asyncio.Semaphore) -> Optional[Dict[str, str]]:
+    """The carrier's answer for one number; None when it could not be checked right now. Each lookup goes through the provider
+    wrapper (providers/gateway.py): plan, cost cap, circuit breaker and one log row."""
+    from app.providers.gateway import call_provider, masked_number
 
     async with gate:
         for attempt in range(2):
-            try:
-                return {**classify(await client.lookup_number(row["phone"])), "answered": "1"}
-            except TelnyxError as err:
-                if err.status in (404, 422):  # the network does not know the number
-                    return {"status": "not_working", "line_type": "", "carrier": "", "country": "", "found_name": "",
-                            "answered": "1"}
-                if err.status == 429 and attempt == 0:
-                    await asyncio.sleep(1.5)
-                    continue
-                return None
-            except Exception:
-                return None
+            res = await call_provider("telnyx_lookup", "number_lookup", lambda c, k: _ask_carrier(c, row["phone"]),
+                                      key=getattr(client, "api_key", "") or "client", client=client, feature="number_check",
+                                      looked_for=masked_number(row["phone"]))
+            if res.ok:
+                return res.data
+            if res.error == "rate_limited" and attempt == 0:
+                await asyncio.sleep(1.5)
+                continue
+            return None
     return None
 
 

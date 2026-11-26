@@ -38,11 +38,7 @@ async def test_a_run_skips_unusable_numbers_and_stops_on_a_refused_key(monkeypat
             raise P.BadNumber("not a UK number")
         return {"tps": "listed" if number.endswith("1") else "clear", "ctps": number.endswith("2")}
 
-    async def no_count():
-        return None
-
     monkeypatch.setattr(P, "check_one", fake)
-    monkeypatch.setattr(P, "_count_call", no_count)
     prov = P.ProveroProvider("k" * 12)
     got = await prov.screen(["+441000000010", "+441000000001", "+441000000002"])
     assert got == {"+441000000001": {"tps": "listed", "ctps": False}, "+441000000002": {"tps": "clear", "ctps": True}} and prov.error == ""

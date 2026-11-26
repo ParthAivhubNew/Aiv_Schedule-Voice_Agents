@@ -20,8 +20,9 @@ Columns: source, ref, at, org_id, provider, model, capability, feature, route, u
 - The view runs with the rights of whoever reads it (security_invoker), so a company's own session sees only its own rows,
   just as with the tables underneath. Staff reports read it under the system scope.
 
-Providers moved onto the wrapper write provider_call_log instead of a log of their own (plan 11, Part A), and readers of this view
-don't change. The old logs stay until every provider is moved.
+Providers moved onto the wrapper write provider_call_log (plan 11, Part A), and readers of this view don't change. Tavily keeps its
+own tavily_calls rows (they say which key was used) and number checks keep their results, but from a provider's first wrapper row on,
+its cost is read from provider_call_log only, so nothing is counted twice. The e-mail finders and Apollo are not moved yet.
 
 A migration that changes a column type in one of these tables must first run DROP VIEW IF EXISTS provider_calls. The view is
 remade at the next start-up.
@@ -53,6 +54,7 @@ SELECT 'web_search', t.id::varchar, t.at, coalesce(t.for_org, '')::varchar, 'tav
        (coalesce(p.confirmed, false) OR coalesce(p.price_in_usd, 0) > 0), coalesce(t.outcome, '') = 'found'
   FROM tavily_calls t
   LEFT JOIN provider_prices p ON p.provider = 'tavily' AND p.kind = 'lookup' AND coalesce(p.model, '') = ''
+ WHERE t.at < coalesce((SELECT min(at) FROM provider_call_log WHERE provider = 'tavily'), 'infinity'::timestamp)
 UNION ALL
 SELECT 'company_data', a.id::varchar, a.at, coalesce(a.for_org, '')::varchar, 'apollo', '', 'company_data', coalesce(a.purpose, '')::varchar,
        coalesce(a.route, '')::varchar, 1::float,
@@ -67,6 +69,7 @@ SELECT 'number_lookup', n.id::varchar, n.checked_at, coalesce(n.org_id, '')::var
        1::float, coalesce(p.price_in_usd, 0)::float, (coalesce(p.confirmed, false) OR coalesce(p.price_in_usd, 0) > 0), true
   FROM number_checks n
   LEFT JOIN provider_prices p ON p.provider = 'telnyx_lookup' AND p.kind = 'lookup' AND coalesce(p.model, '') = ''
+ WHERE n.checked_at < coalesce((SELECT min(at) FROM provider_call_log WHERE provider = 'telnyx_lookup'), 'infinity'::timestamp)
 UNION ALL
 SELECT coalesce(nullif(g.capability, ''), 'other')::varchar, g.id::varchar, g.at, coalesce(g.for_org, '')::varchar, coalesce(g.provider, '')::varchar,
        coalesce(g.op, '')::varchar, coalesce(g.capability, '')::varchar, coalesce(g.feature, '')::varchar, coalesce(g.route, '')::varchar,

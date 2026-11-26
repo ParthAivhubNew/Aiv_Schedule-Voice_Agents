@@ -331,3 +331,137 @@ def test_google_s_calls_pass_no_cache_key_and_its_answers_stay_with_one_client()
     for fn in (E.search_google_places, E.google_place_details):
         src = inspect.getsource(fn)
         assert "call_provider(\"google_places\"" in src and "cache_key" not in src
+
+
+# ── Provero, Telnyx lookup and Tavily on the wrapper ────────────────────────
+@pytest.mark.db
+async def test_tps_screening_logs_each_number_masked_and_bad_numbers_cost_nothing(db, monkeypatch):
+    from app.models.models import ProviderPrice
+    from app.services import provero as P
+
+    db.add(ProviderPrice(id="pp_p", provider="provero_tps", model="", kind="lookup", price_in_usd=0.005, billing="per_search", confirmed=True))
+    await db.commit()
+
+    async def fake(client, key, number):
+        if number.endswith("0"):
+            raise P.BadNumber("not UK")
+        return {"tps": "clear", "ctps": False}
+
+    monkeypatch.setattr(P, "check_one", fake)
+    prov = P.ProveroProvider("k" * 12)
+    got = await prov.screen(["+441000000010", "+441000000001"])
+    assert list(got) == ["+441000000001"] and prov.error == ""
+    rows = (await db.execute(text("SELECT looked_for, outcome, cost_usd FROM provider_call_log WHERE provider = 'provero_tps' ORDER BY outcome"))).all()
+    assert sorted((r.looked_for, r.outcome, r.cost_usd) for r in rows) == [("+44…001", "found", 0.005), ("+44…010", "none", 0.0)]
+
+
+async def test_tps_screening_stops_at_the_cost_cap_and_says_so(monkeypatch):
+    from app.services import provero as P
+
+    async def fake(client, key, number):
+        raise AssertionError("asked the vendor after the cap was reached")
+
+    monkeypatch.setattr(P, "check_one", fake)
+    monkeypatch.setattr("app.services.plan_rules.cap_refusal", lambda items, org_id=None: _value("USR-08: cap"))
+    prov = P.ProveroProvider("k" * 12)
+    assert await prov.screen(["+441000000001", "+441000000002"]) == {} and prov.error == "cap"
+
+
+@pytest.mark.db
+async def test_number_checks_go_through_the_wrapper_and_retry_a_rate_limit_once(db, monkeypatch):
+    import asyncio
+
+    from app.services import number_check as NC
+    from app.services.telnyx_client import TelnyxError
+
+    seen = []
+
+    class Carrier:
+        api_key = "telnyx-key"
+
+        async def lookup_number(self, phone):
+            seen.append(phone)
+            if phone == "+447700900404":
+                raise TelnyxError("unknown", status=404)
+            if phone == "+447700900429" and seen.count(phone) == 1:
+                raise TelnyxError("slow down", status=429)
+            return {"carrier": {"name": "EE", "type": "mobile"}, "country_code": "GB"}
+
+    gate = asyncio.Semaphore(2)
+    unknown = await NC._lookup_one(Carrier(), {"phone": "+447700900404"}, gate)
+    slow = await NC._lookup_one(Carrier(), {"phone": "+447700900429"}, gate)
+    assert unknown["status"] == "not_working" and slow and slow["answered"] == "1"
+    assert seen.count("+447700900429") == 2
+    rows = (await db.execute(text("SELECT feature, outcome, status FROM provider_call_log WHERE provider = 'telnyx_lookup' ORDER BY at"))).all()
+    assert [(r.outcome, r.status) for r in rows] == [("found", 404), ("error", 429), ("found", 200)] and rows[0].feature == "number_check"
+
+
+async def test_a_phone_found_on_the_web_is_confirmed_through_the_wrapper(monkeypatch):
+    from app.services import enrichment_service as E
+    from app.services import telnyx_client as T
+
+    answers = {"+441273000001": {"carrier": {"name": "BT"}}, "+441273000002": T.TelnyxError("unknown", status=404)}
+
+    async def lookup(self, e164):
+        a = answers[e164]
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+    monkeypatch.setattr(T, "platform_key", lambda: "telnyx-key")
+    monkeypatch.setattr(T.TelnyxClient, "lookup_number", lookup)
+    assert await E._telnyx_confirmed_phone("01273 000001") == "+441273000001"
+    assert await E._telnyx_confirmed_phone("01273 000002") == ""  # the network denies it: blanked
+    monkeypatch.setattr("app.services.plan_rules.cap_refusal", lambda items, org_id=None: _value("USR-08: cap"))
+    assert await E._telnyx_confirmed_phone("01273 000001") == "01273 000001"  # not checked: what was found is kept
+
+
+@pytest.mark.db
+async def test_tavily_searches_keep_their_key_pool_and_are_logged_once_with_their_credits(db, monkeypatch):
+    from app.models.models import ProviderPrice
+    from app.services import tavily_pool as TP
+
+    db.add(ProviderPrice(id="pp_tv", provider="tavily", model="", kind="lookup", price_in_usd=0.008, billing="per_search", confirmed=True))
+    await db.commit()
+    responses = [httpx.Response(200, json={"results": [{"url": "https://acme.test"}], "usage": {"credits": 2}}),
+                 httpx.Response(432, json={"detail": "used up"})]
+
+    class Pool:
+        async def run(self, send, judge, purpose, looked_for):
+            return responses.pop(0)
+
+    monkeypatch.setattr(TP, "_pool", lambda: Pool())
+    async with httpx.AsyncClient() as client:
+        hit = await TP.search(client, {"query": "acme plumbers", "search_depth": "advanced"}, purpose="search_advanced")
+        refused = await TP.search(client, {"query": "acme"}, purpose="search")
+    assert hit.status_code == 200 and refused.status_code == 432  # the caller still sees why it failed
+    rows = (await db.execute(text("SELECT op, outcome, status, units, cost_usd FROM provider_call_log WHERE provider = 'tavily' ORDER BY at"))).all()
+    assert [(r.op, r.outcome, r.status, r.units, r.cost_usd) for r in rows] == [
+        ("search_advanced", "found", 200, 2.0, pytest.approx(0.016)), ("search", "error", 432, 0.0, 0.0)]
+
+
+@pytest.mark.db
+async def test_old_logs_count_only_until_the_wrapper_takes_over_so_nothing_is_counted_twice(db):
+    from app.core.tenancy import org_scope, system_scope
+    from app.database import engine
+    from app.models.models import ProviderCallLog, ProviderPrice, TavilyCall
+    from app.services import cost_ledger
+
+    async with engine.begin() as conn:
+        await cost_ledger.create_view(conn)
+    cut = datetime(2026, 11, 20, 12)
+    before, after = cut - timedelta(days=1), cut + timedelta(days=1)
+    db.add_all([ProviderPrice(id="pp_t2", provider="tavily", model="", kind="lookup", price_in_usd=0.01, confirmed=True),
+                TavilyCall(id="tv_before", for_org="org_c", purpose="search", outcome="found", credits=1, at=before),
+                TavilyCall(id="tv_after", for_org="org_c", purpose="search", outcome="found", credits=1, at=after),
+                ProviderCallLog(id="gw_tv", provider="tavily", capability="web_search", op="search", for_org="org_c", outcome="found",
+                                units=1, cost_usd=0.01, priced=True, at=after)])
+    await db.commit()
+    with org_scope("org_c"):
+        await db.execute(text("INSERT INTO number_checks (org_id, id, phone, status, checked_at) VALUES "
+                              "('org_c', 'nc_b', '+44', 'good', :b), ('org_c', 'nc_a', '+44', 'good', :a)"), {"b": before, "a": after})
+        await db.commit()
+    with system_scope():
+        refs = {r.ref for r in (await db.execute(text("SELECT ref FROM provider_calls WHERE org_id = 'org_c'"))).all()}
+    # Tavily: the old row before the switch, the wrapper's after it. Number checks: no wrapper row yet, so both old rows count.
+    assert refs == {"tv_before", "gw_tv", "nc_b", "nc_a"}

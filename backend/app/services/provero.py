@@ -114,13 +114,24 @@ async def check_one(client: httpx.AsyncClient, key: str, number: str) -> Dict[st
     return parse(resp.status_code, body)
 
 
-async def _count_call() -> None:
-    try:
-        from app.services.enrichment_service import _bump_vendor_call
+# What a refusal from the provider wrapper means for a screening run (see api/tps_check.py for the words shown).
+_STOPS = {"cap_reached": "cap", "not_in_plan": "plan"}
 
-        await _bump_vendor_call("provero_tps")
-    except Exception:
-        pass
+
+async def _ask_one(client: httpx.AsyncClient, key: str, number: str):
+    """One number, as the provider wrapper wants it: a parsed answer, or an Answer saying what went wrong."""
+    from app.providers.gateway import Answer
+
+    try:
+        return Answer(await check_one(client, key, number), status=200)
+    except KeyRejected:
+        return Answer(outcome="error", status=401, error="key")
+    except OutOfBalance:
+        return Answer(outcome="error", status=402, error="balance")
+    except BadNumber:
+        return Answer(outcome="none", status=400, units=0)  # not a number the register covers: nothing is charged
+    except Unavailable:
+        return Answer(outcome="error", error="unavailable")
 
 
 class ProveroProvider:
@@ -135,28 +146,29 @@ class ProveroProvider:
         return bool(self.key)
 
     async def screen(self, numbers: List[str]) -> Dict[str, Dict[str, Any]]:
-        """{number: {"tps": "listed"|"clear", "ctps": bool}} for every number that got an answer. A refused key or an empty balance stops the
-        run (self.error says which); a number the register does not cover is simply left out."""
+        """{number: {"tps": "listed"|"clear", "ctps": bool}} for every number that got an answer. A refused key, an empty balance, a used-up
+        fair-use cap or a plan without screening stops the run (self.error says which); a number the register does not cover is left out.
+        Each number goes through the provider wrapper (providers/gateway.py): plan, cost cap, circuit breaker and one log row each."""
+        from app.providers.gateway import call_provider, masked_number
+
         out: Dict[str, Dict[str, Any]] = {}
         self.error = ""
         gate = asyncio.Semaphore(CONCURRENCY)
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             async def one(n: str) -> None:
-                if self.error in ("key", "balance"):
+                if self.error in ("key", "balance", "cap", "plan"):
                     return
                 async with gate:
-                    try:
-                        res = await check_one(client, self.key, n)
-                        await _count_call()
-                        out[n] = res
-                    except KeyRejected:
-                        self.error = "key"
-                    except OutOfBalance:
-                        self.error = "balance"
-                    except Unavailable:
+                    res = await call_provider("provero_tps", "tps_check", lambda c, k: _ask_one(c, k, n), key=self.key, client=client,
+                                              feature="tps_check", looked_for=masked_number(n))
+                    if res.ok:
+                        out[n] = res.data
+                    elif res.error in ("key", "balance"):
+                        self.error = res.error
+                    elif res.outcome in _STOPS:
+                        self.error = _STOPS[res.outcome]
+                    elif res.outcome != "none":
                         self.error = self.error or "unavailable"
-                    except BadNumber:
-                        pass
 
             await asyncio.gather(*(one(n) for n in numbers))
         return out

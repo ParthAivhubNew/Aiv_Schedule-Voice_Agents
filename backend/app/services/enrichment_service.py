@@ -664,8 +664,7 @@ async def search_tavily(query: str, max_results: int = 5, *, include_domains: Op
             if resp is None:
                 return []
             if resp.status_code == 200:
-                data = resp.json()
-                await _bump_vendor_call("tavily")  # Tavily bills the request whether or not it helped
+                data = resp.json()  # the wrapper counted the call for the vendor-spend estimate (providers/gateway.py)
                 if meter is not None:
                     credits = ((data.get("usage") or {}).get("credits")) or (2 if depth == "advanced" else 1)
                     meter["searches"] = meter.get("searches", 0) + 1
@@ -998,12 +997,25 @@ async def _telnyx_confirmed_phone(raw: str) -> str:
         e164 = normalize(raw)
         if not e164 or not platform_key():
             return raw  # can't normalize, or Telnyx isn't connected on this platform yet
-        data = await TelnyxClient(platform_key()).lookup_number(e164)
-        await _bump_vendor_call("telnyx_lookup")
-        return e164 if (data.get("carrier") or data.get("caller_name")) else ""
-    except TelnyxError as err:
-        await _bump_vendor_call("telnyx_lookup")
-        return "" if err.status in (404, 422) else raw
+        telnyx = TelnyxClient(platform_key())
+
+        async def ask(client, key):
+            try:
+                data = await client.lookup_number(e164)
+                return Answer(data, outcome="found" if (data.get("carrier") or data.get("caller_name")) else "none", status=200)
+            except TelnyxError as err:
+                if err.status in (404, 422):
+                    return Answer(outcome="none", status=err.status, error="unknown_number")
+                return Answer(outcome="error", status=err.status or None)
+
+        from app.providers.gateway import masked_number
+
+        # Plan, cost cap, circuit breaker and one log row: providers/gateway.py.
+        res = await call_provider("telnyx_lookup", "number_lookup", ask, key=telnyx.api_key, client=telnyx, feature="phone_confirm",
+                                  looked_for=masked_number(e164))
+        if res.outcome == "found":
+            return e164
+        return "" if res.outcome == "none" else raw  # a number the network denies is blanked; anything else keeps what was found
     except Exception:
         return raw
 

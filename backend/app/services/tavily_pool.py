@@ -107,4 +107,27 @@ async def search(client: Any, body: Dict[str, Any], *, purpose: str = "search") 
             hit, credits = False, 1
         return Verdict("found" if hit else "none", extra={"credits": credits})
 
-    return await _pool().run(send, judge, purpose=purpose, looked_for=str(body.get("query") or ""))
+    from app.providers.gateway import Answer, call_provider
+
+    query = str(body.get("query") or "")
+
+    async def ask(_client, _key) -> Answer:
+        r = await _pool().run(send, judge, purpose=purpose, looked_for=query)
+        if r is None:
+            return Answer(None, outcome="none", units=0)  # no key at all (or the plan has no web search): nothing was sent
+        status = int(getattr(r, "status_code", 0) or 0)
+        if status == 200:
+            try:
+                data = r.json()
+                hit = bool(data.get("results"))
+                credits = int(((data.get("usage") or {}).get("credits")) or (2 if body.get("search_depth") == "advanced" else 1))
+            except Exception:
+                hit, credits = False, 1
+            return Answer(r, outcome="found" if hit else "none", status=200, units=credits)
+        # Every key refused, used up or rate limited, or Tavily failing: counts towards the circuit breaker. Not billed.
+        bad = status in _OUTCOME or status >= 500
+        return Answer(r, outcome="error" if bad else "none", status=status or None, units=0)
+
+    # The key pool picks the key (pooled); the wrapper adds the cost cap, the circuit breaker and one log row (providers/gateway.py).
+    res = await call_provider("tavily", purpose, ask, client=client, pooled=True, feature=purpose, looked_for=query[:200])
+    return res.data

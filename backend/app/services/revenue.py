@@ -207,7 +207,8 @@ ESTIMATED_ITEMS = ("voice_minute", "voice_minute_premium", "call_transcript", "w
                    "tps_check", "lead_tps_check", "google_view", "google_deep_search")
 # Estimated items whose provider now goes through the provider wrapper (providers/gateway.py), which logs each call's real cost. Usage
 # from before that provider's first logged call is still estimated; after it, the ledger has the cost and estimating it would count it twice.
-LOGGED_BY_WRAPPER = {"google_view": "google_places", "google_deep_search": "google_places"}
+LOGGED_BY_WRAPPER = {"google_view": "google_places", "google_deep_search": "google_places", "tps_check": "provero_tps",
+                     "lead_tps_check": "provero_tps"}
 
 
 def _still_estimated() -> str:

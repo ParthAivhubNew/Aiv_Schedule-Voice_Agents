@@ -121,8 +121,20 @@ call_provider(capability, request, org, feature)
     the credit item clients pay, and a Test button.
   - Real keys on new.outreach: **Tavily has 0 credits left this month** and **Telnyx has $6.57**. Both are the live accounts.
 - **Still to do in step 4:**
-  - the call sites of Tavily, Telnyx lookup and Provero still call those vendors directly; move them behind the wrapper (Google Places
-    moved 2026-11-26, below),
+  - ~~the call sites of Tavily, Telnyx lookup and Provero~~ **moved onto the wrapper (2026-11-26)**, after Google Places:
+    - **Provero (TPS / CTPS):** every number of a screening run, reusing the run's connection and key. A used-up cost cap stops the run
+      with "Your plan's fair-use limit for this period is reached", and a plan without screening says so. A number the register doesn't
+      cover costs nothing.
+    - **Telnyx lookup:** the Voice and Leads number checks (a 429 is retried once), and the check on a phone found on the web.
+    - **Tavily:** every search. Its key pool still picks the key and writes `tavily_calls` (which key was used); the wrapper adds the cost
+      cap, the circuit breaker and one row with the credits used. The refused answer still reaches the caller, so it can say why.
+    - **Phone numbers are masked in the log** ("+44…123"): it is a platform-wide table.
+    - **Nothing is counted twice:** from a provider's first wrapper row on, the cost view reads its cost from `provider_call_log` only
+      (`tavily_calls` and `number_checks` count only before that). The client report and the cost cap estimate TPS screening only up to
+      its first logged call, as for Google.
+    - **A plan's supplier list now also covers number checks and TPS screening.** No plan sets a list today; one that does must include
+      `telnyx_lookup` and `provero_tps` to keep them.
+    - **Still direct:** the e-mail finders (their waterfall logs to `enrichment_attempts`) and Apollo (its key pool logs to `apollo_calls`).
   - ~~one generic key pool in place of `apollo_pool` and `tavily_pool`~~ **done (2026-11-25):** `app/providers/keypool.py` (main key,
     backups, set-aside per key or per kind of request, failover, one log row per request with only the key's id and label).
     `apollo_pool` and `tavily_pool` keep their names and status rules on top of it. On new.outreach, Apollo and Tavily each

@@ -152,7 +152,9 @@ async def run(body: CheckBody, db: AsyncSession = Depends(get_db)):
         if getattr(prov, "error", ""):
             note = {"key": "The checking service is not set up correctly. Tell your administrator.",
                     "balance": "The checking service has run out of balance. Tell your administrator.",
-                    "unavailable": "Some numbers could not be checked just now. Try again in a few minutes."}.get(prov.error, "")
+                    "unavailable": "Some numbers could not be checked just now. Try again in a few minutes.",
+                    "cap": "Your plan's fair-use limit for this period is reached, so the rest were not checked.",
+                    "plan": "Your plan doesn't include TPS / CTPS checks."}.get(prov.error, "")
             if prov.error in ("key", "balance"):
                 try:
                     from app.services import provero

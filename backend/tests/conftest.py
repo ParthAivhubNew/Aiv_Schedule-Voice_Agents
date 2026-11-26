@@ -203,6 +203,18 @@ async def staff(db):
 
 
 @pytest.fixture(autouse=True)
+def _provider_wrapper_fresh():
+    """No provider starts a test paused by another test's failures, and prices are read again (providers/gateway.py)."""
+    from app.providers import gateway
+
+    gateway.reset_breakers()
+    gateway.forget_prices()
+    yield
+    gateway.reset_breakers()
+    gateway.forget_prices()
+
+
+@pytest.fixture(autouse=True)
 def _signup_guard_quiet(monkeypatch):
     """Sign-up limits start empty in every test, and tests that post the sign-up form directly don't need its page token
     (tests/test_signup_guard.py switches the check back on)."""

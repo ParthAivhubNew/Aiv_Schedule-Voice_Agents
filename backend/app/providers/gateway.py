@@ -15,7 +15,9 @@
    Pricing). The cost ledger view (services/cost_ledger.provider_calls) includes those rows.
 
 It never raises. Every result says what happened (Result.outcome), so a caller can treat a refusal the same as "nothing found".
-Providers with backup keys keep their KeyPool (providers/keypool.py) inside `ask`.
+Providers with backup keys keep their KeyPool (providers/keypool.py) inside `ask` and pass pooled=True: the pool picks the key. A bulk
+caller (TPS screening, number checks) passes the key it already read and its own `client`, so a thousand numbers don't mean a thousand
+key reads and connections.
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ class Answer:
     outcome: str = "found"
     status: Optional[int] = None
     units: float = 1.0
+    error: str = ""  # for outcome "error": the provider's own short reason ("key", "balance", "unavailable"), handed back in Result.error
 
 
 @dataclass
@@ -55,6 +58,7 @@ class Result:
     outcome: str = ""  # found | none | error | cached | not_in_plan | cap_reached | paused | no_key | unknown_provider
     cached: bool = False
     cost_usd: float = 0.0
+    error: str = ""
 
     @property
     def ok(self) -> bool:
@@ -117,6 +121,12 @@ def _worked(pid: str) -> None:
         b.failures, b.opened, b.until = 0, 0, 0.0
 
 
+def masked_number(phone: str) -> str:
+    """"+44…123" for the log: enough to tell checks apart, without keeping someone's number in a platform-wide table."""
+    p = str(phone or "")
+    return f"{p[:3]}…{p[-3:]}" if len(p) > 6 else "…"
+
+
 def _cache_id(pid: str, op: str, scope: str, key: str) -> str:
     return hashlib.sha256(f"{pid}\x1f{op}\x1f{scope}\x1f{key}".encode()).hexdigest()
 
@@ -154,20 +164,35 @@ async def _keep(pid: str, op: str, scope: str, key: str, data: Any, found: bool,
         logger.debug(f"[gateway] cache write skipped: {err}")
 
 
+PRICE_TTL_S = 60
+_PRICES: Dict[str, tuple] = {}  # provider -> (read at, (price_in_usd, billing, confirmed)); a bulk run reads the price once a minute
+
+
+def forget_prices() -> None:
+    _PRICES.clear()
+
+
 async def _price(pid: str, units: float, found: bool) -> tuple:
     """(cost in USD, priced) for one call at today's price on Model Pricing; a per-find provider costs nothing when it found nothing."""
     from app.core.tenancy import system_scope
     from app.database import AsyncSessionLocal
-    from app.services.ai_pricing import _cost, _price_row
+    from app.services.ai_pricing import _price_row
 
     try:
-        with system_scope():
-            async with AsyncSessionLocal() as db:
-                row = await _price_row(db, pid, "", "lookup")
-                await db.commit()
-        if (getattr(row, "billing", "") or "per_find") == "per_find" and not found:
-            return 0.0, bool(row.confirmed or row.price_in_usd)
-        return _cost(row, "lookup", 0, 0, units)
+        hit = _PRICES.get(pid)
+        if hit and time.monotonic() - hit[0] < PRICE_TTL_S:
+            usd, billing, confirmed = hit[1]
+        else:
+            with system_scope():
+                async with AsyncSessionLocal() as db:
+                    row = await _price_row(db, pid, "", "lookup")
+                    usd, billing, confirmed = float(row.price_in_usd or 0), (row.billing or "per_find"), bool(row.confirmed)
+                    await db.commit()
+            _PRICES[pid] = (time.monotonic(), (usd, billing, confirmed))
+        priced = confirmed or usd > 0
+        if not priced or (billing == "per_find" and not found):
+            return 0.0, priced
+        return float(units or 0) * usd, True
     except Exception as err:
         logger.debug(f"[gateway] price not read for {pid}: {err}")
         return 0.0, False
@@ -186,17 +211,21 @@ async def _log(pid: str, capability: str, op: str, feature: str, looked_for: str
             await db.commit()
     except Exception as err:
         logger.warning(f"[gateway] call not logged for {pid}: {err}")
-    try:
-        from app.services.enrichment_service import _bump_vendor_call
+    if answer.outcome in ("found", "none") and answer.units:
+        try:
+            from app.services.enrichment_service import _bump_vendor_call
 
-        await _bump_vendor_call(pid)  # the admin portal's monthly vendor-spend estimate
-    except Exception:
-        pass
+            await _bump_vendor_call(pid)  # the admin portal's monthly vendor-spend estimate: answered, billable requests
+        except Exception:
+            pass
 
 
-async def call_provider(provider_id: str, op: str, ask: Callable[[httpx.AsyncClient, str], Awaitable[Answer]], *,
-                        cache_key: str = "", feature: str = "", looked_for: str = "", timeout: Any = 10.0) -> Result:
-    """Plan, shared cache, cost cap, circuit breaker, key, then the call and its log row (see the module docstring). Never raises."""
+async def call_provider(provider_id: str, op: str, ask: Callable[[Any, str], Awaitable[Answer]], *,
+                        cache_key: str = "", feature: str = "", looked_for: str = "", timeout: Any = 10.0,
+                        key: Optional[str] = None, client: Any = None, pooled: bool = False) -> Result:
+    """Plan, shared cache, cost cap, circuit breaker, key, then the call and its log row (see the module docstring). Never raises.
+    key: one the caller already read (else Provider.saved_key). client: the caller's own, reused (else a new httpx client per call).
+    pooled: the provider's KeyPool chooses the key inside `ask`, so there is no key step here."""
     from app.providers import registry
     from app.services import plan_rules
 
@@ -223,18 +252,24 @@ async def call_provider(provider_id: str, op: str, ask: Callable[[httpx.AsyncCli
         return Result(outcome="cap_reached")
     if _paused(provider_id):
         return Result(outcome="paused")
-    try:
-        key = await p.saved_key()
-    except Exception as err:
-        logger.debug(f"[gateway] key not read for {provider_id}: {err}")
+    if pooled:
         key = ""
-    if not key:
+    elif key is None:
+        try:
+            key = await p.saved_key()
+        except Exception as err:
+            logger.debug(f"[gateway] key not read for {provider_id}: {err}")
+            key = ""
+    if not key and not pooled:
         return Result(outcome="no_key")
 
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if client is not None:
             answer = await ask(client, key)
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as own:
+                answer = await ask(own, key)
         if not isinstance(answer, Answer):
             answer = Answer(data=answer, outcome="found" if answer else "none")
     except (ProviderError, httpx.HTTPError, ValueError) as err:
@@ -245,7 +280,7 @@ async def call_provider(provider_id: str, op: str, ask: Callable[[httpx.AsyncCli
         answer = Answer(outcome="error")
         why = type(err).__name__
     else:
-        why = f"HTTP {answer.status}" if answer.status else "no answer"
+        why = answer.error or (f"HTTP {answer.status}" if answer.status else "no answer")
     ms = int((time.monotonic() - started) * 1000)
 
     if answer.outcome == "error":
@@ -259,4 +294,5 @@ async def call_provider(provider_id: str, op: str, ask: Callable[[httpx.AsyncCli
     if days and scope and answer.outcome in ("found", "none"):
         await _keep(provider_id, op, scope, cache_key, answer.data, answer.outcome == "found",
                     days if answer.outcome == "found" else min(days, NONE_CACHE_DAYS))
-    return Result(data=answer.data if answer.outcome != "error" else None, outcome=answer.outcome, cost_usd=cost)
+    # An error's own answer (a refused response, say) still goes back, so the caller can say why; ok is False for it.
+    return Result(data=answer.data, outcome=answer.outcome, cost_usd=cost, error=answer.error)
