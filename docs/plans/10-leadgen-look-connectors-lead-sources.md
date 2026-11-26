@@ -242,7 +242,7 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
        967 lines.
        - **How:** a parser moved each block unchanged. It worked out every value the block uses from the component and passed it in
          under the same name, so nothing is rewritten. Lint then checks that no name is left undefined.
-       - **Not checked in a browser.**
+       - **Checked in a browser 2026-11-26:** a search on the test app looks the same as before.
        - **Still to do:** the results card takes 88 values, which shows how much of the screen's state it shares. The next step is to
          group that state in a few hooks (search, selection, map area, contacts), which is a real refactor and wants a browser check.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
