@@ -288,8 +288,12 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
            `find/useFavourites.js`. `FindLeadsSearch.jsx` is now 828 lines.
          - **The results card's 88 values come in five named groups** (results, searching, mapArea, selection, contacts), unpacked in
            its signature, so its body is unchanged.
-         - **Left in the screen on purpose:** the map-area actions. They need 20 of the search's own values (its run id, area
-           bookkeeping), so a hook would only move the tangle.
+         - ~~**Left in the screen on purpose:** the map-area actions.~~ **Moved 2026-11-26 into `find/useMapArea.js`**, which owns the
+           area's state (shape, note, step, stop and run counters, the widened-words flag) and its actions (count, show in steps, draw,
+           `resetArea`), moved unchanged. It takes 22 of the search's values by name. Clearing the area keeps its search in the screen
+           (`resetArea()`, then `search`), because the search is declared after the hook. `FindLeadsSearch.jsx` is now 710 lines.
+           Tests 751 passed, lint clean, build clean, deployed on the test app. **Not checked in a browser yet** (Claude in Chrome
+           wasn't connected): draw an area, pick an amount, Stop, Clear.
          - **Checked in a browser 2026-11-26:** ticking, Favourite, Add to list, Reveal, Get contacts (opened, not confirmed), Call, Remove, paging and the map all work.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
 
