@@ -292,8 +292,11 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
            area's state (shape, note, step, stop and run counters, the widened-words flag) and its actions (count, show in steps, draw,
            `resetArea`), moved unchanged. It takes 22 of the search's values by name. Clearing the area keeps its search in the screen
            (`resetArea()`, then `search`), because the search is declared after the hook. `FindLeadsSearch.jsx` is now 710 lines.
-           Tests 751 passed, lint clean, build clean, deployed on the test app. **Not checked in a browser yet** (Claude in Chrome
-           wasn't connected): draw an area, pick an amount, Stop, Clear.
+           Tests 751 passed, lint clean, build clean, deployed on the test app. **Checked in a browser by the owner, 2026-11-26.** The first
+           check found an older bug: drawing an area as the first thing on the screen was overridden by the opening list's automatic
+           retry, which took the area's emptied list for a failed opening list. The screen stayed on "Counting" with the register's
+           first page under the shape. Fixed (a drawn area switches the retries off, guarded in `renderOrder.test.js`). On the
+           recheck the area counted, placed 50 companies inside the shape and offered more. Stop and Clear area weren't covered.
          - **Checked in a browser 2026-11-26:** ticking, Favourite, Add to list, Reveal, Get contacts (opened, not confirmed), Call, Remove, paging and the map all work.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
 

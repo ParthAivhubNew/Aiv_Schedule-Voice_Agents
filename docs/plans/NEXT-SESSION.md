@@ -73,7 +73,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
    - **Still waiting on my OK (touches live):** new random `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `/opt/flow/.env` and `livekit.yaml`, then restart LiveKit and the backend. Less urgent now that the port is closed.
    - Later: either serve LiveKit through nginx with TLS so the browser test call works, or hide that button.
 2. ~~**Colour passes for Voice, Social and the home screen**, and naming Leads' deliberate colour sets.~~ **Done 2026-11-26** (plan 10, Phase 4): Voice / Social / home 1,021 → 440 hard-coded colours, Leads 438 → 400, all four folders ratcheted. No visible change. Settings and calendar done the same day (1,111 → 686, ratcheted). What's left in all six folders is data, deliberately fixed looks (dark code blocks, a partner's theme preview) or colours with no token yet; dark mode decides those.
-3. ~~Optional: the Find Leads map-area actions as a hook.~~ **Done 2026-11-26** (`find/useMapArea.js`). Still to check in a browser on the test app: draw an area, pick an amount, Stop, Clear.
+3. ~~Optional: the Find Leads map-area actions as a hook.~~ **Done 2026-11-26** (`find/useMapArea.js`). Checked in a browser: it found and fixed an older bug where a first-drawn area was overridden by the opening list's retry. Stop and Clear area weren't covered.
 4. **Dark mode, last:** a dark value for every shared colour, a light / dark / match-system switch, and a check of each screen.
 
 **Waiting on me (ask, don't guess):**
