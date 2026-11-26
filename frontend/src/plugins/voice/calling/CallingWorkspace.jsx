@@ -74,7 +74,7 @@ import { NavItem } from "../../../hub/NavItem";
 import { CallListsView } from "./CallListsView";
 import { BulkActions, CallListSummary, ContactPanel, DetailsBar } from "./CallListTools";
 import { bulkCallPrompt, filterCalls, rowAsAccount, rowDetails } from "./callListLogic";
-import { PhoneTabBar, SidebarGroups, SidebarHead, headerTint, settingsNavItem, useSidebarCollapse } from "../../../hub/PluginShell";
+import { PhoneTabBar, SidebarHead, SidebarMenu, headerTint, useSidebarCollapse } from "../../../hub/PluginShell";
 import { AssistantButton, AssistantPanel, assistantHasChat } from "../../leadgen/AssistantPanel";
 import { WORKFLOWS_HEADER, openWorkflows, useWorkflowsOpen, workflowsOpenNow } from "../../../workflows/openWorkflows";
 import { useRailTip } from "../../../hub/RailTip";
@@ -2889,14 +2889,7 @@ export function CallingWorkspace({
               onClick: () => (pluginLocked ? goPage("subscription") : openWorkflows({ from: "voice", event: "call.completed" })) },
             { id: "subscription", label: "Plan & credits", icon: Wallet, title: "Your calling plan, credits and phone numbers", active: page === "subscription" || page === "numbers", onClick: () => goPage("subscription") },
           ].filter(Boolean);
-          const setupItem = embedded ? null : settingsNavItem(setup);
-          return (
-            <>
-              <SidebarGroups groups={[{ label: "Voice", items: embedded ? [...work, ...setup] : work }]} label="Voice" />
-              <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-              {setupItem ? <NavItem item={setupItem} /> : null}
-            </>
-          );
+          return <SidebarMenu groups={[{ label: "Voice", items: embedded ? [...work, ...setup] : work }]} settings={embedded ? null : setup} name="Voice" />;
         })()}
         {!embedded && !brand.hideCredits && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
         {!embedded && <SidebarAccountBadge operator={operator} collapsed={sidebarCollapsed} />}

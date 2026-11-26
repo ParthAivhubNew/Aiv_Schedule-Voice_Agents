@@ -407,6 +407,7 @@ button, input, select, textarea {
 .ui-switcher-tile { width: 24px; height: 24px; border-radius: 6px; color: #fff; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .ui-switcher-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-switcher-name small { font-size: 11px; font-weight: 400; color: var(--ui-side-muted); }
+.ui-nav-back { color: var(--ui-side-muted); margin-bottom: 6px; }
 .ui-switcher-try { font-size: 11px; font-weight: 500; color: var(--ui-side-muted); border: 1px solid currentColor; border-radius: 999px; padding: 1px 7px; flex-shrink: 0; opacity: 0.85; }
 .ui-switcher-chev { color: var(--ui-side-muted); transition: transform 0.12s; flex-shrink: 0; }
 .ui-switcher-list { margin-top: 3px; padding-top: 3px; border-top: 1px solid var(--ui-side-line); display: flex; flex-direction: column; gap: 1px; }

@@ -18,8 +18,11 @@ owner's look.
     - **Voice:** Call list, Conversations, Meetings & callbacks, Call stats. Under Settings: Company profile, Working hours, What the
       AI says, Voice & rules, AI config (staff), Workflows, Plan & credits.
     - **Social:** Post calendar, Post approve, Results & Ideas, Library. Under Settings: Accounts, Theme, Workflows, Plan & credits.
-  - **Settings** opens its pages in the panel beside the menu (under it on touch screens). Clicking it opens the first page, and it
-    shows as current while any of its pages is open.
+  - **Settings swaps the menu** (changed the same day, after the owner found the first version unprofessional). The first version
+    opened a dark panel beside the menu; at the bottom of the screen it ran off the page and a second label floated over the
+    credits. Now clicking Settings opens its first page, and while any setup page is open the menu shows "← Back to <app>", a
+    Settings heading and the setup pages in place of the everyday work, as Linear and Stripe do (`SidebarMenu`). Back opens the
+    app's first page.
   - **Moved out of the menus:**
     - The AI Assistant: it's the header's button (the same chat). A partner's embed still lists it, since the embed has no header
       of ours.

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { C } from "../tokens";
 import { MobileNavButton } from "../components/MobileNav";
 import { useBodyClass } from "../components/usePhone";
@@ -85,6 +85,34 @@ export function SidebarGroups({ groups, label }) {
   );
 }
 
+// The middle of every app's menu (plan 13). Normally: the everyday work, then a plain Settings item at the bottom. While a setup page
+// is open: "Back to <app>", a Settings heading and the setup pages in place of the work, the way Linear and Stripe show settings, so
+// nothing floats over the page and you can always see which setup page you are on. Back opens the app's first page.
+export function SidebarMenu({ groups, settings, name }) {
+  const setup = settingsNavItem(settings);
+  const work = groups.flatMap((g) => g.items.filter(Boolean));
+  if (setup && setup.active) {
+    const home = work[0];
+    return (
+      <>
+        <nav className="app-sidebar-nav" aria-label={`${name} settings`} style={{ display: "flex", flexDirection: "column" }}>
+          {home ? <NavItem item={{ id: "settings-back", className: "ui-nav-back", label: `Back to ${name}`, icon: ArrowLeft, title: `Back to ${home.label}`, onClick: home.onClick }} /> : null}
+          <div className="ui-nav-label">Settings</div>
+          {setup.children.map((it) => <NavItem key={it.id} item={it} />)}
+        </nav>
+        <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
+      </>
+    );
+  }
+  return (
+    <>
+      <SidebarGroups groups={groups} label={name} />
+      <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
+      {setup ? <NavItem item={{ ...setup, children: undefined }} /> : null}
+    </>
+  );
+}
+
 // The left side of every app, the same in Leads, Voice and Social (plan 13): Outreach, the app switcher, the app's everyday work,
 // then Settings (its setup pages), the app's credits and the company badge. The AI Assistant, Support and Documentation each live
 // once, in the header (the assistant button and the profile menu).
@@ -95,15 +123,12 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, setting
   const { hideCredits } = useBrand();
   const all = [...groups.flatMap((g) => g.items.filter(Boolean)), ...(settings || []).filter(Boolean)];
   const tabItems = tabs ? tabs.map((id) => all.find((it) => it.id === id)).filter(Boolean) : [];
-  const setup = settingsNavItem(settings);
   return (
     <>
     <div className="app-sidebar ui-scroll" style={{ width: 236, minWidth: 236, background: "var(--ui-side-bg)", height: "100vh", display: "flex", flexDirection: "column", padding: "16px 12px 12px", boxSizing: "border-box", overflowY: "auto" }}>
       <SidebarHead icon={Icon} accent={accent} name={name} collapsed={collapsed} onToggle={toggleCollapsed} onHome={onHome} />
       {!embedded && <AppSwitcher current={appId} operator={operator} />}
-      <SidebarGroups groups={groups} label={name} />
-      <div className="app-sidebar-spacer" style={{ flex: 1, minHeight: 16 }} />
-      {setup ? <NavItem item={setup} /> : null}
+      <SidebarMenu groups={groups} settings={settings} name={name} />
       {wallet && !embedded && !hideCredits ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded ? <SidebarAccountBadge operator={operator} collapsed={collapsed} /> : null}
     </div>

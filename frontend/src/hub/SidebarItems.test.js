@@ -26,13 +26,15 @@ describe("Support and Documentation in the sidebars", () => {
     expect(leads).toContain('...(embedViews ? [{ id: "assistant", label: "AI Assistant"');
   });
 
-  it("puts one Settings entry, holding the setup pages, between the work and the credits", () => {
-    const settings = shell.indexOf("{setup ? <NavItem item={setup} /> : null}");
-    expect(settings).toBeGreaterThan(shell.indexOf("<SidebarGroups"));
-    expect(settings).toBeLessThan(shell.indexOf('className="sb-credits"'));
-    const vSettings = voice.indexOf("{setupItem ? <NavItem item={setupItem} /> : null}");
-    expect(vSettings).toBeGreaterThan(-1);
-    expect(vSettings).toBeLessThan(voice.indexOf('className="sb-credits"'));
+  it("puts one Settings entry between the work and the credits, which swaps the menu to the setup pages while one is open", () => {
+    const menu = shell.slice(shell.indexOf("export function SidebarMenu"), shell.indexOf("export function PluginSidebar"));
+    expect(menu).toContain("if (setup && setup.active)");
+    expect(menu).toContain("label: `Back to ${name}`");
+    expect(menu).toContain('<div className="ui-nav-label">Settings</div>');
+    expect(menu).toContain("{setup ? <NavItem item={{ ...setup, children: undefined }} /> : null}"); // no panel floating over the page
+    expect(shell.indexOf("<SidebarMenu")).toBeLessThan(shell.indexOf('className="sb-credits"'));
+    expect(voice).toContain('<SidebarMenu groups={[{ label: "Voice"');
+    expect(voice.indexOf("<SidebarMenu")).toBeLessThan(voice.indexOf('className="sb-credits"'));
     expect(leads).toContain("settings={embedViews ? null : setupGroup.items}");
     expect(social).toContain("settings={settingsItems}");
   });
