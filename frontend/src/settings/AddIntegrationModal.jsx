@@ -146,7 +146,7 @@ export function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
+      <div style={{ background: C.surface, borderRadius: 18, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.25)", border: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, display: "flex", alignItems: "center", gap: 8 }}>
             <KeyRound size={18} color={C.cobalt} /> Add & Validate Provider Key
@@ -167,7 +167,7 @@ export function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "
             <select
               value={category}
               onChange={(e) => handleCategoryChange(e.target.value)}
-              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}
             >
               {Object.keys(FAMOUS_PROVIDERS_BY_LAYER).map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -181,7 +181,7 @@ export function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "
             <select
               value={providerChoice}
               onChange={(e) => { setProviderChoice(e.target.value); setErrorMsg(""); setSuccessMsg(""); }}
-              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+              style={{ width: "100%", height: 38, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}
             >
               {providerList.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
@@ -326,7 +326,7 @@ export function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="e.g. +44... or +1..."
-                    style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, background: "#fff" }}
+                    style={{ width: "100%", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, background: C.surface }}
                   />
                   <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.slateLight, marginTop: 3 }}>
                     Optional: Save as your outbound Caller ID when dialing via Telnyx.
@@ -423,7 +423,7 @@ export function AddIntegrationModal({ onClose, onAddSuccess, initialCategory = "
               borderRadius: 10,
               border: "none",
               background: testing ? C.slateLight : C.cobalt,
-              color: "#fff",
+              color: C.onAccent,
               fontFamily: FONT_BODY,
               fontWeight: 600,
               fontSize: 14,

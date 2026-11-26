@@ -10,7 +10,9 @@ const traverse = require("@babel/traverse").default;
 const SRC = path.resolve(process.argv[2]);
 const WRITE = process.argv.includes("--write");
 const tokensSrc = fs.readFileSync(path.join(SRC, "tokens.js"), "utf8");
-const hexBlock = tokensSrc.slice(tokensSrc.indexOf("export const HEX = {"), tokensSrc.indexOf("};", tokensSrc.indexOf("export const HEX = {")));
+const hexStart = tokensSrc.indexOf("export const HEX = {");
+const setsAt = tokensSrc.indexOf("// Deliberate colour sets", hexStart); // a set's colours belong to that set only, so they're never matched
+const hexBlock = tokensSrc.slice(hexStart, setsAt > 0 ? setsAt : tokensSrc.indexOf("};", hexStart));
 const PREFER = { "#3457D5": "cobalt", "#F5F6F8": "paper", "#FFFFFF": null }; // white stays: it will need surface / on-accent names
 const MAP = {};
 for (const m of hexBlock.matchAll(/^\s+([a-zA-Z]+):\s*"(#[0-9A-Fa-f]{6})"/gm)) {
@@ -22,13 +24,18 @@ const STYLE_KEYS = new Set(["color", "background", "backgroundColor", "borderCol
   "outline", "outlineColor", "fill", "stroke", "boxShadow", "caretColor", "accentColor", "textDecorationColor", "stopColor", "bg", "fg", "ink", "soft",
   "line", "tint", "borderTopColor", "borderBottomColor", "borderLeftColor", "borderRightColor", "background-color", "dot", "bar", "track", "text"]);
 const ATTRS = new Set(["color", "fill", "stroke", "stopColor"]);
-const SKIP_FILES = new Set(["ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
+// PartnerEmbed previews a partner's own theme; DeveloperCodeSnippets is an always-dark code block.
+const SKIP_FILES = new Set(["PartnerEmbed.jsx", "DeveloperCodeSnippets.jsx", "ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
   "mapPins.js", "drawShape.js", "LeadsMap.jsx",
   "BrandMark.jsx", "apps.js"]); // the logo, and each app's own identity colour
 // Folders to work on: --dirs plugins/voice,plugins/scheduler,hub (default: the Leads screens).
 const dirsArg = process.argv.find((a) => a.startsWith("--dirs="));
 const DIRS = dirsArg ? dirsArg.slice(7).split(",") : ["plugins/leadgen"];
 const HEX_RX = /#[0-9A-Fa-f]{6}\b/g;
+// A text colour that equals a background token (light text on a dark panel, say) is left alone: in dark mode that token turns dark.
+const TEXT_KEYS = new Set(["color", "fill", "stroke", "caretColor", "textDecorationColor", "fg", "ink", "text"]);
+const BG_TOKEN = /(Bg|Soft|Light|Cool)$|^(paper|bg|surface|border|line)/;
+const CSS_TEXT_RX = /(?:^|[;{\s])(color|fill|stroke|caret-color)\s*:[^;:{}]*$/i;
 
 const keyName = (k) => (k.type === "Identifier" ? k.name : k.type === "StringLiteral" ? k.value : "");
 // a colour that is already the fallback of a CSS variable (var(--ui-line, #E3E6EB)) is left as it is
@@ -45,7 +52,7 @@ function walk(dir, out = []) {
   return out;
 }
 
-let total = 0;
+let total = 0, mismatch = 0;
 const report = [];
 for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
   const code = fs.readFileSync(file, "utf8");
@@ -74,6 +81,8 @@ for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
         styling = gp.type === "ObjectProperty" && STYLE_KEYS.has(keyName(gp.key));
       }
       if (!styling) return;
+      const textKey = parent.type === "JSXAttribute" ? true : TEXT_KEYS.has(keyName((parent.type === "ObjectProperty" ? parent : p.parentPath.parent).key || {}));
+      if (textKey && hits.some((m) => BG_TOKEN.test(MAP[m[0].toUpperCase()]))) { mismatch++; return; }
       const whole = n.value.trim().toUpperCase();
       const raw = code.slice(n.start + 1, n.end - 1);
       const rep = MAP[whole] && hits.length === 1 && whole.length === 7 ? `C.${MAP[whole]}` : toTemplate(raw);
@@ -85,6 +94,7 @@ for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
       if (/<[a-z]/i.test(text) || !/[:;{]/.test(text)) return;
       for (const q of p.node.quasis) {
         for (const m of mapped(q.value.raw)) {
+          if (CSS_TEXT_RX.test(q.value.raw.slice(0, m.index)) && BG_TOKEN.test(MAP[m[0].toUpperCase()])) { mismatch++; continue; }
           const at = q.start + m.index;
           edits.push([at, at + 7, "${C." + MAP[m[0].toUpperCase()] + "}"]);
         }
@@ -119,4 +129,4 @@ for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
   if (WRITE) fs.writeFileSync(file, out);
 }
 console.log(report.join("\n"));
-console.log(`total colours moved onto tokens: ${total}${WRITE ? "" : " (dry run)"}`);
+console.log(`total colours moved onto tokens: ${total}; text colours left because they equal a background token: ${mismatch}${WRITE ? "" : " (dry run)"}`);

@@ -378,19 +378,19 @@ export function QuickSwitchModelModal({
     if (layerKey === "llm") return <Brain size={20} color="#4F46E5" />;
     if (layerKey === "stt") return <Mic size={20} color="#059669" />;
     if (layerKey === "tts") return <Volume2 size={20} color="#D97706" />;
-    if (layerKey === "telephony") return <PhoneCall size={20} color="#2563EB" />;
+    if (layerKey === "telephony") return <PhoneCall size={20} color={C.info} />;
     if (layerKey === "engine") return <Cpu size={20} color="#7C3AED" />;
     return <User size={20} color="#DB2777" />;
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.65)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 520, padding: 24, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
+      <div style={{ background: C.surface, borderRadius: 18, width: "100%", maxWidth: 520, padding: 24, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
         
         {/* Modal Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ padding: 8, borderRadius: 10, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ padding: 8, borderRadius: 10, background: C.neutralSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {getLayerIcon()}
             </div>
             <div>
@@ -412,7 +412,7 @@ export function QuickSwitchModelModal({
         </div>
 
         {errorMsg && (
-          <div style={{ padding: "8px 12px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ padding: "8px 12px", borderRadius: 8, background: C.dangerBg, border: "1px solid #FCA5A5", color: C.dangerInk, fontSize: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
             <AlertTriangle size={14} /> {errorMsg}
           </div>
         )}
@@ -422,7 +422,7 @@ export function QuickSwitchModelModal({
           {layerKey === "voice" ? (
             <VoicePicker variant="full" />
           ) : options.length === 0 ? (
-            <div style={{ padding: "28px 16px", textAlign: "center", background: "#F8FAFC", borderRadius: 12, border: `1px dashed ${C.border}` }}>
+            <div style={{ padding: "28px 16px", textAlign: "center", background: C.neutralBg, borderRadius: 12, border: `1px dashed ${C.border}` }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: C.textInk, marginBottom: 4 }}>
                 No connected {layerTitle || "providers"} found
               </div>
@@ -434,7 +434,7 @@ export function QuickSwitchModelModal({
                 onClick={() => {
                   if (onOpenCredentials) onOpenCredentials();
                 }}
-                style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                style={{ background: C.ink, color: C.onAccent, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
               >
                 Go to Connections
               </button>
@@ -452,7 +452,7 @@ export function QuickSwitchModelModal({
                     padding: "12px 14px",
                     borderRadius: 12,
                     border: active ? "1.5px solid #10B981" : "1px solid #E2E8F0",
-                    background: active ? "#F0FDF4" : "#fff",
+                    background: active ? C.successBg : C.surface,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
@@ -479,7 +479,7 @@ export function QuickSwitchModelModal({
                         {opt.label}
                       </span>
                       {opt.badge && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: active ? "#D1FAE5" : "#F1F5F9", color: active ? "#065F46" : "#475569" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: active ? "#D1FAE5" : C.neutralSoft, color: active ? "#065F46" : C.neutralInk }}>
                           {opt.badge}
                         </span>
                       )}
@@ -491,7 +491,7 @@ export function QuickSwitchModelModal({
 
                   <div>
                     {active ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: "#10B981", color: "#fff" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: "#10B981", color: C.onAccent }}>
                         <Check size={13} /> Active
                       </span>
                     ) : (
@@ -499,8 +499,8 @@ export function QuickSwitchModelModal({
                         type="button"
                         disabled={switching}
                         style={{
-                          background: isBusy ? "#94A3B8" : "#fff",
-                          color: isBusy ? "#fff" : C.ink,
+                          background: isBusy ? "#94A3B8" : C.surface,
+                          color: isBusy ? C.onAccent : C.ink,
                           border: `1px solid ${C.border}`,
                           borderRadius: 7,
                           padding: "5px 11px",

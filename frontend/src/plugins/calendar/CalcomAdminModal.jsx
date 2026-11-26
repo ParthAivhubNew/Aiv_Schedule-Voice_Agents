@@ -621,7 +621,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-        background: "#FFFFFF",
+        background: C.surface,
         borderRadius: 20,
         width: "100%",
         maxWidth: 1240,
@@ -651,7 +651,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#FFFFFF",
+              color: C.onAccent,
               boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)"
             }}>
               <CalendarCheck size={22} />
@@ -692,9 +692,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 padding: 8,
                 borderRadius: 8,
                 border: "1px solid #CBD5E1",
-                background: "#FFFFFF",
+                background: C.surface,
                 cursor: "pointer",
-                color: "#475569"
+                color: C.neutralInk
               }}
             >
               {loading ? <Spinner size={15} /> : <RefreshCw size={15} />}
@@ -706,9 +706,9 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 padding: 8,
                 borderRadius: 8,
                 border: "none",
-                background: "#F1F5F9",
+                background: C.neutralSoft,
                 cursor: "pointer",
-                color: "#475569"
+                color: C.neutralInk
               }}
             >
               <X size={18} />
@@ -723,7 +723,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           gap: 4,
           padding: "8px 20px",
           borderBottom: "1px solid #E2E8F0",
-          background: "#FFFFFF",
+          background: C.surface,
           overflowX: "auto"
         }}>
           {[
@@ -763,7 +763,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         </div>
 
         {/* Content Area */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 24, background: "#F8FAFC" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: 24, background: C.neutralBg }}>
           
           {/* TAB 1: OVERVIEW */}
           {/* TAB 1: EXECUTIVE OVERVIEW — removed */}
@@ -774,13 +774,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 {[
                   { label: "Total Booked Meetings", val: overview?.totalBookings || bookings.length, icon: CalendarCheck, color: "#10B981" },
                   { label: "Upcoming Appointments", val: overview?.upcomingCount || bookings.filter(b => b.status === "upcoming").length, icon: Clock, color: "#3B82F6" },
-                  { label: "Connected Accounts", val: accounts.filter(a => a.status === "connected").length, icon: Mail, color: "#2563EB" },
+                  { label: "Connected Accounts", val: accounts.filter(a => a.status === "connected").length, icon: Mail, color: C.info },
                   { label: "Active Event Types", val: overview?.eventTypesCount || eventTypes.length, icon: Layers, color: "#8B5CF6" }
                 ].map((s, idx) => {
                   const Icon = s.icon;
                   return (
                     <div key={idx} style={{
-                      background: "#FFFFFF",
+                      background: C.surface,
                       borderRadius: 14,
                       padding: 20,
                       border: "1px solid #E2E8F0",
@@ -802,7 +802,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               {/* Communication Account Quick Banner */}
               <div style={{
-                background: "linear-gradient(135deg, #EFF6FF 0%, #F0FDF4 100%)",
+                background: `linear-gradient(135deg, ${C.infoBg} 0%, ${C.successBg} 100%)`,
                 borderRadius: 14,
                 border: "1px solid #BFDBFE",
                 padding: 18,
@@ -811,7 +811,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 justifyContent: "space-between"
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: "#2563EB", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: C.info, display: "flex", alignItems: "center", justifyContent: "center", color: C.onAccent }}>
                     <Mail size={22} />
                   </div>
                   <div>
@@ -830,8 +830,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      background: "#2563EB",
-                      color: "#FFFFFF",
+                      background: C.info,
+                      color: C.onAccent,
                       border: "none",
                       padding: "8px 16px",
                       borderRadius: 8,
@@ -849,7 +849,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      background: "#FFFFFF",
+                      background: C.surface,
                       color: "#059669",
                       border: "1px solid #A7F3D0",
                       padding: "8px 16px",
@@ -866,7 +866,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               {/* Upcoming Meetings Quick Glance */}
-              <div style={{ background: "#FFFFFF", borderRadius: 14, border: "1px solid #E2E8F0", padding: 20 }}>
+              <div style={{ background: C.surface, borderRadius: 14, border: "1px solid #E2E8F0", padding: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>Upcoming Bookings</div>
@@ -895,7 +895,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         padding: "12px 16px",
                         borderRadius: 10,
                         border: "1px solid #E2E8F0",
-                        background: "#F8FAFC"
+                        background: C.neutralBg
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 40, height: 40, borderRadius: 8, background: "#ECFDF5", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669", fontWeight: 700, fontSize: 12 }}>
@@ -919,7 +919,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                                 alignItems: "center",
                                 gap: 6,
                                 background: "#10B981",
-                                color: "#FFF",
+                                color: C.onAccent,
                                 padding: "6px 12px",
                                 borderRadius: 7,
                                 fontSize: 12,
@@ -941,7 +941,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                               padding: "6px 12px",
                               borderRadius: 7,
                               border: "1px solid #CBD5E1",
-                              background: "#FFFFFF",
+                              background: C.surface,
                               fontSize: 12,
                               fontWeight: 600,
                               color: "#334155",
@@ -985,7 +985,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       borderRadius: 8,
                       border: "none",
                       background: "#EA4335",
-                      color: "#FFF",
+                      color: C.onAccent,
                       fontSize: 12,
                       fontWeight: 700,
                       cursor: "pointer"
@@ -1004,7 +1004,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       borderRadius: 8,
                       border: "none",
                       background: "#0078D4",
-                      color: "#FFF",
+                      color: C.onAccent,
                       fontSize: 12,
                       fontWeight: 700,
                       cursor: "pointer"
@@ -1022,7 +1022,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       padding: "8px 14px",
                       borderRadius: 8,
                       border: "1px solid #CBD5E1",
-                      background: "#FFF",
+                      background: C.surface,
                       color: "#334155",
                       fontSize: 12,
                       fontWeight: 600,
@@ -1053,7 +1053,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     <div
                       key={acc.id}
                       style={{
-                        background: "#FFFFFF",
+                        background: C.surface,
                         borderRadius: 16,
                         border: isPrimary ? `2px solid ${themeColor}` : "1px solid #E2E8F0",
                         padding: 20,
@@ -1102,8 +1102,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                                 fontWeight: 700,
                                 padding: "3px 8px",
                                 borderRadius: 6,
-                                background: "#FEF3C7",
-                                color: "#B45309",
+                                background: C.warningSoft,
+                                color: C.warning,
                                 border: "1px solid #FDE68A",
                                 display: "flex",
                                 alignItems: "center",
@@ -1119,8 +1119,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                                   fontWeight: 600,
                                   padding: "3px 8px",
                                   borderRadius: 6,
-                                  background: "#F1F5F9",
-                                  color: "#475569",
+                                  background: C.neutralSoft,
+                                  color: C.neutralInk,
                                   border: "1px solid #CBD5E1",
                                   cursor: "pointer"
                                 }}
@@ -1142,13 +1142,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         </div>
 
                         {/* Connected Mail Address */}
-                        <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 12, border: "1px solid #E2E8F0" }}>
+                        <div style={{ background: C.neutralBg, borderRadius: 10, padding: 12, marginBottom: 12, border: "1px solid #E2E8F0" }}>
                           <div style={{ fontSize: 11, color: "#64748B", marginBottom: 3 }}>CONNECTED EMAIL ADDRESS:</div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", fontFamily: FONT_MONO }}>
                             {cfg.email || "No email specified"}
                           </div>
                           {cfg.sender_name && (
-                            <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>
+                            <div style={{ fontSize: 11, color: C.neutralInk, marginTop: 2 }}>
                               Sender Name: <strong>{cfg.sender_name}</strong>
                             </div>
                           )}
@@ -1172,7 +1172,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       </div>
 
                       {/* Card Footer Actions */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #F1F5F9", paddingTop: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${C.neutralSoft}`, paddingTop: 12 }}>
                         <button
                           onClick={() => handleOpenAccountModal(provider, acc)}
                           style={{
@@ -1180,7 +1180,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             padding: "7px 12px",
                             borderRadius: 8,
                             border: "1px solid #CBD5E1",
-                            background: "#FFF",
+                            background: C.surface,
                             fontSize: 12,
                             fontWeight: 600,
                             color: "#334155",
@@ -1238,7 +1238,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   background: "#FAFAFA",
                   minHeight: 220
                 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 12, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB", marginBottom: 10 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: C.infoBg, display: "flex", alignItems: "center", justifyContent: "center", color: C.info, marginBottom: 10 }}>
                     <Plus size={22} />
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
@@ -1250,19 +1250,19 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   <div style={{ display: "flex", gap: 8 }}>
                     <button
                       onClick={() => handleOpenAccountModal("google")}
-                      style={{ padding: "6px 12px", borderRadius: 6, background: "#EA4335", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#EA4335", color: C.onAccent, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
                     >
                       + Google
                     </button>
                     <button
                       onClick={() => handleOpenAccountModal("outlook")}
-                      style={{ padding: "6px 12px", borderRadius: 6, background: "#0078D4", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#0078D4", color: C.onAccent, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
                     >
                       + Outlook
                     </button>
                     <button
                       onClick={() => handleOpenAccountModal("smtp")}
-                      style={{ padding: "6px 12px", borderRadius: 6, background: "#7C3AED", color: "#FFF", fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
+                      style={{ padding: "6px 12px", borderRadius: 6, background: "#7C3AED", color: C.onAccent, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer" }}
                     >
                       + SMTP
                     </button>
@@ -1278,7 +1278,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Search & Filter Bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 400, background: "#FFF", border: "1px solid #CBD5E1", borderRadius: 10, padding: "8px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 400, background: C.surface, border: "1px solid #CBD5E1", borderRadius: 10, padding: "8px 12px" }}>
                   <Search size={16} color="#94A3B8" />
                   <input
                     type="text"
@@ -1298,8 +1298,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         padding: "6px 14px",
                         borderRadius: 8,
                         border: statusFilter === st ? "1px solid #10B981" : "1px solid #CBD5E1",
-                        background: statusFilter === st ? "#ECFDF5" : "#FFF",
-                        color: statusFilter === st ? "#059669" : "#475569",
+                        background: statusFilter === st ? "#ECFDF5" : C.surface,
+                        color: statusFilter === st ? "#059669" : C.neutralInk,
                         fontSize: 12,
                         fontWeight: 600,
                         cursor: "pointer",
@@ -1319,7 +1319,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       borderRadius: 8,
                       border: "none",
                       background: "#10B981",
-                      color: "#FFF",
+                      color: C.onAccent,
                       fontSize: 12,
                       fontWeight: 700,
                       cursor: "pointer",
@@ -1334,7 +1334,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               {/* Bookings List */}
               {filteredBookings.length === 0 ? (
-                <div style={{ background: "#FFF", borderRadius: 14, padding: "48px 0", textAlign: "center", color: "#94A3B8", border: "1px solid #E2E8F0" }}>
+                <div style={{ background: C.surface, borderRadius: 14, padding: "48px 0", textAlign: "center", color: "#94A3B8", border: "1px solid #E2E8F0" }}>
                   <Calendar size={40} style={{ margin: "0 auto 10px auto", opacity: 0.5 }} />
                   <div style={{ fontSize: 15, fontWeight: 600, color: "#64748B" }}>No bookings found</div>
                   <div style={{ fontSize: 12 }}>Try adjusting your search filters or book a meeting directly.</div>
@@ -1345,7 +1345,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     <div
                       key={b.id}
                       style={{
-                        background: "#FFFFFF",
+                        background: C.surface,
                         borderRadius: 14,
                         border: "1px solid #E2E8F0",
                         padding: 18,
@@ -1391,7 +1391,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                               Ref: {b.calcomBookingId || b.id}
                             </span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#475569", marginTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ fontSize: 12, color: C.neutralInk, marginTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
                             <span><strong>Attendee:</strong> {b.attendeeEmail || "N/A"}</span>
                             <span>&bull;</span>
                             <span><strong>Host:</strong> {b.hostEmail || hostEmail}</span>
@@ -1422,7 +1422,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                               alignItems: "center",
                               gap: 6,
                               background: "#10B981",
-                              color: "#FFF",
+                              color: C.onAccent,
                               padding: "7px 14px",
                               borderRadius: 8,
                               fontSize: 12,
@@ -1446,7 +1446,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                               padding: "7px 12px",
                               borderRadius: 8,
                               border: "1px solid #CBD5E1",
-                              background: "#FFFFFF",
+                              background: C.surface,
                               fontSize: 12,
                               fontWeight: 600,
                               color: "#334155",
@@ -1468,10 +1468,10 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             padding: "7px 10px",
                             borderRadius: 8,
                             border: "1px solid #CBD5E1",
-                            background: "#FFFFFF",
+                            background: C.surface,
                             fontSize: 12,
                             fontWeight: 600,
-                            color: "#475569",
+                            color: C.neutralInk,
                             textDecoration: "none"
                           }}
                         >
@@ -1509,7 +1509,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           {false && activeTab === "directBook" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
               {/* Left Column: Date & Slot Inspector */}
-              <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20 }}>
+              <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 20 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                   1. Choose Date & Available Slot
                 </div>
@@ -1518,7 +1518,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Select Event Type
                   </label>
                   <select
@@ -1542,7 +1542,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Select Date
                   </label>
                   <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
@@ -1567,8 +1567,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             fontSize: 11,
                             fontWeight: 600,
                             border: isSel ? "1px solid #10B981" : "1px solid #CBD5E1",
-                            background: isSel ? "#ECFDF5" : "#FFF",
-                            color: isSel ? "#059669" : "#475569",
+                            background: isSel ? "#ECFDF5" : C.surface,
+                            color: isSel ? "#059669" : C.neutralInk,
                             cursor: "pointer"
                           }}
                         >
@@ -1594,14 +1594,14 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk }}>
                       Available Slots for {selectedDate}
                     </label>
                     {slotsLoading && <span style={{ fontSize: 11, color: "#10B981" }}>Checking availability...</span>}
                   </div>
 
                   {slots.length === 0 ? (
-                    <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", background: "#F8FAFC", borderRadius: 8 }}>
+                    <div style={{ padding: 20, textAlign: "center", color: "#94A3B8", background: C.neutralBg, borderRadius: 8 }}>
                       No slots available for this date. Select another day.
                     </div>
                   ) : (
@@ -1622,7 +1622,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                               textAlign: "center",
                               border: isSelected ? "2px solid #10B981" : (s.available ? "1px solid #CBD5E1" : "1px solid #F1F5F9"),
                               background: isSelected ? "#10B981" : (s.available ? "#FFF" : "#F8FAFC"),
-                              color: isSelected ? "#FFF" : (s.available ? "#0F172A" : "#CBD5E1"),
+                              color: isSelected ? C.onAccent : (s.available ? "#0F172A" : "#CBD5E1"),
                               cursor: s.available ? "pointer" : "not-allowed"
                             }}
                           >
@@ -1636,7 +1636,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               {/* Right Column: Prospect & Host Details */}
-              <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 20 }}>
+              <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 20 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                   2. Attendee & Booking Details
                 </div>
@@ -1646,7 +1646,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
                 <form onSubmit={handleCreateBooking} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 5 }}>
                       Attendee Full Name *
                     </label>
                     <input
@@ -1660,7 +1660,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 5 }}>
                       Attendee Email Address *
                     </label>
                     <input
@@ -1675,13 +1675,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
                   <div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk }}>
                         Host & Calendar Organizer Account
                       </label>
                       <button
                         type="button"
                         onClick={() => setActiveTab("accounts")}
-                        style={{ background: "none", border: "none", color: "#2563EB", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                        style={{ background: "none", border: "none", color: C.info, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                       >
                         Manage Accounts ({accounts.filter(a => a.status === "connected" || a.config?.email).length})
                       </button>
@@ -1690,7 +1690,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       <select
                         value={hostEmail}
                         onChange={(e) => setHostEmail(e.target.value)}
-                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", background: "#FFF" }}
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 13, outline: "none", background: C.surface }}
                       >
                         {accounts.filter(a => a.status === "connected" && a.config?.email).map(acc => (
                           <option key={acc.id} value={acc.config.email}>
@@ -1710,7 +1710,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   </div>
 
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 5 }}>
                       Meeting Agenda / Notes
                     </label>
                     <textarea
@@ -1722,7 +1722,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     />
                   </div>
 
-                  <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10, padding: 12 }}>
+                  <div style={{ background: C.neutralBg, border: "1px solid #E2E8F0", borderRadius: 10, padding: 12 }}>
                     <div style={{ fontSize: 12, color: "#334155" }}>
                       <strong>Summary:</strong> {selectedDate} at {selectedSlot || "—"} ({selectedEventType})
                     </div>
@@ -1736,7 +1736,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     disabled={bookingInProgress || !selectedSlot}
                     style={{
                       background: "#10B981",
-                      color: "#FFFFFF",
+                      color: C.onAccent,
                       border: "none",
                       padding: "12px",
                       borderRadius: 10,
@@ -1783,7 +1783,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     borderRadius: 8,
                     border: "none",
                     background: "#10B981",
-                    color: "#FFF",
+                    color: C.onAccent,
                     fontSize: 13,
                     fontWeight: 700,
                     cursor: "pointer"
@@ -1802,7 +1802,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     <div
                       key={et.id}
                       style={{
-                        background: "#FFFFFF",
+                        background: C.surface,
                         borderRadius: 14,
                         border: "1px solid #E2E8F0",
                         padding: 20,
@@ -1836,14 +1836,14 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                           {et.description || "Direct booking link with automated Google Meet video room."}
                         </div>
 
-                        <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 10px", marginBottom: 14 }}>
-                          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: "#475569" }}>
+                        <div style={{ background: C.neutralBg, border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 10px", marginBottom: 14 }}>
+                          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.neutralInk }}>
                             /{et.slug}
                           </span>
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid #F1F5F9", paddingTop: 12, gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.neutralSoft}`, paddingTop: 12, gap: 6 }}>
                         <button
                           onClick={() => handleCopy(directLink, et.id)}
                           style={{
@@ -1853,7 +1853,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             padding: "6px 10px",
                             borderRadius: 7,
                             border: "1px solid #CBD5E1",
-                            background: "#FFF",
+                            background: C.surface,
                             fontSize: 11,
                             fontWeight: 600,
                             color: "#334155",
@@ -1876,7 +1876,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             padding: "6px 10px",
                             borderRadius: 7,
                             border: "1px solid #CBD5E1",
-                            background: "#FFF",
+                            background: C.surface,
                             fontSize: 11,
                             fontWeight: 600,
                             color: "#334155",
@@ -1913,7 +1913,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           {/* TAB 6: AVAILABILITY & WORKING HOURS */}
           {/* TAB: AVAILABILITY — removed; hours in Calling Company / Schedule */}
           {false && activeTab === "availability" && (
-            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
+            <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Availability
               </div>
@@ -1948,7 +1948,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                           fontSize: 12,
                           fontWeight: 600,
                           border: active ? "1px solid #10B981" : "1px solid #CBD5E1",
-                          background: active ? "#ECFDF5" : "#FFF",
+                          background: active ? "#ECFDF5" : C.surface,
                           color: active ? "#059669" : "#64748B",
                           cursor: "pointer"
                         }}
@@ -1962,7 +1962,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Day Start Time
                   </label>
                   <input
@@ -1974,7 +1974,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Day End Time
                   </label>
                   <input
@@ -1986,7 +1986,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Host Timezone
                   </label>
                   <select
@@ -2009,7 +2009,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Slot step
                   </label>
                   <select
@@ -2024,7 +2024,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Flex after close
                   </label>
                   <select
@@ -2045,7 +2045,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>Per-day hours (optional)</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, marginBottom: 8 }}>Per-day hours (optional)</div>
                 <div style={{ fontSize: 11, color: "#64748B", marginBottom: 10 }}>
                   Leave blank to use the default start/end. Set Friday 09:00–15:00 if that day is shorter.
                 </div>
@@ -2080,7 +2080,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                             delete next[day];
                             setWorkingSchedule({ ...workingSchedule, hoursByDay: next });
                           }}
-                          style={{ border: "1px solid #E2E8F0", background: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 600, color: "#64748B", padding: "6px 0", cursor: "pointer" }}
+                          style={{ border: "1px solid #E2E8F0", background: C.surface, borderRadius: 8, fontSize: 11, fontWeight: 600, color: "#64748B", padding: "6px 0", cursor: "pointer" }}
                         >
                           Reset
                         </button>
@@ -2091,7 +2091,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                   Test: treat callers as this timezone (optional)
                 </label>
                 <select
@@ -2113,7 +2113,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Pre-Meeting Buffer (minutes)
                   </label>
                   <input
@@ -2127,7 +2127,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                     Post-Meeting Buffer (minutes)
                   </label>
                   <input
@@ -2146,7 +2146,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 disabled={loading}
                 style={{
                   background: "#10B981",
-                  color: "#FFF",
+                  color: C.onAccent,
                   border: "none",
                   padding: "10px 24px",
                   borderRadius: 8,
@@ -2162,7 +2162,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
           {/* TAB 7: EMBEDS & SHARING */}
           {activeTab === "embeds" && (
-            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 900 }}>
+            <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 900 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Website Embeds & Public Booking Widgets
               </div>
@@ -2171,7 +2171,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 6 }}>
                   Choose Event Type to Embed
                 </label>
                 <select
@@ -2195,8 +2195,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     fontSize: 12,
                     fontWeight: 600,
                     border: embedCodeType === "inline" ? "1px solid #10B981" : "1px solid #CBD5E1",
-                    background: embedCodeType === "inline" ? "#ECFDF5" : "#FFF",
-                    color: embedCodeType === "inline" ? "#059669" : "#475569",
+                    background: embedCodeType === "inline" ? "#ECFDF5" : C.surface,
+                    color: embedCodeType === "inline" ? "#059669" : C.neutralInk,
                     cursor: "pointer"
                   }}
                 >
@@ -2212,8 +2212,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     fontSize: 12,
                     fontWeight: 600,
                     border: embedCodeType === "popup" ? "1px solid #10B981" : "1px solid #CBD5E1",
-                    background: embedCodeType === "popup" ? "#ECFDF5" : "#FFF",
-                    color: embedCodeType === "popup" ? "#059669" : "#475569",
+                    background: embedCodeType === "popup" ? "#ECFDF5" : C.surface,
+                    color: embedCodeType === "popup" ? "#059669" : C.neutralInk,
                     cursor: "pointer"
                   }}
                 >
@@ -2283,12 +2283,12 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </button>
               </div>
 
-              <div style={{ background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0", padding: 16 }}>
+              <div style={{ background: C.neutralBg, borderRadius: 10, border: "1px solid #E2E8F0", padding: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                   Direct Shareable Link:
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <code style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#10B981", flex: 1, background: "#FFF", padding: "8px 12px", borderRadius: 6, border: "1px solid #CBD5E1" }}>
+                  <code style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#10B981", flex: 1, background: C.surface, padding: "8px 12px", borderRadius: 6, border: "1px solid #CBD5E1" }}>
                     {`${appBaseUrl}/book/${embedEventSlug}`}
                   </code>
                   <button
@@ -2297,7 +2297,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       padding: "8px 14px",
                       borderRadius: 6,
                       background: "#10B981",
-                      color: "#FFF",
+                      color: C.onAccent,
                       border: "none",
                       fontSize: 12,
                       fontWeight: 600,
@@ -2313,7 +2313,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
           {/* TAB 8: WORKFLOWS — hidden; use Calling → Schedule for bookings */}
           {false && activeTab === "workflows" && (
-            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
+            <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 24, maxWidth: 840 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Automated Workflows & Communication Triggers
               </div>
@@ -2337,7 +2337,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                       padding: "14px 16px",
                       borderRadius: 10,
                       border: "1px solid #E2E8F0",
-                      background: "#F8FAFC"
+                      background: C.neutralBg
                     }}
                   >
                     <div>
@@ -2361,7 +2361,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 ))}
               </div>
 
-              <div style={{ background: "#F1F5F9", borderRadius: 10, padding: 16, border: "1px solid #E2E8F0" }}>
+              <div style={{ background: C.neutralSoft, borderRadius: 10, padding: 16, border: "1px solid #E2E8F0" }}>
                 <MeetingInvitePreview />
               </div>
             </div>
@@ -2370,7 +2370,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           {/* TAB 9: CAL.COM (BRING YOUR OWN ACCOUNT) */}
           {activeTab === "webConsole" && (
             <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 12 }}>
-              <div style={{ background: "#FFF", padding: "12px 18px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
+              <div style={{ background: C.surface, padding: "12px 18px", borderRadius: 12, border: "1px solid #E2E8F0" }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>
                   Cal.com
                 </div>
@@ -2381,7 +2381,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
               </div>
 
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: "1px dashed #CBD5E1", background: "#F8FAFC", minHeight: 400 }}>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: "1px dashed #CBD5E1", background: C.neutralBg, minHeight: 400 }}>
                 <button
                   onClick={() => window.open(calcomPublicUrl, "_blank")}
                   style={{
@@ -2392,7 +2392,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     borderRadius: 9,
                     border: "none",
                     background: "#10B981",
-                    color: "#FFF",
+                    color: C.onAccent,
                     fontSize: 13,
                     fontWeight: 700,
                     cursor: "pointer"
@@ -2413,7 +2413,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               {/* Engine Status Banner */}
               <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 10, background: "#10B981", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: "#10B981", display: "flex", alignItems: "center", justifyContent: "center", color: C.onAccent }}>
                     <CalendarCheck size={20} />
                   </div>
                   <div>
@@ -2449,7 +2449,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
               </div>
 
-            <div style={{ background: "#FFFFFF", borderRadius: 16, border: "1px solid #E2E8F0", padding: 24 }}>
+            <div style={{ background: C.surface, borderRadius: 16, border: "1px solid #E2E8F0", padding: 24 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>
                 Operator Host Synchronization & Engine Config
               </div>
@@ -2460,7 +2460,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk }}>
                       Host Mail ID (Email Address)
                     </label>
                     <button
@@ -2481,7 +2481,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 5 }}>
                     Host Display Name
                   </label>
                   <input
@@ -2495,7 +2495,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               {/* Collapsible Advanced Developer Settings */}
-              <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", background: "#F8FAFC", marginBottom: 20 }}>
+              <div style={{ border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", background: C.neutralBg, marginBottom: 20 }}>
                 <button
                   type="button"
                   onClick={() => setShowDeveloperOptions(!showDeveloperOptions)}
@@ -2505,7 +2505,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     cursor: "pointer",
                     fontSize: 12.5,
                     fontWeight: 600,
-                    color: "#475569",
+                    color: C.neutralInk,
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
@@ -2525,7 +2525,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
                       <div>
-                        <label style={{ fontSize: 11.5, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                        <label style={{ fontSize: 11.5, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                           Custom Cal.com API Key
                         </label>
                         <input
@@ -2537,7 +2537,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: 11.5, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                        <label style={{ fontSize: 11.5, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                           Custom Base URL
                         </label>
                         <input
@@ -2558,8 +2558,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   onClick={handleSyncEventTypes}
                   disabled={loading}
                   style={{
-                    background: "#EFF6FF",
-                    color: "#1D4ED8",
+                    background: C.infoBg,
+                    color: C.infoInk,
                     border: "1px solid #BFDBFE",
                     padding: "10px 18px",
                     borderRadius: 8,
@@ -2581,7 +2581,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   disabled={loading}
                   style={{
                     background: "#10B981",
-                    color: "#FFF",
+                    color: C.onAccent,
                     border: "none",
                     padding: "10px 24px",
                     borderRadius: 8,
@@ -2617,11 +2617,11 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
         }}>
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: "#FFF", borderRadius: 18, width: "100%", maxWidth: 540, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.3)", cursor: "default" }}
+            style={{ background: C.surface, borderRadius: 18, width: "100%", maxWidth: 540, padding: 26, boxShadow: "0 24px 70px rgba(0,0,0,0.3)", cursor: "default" }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563EB" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: C.infoBg, display: "flex", alignItems: "center", justifyContent: "center", color: C.info }}>
                   <Mail size={18} />
                 </div>
                 <div>
@@ -2658,8 +2658,8 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     fontSize: 12,
                     fontWeight: 600,
                     border: accountForm.provider === p.id ? `2px solid ${p.color}` : "1px solid #CBD5E1",
-                    background: accountForm.provider === p.id ? `${p.color}15` : "#FFF",
-                    color: accountForm.provider === p.id ? p.color : "#475569",
+                    background: accountForm.provider === p.id ? `${p.color}15` : C.surface,
+                    color: accountForm.provider === p.id ? p.color : C.neutralInk,
                     cursor: "pointer"
                   }}
                 >
@@ -2670,7 +2670,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
             <form onSubmit={handleSaveAccount} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                   Account Label / Nickname *
                 </label>
                 <input
@@ -2683,7 +2683,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                   Email Address *
                 </label>
                 <input
@@ -2697,7 +2697,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                   Sender Display Name
                 </label>
                 <input
@@ -2712,7 +2712,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               {accountForm.provider === "smtp" ? (
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>SMTP Host</label>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>SMTP Host</label>
                     <input
                       type="text"
                       value={accountForm.smtpHost}
@@ -2722,7 +2722,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Port</label>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Port</label>
                     <input
                       type="number"
                       value={accountForm.smtpPort}
@@ -2744,7 +2744,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               )}
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>
                   {accountForm.provider === "google" ? "Gmail App Password (required)" : "Password or App Password"}
                 </label>
                 <input
@@ -2757,7 +2757,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               {/* Toggles */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "#F8FAFC", padding: 12, borderRadius: 10, border: "1px solid #E2E8F0" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, background: C.neutralBg, padding: 12, borderRadius: 10, border: "1px solid #E2E8F0" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#334155", cursor: "pointer" }}>
                   <input
                     type="checkbox"
@@ -2806,7 +2806,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                     padding: "8px 14px",
                     borderRadius: 8,
                     border: "1px solid #CBD5E1",
-                    background: "#FFF",
+                    background: C.surface,
                     fontSize: 12,
                     fontWeight: 600,
                     color: "#334155",
@@ -2820,13 +2820,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   <button
                     type="button"
                     onClick={() => setShowAccountModal(false)}
-                    style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#FFF", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                    style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: C.surface, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "#10B981", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "#10B981", color: C.onAccent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                   >
                     Save & Activate
                   </button>
@@ -2849,7 +2849,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           zIndex: 140,
           padding: 16
         }}>
-          <div style={{ background: "#FFF", borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>Reschedule Meeting</div>
               <button onClick={() => setReschedulingBooking(null)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} /></button>
@@ -2860,7 +2860,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>New Date</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>New Date</label>
                 <input
                   type="date"
                   value={rescheduleDate}
@@ -2873,7 +2873,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>New Time Slot</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>New Time Slot</label>
                 <select
                   value={rescheduleSlot || ""}
                   onChange={(e) => setRescheduleSlot(e.target.value)}
@@ -2889,7 +2889,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Reason for Rescheduling (Optional)</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Reason for Rescheduling (Optional)</label>
                 <input
                   type="text"
                   value={rescheduleReason}
@@ -2903,14 +2903,14 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button
                 onClick={() => setReschedulingBooking(null)}
-                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#FFF", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: C.surface, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmReschedule}
                 disabled={reschedulingLoading}
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: C.onAccent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
               >
                 {reschedulingLoading ? "Rescheduling..." : "Confirm Reschedule"}
               </button>
@@ -2931,13 +2931,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           zIndex: 140,
           padding: 16
         }}>
-          <div style={{ background: "#FFF", borderRadius: 16, width: "100%", maxWidth: 440, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: "100%", maxWidth: 440, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#E11D48", marginBottom: 6 }}>Cancel Booking</div>
             <div style={{ fontSize: 13, color: "#64748B", marginBottom: 14 }}>
               Are you sure you want to cancel the meeting with <strong>{cancellingBooking.prospect}</strong>?
             </div>
             <div style={{ marginBottom: 18 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Cancellation Reason</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Cancellation Reason</label>
               <input
                 type="text"
                 value={cancelReason}
@@ -2949,13 +2949,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button
                 onClick={() => setCancellingBooking(null)}
-                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#FFF", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: C.surface, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
               >
                 Keep Booking
               </button>
               <button
                 onClick={handleConfirmCancel}
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E11D48", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E11D48", color: C.onAccent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
               >
                 Confirm Cancellation
               </button>
@@ -2981,7 +2981,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#FFF",
+              background: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 440,
@@ -3007,7 +3007,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   padding: "8px 14px",
                   borderRadius: 8,
                   border: "1px solid #CBD5E1",
-                  background: "#FFF",
+                  background: C.surface,
                   fontSize: 12,
                   fontWeight: 600,
                   cursor: disconnectBusy ? "default" : "pointer",
@@ -3024,7 +3024,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                   borderRadius: 8,
                   border: "none",
                   background: "#E11D48",
-                  color: "#FFF",
+                  color: C.onAccent,
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: disconnectBusy ? "default" : "pointer",
@@ -3046,7 +3046,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             left: "50%",
             transform: "translateX(-50%)",
             background: C.ink || "#0F172A",
-            color: "#fff",
+            color: C.onAccent,
             padding: "10px 18px",
             borderRadius: 10,
             fontSize: 13,
@@ -3072,7 +3072,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           zIndex: 145,
           padding: 16
         }}>
-          <div style={{ background: "#FFF", borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: "#ECFDF5", display: "flex", alignItems: "center", justifyContent: "center", color: "#059669", margin: "0 auto 12px auto" }}>
               <CheckCircle2 size={24} />
             </div>
@@ -3083,17 +3083,17 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               Booked with <strong>{bookingSuccessModal.prospect}</strong> on <strong>{bookingSuccessModal.date} at {bookingSuccessModal.time}</strong>.
             </div>
 
-            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14, border: "1px solid #E2E8F0", marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: "#475569", marginBottom: 6 }}>
+            <div style={{ background: C.neutralBg, borderRadius: 10, padding: 14, border: "1px solid #E2E8F0", marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: C.neutralInk, marginBottom: 6 }}>
                 <strong>Google Meet Video Room:</strong>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <code style={{ fontSize: 11, color: "#059669", flex: 1, background: "#FFF", padding: "6px 8px", borderRadius: 6, border: "1px solid #CBD5E1" }}>
+                <code style={{ fontSize: 11, color: "#059669", flex: 1, background: C.surface, padding: "6px 8px", borderRadius: 6, border: "1px solid #CBD5E1" }}>
                   {bookingSuccessModal.videoLink}
                 </code>
                 <button
                   onClick={() => handleCopy(bookingSuccessModal.videoLink, "meet_success")}
-                  style={{ padding: "6px 10px", borderRadius: 6, background: "#10B981", color: "#FFF", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                  style={{ padding: "6px 10px", borderRadius: 6, background: "#10B981", color: C.onAccent, border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                 >
                   {copiedId === "meet_success" ? "Copied" : "Copy"}
                 </button>
@@ -3103,7 +3103,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
             <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
               <button
                 onClick={() => setBookingSuccessModal(null)}
-                style={{ padding: "9px 24px", borderRadius: 8, background: "#0F172A", color: "#FFF", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                style={{ padding: "9px 24px", borderRadius: 8, background: "#0F172A", color: C.onAccent, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
               >
                 Done
               </button>
@@ -3124,7 +3124,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
           zIndex: 140,
           padding: 16
         }}>
-          <div style={{ background: "#FFF", borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A" }}>Create New Event Type</div>
               <button onClick={() => setShowEventModal(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} /></button>
@@ -3132,7 +3132,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
             <form onSubmit={handleCreateEventType} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Title *</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Title *</label>
                 <input
                   type="text"
                   required
@@ -3145,7 +3145,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Duration (min)</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Duration (min)</label>
                   <select
                     value={eventForm.length}
                     onChange={(e) => setEventForm({ ...eventForm, length: parseInt(e.target.value) || 15 })}
@@ -3160,7 +3160,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Location</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Location</label>
                   <select
                     value={eventForm.locationType}
                     onChange={(e) => setEventForm({ ...eventForm, locationType: e.target.value })}
@@ -3175,7 +3175,7 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginBottom: 4 }}>Description</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.neutralInk, display: "block", marginBottom: 4 }}>Description</label>
                 <textarea
                   rows={2}
                   value={eventForm.description}
@@ -3189,13 +3189,13 @@ export function CalcomAdminModal({ isOpen, onClose, operator, initialTab = "acco
                 <button
                   type="button"
                   onClick={() => setShowEventModal(false)}
-                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#FFF", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #CBD5E1", background: C.surface, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: C.onAccent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                 >
                   Create Event Type
                 </button>

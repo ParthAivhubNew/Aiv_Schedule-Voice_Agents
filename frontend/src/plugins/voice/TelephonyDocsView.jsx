@@ -393,7 +393,7 @@ export function TelephonyDocsView({ notifications, setNotifications, onNavigate,
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, textAlign: "center" }}>
                   <div style={{ flex: 1, minWidth: 140, background: "rgba(255,255,255,0.06)", borderRadius: 10, padding: 12, border: "1px solid rgba(255,255,255,0.1)" }}>
                     <div style={{ fontSize: 20 }}>📱</div>
-                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 4, color: C.neutralBg }}>1. Client Dials</div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginTop: 4, color: "#F8FAFC" }}>1. Client Dials</div>
                     <div style={{ fontSize: 11, color: "#94A3B8" }}>Calls your dedicated E.164 number</div>
                   </div>
 

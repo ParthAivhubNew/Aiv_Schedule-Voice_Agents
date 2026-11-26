@@ -785,7 +785,7 @@ func main() {
           flexWrap: "wrap",
           gap: 12,
           padding: "12px 18px",
-          backgroundColor: "#F8FAFC",
+          backgroundColor: C.neutralBg,
           borderRadius: 14,
           border: `1px solid ${C.borderLight}`,
         }}
@@ -831,7 +831,7 @@ func main() {
                 fontFamily: FONT_MONO,
                 borderRadius: 8,
                 border: `1px solid ${C.border}`,
-                backgroundColor: "#fff",
+                backgroundColor: C.surface,
                 outline: "none",
               }}
             />
@@ -867,7 +867,7 @@ func main() {
                     padding: "10px 14px",
                     borderRadius: 12,
                     border: `1.5px solid ${isSelected ? area.color : C.borderLight}`,
-                    backgroundColor: isSelected ? "#FAFBFD" : "#fff",
+                    backgroundColor: isSelected ? "#FAFBFD" : C.surface,
                     cursor: "pointer",
                     textAlign: "left",
                     transition: "all 0.15s ease",
@@ -919,7 +919,7 @@ func main() {
                 borderRadius: 8,
                 border: `1px solid ${C.borderLight}`,
                 fontSize: 12,
-                backgroundColor: "#fff",
+                backgroundColor: C.surface,
                 outline: "none",
                 boxSizing: "border-box",
               }}
@@ -972,7 +972,7 @@ func main() {
                       fontFamily: FONT_MONO,
                       fontSize: 11,
                       color: isSelected ? C.cobalt : C.slate,
-                      backgroundColor: isSelected ? "#fff" : "#F1F5F9",
+                      backgroundColor: isSelected ? C.surface : C.neutralSoft,
                       padding: "2px 6px",
                       borderRadius: 4,
                     }}
@@ -991,7 +991,7 @@ func main() {
           <div
             style={{
               padding: "16px 20px",
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 14,
               border: `1px solid ${C.borderLight}`,
             }}
@@ -1006,7 +1006,7 @@ func main() {
                   fontWeight: 700,
                   padding: "2px 8px",
                   borderRadius: 99,
-                  backgroundColor: selectedAction.read ? "#F1F5F9" : `${currentAreaInfo.color}18`,
+                  backgroundColor: selectedAction.read ? C.neutralSoft : `${currentAreaInfo.color}18`,
                   color: selectedAction.read ? C.slate : currentAreaInfo.color,
                 }}
               >
@@ -1019,7 +1019,7 @@ func main() {
                   fontWeight: 700,
                   padding: "2px 8px",
                   borderRadius: 6,
-                  backgroundColor: "#F8FAFC",
+                  backgroundColor: C.neutralBg,
                   color: C.slate,
                   border: `1px solid ${C.borderLight}`,
                 }}
@@ -1034,13 +1034,13 @@ func main() {
 
             {/* Facts bar */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: "#F1F5F9", color: C.slate }}>
+              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: C.neutralSoft, color: C.slate }}>
                 Needs permission: <strong style={{ color: C.textInk }}>{currentAreaInfo.perm}</strong>
               </span>
-              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: "#F1F5F9", color: C.slate }}>
+              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: C.neutralSoft, color: C.slate }}>
                 Cost: <strong style={{ color: C.textInk }}>{selectedAction.read ? "Free" : "May use credits"}</strong>
               </span>
-              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: "#F1F5F9", color: C.slate }}>
+              <span style={{ fontSize: 11.5, padding: "3px 9px", borderRadius: 6, backgroundColor: C.neutralSoft, color: C.slate }}>
                 {selectedAction.id ? "Works on one item: needs an ID" : "No id needed"}
               </span>
             </div>
@@ -1058,7 +1058,7 @@ func main() {
             {/* Box 1: Fill in the details */}
             <div
               style={{
-                backgroundColor: "#fff",
+                backgroundColor: C.surface,
                 borderRadius: 14,
                 border: `1px solid ${C.borderLight}`,
                 padding: 18,
@@ -1080,8 +1080,8 @@ func main() {
                       fontSize: 11,
                       fontWeight: 600,
                       border: "none",
-                      backgroundColor: !jsonMode ? C.cobalt : "#fff",
-                      color: !jsonMode ? "#fff" : C.slate,
+                      backgroundColor: !jsonMode ? C.cobalt : C.surface,
+                      color: !jsonMode ? C.onAccent : C.slate,
                       cursor: "pointer",
                     }}
                   >
@@ -1095,8 +1095,8 @@ func main() {
                       fontSize: 11,
                       fontWeight: 600,
                       border: "none",
-                      backgroundColor: jsonMode ? C.cobalt : "#fff",
-                      color: jsonMode ? "#fff" : C.slate,
+                      backgroundColor: jsonMode ? C.cobalt : C.surface,
+                      color: jsonMode ? C.onAccent : C.slate,
                       cursor: "pointer",
                     }}
                   >
@@ -1198,7 +1198,7 @@ func main() {
                           padding: "4px 10px",
                           borderRadius: 6,
                           border: `1px solid ${beautified ? "#059669" : C.border}`,
-                          backgroundColor: beautified ? "#ECFDF5" : "#F8FAFC",
+                          backgroundColor: beautified ? "#ECFDF5" : C.neutralBg,
                           color: beautified ? "#059669" : C.cobalt,
                           fontSize: 11.5,
                           fontWeight: 600,
@@ -1224,7 +1224,7 @@ func main() {
                           padding: "4px 8px",
                           borderRadius: 6,
                           border: `1px solid ${C.borderLight}`,
-                          backgroundColor: "#fff",
+                          backgroundColor: C.surface,
                           color: C.slate,
                           fontSize: 11,
                           fontWeight: 600,
@@ -1354,7 +1354,7 @@ func main() {
                     borderRadius: 10,
                     border: "none",
                     backgroundColor: C.cobalt,
-                    color: "#fff",
+                    color: C.onAccent,
                     fontWeight: 700,
                     fontSize: 13,
                     cursor: sending ? "wait" : "pointer",
@@ -1385,7 +1385,7 @@ func main() {
               {!jsonMode && (
                 <div
                   style={{
-                    backgroundColor: "#fff",
+                    backgroundColor: C.surface,
                     borderRadius: 14,
                     border: `1px solid ${C.borderLight}`,
                     padding: 16,
@@ -1396,7 +1396,7 @@ func main() {
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: C.textInk }}>
                         2. What gets sent
                       </span>
-                      <span style={{ fontSize: 10, color: C.slate, backgroundColor: "#F1F5F9", padding: "1px 6px", borderRadius: 4 }}>
+                      <span style={{ fontSize: 10, color: C.slate, backgroundColor: C.neutralSoft, padding: "1px 6px", borderRadius: 4 }}>
                         Generated from Form
                       </span>
                     </div>
@@ -1446,7 +1446,7 @@ func main() {
               {/* Server Response Card: In Form mode it is Step 3, in JSON mode it expands to full height as Step 2 */}
               <div
                 style={{
-                  backgroundColor: "#fff",
+                  backgroundColor: C.surface,
                   borderRadius: 14,
                   border: `1px solid ${C.borderLight}`,
                   padding: 16,
@@ -1468,8 +1468,8 @@ func main() {
                           fontWeight: 700,
                           padding: "1px 6px",
                           borderRadius: 4,
-                          backgroundColor: serverResponse.ok ? "#ECFDF5" : "#FEF2F2",
-                          color: serverResponse.ok ? "#059669" : "#DC2626",
+                          backgroundColor: serverResponse.ok ? "#ECFDF5" : C.dangerBg,
+                          color: serverResponse.ok ? "#059669" : C.redSolid,
                         }}
                       >
                         HTTP {serverResponse.status} {serverResponse.durationMs ? `(${serverResponse.durationMs}ms)` : ""}
@@ -1533,7 +1533,7 @@ func main() {
           {/* Box 4: Copy the code */}
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 14,
               border: `1px solid ${C.borderLight}`,
               padding: 18,
@@ -1559,8 +1559,8 @@ func main() {
                       padding: "3px 9px",
                       borderRadius: 6,
                       border: `1px solid ${selectedLang === lang.id ? C.cobalt : C.borderLight}`,
-                      backgroundColor: selectedLang === lang.id ? C.cobalt : "#fff",
-                      color: selectedLang === lang.id ? "#fff" : C.slate,
+                      backgroundColor: selectedLang === lang.id ? C.cobalt : C.surface,
+                      color: selectedLang === lang.id ? C.onAccent : C.slate,
                       fontSize: 11.5,
                       fontWeight: 600,
                       cursor: "pointer",
@@ -1580,7 +1580,7 @@ func main() {
                     padding: "3px 10px",
                     borderRadius: 6,
                     border: `1px solid ${C.border}`,
-                    backgroundColor: "#fff",
+                    backgroundColor: C.surface,
                     color: C.textInk,
                     fontSize: 11.5,
                     fontWeight: 600,

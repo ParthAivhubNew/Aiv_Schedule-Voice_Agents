@@ -58,13 +58,13 @@ const getMethodBadge = (method) => {
     case "POST":
       return { bg: "#ECFDF5", color: "#059669", border: "#A7F3D0" };
     case "GET":
-      return { bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE" };
+      return { bg: C.infoBg, color: C.info, border: "#BFDBFE" };
     case "PATCH":
-      return { bg: "#FEF3C7", color: "#D97706", border: "#FDE68A" };
+      return { bg: C.warningSoft, color: "#D97706", border: "#FDE68A" };
     case "DELETE":
       return { bg: "#FFE4E6", color: "#E11D48", border: "#FECDD3" };
     default:
-      return { bg: "#F1F5F9", color: "#475569", border: "#CBD5E1" };
+      return { bg: C.neutralSoft, color: C.neutralInk, border: "#CBD5E1" };
   }
 };
 
@@ -81,8 +81,8 @@ const getPluginBadge = (plugin) => {
     case "leads":
       return {
         label: "leads",
-        bg: "#EFF6FF",
-        color: "#2563EB",
+        bg: C.infoBg,
+        color: C.info,
         border: "#BFDBFE",
         icon: Users,
       };
@@ -97,7 +97,7 @@ const getPluginBadge = (plugin) => {
     case "account":
       return {
         label: "account",
-        bg: "#FEF3C7",
+        bg: C.warningSoft,
         color: "#D97706",
         border: "#FDE68A",
         icon: Wallet,
@@ -105,8 +105,8 @@ const getPluginBadge = (plugin) => {
     default:
       return {
         label: plugin || "action",
-        bg: "#F1F5F9",
-        color: "#475569",
+        bg: C.neutralSoft,
+        color: C.neutralInk,
         border: "#CBD5E1",
         icon: Code2,
       };
@@ -434,7 +434,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
       {inline ? <style>{`.dev-inline [data-tab="playground"],.dev-inline [data-tab="docs"],.dev-inline [data-tab="partner"]{display:none !important}`}</style> : null}
       <div
         style={{
-          backgroundColor: "#fff",
+          backgroundColor: C.surface,
           borderRadius: 20,
           width: "100%",
           maxWidth: 1180,
@@ -647,7 +647,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
               {!loading && !hasAnySubscription && (
                 <div
                   style={{
-                    backgroundColor: "#FFFBEB",
+                    backgroundColor: C.warningBg,
                     border: "1px solid #FDE68A",
                     borderRadius: 14,
                     padding: "16px 18px",
@@ -660,21 +660,21 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                         width: 32,
                         height: 32,
                         borderRadius: 8,
-                        background: "#FEF3C7",
+                        background: C.warningSoft,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        color: "#B45309",
+                        color: C.warning,
                         flexShrink: 0,
                       }}
                     >
                       <Lock size={16} />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <h4 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#92400E" }}>
+                      <h4 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: C.warningInk }}>
                         Subscription Required to Use Admin APIs
                       </h4>
-                      <p style={{ margin: 0, fontSize: 12.5, color: "#B45309", lineHeight: 1.5 }}>
+                      <p style={{ margin: 0, fontSize: 12.5, color: C.warning, lineHeight: 1.5 }}>
                         OutReach operates on a <strong>Pay-First</strong> model. To generate and use production API keys,
                         you must subscribe to at least one service (Voice AI, Lead Gen, or Social Media Scheduler).
                       </p>
@@ -686,7 +686,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                           }}
                           style={{
                             background: C.cobalt,
-                            color: "#fff",
+                            color: C.onAccent,
                             border: "none",
                             borderRadius: 8,
                             padding: "6px 12px",
@@ -706,8 +706,8 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                             navigateHash("#/leadgen/subscription");
                           }}
                           style={{
-                            background: "#fff",
-                            color: "#92400E",
+                            background: C.surface,
+                            color: C.warningInk,
                             border: "1px solid #FCD34D",
                             borderRadius: 8,
                             padding: "6px 12px",
@@ -727,8 +727,8 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                             navigateHash("#/scheduler/subscription");
                           }}
                           style={{
-                            background: "#fff",
-                            color: "#92400E",
+                            background: C.surface,
+                            color: C.warningInk,
                             border: "1px solid #FCD34D",
                             borderRadius: 8,
                             padding: "6px 12px",
@@ -777,7 +777,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   onClick={() => setShowCreateModal(true)}
                   style={{
                     backgroundColor: C.cobalt,
-                    color: "#fff",
+                    color: C.onAccent,
                     border: "none",
                     borderRadius: 10,
                     padding: "8px 14px",
@@ -812,7 +812,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       width: 48,
                       height: 48,
                       borderRadius: 16,
-                      background: "#F1F5F9",
+                      background: C.neutralSoft,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -832,7 +832,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                     onClick={() => setShowCreateModal(true)}
                     style={{
                       backgroundColor: C.cobalt,
-                      color: "#fff",
+                      color: C.onAccent,
                       border: "none",
                       borderRadius: 10,
                       padding: "8px 16px",
@@ -853,7 +853,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                         padding: 16,
                         borderRadius: 14,
                         border: `1px solid ${C.border}`,
-                        backgroundColor: k.is_active ? "#fff" : "#F8FAFC",
+                        backgroundColor: k.is_active ? C.surface : C.neutralBg,
                         opacity: k.is_active ? 1 : 0.75,
                         transition: "all 0.15s ease",
                       }}
@@ -884,7 +884,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               fontWeight: 700,
                               padding: "2px 8px",
                               borderRadius: 6,
-                              backgroundColor: k.live ? "#ECFDF5" : "#FEF3C7",
+                              backgroundColor: k.live ? "#ECFDF5" : C.warningSoft,
                               color: k.live ? "#059669" : "#D97706",
                               textTransform: "uppercase",
                             }}
@@ -899,7 +899,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               fontFamily: FONT_MONO,
                               fontSize: 12,
                               color: C.slate,
-                              backgroundColor: "#F1F5F9",
+                              backgroundColor: C.neutralSoft,
                               padding: "4px 10px",
                               borderRadius: 6,
                               letterSpacing: "0.02em",
@@ -1026,7 +1026,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   onClick={() => setShowCreateWebhookModal(true)}
                   style={{
                     backgroundColor: C.cobalt,
-                    color: "#fff",
+                    color: C.onAccent,
                     border: "none",
                     borderRadius: 10,
                     padding: "8px 14px",
@@ -1061,7 +1061,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       width: 48,
                       height: 48,
                       borderRadius: 16,
-                      background: "#F1F5F9",
+                      background: C.neutralSoft,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1081,7 +1081,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                     onClick={() => setShowCreateWebhookModal(true)}
                     style={{
                       backgroundColor: C.cobalt,
-                      color: "#fff",
+                      color: C.onAccent,
                       border: "none",
                       borderRadius: 10,
                       padding: "8px 16px",
@@ -1106,7 +1106,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                           padding: 16,
                           borderRadius: 14,
                           border: `1px solid ${C.border}`,
-                          backgroundColor: ep.is_active ? "#fff" : "#F8FAFC",
+                          backgroundColor: ep.is_active ? C.surface : C.neutralBg,
                           boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
                         }}
                       >
@@ -1137,7 +1137,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                                 fontWeight: 700,
                                 padding: "2px 8px",
                                 borderRadius: 6,
-                                backgroundColor: ep.is_active ? "#ECFDF5" : "#F1F5F9",
+                                backgroundColor: ep.is_active ? "#ECFDF5" : C.neutralSoft,
                                 color: ep.is_active ? "#059669" : "#64748B",
                               }}
                             >
@@ -1286,7 +1286,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "space-between",
-                            backgroundColor: "#F8FAFC",
+                            backgroundColor: C.neutralBg,
                             border: `1px solid ${C.borderLight}`,
                             padding: "6px 12px",
                             borderRadius: 8,
@@ -1421,7 +1421,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               marginTop: 12,
                               padding: "8px 12px",
                               borderRadius: 8,
-                              backgroundColor: testResult.success ? "#ECFDF5" : "#FEF2F2",
+                              backgroundColor: testResult.success ? "#ECFDF5" : C.dangerBg,
                               border: `1px solid ${testResult.success ? "#A7F3D0" : "#FECACA"}`,
                               fontSize: 12,
                               display: "flex",
@@ -1433,7 +1433,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               {testResult.success ? (
                                 <CheckCircle2 size={15} color="#059669" />
                               ) : (
-                                <AlertCircle size={15} color="#DC2626" />
+                                <AlertCircle size={15} color={C.redSolid} />
                               )}
                               <span>
                                 <strong>{testResult.success ? "Test Ping Succeeded" : "Test Ping Failed"}:</strong>{" "}
@@ -1501,7 +1501,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
               padding: "6px 14px",
               borderRadius: 8,
               border: `1px solid ${C.border}`,
-              background: "#fff",
+              background: C.surface,
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 12.5,
@@ -1529,7 +1529,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 480,
@@ -1589,7 +1589,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                             gap: 10,
                             padding: "8px 12px",
                             borderRadius: 10,
-                            backgroundColor: "#F8FAFC",
+                            backgroundColor: C.neutralBg,
                             border: `1px solid ${C.borderLight}`,
                             opacity: 0.7,
                           }}
@@ -1610,8 +1610,8 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               style={{
                                 fontSize: 10.5,
                                 fontWeight: 700,
-                                color: "#B45309",
-                                background: "#FEF3C7",
+                                color: C.warning,
+                                background: C.warningSoft,
                                 padding: "2px 7px",
                                 borderRadius: 6,
                                 display: "inline-flex",
@@ -1688,7 +1688,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               Active Plan
                             </span>
                             {scope.danger ? (
-                              <span style={{ fontSize: 10, fontWeight: 700, color: "#B91C1C", background: "#FEE2E2", padding: "1px 6px", borderRadius: 4 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: C.dangerInk, background: "#FEE2E2", padding: "1px 6px", borderRadius: 4 }}>
                                 Cannot be undone
                               </span>
                             ) : null}
@@ -1723,7 +1723,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                     padding: "8px 16px",
                     borderRadius: 8,
                     border: `1px solid ${C.border}`,
-                    background: "#fff",
+                    background: C.surface,
                     fontWeight: 600,
                     fontSize: 13,
                     cursor: "pointer",
@@ -1739,7 +1739,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                     borderRadius: 8,
                     border: "none",
                     background: C.cobalt,
-                    color: "#fff",
+                    color: C.onAccent,
                     fontWeight: 600,
                     fontSize: 13,
                     cursor: "pointer",
@@ -1771,7 +1771,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 580,
@@ -1792,7 +1792,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 alignItems: "center",
                 justifyContent: "space-between",
                 flexShrink: 0,
-                backgroundColor: "#fff",
+                backgroundColor: C.surface,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2023,7 +2023,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                                     cursor: "pointer",
                                     padding: "8px 10px",
                                     borderRadius: 8,
-                                    backgroundColor: isChecked ? "#fff" : "transparent",
+                                    backgroundColor: isChecked ? C.surface : "transparent",
                                     border: `1px solid ${isChecked ? catBadge.border : "transparent"}`,
                                     boxShadow: isChecked ? "0 1px 3px rgba(0,0,0,0.04)" : "none",
                                     transition: "all 0.12s ease",
@@ -2069,7 +2069,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                                           fontSize: 10.5,
                                           color: C.slate,
                                           fontFamily: FONT_MONO,
-                                          backgroundColor: "#F1F5F9",
+                                          backgroundColor: C.neutralSoft,
                                           padding: "1px 5px",
                                           borderRadius: 4,
                                         }}
@@ -2097,7 +2097,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 style={{
                   padding: "12px 22px",
                   borderTop: `1px solid ${C.borderLight}`,
-                  backgroundColor: "#F8FAFC",
+                  backgroundColor: C.neutralBg,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
@@ -2115,7 +2115,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       padding: "7px 14px",
                       borderRadius: 8,
                       border: `1px solid ${C.border}`,
-                      background: "#fff",
+                      background: C.surface,
                       fontWeight: 600,
                       fontSize: 12.5,
                       cursor: "pointer",
@@ -2132,7 +2132,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       borderRadius: 8,
                       border: "none",
                       background: creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0 ? "#CBD5E1" : C.cobalt,
-                      color: "#fff",
+                      color: C.onAccent,
                       fontWeight: 600,
                       fontSize: 12.5,
                       cursor: creatingWebhook || !webhookUrl.trim() || webhookEvents.length === 0 ? "not-allowed" : "pointer",
@@ -2164,7 +2164,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 520,
@@ -2215,7 +2215,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 }}
                 style={{
                   backgroundColor: copiedSecret ? C.teal : "#334155",
-                  color: "#fff",
+                  color: C.onAccent,
                   border: "none",
                   borderRadius: 8,
                   padding: "6px 12px",
@@ -2245,7 +2245,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 borderRadius: 10,
                 border: "none",
                 background: C.cobalt,
-                color: "#fff",
+                color: C.onAccent,
                 fontWeight: 600,
                 fontSize: 13.5,
                 cursor: "pointer",
@@ -2274,7 +2274,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 620,
@@ -2332,7 +2332,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       style={{
                         padding: "10px 14px",
                         borderRadius: 10,
-                        backgroundColor: "#F8FAFC",
+                        backgroundColor: C.neutralBg,
                         border: `1px solid ${C.borderLight}`,
                         fontSize: 12,
                       }}
@@ -2345,8 +2345,8 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                               fontWeight: 700,
                               padding: "2px 6px",
                               borderRadius: 4,
-                              backgroundColor: log.success ? "#ECFDF5" : "#FEF2F2",
-                              color: log.success ? "#059669" : "#DC2626",
+                              backgroundColor: log.success ? "#ECFDF5" : C.dangerBg,
+                              color: log.success ? "#059669" : C.redSolid,
                             }}
                           >
                             HTTP {log.status_code || "ERR"}
@@ -2383,7 +2383,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   padding: "6px 16px",
                   borderRadius: 8,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   fontWeight: 600,
                   fontSize: 12.5,
                   cursor: "pointer",
@@ -2412,7 +2412,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 520,
@@ -2465,7 +2465,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 }}
                 style={{
                   backgroundColor: copiedSecret ? C.teal : "#334155",
-                  color: "#fff",
+                  color: C.onAccent,
                   border: "none",
                   borderRadius: 8,
                   padding: "6px 12px",
@@ -2495,7 +2495,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 borderRadius: 10,
                 border: "none",
                 background: C.cobalt,
-                color: "#fff",
+                color: C.onAccent,
                 fontWeight: 600,
                 fontSize: 13.5,
                 cursor: "pointer",
@@ -2528,7 +2528,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
         >
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 440,
@@ -2544,11 +2544,11 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   width: 40,
                   height: 40,
                   borderRadius: 12,
-                  backgroundColor: confirmDialog.isDanger ? "#FEE2E2" : "#EFF6FF",
+                  backgroundColor: confirmDialog.isDanger ? "#FEE2E2" : C.infoBg,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: confirmDialog.isDanger ? "#DC2626" : C.cobalt,
+                  color: confirmDialog.isDanger ? C.redSolid : C.cobalt,
                   flexShrink: 0,
                 }}
               >
@@ -2572,7 +2572,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   padding: "8px 16px",
                   borderRadius: 8,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   fontWeight: 600,
                   fontSize: 13,
                   cursor: "pointer",
@@ -2592,8 +2592,8 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   padding: "8px 18px",
                   borderRadius: 8,
                   border: "none",
-                  background: confirmDialog.isDanger ? "#DC2626" : C.cobalt,
-                  color: "#fff",
+                  background: confirmDialog.isDanger ? C.redSolid : C.cobalt,
+                  color: C.onAccent,
                   fontWeight: 600,
                   fontSize: 13,
                   cursor: "pointer",

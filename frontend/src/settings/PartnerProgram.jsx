@@ -8,14 +8,14 @@ import { PeopleUsage } from "../team/PeopleUsage";
 import { useFlash } from "../components/useFlash";
 import { failText } from "../components/flash";
 
-const field = { width: "100%", padding: "8px 11px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, boxSizing: "border-box", background: "#fff" };
+const field = { width: "100%", padding: "8px 11px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, boxSizing: "border-box", background: C.surface };
 const label = { display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, margin: "12px 0 4px" };
 const hint = { fontSize: 12, color: C.slate, marginTop: 3 };
-const box = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: "#fff", marginBottom: 16 };
+const box = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, background: C.surface, marginBottom: 16 };
 const h3 = { fontSize: 14, fontWeight: 700, color: C.textInk, margin: "0 0 4px" };
 const button = (primary, disabled) => ({
   padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1,
-  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.cobalt : "#fff", color: primary ? "#fff" : C.textInk,
+  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.cobalt : C.surface, color: primary ? C.onAccent : C.textInk,
 });
 const pill = (tone) => ({
   display: "inline-block", fontSize: 11.5, fontWeight: 600, padding: "2px 9px", borderRadius: 99,
@@ -65,8 +65,8 @@ function Step({ n, title, done, open, onToggle, summary, children }) {
   return (
     <div style={{ ...box, padding: 0, marginBottom: 12, overflow: "hidden" }}>
       <button type="button" aria-expanded={open} onClick={onToggle}
-        style={{ display: "flex", width: "100%", alignItems: "center", gap: 12, padding: "14px 18px", background: open ? C.paperSoft : "#fff", border: 0, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, transition: "background 0.15s ease" }}>
-        <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 99, display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, background: done ? C.green : C.paperSoft, color: done ? "#fff" : C.slate, border: done ? "none" : `1px solid ${C.border}` }}>
+        style={{ display: "flex", width: "100%", alignItems: "center", gap: 12, padding: "14px 18px", background: open ? C.paperSoft : C.surface, border: 0, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, transition: "background 0.15s ease" }}>
+        <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 99, display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, background: done ? C.green : C.paperSoft, color: done ? C.onAccent : C.slate, border: done ? "none" : `1px solid ${C.border}` }}>
           {done ? <Check size={14} /> : n}
         </span>
         <span style={{ flex: 1 }}>
@@ -166,7 +166,7 @@ function PartnerDocs({ alwaysOpen = false }) {
               minHeight: 460,
               border: `1px solid ${C.border}`,
               borderRadius: 10,
-              background: "#fff",
+              background: C.surface,
             }}
           />
         </div>
@@ -325,7 +325,7 @@ export function PartnerProgram() {
               ? <p style={{ fontSize: 13, color: C.red, margin: "6px 0 0" }}>Your integration is paused. Contact the Outreach team.</p>
               : <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>{nextStep ? `${doneCount} of ${steps.length} steps completed. Next: ${nextStep.title.toLowerCase()}.` : "Everything is set up. Your integration is live in production."}</div>}
           </div>
-          <div role="tablist" style={{ display: "flex", gap: 4, flexWrap: "wrap", border: `1px solid ${C.border}`, borderTop: 0, background: "#fff", padding: "0 12px", marginBottom: 16, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
+          <div role="tablist" style={{ display: "flex", gap: 4, flexWrap: "wrap", border: `1px solid ${C.border}`, borderTop: 0, background: C.surface, padding: "0 12px", marginBottom: 16, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
             {TABS.map(([id, name]) => (
               <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
                 style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer", background: "none", border: 0, borderBottom: `2px solid ${tab === id ? C.cobalt : "transparent"}`, color: tab === id ? C.cobalt : C.slate }}>

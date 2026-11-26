@@ -441,7 +441,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
           marginBottom: 18,
           flexWrap: "wrap",
           padding: embedded ? 6 : 0,
-          background: embedded ? "#fff" : "transparent",
+          background: embedded ? C.surface : "transparent",
           border: embedded ? `1px solid ${C.border}` : "none",
           borderRadius: embedded ? 14 : 0,
           boxShadow: embedded ? "0 8px 28px rgba(18,20,28,0.06)" : "none",
@@ -467,7 +467,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                 borderRadius: embedded ? 10 : 8,
                 border: embedded ? "none" : `1px solid ${activeTab === t.id ? C.ink : C.border}`,
                 background: activeTab === t.id ? (embedded ? C.ink : C.ink) : (embedded ? "transparent" : "#fff"),
-                color: activeTab === t.id ? "#fff" : C.slate,
+                color: activeTab === t.id ? C.onAccent : C.slate,
                 fontFamily: FONT_BODY,
                 fontSize: 13,
                 fontWeight: 700,
@@ -506,7 +506,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
         {/* TAB: Connections — single place to paste keys + see what's in use */}
         {activeTab === "credentials" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <div style={{ padding: "14px 16px", borderRadius: 10, background: "#F8FAFC", border: `1px solid ${C.border}` }}>
+            <div style={{ padding: "14px 16px", borderRadius: 10, background: C.neutralBg, border: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.textInk, marginBottom: 4 }}>Connections</div>
               <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>
                 One place for API keys. Rows highlighted <b>In use · Calling</b> are what the live call stack is using now. Line phone / Activate stay under <b>Line setup</b>.
@@ -608,13 +608,13 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                               <button onClick={() => handleConnect(rowKey, it)}
                                 style={{
-                                  background: "#fff",
+                                  background: C.surface,
                                   border: `1px solid ${isConnected ? "#86EFAC" : C.border}`,
                                   borderRadius: 7,
                                   padding: "6px 14px",
                                   fontFamily: FONT_BODY,
                                   fontSize: 12,
-                                  color: isConnected ? "#15803D" : C.slate,
+                                  color: isConnected ? C.green : C.slate,
                                   fontWeight: isConnected ? 600 : 500,
                                   cursor: "pointer",
                                   whiteSpace: "nowrap"
@@ -626,7 +626,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                   type="button"
                                   onClick={() => requestDeleteKey(group.group, it, rowKey)}
                                   title="Delete saved API key"
-                                  style={{ background: "#fff", border: `1px solid #F0C4B8`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.red, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}
+                                  style={{ background: C.surface, border: `1px solid #F0C4B8`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.red, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}
                                 >
                                   <Trash2 size={13} /> Delete key
                                 </button>
@@ -635,7 +635,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                           )}
                           {phase !== "idle" && (
                             <button onClick={() => handleCancel(rowKey)}
-                              style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}>
                               Cancel
                             </button>
                           )}
@@ -670,7 +670,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                     : String(it.name || "").toLowerCase().includes("whatsapp")
                                     ? "Paste Meta Access Token (starts with EAAG...)"
                                     : "Paste API key / token to test & connect..."}
-                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 38px 8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: "#fff" }}
+                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 38px 8px 12px", borderRadius: 8, border: `1px solid ${phase === "tested_fail" ? C.red : phase === "tested_ok" ? C.green : C.cobalt}`, fontFamily: FONT_MONO, fontSize: 12.5, outline: "none", background: C.surface }}
                                 />
                                 <button
                                   type="button"
@@ -697,7 +697,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                     value={rs.phoneValue || ""}
                                     onChange={(e) => setRow(rowKey, { phoneValue: e.target.value })}
                                     placeholder={String(it.name || "").toLowerCase().includes("whatsapp") ? "+1 555... or your registered WhatsApp number" : "+44 20... or +1..."}
-                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: C.surface }}
                                   />
                                 </div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -740,7 +740,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                       : String(it.name || "").toLowerCase().includes("retell")
                                       ? "agent_xxxxxxxxxxxxxxxx"
                                       : "agent_... or sid_..."}
-                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: C.surface }}
                                   />
                                 </div>
                               </div>
@@ -758,7 +758,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                     value={rs.modelValue || ""}
                                     onChange={(e) => setRow(rowKey, { modelValue: e.target.value })}
                                     placeholder={group.group === "Speech-to-Text" ? "e.g. nova-2, nova-2-phonecall" : group.group === "Text-to-Speech" ? "e.g. sonic-3" : "e.g. deepseek-chat, gpt-4o-mini, grok-4.20-0309-non-reasoning"}
-                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: C.surface }}
                                   />
                                 </div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -770,7 +770,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                     value={rs.baseUrlValue || ""}
                                     onChange={(e) => setRow(rowKey, { baseUrlValue: e.target.value })}
                                     placeholder="https://... or http://localhost:11434/v1"
-                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: C.surface }}
                                   />
                                   <SelfHostedHint />
                                 </div>
@@ -788,7 +788,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                   value={rs.voiceIdValue || ""}
                                   onChange={(e) => setRow(rowKey, { voiceIdValue: e.target.value })}
                                   placeholder="Voice ID from this provider"
-                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: "#fff" }}
+                                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_MONO, fontSize: 12, outline: "none", background: C.surface }}
                                 />
                                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12, color: C.textInk }}>
                                   <input type="checkbox" checked={!!rs.useForCallsValue} onChange={(e) => setRow(rowKey, { useForCallsValue: e.target.checked })} />
@@ -816,7 +816,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                   <button
                                     onClick={() => handleTest(group.group, it.name, rowKey)}
                                     disabled={phase === "testing"}
-                                    style={{ background: C.cobalt, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "testing" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                    style={{ background: C.cobalt, color: C.onAccent, border: "none", borderRadius: 7, padding: "8px 18px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "testing" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
                                   >
                                     {phase === "testing" ? (
                                       <>
@@ -833,7 +833,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                       onClick={() => handleSave(group.group, it.name, rowKey)}
                                       disabled={phase === "saving"}
                                       title="Update model, base URL, or voice ID without re-testing your secret API key"
-                                      style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                      style={{ background: C.ink, color: C.onAccent, border: "none", borderRadius: 7, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
                                     >
                                       {phase === "saving" ? (
                                         <>
@@ -851,7 +851,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                                 <button
                                   onClick={() => handleSave(group.group, it.name, rowKey)}
                                   disabled={phase === "saving"}
-                                  style={{ background: C.green, color: "#fff", border: "none", borderRadius: 7, padding: "8px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                                  style={{ background: C.green, color: C.onAccent, border: "none", borderRadius: 7, padding: "8px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: phase === "saving" ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
                                 >
                                   {phase === "saving" ? (
                                     <>
@@ -867,7 +867,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
 
                               <button
                                 onClick={() => handleCancel(rowKey)}
-                                style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}
+                                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "8px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.slate, cursor: "pointer" }}
                               >
                                 Cancel
                               </button>
@@ -914,7 +914,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
             style={{
               width: "100%",
               maxWidth: 440,
-              background: "#fff",
+              background: C.surface,
               borderRadius: 14,
               border: `1px solid ${C.border}`,
               boxShadow: "0 24px 60px rgba(15,23,42,0.28)",
@@ -970,7 +970,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                 onClick={() => setDeleteKeyConfirm(null)}
                 disabled={deleteKeyConfirm.deleting}
                 style={{
-                  background: "#fff",
+                  background: C.surface,
                   border: `1px solid ${C.border}`,
                   borderRadius: 8,
                   padding: "9px 16px",
@@ -994,7 +994,7 @@ export function ProviderConfigView({ notifications, setNotifications, commonAi, 
                   fontSize: 13,
                   fontWeight: 700,
                   cursor: deleteKeyConfirm.deleting ? "wait" : "pointer",
-                  color: "#fff",
+                  color: C.onAccent,
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,

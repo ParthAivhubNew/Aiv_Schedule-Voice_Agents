@@ -13,7 +13,8 @@ const traverse = require("@babel/traverse").default;
 
 const SRC = path.resolve(process.argv[2]);
 const WRITE = process.argv.includes("--write");
-const SKIP_FILES = new Set(["ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
+// PartnerEmbed previews a partner's own theme; DeveloperCodeSnippets is an always-dark code block.
+const SKIP_FILES = new Set(["PartnerEmbed.jsx", "DeveloperCodeSnippets.jsx", "ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
   "mapPins.js", "drawShape.js", "LeadsMap.jsx",
   "BrandMark.jsx", "apps.js"]); // the logo, and each app's own identity colour
 // Folders to work on: --dirs plugins/voice,plugins/scheduler,hub (default: the Leads screens).

@@ -67,6 +67,13 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
     dark one: filter cards (`filterAmber`, `filterOrange`; ready / new were exactly `success` / `info`), emerald chips (`chipEmerald*`),
     connector pills (`pill*`), TPS tones (`tps*`) and org chart levels (`org*`). Leads **438 → 400**.
   - Tests 749 passed, no lint errors, build clean. Not looked at in a browser: every value is unchanged.
+- ✅ **Settings and calendar (2026-11-26, later): no visible change.** 190 exact token colours and 234 whites moved, **1,111 → 686**
+  there (settings 272, calendar 414), and both folders are ratcheted too.
+  - Left as written: `PartnerEmbed.jsx` (it previews a partner's own theme) and `DeveloperCodeSnippets.jsx` (an always-dark code block).
+  - **A guard the earlier passes lacked:** a text colour that equals a background token (light text on a dark panel) is no longer moved,
+    because in dark mode that token turns dark and the text would vanish. The Voice pass had done this twice (a dark tooltip and a dark
+    diagram); both are back to their own colour. The named sets are never matched elsewhere either.
+  - Tests 751 passed, no lint errors, build clean.
 
 **Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
 - **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).

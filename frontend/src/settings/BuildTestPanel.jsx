@@ -8,9 +8,9 @@ import { buildSnippet } from "./developerSnippets";
 // The steps come from the same catalogue as the Documentation tab, so the two never disagree.
 
 const AREAS = [
-  { id: "voice", name: "Phone calls and meetings", short: "Call people with an AI agent, book meetings", color: "#3457D5", icon: Phone },
-  { id: "leads", name: "Leads and email", short: "Find companies, run email campaigns", color: "#0C8C7D", icon: Users },
-  { id: "social", name: "Social posts", short: "Write, approve and schedule posts", color: "#C2410C", icon: Megaphone },
+  { id: "voice", name: "Phone calls and meetings", short: "Call people with an AI agent, book meetings", color: C.cobalt, icon: Phone },
+  { id: "leads", name: "Leads and email", short: "Find companies, run email campaigns", color: C.teal, icon: Users },
+  { id: "social", name: "Social posts", short: "Write, approve and schedule posts", color: C.red, icon: Megaphone },
   { id: "account", name: "Account", short: "Your balance and setup", color: "#6D4BD8", icon: Wallet },
 ];
 
@@ -58,10 +58,10 @@ const parseData = (text) => {
   }
 };
 
-const box = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, backgroundColor: "#fff" };
+const box = { border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, backgroundColor: C.surface };
 const heading = { fontSize: 12.5, fontWeight: 700, color: C.textInk, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 };
 const codeBox = { margin: 0, backgroundColor: "#0F172A", color: "#E2E8F0", borderRadius: 10, padding: 12, fontFamily: FONT_MONO, fontSize: 11.5, lineHeight: 1.5, overflow: "auto", maxHeight: 260, whiteSpace: "pre" };
-const smallBtn = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer", color: C.textInk, display: "inline-flex", alignItems: "center", gap: 4 };
+const smallBtn = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer", color: C.textInk, display: "inline-flex", alignItems: "center", gap: 4 };
 
 export function BuildTestPanel({ apiKey, onApiKeyChange }) {
   const [area, setArea] = useState("voice");
@@ -173,14 +173,14 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
       {/* The shape of every request */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
         {[["plugin", "the area"], ["action", "the step"], ["id", "the thing you work on (some steps)"], ["data", "the details"]].map(([k, d]) => (
-          <span key={k} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 9px", fontSize: 12, background: "#F8FAFC" }}>
+          <span key={k} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 9px", fontSize: 12, background: C.neutralBg }}>
             <code style={{ color: C.cobalt, fontWeight: 700, fontFamily: FONT_MONO }}>{k}</code> <span style={{ color: C.slate }}>{d}</span>
           </span>
         ))}
       </div>
 
       {/* Key */}
-      <div style={{ ...box, backgroundColor: "#F8FAFC", marginBottom: 14 }}>
+      <div style={{ ...box, backgroundColor: C.neutralBg, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: C.textInk }}>Your key</label>
           <span
@@ -189,7 +189,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
               fontWeight: 700,
               padding: "2px 8px",
               borderRadius: 99,
-              backgroundColor: !apiKey ? "#F1F5F9" : isTest ? "#FEF3C7" : "#ECFDF5",
+              backgroundColor: !apiKey ? C.neutralSoft : isTest ? "#FEF3C7" : "#ECFDF5",
               color: !apiKey ? C.slate : isTest ? "#B45309" : "#059669",
             }}
           >
@@ -203,7 +203,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
           placeholder="Paste your full secret key (sk_test_… or sk_live_…)"
           style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${keyIsMasked ? "#F59E0B" : C.border}`, padding: "0 10px", fontSize: 12, fontFamily: FONT_MONO, boxSizing: "border-box", outline: "none" }}
         />
-        <div style={{ fontSize: 11.5, color: keyIsMasked ? "#B45309" : C.slateLight, marginTop: 4 }}>
+        <div style={{ fontSize: 11.5, color: keyIsMasked ? C.warning : C.slateLight, marginTop: 4 }}>
           {keyIsMasked ? "That is only the start of a saved key. Paste the full secret, shown once when you created it." : "No key yet? Make one in the Active Keys tab. A test key is free."}
         </div>
       </div>
@@ -223,7 +223,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
                     setSearch("");
                     pick(STEPS.find((s) => s.plugin === a.id));
                   }}
-                  style={{ display: "flex", gap: 9, alignItems: "center", textAlign: "left", padding: "8px 10px", borderRadius: 10, cursor: "pointer", border: `1px solid ${on ? a.color : C.border}`, background: on ? `${a.color}14` : "#fff" }}
+                  style={{ display: "flex", gap: 9, alignItems: "center", textAlign: "left", padding: "8px 10px", borderRadius: 10, cursor: "pointer", border: `1px solid ${on ? a.color : C.border}`, background: on ? `${a.color}14` : C.surface }}
                 >
                   <span style={{ flex: "none", width: 30, height: 30, borderRadius: 8, display: "grid", placeItems: "center", background: `${a.color}22`, color: a.color }}>
                     <Icon size={15} />
@@ -269,7 +269,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
         <main style={{ minWidth: 0 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 4 }}>
             <h4 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 16, color: C.textInk }}>{cur.title}</h4>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: cur.isRead ? "#F1F5F9" : C.cobaltSoft, color: cur.isRead ? C.slate : C.cobalt }}>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: cur.isRead ? C.neutralSoft : C.cobaltSoft, color: cur.isRead ? C.slate : C.cobalt }}>
               {cur.isRead ? "Only reads" : "Makes a change"}
             </span>
             <span style={{ fontSize: 11, fontFamily: FONT_MONO, padding: "2px 8px", borderRadius: 99, background: `${area_.color}18`, color: area_.color }}>
@@ -283,7 +283,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
               ["Cost", cur.isRead ? "Free" : "May use credits"],
               [null, cur.needsId ? "Works on one item: needs an id" : "No id needed"],
             ].map(([label, value], i) => (
-              <span key={i} style={{ background: "#F1F5F9", borderRadius: 6, padding: "3px 9px", fontSize: 11.5, color: C.slate }}>
+              <span key={i} style={{ background: C.neutralSoft, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, color: C.slate }}>
                 {label ? `${label}: ` : ""}
                 <b style={{ color: C.textInk }}>{value}</b>
               </span>
@@ -298,7 +298,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
                 {Object.keys(data).length > 0 && (
                   <span style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 7, overflow: "hidden" }}>
                     {[["Form", false], ["JSON", true]].map(([label, mode]) => (
-                      <button key={label} type="button" onClick={() => setJsonMode(mode)} style={{ border: 0, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", background: jsonMode === mode ? C.cobalt : "#fff", color: jsonMode === mode ? "#fff" : C.slate }}>
+                      <button key={label} type="button" onClick={() => setJsonMode(mode)} style={{ border: 0, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", background: jsonMode === mode ? C.cobalt : C.surface, color: jsonMode === mode ? C.onAccent : C.slate }}>
                         {label}
                       </button>
                     ))}
@@ -316,7 +316,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
                   <label style={{ display: "grid", gap: 3, fontSize: 12, fontWeight: 600, color: C.textInk }}>
                     data (JSON)
                     <textarea value={dataText} onChange={(e) => setDataText(e.target.value)} rows={9} spellCheck={false} style={{ borderRadius: 8, border: `1px solid ${dataValid ? C.border : "#DC2626"}`, padding: 8, fontSize: 11.5, fontFamily: FONT_MONO, outline: "none", resize: "vertical" }} />
-                    {!dataValid && <span style={{ color: "#DC2626", fontWeight: 400 }}>That is not valid JSON yet.</span>}
+                    {!dataValid && <span style={{ color: C.redSolid, fontWeight: 400 }}>That is not valid JSON yet.</span>}
                   </label>
                 ) : fields.length > 0 ? (
                   <>
@@ -338,7 +338,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
                 type="button"
                 onClick={send}
                 disabled={sending || !dataValid}
-                style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 6, background: C.cobalt, color: "#fff", border: 0, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: sending || !dataValid ? "not-allowed" : "pointer", opacity: sending || !dataValid ? 0.6 : 1 }}
+                style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 6, background: C.cobalt, color: C.onAccent, border: 0, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: sending || !dataValid ? "not-allowed" : "pointer", opacity: sending || !dataValid ? 0.6 : 1 }}
               >
                 <Send size={13} /> {sending ? "Sending…" : isTest || !apiKey ? "Send as test request" : "Send live request"}
               </button>
@@ -357,7 +357,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
               <div style={{ ...heading, marginTop: 12 }}>
                 <span>3. What comes back</span>
                 {response && (
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: response.ok ? "#059669" : "#DC2626" }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: response.ok ? "#059669" : C.redSolid }}>
                     {response.status || "ERR"} {response.statusText} · {response.durationMs} ms
                   </span>
                 )}
@@ -366,7 +366,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
                 {response ? (typeof response.data === "string" ? response.data : JSON.stringify(response.data, null, 2)) : "Press the send button to see the answer."}
               </pre>
               {response && response.status === 402 && (
-                <div style={{ marginTop: 8, display: "flex", gap: 6, fontSize: 11.5, color: "#B45309" }}>
+                <div style={{ marginTop: 8, display: "flex", gap: 6, fontSize: 11.5, color: C.warning }}>
                   <AlertCircle size={13} style={{ flex: "none", marginTop: 1 }} /> Your key works, but the account needs an active plan or more credits for this step.
                 </div>
               )}
@@ -379,7 +379,7 @@ export function BuildTestPanel({ apiKey, onApiKeyChange }) {
               <span>4. Copy the code</span>
               <span style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                 {LANGS.map(([id, label]) => (
-                  <button key={id} type="button" onClick={() => setLang(id)} style={{ ...smallBtn, background: lang === id ? C.cobaltSoft : "#fff", borderColor: lang === id ? C.cobalt : C.border, color: lang === id ? C.cobalt : C.slate }}>
+                  <button key={id} type="button" onClick={() => setLang(id)} style={{ ...smallBtn, background: lang === id ? C.cobaltSoft : C.surface, borderColor: lang === id ? C.cobalt : C.border, color: lang === id ? C.cobalt : C.slate }}>
                     {label}
                   </button>
                 ))}

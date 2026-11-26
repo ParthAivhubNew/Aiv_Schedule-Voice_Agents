@@ -239,17 +239,17 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
   return (
     <div style={{ minHeight: "100vh", background: HUB_PAPER, fontFamily: FONT_BODY, display: "flex", flexDirection: "column" }}>
       {/* Top Header */}
-      <header style={{ background: "#fff", borderBottom: `1px solid ${C.border}`, padding: "14px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "14px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button
             onClick={onBackToHub}
-            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: C.surface, borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
           >
             <ChevronLeft size={15} /> Back to Hub
           </button>
           <div style={{ height: 24, width: 1, background: C.border }} />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg, #10B981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 2px 8px rgba(16,185,129,0.25)" }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg, #10B981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", color: C.onAccent, boxShadow: "0 2px 8px rgba(16,185,129,0.25)" }}>
               <CalendarCheck size={18} />
             </div>
             <div>
@@ -268,7 +268,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Host Mail ID Badge */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 12px", fontSize: 12 }}>
             <Mail size={14} color={C.slate} />
             <span style={{ color: C.slate }}>Host Mail:</span>
             <strong style={{ color: C.ink }}>{settings?.host_email || "admin@aivhub.io"}</strong>
@@ -279,7 +279,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
             display: "flex",
             alignItems: "center",
             gap: 6,
-            background: statusInfo?.api_valid ? "#ECFDF5" : "#EFF6FF",
+            background: statusInfo?.api_valid ? "#ECFDF5" : C.infoBg,
             border: `1px solid ${statusInfo?.api_valid ? "#A7F3D0" : "#BFDBFE"}`,
             borderRadius: 8,
             padding: "6px 12px",
@@ -293,7 +293,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
           {/* Open Universal Config */}
           <button
             onClick={onOpenCommonAi}
-            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: C.surface, borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
             title="Configure Cal.com API key, host mail, and working hours"
           >
             <Settings size={14} color={C.cobalt} />
@@ -303,7 +303,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
           {accountBar || (
           <button
             onClick={onLogout}
-            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: C.surface, borderRadius: 8, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
           >
             <LogOut size={14} />
           </button>
@@ -312,7 +312,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       </header>
 
       {/* Navigation — email preview only; bookings/slots live in Calling → Schedule */}
-      <div style={{ display: "flex", gap: 6, padding: "0 32px", borderBottom: `1px solid ${C.border}`, background: "#fff" }}>
+      <div style={{ display: "flex", gap: 6, padding: "0 32px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
         {[
           { id: "comms", label: "Email preview", icon: Mail },
         ].map((t) => {
@@ -376,7 +376,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ display: "flex", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: 3 }}>
+                <div style={{ display: "flex", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 3 }}>
                   {["all", "upcoming", "completed", "cancelled"].map((st) => (
                     <button
                       key={st}
@@ -384,7 +384,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                       style={{
                         border: "none",
                         background: statusFilter === st ? "#10B981" : "transparent",
-                        color: statusFilter === st ? "#fff" : C.slate,
+                        color: statusFilter === st ? C.onAccent : C.slate,
                         padding: "5px 12px",
                         borderRadius: 6,
                         fontSize: 12,
@@ -405,7 +405,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                     alignItems: "center",
                     gap: 6,
                     background: "#10B981",
-                    color: "#fff",
+                    color: C.onAccent,
                     border: "none",
                     borderRadius: 8,
                     padding: "8px 16px",
@@ -422,7 +422,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
 
             {/* Bookings Grid / Table */}
             {filteredBookings.length === 0 ? (
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
                 <CalendarCheck size={40} color={C.slateLight} style={{ margin: "0 auto 12px" }} />
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>No scheduled meetings found</div>
                 <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>
@@ -436,7 +436,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                     alignItems: "center",
                     gap: 6,
                     background: "#10B981",
-                    color: "#fff",
+                    color: C.onAccent,
                     border: "none",
                     borderRadius: 8,
                     padding: "8px 18px",
@@ -457,7 +457,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                     <div
                       key={m.id}
                       style={{
-                        background: "#fff",
+                        background: C.surface,
                         border: `1px solid ${isCancelled ? "#FEE2E2" : C.border}`,
                         borderRadius: 12,
                         padding: "16px 20px",
@@ -474,17 +474,17 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                           width: 54,
                           height: 54,
                           borderRadius: 10,
-                          background: isCancelled ? "#FEF2F2" : "#ECFDF5",
+                          background: isCancelled ? C.dangerBg : "#ECFDF5",
                           border: `1px solid ${isCancelled ? "#FCA5A5" : "#A7F3D0"}`,
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "center",
                           justifyContent: "center"
                         }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: isCancelled ? "#DC2626" : "#059669", textTransform: "uppercase" }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isCancelled ? C.redSolid : "#059669", textTransform: "uppercase" }}>
                             {m.date ? new Date(m.date).toLocaleString('en-US', { month: 'short' }) : "MEET"}
                           </span>
-                          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: isCancelled ? "#DC2626" : "#065F46" }}>
+                          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: isCancelled ? C.redSolid : "#065F46" }}>
                             {m.date ? m.date.split("-")[2] : "--"}
                           </span>
                         </div>
@@ -500,7 +500,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                               padding: "2px 7px",
                               borderRadius: 6,
                               background: isCancelled ? "#FEE2E2" : (isUpcoming ? "#ECFDF5" : "#F1F5F9"),
-                              color: isCancelled ? "#DC2626" : (isUpcoming ? "#059669" : C.slate)
+                              color: isCancelled ? C.redSolid : (isUpcoming ? "#059669" : C.slate)
                             }}>
                               {m.status}
                             </span>
@@ -537,10 +537,10 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                           </span>
                         </div>
                         <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>
-                          Ref: <code style={{ fontFamily: FONT_MONO, background: "#F1F5F9", padding: "1px 5px", borderRadius: 4 }}>{m.calcomBookingId || m.id}</code>
+                          Ref: <code style={{ fontFamily: FONT_MONO, background: C.neutralSoft, padding: "1px 5px", borderRadius: 4 }}>{m.calcomBookingId || m.id}</code>
                           {m.prep && <span style={{ marginLeft: 8 }}>— {m.prep}</span>}
                           {m.cancellationReason && (
-                            <span style={{ color: "#DC2626", marginLeft: 8 }}>
+                            <span style={{ color: C.redSolid, marginLeft: 8 }}>
                               Cancelled: "{m.cancellationReason}"
                             </span>
                           )}
@@ -580,7 +580,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                             alignItems: "center",
                             gap: 4,
                             border: `1px solid ${C.border}`,
-                            background: "#fff",
+                            background: C.surface,
                             borderRadius: 8,
                             padding: "7px 10px",
                             fontSize: 12,
@@ -600,8 +600,8 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                             }}
                             style={{
                               border: "1px solid #FECACA",
-                              background: "#FEF2F2",
-                              color: "#DC2626",
+                              background: C.dangerBg,
+                              color: C.redSolid,
                               borderRadius: 8,
                               padding: "7px 12px",
                               fontSize: 12,
@@ -624,7 +624,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
         {/* TAB 2: DIRECT BOOK & SLOTS */}
         {false && activeTab === "directBook" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 24 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px" }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
                 1. Select Date & Event Type
               </div>
@@ -642,7 +642,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                       onClick={() => setSelectedEventType(et.slug)}
                       style={{
                         border: selected ? "2px solid #10B981" : `1px solid ${C.border}`,
-                        background: selected ? "#ECFDF5" : "#fff",
+                        background: selected ? "#ECFDF5" : C.surface,
                         borderRadius: 8,
                         padding: "10px 8px",
                         textAlign: "center",
@@ -701,7 +701,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                         padding: "5px 8px",
                         borderRadius: 6,
                         border: `1px solid ${selectedDate === dtStr ? "#10B981" : C.border}`,
-                        background: selectedDate === dtStr ? "#ECFDF5" : "#fff",
+                        background: selectedDate === dtStr ? "#ECFDF5" : C.surface,
                         color: selectedDate === dtStr ? "#059669" : C.slate,
                         fontSize: 11.5,
                         fontWeight: 600,
@@ -729,7 +729,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                   Calculating slot availability...
                 </div>
               ) : slots.length === 0 ? (
-                <div style={{ padding: "24px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, textAlign: "center", color: "#DC2626", fontSize: 12.5 }}>
+                <div style={{ padding: "24px", background: C.dangerBg, border: "1px solid #FECACA", borderRadius: 8, textAlign: "center", color: C.redSolid, fontSize: 12.5 }}>
                   No open slots on this date (weekend or non-working day).
                 </div>
               ) : (
@@ -745,7 +745,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                         style={{
                           border: isSelected ? "2px solid #10B981" : `1px solid ${C.border}`,
                           background: isSelected ? "#10B981" : (s.available ? "#fff" : "#F8FAFC"),
-                          color: isSelected ? "#fff" : (s.available ? C.ink : C.slateLight),
+                          color: isSelected ? C.onAccent : (s.available ? C.ink : C.slateLight),
                           padding: "8px 6px",
                           borderRadius: 7,
                           fontFamily: FONT_MONO,
@@ -764,7 +764,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               )}
             </div>
 
-            <form onSubmit={handleDirectBook} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <form onSubmit={handleDirectBook} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 4 }}>
                   2. Attendee & Meeting Details
@@ -773,7 +773,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                   Meeting confirmation & Google Meet invite will be automatically dispatched to attendee and host mail IDs.
                 </div>
 
-                <div style={{ background: selectedSlot ? "#ECFDF5" : "#F8FAFC", border: `1px solid ${selectedSlot ? "#A7F3D0" : C.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ background: selectedSlot ? "#ECFDF5" : C.neutralBg, border: `1px solid ${selectedSlot ? "#A7F3D0" : C.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: selectedSlot ? "#059669" : C.slate, textTransform: "uppercase" }}>
                       Selected Slot
@@ -783,7 +783,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                     </div>
                   </div>
                   {selectedSlot && (
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#059669", background: "#fff", padding: "4px 8px", borderRadius: 6, border: "1px solid #A7F3D0" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#059669", background: C.surface, padding: "4px 8px", borderRadius: 6, border: "1px solid #A7F3D0" }}>
                       Ready to Book
                     </span>
                   )}
@@ -851,7 +851,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                       border: `1px solid ${C.border}`,
                       fontSize: 13,
                       fontFamily: FONT_MONO,
-                      background: "#F8FAFC"
+                      background: C.neutralBg
                     }}
                   />
                   <div style={{ fontSize: 11, color: C.slate, marginTop: 3 }}>
@@ -891,7 +891,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                   borderRadius: 8,
                   border: "none",
                   background: (!selectedSlot || bookingInProgress) ? C.slateLight : "#10B981",
-                  color: "#fff",
+                  color: C.onAccent,
                   fontFamily: FONT_DISPLAY,
                   fontSize: 14,
                   fontWeight: 700,
@@ -942,7 +942,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                   alignItems: "center",
                   gap: 6,
                   background: "#10B981",
-                  color: "#fff",
+                  color: C.onAccent,
                   border: "none",
                   borderRadius: 8,
                   padding: "8px 16px",
@@ -960,7 +960,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                 <div
                   key={et.id}
                   style={{
-                    background: "#fff",
+                    background: C.surface,
                     border: `1px solid ${C.border}`,
                     borderRadius: 12,
                     padding: "18px 20px",
@@ -1006,7 +1006,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                         alignItems: "center",
                         gap: 6,
                         border: `1px solid ${C.border}`,
-                        background: "#fff",
+                        background: C.surface,
                         borderRadius: 6,
                         padding: "5px 10px",
                         fontSize: 12,
@@ -1043,7 +1043,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                         style={{
                           border: "none",
                           background: "transparent",
-                          color: "#DC2626",
+                          color: C.redSolid,
                           padding: 5,
                           cursor: "pointer"
                         }}
@@ -1061,7 +1061,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
 
         {/* TAB 4: AVAILABILITY */}
         {false && activeTab === "availability" && (
-          <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px", maxWidth: 800 }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px", maxWidth: 800 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
@@ -1073,7 +1073,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               </div>
               <button
                 onClick={onOpenCommonAi}
-                style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, color: C.cobalt, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: C.surface, borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, color: C.cobalt, cursor: "pointer" }}
               >
                 <Settings size={14} /> Full calendar config
               </button>
@@ -1118,7 +1118,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                         padding: "8px 14px",
                         borderRadius: 8,
                         border: `1px solid ${active ? "#A7F3D0" : C.border}`,
-                        background: active ? "#ECFDF5" : "#F8FAFC",
+                        background: active ? "#ECFDF5" : C.neutralBg,
                         color: active ? "#065F46" : C.slateLight,
                         fontSize: 12.5,
                         fontWeight: 700
@@ -1131,7 +1131,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               </div>
             </div>
 
-            <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Buffer Periods</div>
                 <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
@@ -1148,11 +1148,11 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
         {/* TAB 5: COMMS */}
         {activeTab === "comms" && (
           <div style={{ display: "grid", gap: 16 }}>
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 18px", fontSize: 13, color: C.slate }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 18px", fontSize: 13, color: C.slate }}>
               Bookings, slots, and availability live in <strong style={{ color: C.ink }}>Calling → Schedule</strong>. This view is for the meeting email template only.
             </div>
             <MeetingInvitePreview />
-            <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "24px 28px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
               <div>
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
@@ -1164,7 +1164,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               </div>
               <button
                 onClick={loadData}
-                style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, color: C.slate, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, background: C.surface, borderRadius: 8, padding: "6px 12px", fontSize: 12, color: C.slate, cursor: "pointer" }}
               >
                 <RefreshCw size={13} /> Refresh Log
               </button>
@@ -1218,7 +1218,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       {/* Booking Success Modal */}
       {bookingSuccessModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 16, width: 520, padding: "28px 32px", boxShadow: "0 24px 48px rgba(0,0,0,0.2)" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: 520, padding: "28px 32px", boxShadow: "0 24px 48px rgba(0,0,0,0.2)" }}>
             <div style={{ width: 48, height: 48, borderRadius: 12, background: "#ECFDF5", color: "#059669", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <CheckCircle2 size={28} />
             </div>
@@ -1269,7 +1269,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                 width: "100%",
                 padding: "11px",
                 background: "#10B981",
-                color: "#fff",
+                color: C.onAccent,
                 border: "none",
                 borderRadius: 8,
                 fontFamily: FONT_DISPLAY,
@@ -1287,7 +1287,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       {/* Cancellation Modal */}
       {cancellingBooking && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 16, width: 460, padding: "24px 28px" }}>
+          <div style={{ background: C.surface, borderRadius: 16, width: 460, padding: "24px 28px" }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink, marginBottom: 6 }}>
               Cancel Scheduled Meeting
             </div>
@@ -1319,14 +1319,14 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               <button
                 type="button"
                 onClick={() => setCancellingBooking(null)}
-                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
               >
                 Keep Meeting
               </button>
               <button
                 type="button"
                 onClick={handleConfirmCancel}
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#DC2626", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.redSolid, color: C.onAccent, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
               >
                 Confirm Cancellation
               </button>
@@ -1338,7 +1338,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
       {/* Add / Edit Event Type Modal */}
       {showEventModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-          <form onSubmit={handleCreateOrUpdateEventType} style={{ background: "#fff", borderRadius: 16, width: 480, padding: "24px 28px" }}>
+          <form onSubmit={handleCreateOrUpdateEventType} style={{ background: C.surface, borderRadius: 16, width: 480, padding: "24px 28px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.ink }}>
                 {editingEvent ? "Edit Event Type" : "Create New Event Type"}
@@ -1390,13 +1390,13 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
               <button
                 type="button"
                 onClick={() => setShowEventModal(false)}
-                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.slate, cursor: "pointer" }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#10B981", color: C.onAccent, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
               >
                 Save Event Type
               </button>

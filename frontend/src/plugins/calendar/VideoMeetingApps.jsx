@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Loader } from "../../app/Loader";
 import { api } from "../../api/apiClient";
+import { C } from "../../tokens";
 
 const NOTE = { fontSize: 12, color: "#64748B" };
 
@@ -44,7 +45,7 @@ export function VideoMeetingApps() {
 
   const btn = (primary) => ({
     height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
-    border: primary ? "none" : "1px solid #CBD5E1", background: primary ? "#0F172A" : "#fff", color: primary ? "#fff" : "#334155",
+    border: primary ? "none" : "1px solid #CBD5E1", background: primary ? "#0F172A" : C.surface, color: primary ? C.onAccent : "#334155",
   });
 
   return (
@@ -60,13 +61,13 @@ export function VideoMeetingApps() {
       {providers === null && <Loader compact label="Loading" />}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
         {(providers || []).map((p) => (
-          <div key={p.provider} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 12, padding: 16, display: "grid", gap: 10 }}>
+          <div key={p.provider} style={{ background: C.surface, border: "1px solid #E2E8F0", borderRadius: 12, padding: 16, display: "grid", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <div style={{ fontWeight: 700, color: "#0F172A" }}>{p.label}</div>
               {p.connected && <span style={{ fontSize: 11, fontWeight: 700, color: "#059669" }}>● Connected</span>}
             </div>
             {p.connected && <div style={NOTE}>{p.account || "Signed in"}</div>}
-            {!p.connected && p.error && <div style={{ ...NOTE, color: "#B91C1C" }}>{p.error}</div>}
+            {!p.connected && p.error && <div style={{ ...NOTE, color: C.dangerInk }}>{p.error}</div>}
             {p.connected ? (
               <button type="button" style={{ ...btn(false), justifySelf: "start" }} onClick={() => disconnect(p.provider)}>Disconnect</button>
             ) : p.configured ? (

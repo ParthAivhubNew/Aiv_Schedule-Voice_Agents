@@ -367,7 +367,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
         {/* Persistent List of Connected Custom APIs (Never Vanishes!) */}
         {savedForPlugin.length > 0 && (
-          <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 18px" }}>
+          <div style={{ background: C.neutralBg, border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 18px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 999, background: "#10B981" }} />
@@ -385,7 +385,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 <div
                   key={conn.id}
                   style={{
-                    background: "#fff",
+                    background: C.surface,
                     border: `1px solid ${C.border}`,
                     borderRadius: 8,
                     padding: "10px 14px",
@@ -420,9 +420,9 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       onClick={() => handleRemoveCustomConnection(conn.id, conn.pluginId, conn.featureKey)}
                       style={{
                         fontSize: 11,
-                        color: "#DC2626",
+                        color: C.redSolid,
                         border: "1px solid #FECACA",
-                        background: "#FEF2F2",
+                        background: C.dangerBg,
                         padding: "5px 10px",
                         borderRadius: 6,
                         cursor: "pointer",
@@ -439,7 +439,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
         )}
 
         {/* Add Custom API Form Card */}
-        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, display: "flex", alignItems: "center", gap: 6 }}>
@@ -457,7 +457,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 padding: "5px 12px",
                 borderRadius: 6,
                 border: `1px solid ${C.border}`,
-                background: showCustomDrawer ? C.paperSoft : "#fff",
+                background: showCustomDrawer ? C.paperSoft : C.surface,
                 fontSize: 12,
                 fontWeight: 600,
                 color: C.ink,
@@ -478,7 +478,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                   <select
                     value={customFeatureKey || layers[0]?.key}
                     onChange={(e) => setCustomFeatureKey(e.target.value)}
-                    style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                    style={{ width: "100%", height: 36, padding: "0 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.surface }}
                   >
                     {layers.map((l) => (
                       <option key={l.key} value={l.key}>{l.label}</option>
@@ -496,7 +496,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                     value={customProviderName}
                     onChange={(e) => setCustomProviderName(e.target.value)}
                     placeholder="Type or pick any provider..."
-                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }}
+                    style={{ width: "100%", boxSizing: "border-box", height: 36, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.surface }}
                   />
                   <datalist id="custom-provider-suggestions">
                     <option value="OpenAI Compatible" />
@@ -578,7 +578,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       borderRadius: 6,
                       fontSize: 12,
                       fontWeight: 700,
-                      background: customNotice.type === "success" ? "#ECFDF5" : "#FEF2F2",
+                      background: customNotice.type === "success" ? "#ECFDF5" : C.dangerBg,
                       color: customNotice.type === "success" ? "#065F46" : "#991B1B",
                       border: `1px solid ${customNotice.type === "success" ? "#A7F3D0" : "#FECACA"}`,
                     }}>
@@ -594,7 +594,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                     padding: "8px 20px",
                     borderRadius: 7,
                     background: C.ink,
-                    color: "#fff",
+                    color: C.onAccent,
                     fontSize: 12.5,
                     fontWeight: 600,
                     border: "none",
@@ -733,12 +733,12 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                     <span style={{
                       fontSize: 11,
                       fontWeight: 600,
-                      color: "#DC2626",
+                      color: C.redSolid,
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4
                     }}>
-                      <span style={{ width: 5, height: 5, borderRadius: 999, background: "#DC2626" }} />
+                      <span style={{ width: 5, height: 5, borderRadius: 999, background: C.redSolid }} />
                       Key Needed ({matchedProv?.name || provId})
                     </span>
                   )}
@@ -770,7 +770,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       fontSize: 12,
                       fontWeight: 600,
                       fontFamily: FONT_BODY,
-                      background: "#fff",
+                      background: C.surface,
                       color: C.ink,
                     }}
                     title="What will be displayed in the software interface"
@@ -798,7 +798,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       fontSize: 12,
                       fontWeight: 600,
                       fontFamily: FONT_MONO,
-                      background: isCustomModel ? "#FBFBFF" : "#fff",
+                      background: isCustomModel ? "#FBFBFF" : C.surface,
                       color: C.ink,
                     }}
                     title="Exact model name available by the provider"
@@ -837,7 +837,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
       <div
         onClick={embedded ? undefined : (e) => e.stopPropagation()}
         style={{
-        background: "#fff",
+        background: C.surface,
         borderRadius: embedded ? 16 : 18,
         width: embedded ? "100%" : 980,
         maxWidth: embedded ? "100%" : "96vw",
@@ -867,7 +867,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${C.cobalt}, ${C.teal})`, display: "flex", alignItems: "center", justifyContent: "center", color: C.onAccent, boxShadow: "0 4px 12px rgba(52,87,213,0.25)" }}>
               <Settings2 size={20} />
             </div>
             <div>
@@ -893,10 +893,10 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
 
         {/* Plugin tabs only when opened from Hub (all plugins). In-plugin: header title is enough. */}
         {!scopePlugin ? (
-        <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 6, padding: "0 24px", borderBottom: `1px solid ${C.border}`, background: C.surface, overflowX: "auto" }}>
           {[
             { id: "leadgen", label: "Leads", icon: Search, color: "#8B5CF6" },
-            { id: "email", label: "Email Outreach", icon: Mail, color: "#F59E0B" },
+            { id: "email", label: "Email Outreach", icon: Mail, color: C.warningBright },
             { id: "voice", label: "Voice", icon: PhoneCall, color: C.cobalt },
             { id: "subscription", label: "Usage & Quotas", icon: BarChart3, color: C.slate },
           ].map((t) => {
@@ -954,7 +954,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 {onNavigateToPlugin && (
                   <button
                     onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: C.surface, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                   >
                     Open Plugin <ChevronRight size={13} />
                   </button>
@@ -980,9 +980,9 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
           {tab === "email" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-              <div style={{ background: "#FFFBEB", border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ background: C.warningBg, border: `1px solid #FDE68A`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Mail size={18} color="#F59E0B" />
+                  <Mail size={18} color={C.warningBright} />
                   <div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink }}>
                       Email Outreach AI Configuration
@@ -995,7 +995,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 {onNavigateToPlugin && (
                   <button
                     onClick={() => { onNavigateToPlugin("leadgen"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: C.surface, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                   >
                     Open Plugin <ChevronRight size={13} />
                   </button>
@@ -1021,7 +1021,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
           {tab === "voice" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {!scopePlugin ? (
-              <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ background: C.infoBg, border: `1px solid #BFDBFE`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PhoneCall size={18} color={C.cobalt} />
                   <div>
@@ -1036,7 +1036,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 {onNavigateToPlugin && (
                   <button
                     onClick={() => { onNavigateToPlugin("voice"); onClose(); }}
-                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                    style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, background: C.surface, border: `1px solid ${C.border}`, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                   >
                     Open Plugin <ChevronRight size={13} />
                   </button>
@@ -1054,7 +1054,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
               </div>
 
               {liveHub && (
-                <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 16px" }}>
+                <div style={{ background: C.infoBg, border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 16px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#1E40AF", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Live on server</div>
                   <div style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
                     {liveStackLabels(liveHub).engine} · LLM {liveStackLabels(liveHub).llm} · STT {liveStackLabels(liveHub).stt} · TTS {liveStackLabels(liveHub).tts} · {liveStackLabels(liveHub).carrier}
@@ -1072,7 +1072,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
           {tab === "subscription" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Tenant & Budget Card */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1120,7 +1120,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                         padding: "6px 11px",
                         borderRadius: 8,
                         border: `1px solid ${C.border}`,
-                        background: "#fff",
+                        background: C.surface,
                         color: C.slate,
                         fontSize: 12,
                         fontWeight: 600,
@@ -1216,7 +1216,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                 <div style={{ background: HUB_PAPER, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Mail size={15} color="#F59E0B" />
+                      <Mail size={15} color={C.warningBright} />
                       <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Outreach Emails</span>
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#D97706" }}>Email Outreach</span>
@@ -1265,7 +1265,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
               </div>
 
               {/* Plugin Breakdown Table with Actual Data */}
-              <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
                 <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span>Usage Distribution Across Apps</span>
                   <span style={{ fontSize: 12, fontWeight: 500, color: C.slate }}>Live metered metrics</span>
@@ -1295,7 +1295,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
 
               {/* Connected Infrastructure List */}
               {usageStats?.connections && usageStats.connections.length > 0 && (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 10 }}>
                     Connected Infrastructure & Providers ({usageStats.connections.length})
                   </div>
@@ -1342,7 +1342,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
               padding: "9px 24px",
               borderRadius: 8,
               background: C.ink,
-              color: "#fff",
+              color: C.onAccent,
               fontFamily: FONT_BODY,
               fontSize: 13,
               fontWeight: 600,

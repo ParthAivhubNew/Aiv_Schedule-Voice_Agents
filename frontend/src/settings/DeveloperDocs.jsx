@@ -24,7 +24,7 @@ import { API_BASE, ENDPOINTS, ERRORS, GROUPS, IDEAS, STEPS, RUN_ACTIONS, runRequ
 import { snippetsFor } from "./developerSnippets";
 
 const cardStyle = {
-  background: "#fff",
+  background: C.surface,
   border: `1px solid ${C.borderLight}`,
   borderRadius: 12,
   padding: 18,
@@ -95,9 +95,9 @@ const SAMPLE_ERROR = {
 
 const SERVICE_BADGES = {
   voice: { label: "Voice AI", bg: "#ECFDF5", color: "#059669", border: "#A7F3D0", icon: Phone },
-  leads: { label: "Lead Gen", bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE", icon: Users },
+  leads: { label: "Lead Gen", bg: C.infoBg, color: C.info, border: "#BFDBFE", icon: Users },
   social: { label: "Social", bg: "#F5F3FF", color: "#7C3AED", border: "#DDD6FE", icon: Megaphone },
-  account: { label: "Account", bg: "#FFFBEB", color: "#D97706", border: "#FDE68A", icon: Wallet },
+  account: { label: "Account", bg: C.warningBg, color: "#D97706", border: "#FDE68A", icon: Wallet },
 };
 
 function JsonBox({ value }) {
@@ -176,7 +176,7 @@ function EndpointAccordion({ ep, apiKey }) {
           flexWrap: "wrap",
           width: "100%",
           textAlign: "left",
-          background: open ? "#FAFBFD" : "#fff",
+          background: open ? "#FAFBFD" : C.surface,
           border: "none",
           padding: "12px 16px",
           cursor: "pointer",
@@ -288,7 +288,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
           gap: 6,
-          backgroundColor: "#F1F5F9",
+          backgroundColor: C.neutralSoft,
           padding: 4,
           borderRadius: 10,
           border: `1px solid ${C.borderLight}`,
@@ -315,7 +315,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
                 padding: "8px 10px",
                 borderRadius: 7,
                 border: "none",
-                background: isActive ? "#fff" : "transparent",
+                background: isActive ? C.surface : "transparent",
                 color: isActive ? C.cobalt : C.slate,
                 fontWeight: isActive ? 700 : 600,
                 fontSize: 12.5,
@@ -341,7 +341,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
               padding: "20px 24px",
               borderRadius: 14,
               background: "linear-gradient(135deg, #1E293B 0%, #0F172A 100%)",
-              color: "#fff",
+              color: C.onAccent,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -478,7 +478,7 @@ print("Call Dispatched:", res.json())`,
               padding: "20px 24px",
               borderRadius: 14,
               background: "linear-gradient(135deg, #0F766E 0%, #115E59 100%)",
-              color: "#fff",
+              color: C.onAccent,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -543,7 +543,7 @@ print("Call Dispatched:", res.json())`,
                       height: 24,
                       borderRadius: 6,
                       backgroundColor: C.cobalt,
-                      color: "#fff",
+                      color: C.onAccent,
                       fontSize: 12,
                       fontWeight: 700,
                       display: "flex",
@@ -576,7 +576,7 @@ print("Call Dispatched:", res.json())`,
                 style={{
                   fontFamily: FONT_MONO,
                   fontSize: 11,
-                  backgroundColor: "#F1F5F9",
+                  backgroundColor: C.neutralSoft,
                   padding: "4px 8px",
                   borderRadius: 6,
                   color: C.slate,
@@ -623,7 +623,7 @@ print("Call Dispatched:", res.json())`,
                       fontWeight: 600,
                       cursor: "pointer",
                       border: `1px solid ${sampleEventTab === s.id ? s.badge.border : C.borderLight}`,
-                      backgroundColor: sampleEventTab === s.id ? s.badge.bg : "#fff",
+                      backgroundColor: sampleEventTab === s.id ? s.badge.bg : C.surface,
                       color: sampleEventTab === s.id ? s.badge.color : C.slate,
                     }}
                   >
@@ -744,8 +744,8 @@ print("Call Dispatched:", res.json())`,
                       padding: "5px 12px",
                       borderRadius: 99,
                       border: `1px solid ${isSelected ? C.cobalt : C.borderLight}`,
-                      backgroundColor: isSelected ? C.cobalt : "#fff",
-                      color: isSelected ? "#fff" : C.textInk,
+                      backgroundColor: isSelected ? C.cobalt : C.surface,
+                      color: isSelected ? C.onAccent : C.textInk,
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: "pointer",
@@ -758,8 +758,8 @@ print("Call Dispatched:", res.json())`,
                         fontSize: 10.5,
                         padding: "1px 6px",
                         borderRadius: 99,
-                        backgroundColor: isSelected ? "rgba(255,255,255,0.25)" : "#F1F5F9",
-                        color: isSelected ? "#fff" : C.slate,
+                        backgroundColor: isSelected ? "rgba(255,255,255,0.25)" : C.neutralSoft,
+                        color: isSelected ? C.onAccent : C.slate,
                         fontWeight: 700,
                       }}
                     >
@@ -798,7 +798,7 @@ print("Call Dispatched:", res.json())`,
           <div style={{ ...cardStyle, padding: 0, overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead>
-                <tr style={{ backgroundColor: "#F8FAFC", borderBottom: `1px solid ${C.borderLight}` }}>
+                <tr style={{ backgroundColor: C.neutralBg, borderBottom: `1px solid ${C.borderLight}` }}>
                   <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Error Code</th>
                   <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>HTTP Status</th>
                   <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Meaning & Remediation</th>
@@ -807,7 +807,7 @@ print("Call Dispatched:", res.json())`,
               <tbody>
                 {ERRORS.map(([code, status, text]) => (
                   <tr key={code} style={{ borderBottom: `1px solid ${C.borderLight}` }}>
-                    <td style={{ padding: "10px 14px", fontFamily: FONT_MONO, fontWeight: 700, color: "#DC2626" }}>
+                    <td style={{ padding: "10px 14px", fontFamily: FONT_MONO, fontWeight: 700, color: C.redSolid }}>
                       {code}
                     </td>
                     <td style={{ padding: "10px 14px", fontFamily: FONT_MONO, color: C.slate }}>
