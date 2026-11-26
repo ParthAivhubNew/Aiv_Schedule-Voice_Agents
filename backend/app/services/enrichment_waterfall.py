@@ -115,6 +115,11 @@ async def finder_keys() -> Dict[str, str]:
                     found[prov] = key.strip()
     except Exception as err:
         logger.warning(f"Email Finder keys not read: {err}")
+    for p in _registry.email_finders():  # a finder set up in the portal keeps its key with its settings
+        if p.manifest.id not in found and _registry.is_settings_made(p.manifest.id):
+            key = await p.saved_key()
+            if key:
+                found[p.manifest.id] = key
     if "apollo" not in found:  # the key staff saved for Apollo's company data (Business Discovery), or a backup key, also opens its people search
         try:
             from app.services import apollo_pool
@@ -158,6 +163,17 @@ def _check(res: httpx.Response, provider: str) -> Any:
 
 # Each adapter: (client, key, person) -> (email, status), status "verified", "catch_all" or "" (none): the provider's own find_email.
 ADAPTERS = {p.manifest.id: p.find_email for p in _registry.email_finders()}
+
+
+def refresh_finders() -> None:
+    """Brings PROVIDERS, LABELS and ADAPTERS up to date after staff add, change or remove a settings-made finder
+    (providers/generic_http.py). Changed in place: other modules hold these very objects."""
+    finders = _registry.email_finders()
+    PROVIDERS[:] = [p.manifest.id for p in finders]
+    LABELS.clear()
+    LABELS.update({p.manifest.id: p.manifest.name for p in finders})
+    ADAPTERS.clear()
+    ADAPTERS.update({p.manifest.id: p.find_email for p in finders})
 
 
 async def _ask_finder(provider: str, client: httpx.AsyncClient, key: str, p: Dict[str, str]):

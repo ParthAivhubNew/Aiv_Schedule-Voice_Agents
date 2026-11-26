@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, Table, btn, cell, heading, useLoad } from "./ui";
+import { CustomFinders } from "./CustomFinders";
 
 // Every outside data provider the app knows: one file each under backend/app/providers, found automatically. Its manifest says
 // what it offers, where its key is saved, what it costs us, what we may do with its data, and which credit item clients pay.
@@ -44,7 +45,7 @@ export function Providers() {
               return (
                 <tr key={p.id}>
                   <td style={cell}>
-                    <div style={{ fontWeight: 600 }}>{p.name}</div>
+                    <div style={{ fontWeight: 600 }}>{p.name}{p.settingsMade ? <span style={{ fontSize: 11.5, fontWeight: 500, color: C.slate }}> · set up here</span> : null}</div>
                     <div style={{ fontSize: 12, color: C.slate }}>{(p.provides || []).join(", ")}{p.note ? ` · ${p.note}` : ""}</div>
                   </td>
                   <td style={cell}>{p.keySaved ? <Pill tone="green">Saved</Pill> : <Pill tone="amber">No key</Pill>}<div style={{ fontSize: 12, color: C.slate }}>{p.keyGroup}</div></td>
@@ -75,6 +76,7 @@ export function Providers() {
       <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>
         A new provider is one file in backend/app/providers. It shows here, joins its routing order and gets its price row on Model Pricing, with no other change.
       </div>
+      <CustomFinders />
     </>
   );
 }

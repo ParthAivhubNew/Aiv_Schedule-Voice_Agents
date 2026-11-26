@@ -58,7 +58,7 @@ def _load() -> Dict[str, Provider]:
 
     found: Dict[str, Provider] = {}
     for info in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
-        if info.ispkg or info.name.rsplit(".", 1)[-1] in ("base", "registry", "gateway", "keypool"):
+        if info.ispkg or info.name.rsplit(".", 1)[-1] in ("base", "registry", "gateway", "keypool", "generic_http"):
             continue
         try:
             mod = importlib.import_module(info.name)
@@ -89,17 +89,46 @@ def reload() -> Dict[str, Provider]:
     return _load()
 
 
+_SETTINGS: Dict[str, Provider] = {}  # providers staff set up in the portal (providers/generic_http.py), by id
+
+
+def set_settings_providers(items: List[Provider]) -> None:
+    """Replaces the settings-made providers. One with a broken manifest, or an id a provider file already uses, is left out and logged."""
+    files = _load()
+    _SETTINGS.clear()
+    for p in items:
+        bad = problems_of(p)
+        if not bad and p.manifest.id in files:
+            bad = [f"id {p.manifest.id!r} is already used by a provider file"]
+        if bad:
+            logger.warning(f"[providers] settings-made {getattr(p.manifest, 'id', '?')} left out: {'; '.join(bad)}")
+            continue
+        _SETTINGS[p.manifest.id] = p
+
+
+def file_provider_ids() -> List[str]:
+    return list(_load())
+
+
+def is_settings_made(provider_id: str) -> bool:
+    return provider_id in _SETTINGS
+
+
+def _all() -> Dict[str, Provider]:
+    return {**_SETTINGS, **_load()}  # a provider file always wins
+
+
 def all_providers() -> List[Provider]:
-    return sorted(_load().values(), key=lambda p: (p.manifest.category, p.manifest.default_order, p.manifest.id))
+    return sorted(_all().values(), key=lambda p: (p.manifest.category, p.manifest.default_order, p.manifest.id))
 
 
 def get(provider_id: str) -> Optional[Provider]:
-    return _load().get((provider_id or "").strip().lower())
+    return _all().get((provider_id or "").strip().lower())
 
 
 def by_capability(capability: str) -> List[Provider]:
     """The providers offering a capability, in their default order."""
-    return sorted((p for p in _load().values() if capability in p.manifest.capabilities),
+    return sorted((p for p in _all().values() if capability in p.manifest.capabilities),
                   key=lambda p: (p.manifest.default_order, p.manifest.id))
 
 
@@ -124,7 +153,7 @@ def match_key_name(name: str, group: str = "") -> Optional[Provider]:
 
 def non_exportable() -> set:
     """Ids of the providers whose data may not leave the app in a client's export (licence.exportable is false)."""
-    return {p.manifest.id for p in _load().values() if not p.manifest.licence.exportable}
+    return {p.manifest.id for p in _all().values() if not p.manifest.licence.exportable}
 
 
 def problems() -> Dict[str, str]:

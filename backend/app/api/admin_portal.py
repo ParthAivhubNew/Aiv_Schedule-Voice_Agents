@@ -2041,6 +2041,7 @@ async def list_providers(request: Request):
     for p in registry.all_providers():
         view = registry.manifest_view(p)
         view["keySaved"] = bool(await _saved_provider_key(p.manifest.id))
+        view["settingsMade"] = registry.is_settings_made(p.manifest.id)  # set up in the portal, not a file
         if p.manifest.id in paused:
             view["breaker"] = paused[p.manifest.id]  # failures in a row, and whether calls to it are paused just now
         out.append(view)
@@ -2164,6 +2165,61 @@ async def fix_provenance(body: ProvenanceFixBody, request: Request):
                                "savedCompanies": out["savedCompanies"]["values"]}, actor_id=str(who.get("id") or name), actor_name=name)
             await db.commit()
     return out
+
+
+# ── E-mail finders set up in the portal, with no code (providers/generic_http.py) ──
+class CustomProviderBody(BaseModel):
+    config: Dict[str, Any]
+    key: str = ""  # empty keeps the key saved before
+
+
+@router.get("/providers/custom")
+async def list_custom_providers(request: Request):
+    """The e-mail finders staff described in the portal: their settings, never their keys."""
+    from app.core.tenancy import system_scope
+    from app.providers import generic_http as GH
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return {"providers": [GH.view(c) for c in await GH.configs(db)], "fields": list(GH.FIELDS)}
+
+
+@router.put("/providers/custom")
+async def save_custom_provider(body: CustomProviderBody, request: Request):
+    """Adds or changes one; it joins the e-mail finder waterfall straight away. Staff admins only."""
+    from app.core.tenancy import system_scope
+    from app.providers import generic_http as GH
+    from app.services import audit
+
+    who = _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            cfg, bad = await GH.save(db, body.config, key=body.key)
+            if bad:
+                raise HTTPException(status_code=400, detail=" ".join(bad))
+            name = who.get("email") or who.get("name") or "staff"
+            await audit.record(db, "provider.custom_saved", target=cfg["id"], detail={"name": cfg["name"], "url": cfg["url"],
+                               "keyChanged": bool(body.key.strip())}, actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+            return GH.view(cfg)
+
+
+@router.delete("/providers/custom/{provider_id}")
+async def remove_custom_provider(provider_id: str, request: Request):
+    from app.core.tenancy import system_scope
+    from app.providers import generic_http as GH
+    from app.services import audit
+
+    who = _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            if not await GH.remove(db, provider_id):
+                raise HTTPException(status_code=404, detail="No such provider.")
+            name = who.get("email") or who.get("name") or "staff"
+            await audit.record(db, "provider.custom_removed", target=provider_id, actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+            return {"ok": True}
 
 
 @router.post("/providers/{provider_id}/test")

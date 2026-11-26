@@ -143,7 +143,7 @@ call_provider(capability, request, org, feature)
         key pool still picks the key and writes `apollo_calls`.
       - **Cost view:** each finder and Apollo count from their old logs only until their own first wrapper row. That also ends a
         double count: an Apollo e-mail look-up used to be in both `enrichment_attempts` and `apollo_calls`.
-      - **Every paid provider now goes through the wrapper.** What's left in step 4 is config-only providers.
+      - **Every paid provider now goes through the wrapper.** Config-only providers were added the same day (below), so step 4 is done.
   - ~~one generic key pool in place of `apollo_pool` and `tavily_pool`~~ **done (2026-11-25):** `app/providers/keypool.py` (main key,
     backups, set-aside per key or per kind of request, failover, one log row per request with only the key's id and label).
     `apollo_pool` and `tavily_pool` keep their names and status rules on top of it. On new.outreach, Apollo and Tavily each
@@ -164,7 +164,24 @@ call_provider(capability, request, org, feature)
       first logged call (`revenue.LOGGED_BY_WRAPPER`); after that, the real cost counts and nothing is counted twice.
     - Google's answers are never cached (its terms).
     - Tests: `tests/test_provider_gateway.py`.
-  - config-only providers (`generic_http`),
+  - ~~config-only providers (`generic_http`)~~ **done (2026-11-26):** `app/providers/generic_http.py`, and on the staff Providers page,
+    **"E-mail finders set up here, with no code"**.
+    - **What it covers:** e-mail finders, the one place the app picks providers by type while it runs. Company data, number checks,
+      screening and web search are wired to their providers in code, so a new one of those is still a file.
+    - **What staff fill in:**
+      - the request: method, https address, where the key goes, query or body with `{first_name}`, `{last_name}`, `{full_name}`,
+        `{company}` and `{domain}`;
+      - the answer: where the e-mail is, and optionally its status and which words mean verified or usable;
+      - the business side: price and billing (saved on Model Pricing too), whether it's exportable, what clients see, and its place
+        in the order;
+      - the key, sealed and never shown again.
+    - **Test** asks about a made-up person, which uses one look-up.
+    - **It joins the finder order at once,** without a restart, and goes through the provider wrapper like every provider. It's
+      loaded again at start-up.
+    - **Safety:** only staff admins can save or remove one, and both are in the audit log. The address must be https, on a public
+      host name and the normal port; IP addresses, private names (`localhost`, `.internal`...) and user names in the address are
+      refused, when saved and again on every call. Its id can't take over a built-in provider's.
+    - Tests: `tests/test_settings_providers.py`, `adminPortal/customFinderLogic.test.js`.
   - a Providers screen in the admin portal. Today it's the API only; the Connectors screen comes in plan 10, phase 3.
 
 ---

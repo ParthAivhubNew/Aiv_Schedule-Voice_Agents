@@ -684,6 +684,10 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[providers] {where} left out: {why}")
     except Exception as reg_err:
         logger.warning(f"[providers] prices not seeded: {reg_err}")
+    from app.providers import generic_http  # e-mail finders staff set up in the portal, with no code; never stops start-up
+
+    if await generic_http.load():
+        logger.info("[providers] settings-made providers loaded")
     await seed_database()
     # Organisation isolation: org_id columns, per-org keys, app role and RLS policies.
     from app.core.tenancy import ensure_tenancy
