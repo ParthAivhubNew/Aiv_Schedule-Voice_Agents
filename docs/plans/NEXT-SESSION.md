@@ -8,7 +8,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 
 **Where things are**
 - **Live app** (https://outreach.aivhub.com) runs from `/opt/flow` on `main`. Its backend container bind-mounts `/opt/flow/backend` and restarts on its own. Never switch branches, edit code or restart anything there. Only untracked plan copies live in `/opt/flow/docs/plans/`.
-- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** **Keep the code on this branch only (my instruction, 2026-11-26): don't merge it into `main`.** It is 47 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
+- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** **Keep the code on this branch only (my instruction, 2026-11-26): don't merge it into `main`.** It is 48 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
 - **Test app:** https://new.outreach.aivhub.com runs `/opt/flow-new` as compose project `flownew` (`docker-compose.new.yml`, containers `aivhub_new_*`). It has its own Postgres and Redis, holding a copy of live data.
   - `/opt/flow-new/.env` has `TEST_COPY=true` (`backend/app/core/test_copy.py`): live keys can't make outward writes. **Never remove it** while that file holds the live `SECRET_KEY`.
   - Reach it from the server with `--resolve new.outreach.aivhub.com:443:62.171.163.98`.
@@ -42,13 +42,13 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
   - One set of colour tokens, read from CSS variables.
   - One cobalt accent across the product, which a brand's accent replaces.
   - Shared Tooltip / EmptyState / Banner / Pill / Toast / StatTile in `app/ui.jsx`.
-  - 556 hard-coded colours left in Leads, ratcheted by `tokens.test.js`.
+  - 533 hard-coded colours left in Leads, ratcheted by `tokens.test.js`.
 
 **What's next, in order:**
 1. ~~Run the full test suite.~~ **Done again 2026-11-26, after all the work below:** backend 2,275 passed (20 skipped; the known failures left out), frontend 746 passed, no lint errors, build clean. Run it again before a push if more work lands. Mount the frontend too (`-v /opt/flow-new/frontend:/frontend:ro`), because one backend test reads it.
 2. **Look and feel (plan 10, Phase 4):**
    - ~~Social's small inline `Stat`.~~ Done 2026-11-26.
-   - ~~Near-match colours.~~ First pass done 2026-11-26: the invisible ones (556 hard-coded colours left in Leads). What's left changes the look, so it needs a design decision and a browser check.
+   - ~~Near-match colours.~~ Two passes done 2026-11-26 (533 hard-coded colours left in Leads; new tokens `lineStrong`, `limeSoft`, `limeInk`). What's left changes the look, so it needs a design decision and a browser check.
    - ~~Split `AccountsViews.jsx` and `FindLeadsView.jsx` into feature folders.~~ Done 2026-11-26 (`leadgen/accounts/`, `leadgen/find/`; the old files re-export). Its filter panel and results card moved into `find/FilterPanel.jsx` and `find/ResultsCard.jsx` on 2026-11-26 (checked in a browser); grouping the search state into hooks is next.
    - Dark mode later.
 3. ~~Cost per source.~~ **Done 2026-11-25:** the Lead sources card shows credits by origin (plan 10, section 3.1).
@@ -61,7 +61,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 10. ~~Sample data in demo organisations (plan 12).~~ **Done 2026-11-26:** an optional sample list of up to 25 companies. Plan 12 is now done.
 11. ~~Company rules that switch off when they can't be read (plan 11, C.1).~~ **Checked 2026-11-26:** they already fail safe; the cache and Connectors were tidied.
 12. ~~Monthly spending limits per supplier.~~ **Done 2026-11-26:** Providers → Monthly budgets (alerts at 80% and 100%, optional pause).
-13. ~~Retention for call recordings and supplier logs.~~ **Done 2026-11-26:** staff portal → Data compliance → How long data is kept. **Off until you switch it on** (it deletes). The raw register data is only reported: that's your decision.
+13. ~~Retention for call recordings and supplier logs.~~ **Done 2026-11-26:** staff portal → Data compliance → How long data is kept. Decided: default periods; **switch it on when the branch goes live** (staff portal → Data compliance), not on the test copy; raw register data is kept.
 
 **Waiting on me (ask, don't guess):**
 - Stripe live keys and VAT.
@@ -73,10 +73,10 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 - Whether to raise AI video to 39 credits and phone-number rent to 18 (I said "not yet").
 - Vendor licence terms.
 - Whether to add Cloudflare Turnstile to sign-up (needs a Cloudflare account).
-- Whether to switch data retention on (staff portal → Data compliance), with which periods, and what to do about raw register data.
 - Whether to patch live now for the BN Google export gap (on `main`, BN phones and websites can be exported; none have been yet).
 
 **After the branch is merged and live:**
 - Staff run `POST /admin-api/maintenance/provenance`, first as a dry run, then with `{"apply": true}`.
 - Delete the old `bn_*.py`, `bn_*.sh`, `load_*.py` and `industry_values.py` files in the `/opt/flow` root. Copies are in `backend/scripts/data_loads/`.
 - Set `APP_ENV=production` only once live Stripe keys are in, or the config check stops start-up.
+- Switch data retention on (staff portal → Data compliance → How long data is kept), after looking at its dry run.

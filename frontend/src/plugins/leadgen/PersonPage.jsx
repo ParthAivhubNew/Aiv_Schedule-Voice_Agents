@@ -46,7 +46,7 @@ export function PersonPage({ person, company, found, onBack, onFindEmail, onFind
       <button type="button" title={`Back to ${company_}`} style={{ ...btn(false), justifySelf: "start" }} onClick={onBack}><ArrowLeft size={14} /> Back to {company_}</button>
 
       <header style={{ ...card, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", padding: 16 }}>
-        <div aria-hidden="true" style={{ width: 56, height: 56, borderRadius: 14, background: "#e9f6cf", color: "#2f4a0c", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 20 }}>{initials(person.name)}</div>
+        <div aria-hidden="true" style={{ width: 56, height: 56, borderRadius: 14, background: C.limeSoft, color: C.limeInk, display: "grid", placeItems: "center", fontWeight: 700, fontSize: 20 }}>{initials(person.name)}</div>
         <div style={{ flex: "1 1 260px", minWidth: 0, display: "grid", gap: 4 }}>
           <h2 style={{ margin: 0, fontSize: 21, overflowWrap: "anywhere" }}>{person.name}</h2>
           <div style={{ fontSize: 13.5, color: C.slate }}>{person.role} at <button type="button" title={`Open ${company_}`} onClick={onOpenCompany} style={{ all: "unset", cursor: "pointer", color: C.cobalt }}>{company_}</button></div>

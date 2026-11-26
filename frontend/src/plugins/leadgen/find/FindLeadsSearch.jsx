@@ -38,7 +38,7 @@ import { ResultsCard } from "./ResultsCard";
 const CHAT_CSS = `
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
 .fl-filters.ui-card{background:${C.surfaceCool};border-color:${C.border}}
-.fl-filters .fl-pin{background:${C.surfaceCool};border-bottom-color:#C5CBD6}
+.fl-filters .fl-pin{background:${C.surfaceCool};border-bottom-color:${C.lineStrong}}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}

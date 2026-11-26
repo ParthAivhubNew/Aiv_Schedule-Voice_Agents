@@ -40,6 +40,7 @@ import { PluginHeader, PluginSidebar } from "../../hub/PluginShell";
 import { AppChrome } from "../../app/ui";
 import { MobileNavBackdrop, MobileNavButton, useMobileNav } from "../../components/MobileNav";
 import { NAV_TEXT, C, FONT_DISPLAY, FONT_BODY, HUB_PAPER } from "../../tokens";
+import { APPS } from "../../hub/apps";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "../../utils/route";
 import { SubscriptionPage } from "../../team/SubscriptionPage";
 import { usePluginAccess } from "../../components/PluginAccessGate";
@@ -73,6 +74,8 @@ import { takeOpenLead } from "../../connections/ConnectedHome";
 import { openWorkflows } from "../../workflows/openWorkflows";
 import { EmbedPlanNotice, onlyEmbedViews, useEmbedViews } from "../../embed/EmbedContext";
 import { Banner, Toast } from "../../app/ui";
+
+const LEADS_ACCENT = APPS.find((a) => a.id === "leadgen")?.accent; // the app's own colour, on its icon only (hub/apps.js)
 
 
 
@@ -377,7 +380,7 @@ export default function LeadGenerationPlugin({
       <MobileNavBackdrop nav={nav} />
       
       <AppChrome />
-      <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent="#8B5CF6" groups={navGroups} wallet="leadgen" operator={operator}
+      <PluginSidebar appId="leadgen" name="Leads" icon={Search} accent={LEADS_ACCENT} groups={navGroups} wallet="leadgen" operator={operator}
         onOpenPlan={() => setView("subscription")} onHome={onBackToHub} onLogout={onLogout} refreshKey={view} nav={nav} tabs={["find_leads", "lists", "outreach", "mail"]} />
 
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}

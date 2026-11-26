@@ -156,7 +156,7 @@ export function ViewMenu({ sortLabel, sortValue, sortOptions, onSort, pageSize, 
 export function FilterGroup({ title, active = 0, onClear, open, onToggle, children, chips = [] }) {
   const shown = chips.slice(0, 3);
   return (
-    <section style={{ borderBottom: "1px solid #C5CBD6" }}>{/* darker than the panel's own grey so the groups read as separate */}
+    <section style={{ borderBottom: `1px solid ${C.lineStrong}` }}>{/* darker than the panel's own grey so the groups read as separate */}
       {/* One whole-row button, like Apollo's: the name, how many filters are on, and the arrow all open and close the group. */}
       <button type="button" aria-expanded={open} aria-label={open ? `Hide ${title}` : `Show ${title}`} onClick={onToggle}
         style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "12px 4px 12px 2px", ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>

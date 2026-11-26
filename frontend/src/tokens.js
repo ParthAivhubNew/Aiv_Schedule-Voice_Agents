@@ -48,10 +48,14 @@ export const HEX = {
   neutralBg: "#F8FAFC",
   lineCool: "#E3E6EF",
   surfaceCool: "#F1F3F8",
+  lineStrong: "#CBD1D9", // the shared --ui-line-strong: a line that has to show (chart lines, a pinned column's edge)
+  limeSoft: "#E9F6CF", // the "likely" / org-chart green highlight
+  limeInk: "#2F4A0C",
 };
 
 // The CSS variable each colour lives in. The accent ones are the shared --ui-accent variables, which hold the same colours.
-const ACCENT_VARS = { cobalt: "--ui-accent", cobaltSoft: "--ui-accent-soft", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent", uiInk: "--ui-ink" };
+const ACCENT_VARS = { cobalt: "--ui-accent", cobaltSoft: "--ui-accent-soft", cobaltDeep: "--ui-accent-ink", borderHover: "--ui-accent", uiInk: "--ui-ink",
+  lineStrong: "--ui-line-strong" };
 export const CSS_VARS = Object.fromEntries(Object.keys(HEX).map((k) => [k, ACCENT_VARS[k] || "--c-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())]));
 
 export const C = {

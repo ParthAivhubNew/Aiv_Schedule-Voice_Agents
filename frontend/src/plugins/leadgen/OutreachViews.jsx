@@ -68,7 +68,7 @@ function CopyBox({ text }) {
     try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { /* clipboard blocked: the text is still selectable */ }
   };
   return (
-    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", background: C.bg || "#f3f4f6", borderRadius: 6, padding: "3px 8px", maxWidth: "100%" }}>
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", background: C.bg || C.paper, borderRadius: 6, padding: "3px 8px", maxWidth: "100%" }}>
       <code style={{ fontSize: 12, wordBreak: "break-all", userSelect: "all" }}>{text}</code>
       <button title="Copy to the clipboard" type="button" style={{ ...btn(false), padding: "1px 8px", fontSize: 11 }} onClick={copy}>{done ? "Copied" : "Copy"}</button>
     </span>

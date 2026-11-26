@@ -18,7 +18,7 @@ function Candidate({ o, only, busy, disabled, onPick }) {
         {isLink(o.value)
           ? <a href={o.value} target="_blank" rel="noreferrer" style={{ fontSize: 14, fontWeight: 600, color: C.cobalt, overflowWrap: "anywhere", flex: "1 1 200px" }}>{o.title || shortSource(o.value)}</a>
           : <strong style={{ fontSize: 14, overflowWrap: "anywhere", flex: "1 1 200px" }}>{o.value}</strong>}
-        <span style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 999, background: o.label === "Likely" ? "#e9f6cf" : "#f1f3f6", color: o.label === "Likely" ? "#2f4a0c" : C.slate }}>{o.label}</span>
+        <span style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 999, background: o.label === "Likely" ? C.limeSoft : C.paperSoft, color: o.label === "Likely" ? C.limeInk : C.slate }}>{o.label}</span>
         {o.picks ? <span style={{ fontSize: 11.5, color: C.green }}>Confirmed as correct by {o.picks} {o.picks === 1 ? "other user" : "other users"}</span> : null}
       </div>
       {isLink(o.value) && o.title ? <div style={{ fontSize: 12, color: C.slate, overflowWrap: "anywhere" }}>{shortSource(o.value)}</div> : null}

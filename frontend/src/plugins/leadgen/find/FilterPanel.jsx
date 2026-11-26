@@ -159,7 +159,7 @@ export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field
             ))}
           </div>
         </FilterGroup>
-        <div style={{ position: "sticky", bottom: 0, background: C.surfaceCool, borderTop: "1px solid #C5CBD6", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
+        <div style={{ position: "sticky", bottom: 0, background: C.surfaceCool, borderTop: `1px solid ${C.lineStrong}`, display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
             <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
           </button>

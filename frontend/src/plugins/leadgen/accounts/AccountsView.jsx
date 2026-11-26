@@ -264,7 +264,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         ) : null}
         <button type="button" aria-pressed={googleOnly} title="Show only companies whose phone, email or website came from Google"
           onClick={() => setGoogleOnly((v) => !v)}
-          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? "#1D4ED8" : "#93B4F5"}`, background: googleOnly ? C.infoInk : "#EFF5FF", color: googleOnly ? "#fff" : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? C.infoInk : "#93B4F5"}`, background: googleOnly ? C.infoInk : C.infoBg, color: googleOnly ? "#fff" : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
           Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
         </button>
         <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
@@ -278,7 +278,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         ) : null}
       </div>
       {googleOnly ? (
-        <div role="status" style={{ ...text, fontSize: 13, color: "#1E3A8A", background: "#EFF5FF", border: "1px solid #93B4F5", borderRadius: 8, padding: "8px 12px" }}>
+        <div role="status" style={{ ...text, fontSize: 13, color: "#1E3A8A", background: C.infoBg, border: "1px solid #93B4F5", borderRadius: 8, padding: "8px 12px" }}>
           Showing only companies with Google data ({matching.length.toLocaleString()}). You can see and use it here, but it can't be downloaded. Open a company to see its live Google details.
         </div>
       ) : null}

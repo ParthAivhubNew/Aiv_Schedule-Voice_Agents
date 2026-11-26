@@ -36,6 +36,18 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
     - the org chart's level palette and the connector status pills, which are sets of colours meant to go together;
     - colours 2.5 or more away from any token, which would visibly change (for example the org chart's stronger lines, the emerald filter chips and the amber filter cards). These need a design decision, not a merge.
   - Not looked at in a browser: every change is below the visible threshold. The tests and build pass.
+- ✅ **Second pass (2026-11-26, you asked me to decide): 23 more uses onto tokens; 556 → 533 left.** Rather than force near colours together,
+  this pass names the deliberate ones and merges only true twins:
+  - **New tokens, no visible change:** `lineStrong` (the shared `--ui-line-strong`, `#CBD1D9`) for every line that has to show: the org
+    chart's lines, the filter panel's group edges and footer, a pinned column, the journey arrows and the import drop box (the greys there
+    were within 2.2 of it, below what people can see). `limeSoft` / `limeInk` for the "likely" / org-chart green highlight used in three
+    places.
+  - **Twins:** the blue notice backgrounds onto `infoBg`, the light greys onto `paper` / `paperSoft`, a Google-only chip's ink onto `infoInk`.
+  - **One accent:** the Leads app's violet showed as the selected-tab underline in Forms and as an icon colour in Import. Both are now the
+    product accent; the violet stays on the app's own icon, read from `hub/apps.js` instead of being typed in.
+  - **Still deliberate and left as they are:** the org chart's level palette, the filter cards' amber and orange, the emerald filter
+    chips, the connector status pills and the TPS dialog's tones. Merging them would change the look; naming them is the step before
+    dark mode.
 
 **Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
 - **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).

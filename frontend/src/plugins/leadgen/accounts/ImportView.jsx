@@ -296,8 +296,8 @@ export function ImportView({ store, onGo, onAskAi }) {
       {done && !fields.length ? <ImportReport done={done} accounts={store.accounts} onGo={onGo} onClose={() => setDone(null)} onToast={store.toast} /> : null}
       {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
-          style={{ border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", padding: done ? "24px 20px" : "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B5CF6" }}><FileSpreadsheet size={20} /></div>
+          style={{ border: `1.5px dashed ${C.lineStrong}`, borderRadius: 8, background: "var(--ui-sunken)", padding: done ? "24px 20px" : "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}><FileSpreadsheet size={20} /></div>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>{done ? "Import another file" : "Import companies from a file"}</div>
           <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here, or choose one. You check which column is which before anything is saved.</div>
           <ul style={{ ...muted, fontSize: 12.5, margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>

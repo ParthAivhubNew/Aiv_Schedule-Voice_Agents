@@ -5,7 +5,7 @@ import { niceName, orgGroups } from "./companyLogic";
 
 // The people of one company drawn as an org chart. Clicking anyone opens that person's own page.
 const TONE = {
-  green: { bg: "#e9f6cf", bar: "#6aa621", ink: "#2f4a0c" },
+  green: { bg: C.limeSoft, bar: "#6aa621", ink: C.limeInk },
   blue: { bg: "#dcecfb", bar: "#2f7fd1", ink: "#12395f" },
   orange: { bg: "#fbe3d8", bar: "#d9622b", ink: "#6a2a0c" },
 };
@@ -15,12 +15,12 @@ const css = `
 .oc-root{display:flex;flex-direction:column;align-items:center;min-width:min-content}
 .oc-rootcard{all:unset;cursor:pointer;box-sizing:border-box;background:#fbeaa0;border:1px solid #e3cf6f;border-radius:12px;padding:10px 16px;max-width:340px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08)}
 .oc-rootcard:focus-visible,.oc-card:focus-visible,.oc-head:focus-visible{outline:2px solid var(--ui-accent,#2f5bd1);outline-offset:2px}
-.oc-stem{width:2px;height:18px;background:#c9ced6}
-.oc-cols{display:flex;gap:18px;align-items:flex-start;justify-content:center;border-top:2px solid #c9ced6}
+.oc-stem{width:2px;height:18px;background:${C.lineStrong}}
+.oc-cols{display:flex;gap:18px;align-items:flex-start;justify-content:center;border-top:2px solid ${C.lineStrong}}
 .oc-col{position:relative;display:grid;gap:8px;width:250px;flex:0 0 250px;padding-top:18px}
-.oc-col:before{content:"";position:absolute;top:0;left:50%;width:2px;height:18px;background:#c9ced6}
+.oc-col:before{content:"";position:absolute;top:0;left:50%;width:2px;height:18px;background:${C.lineStrong}}
 .oc-head{all:unset;cursor:pointer;box-sizing:border-box;display:flex;align-items:center;gap:6px;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:700;border-left:4px solid}
-.oc-list{display:grid;gap:8px;margin-left:14px;padding-left:12px;border-left:2px solid #c9ced6}
+.oc-list{display:grid;gap:8px;margin-left:14px;padding-left:12px;border-left:2px solid ${C.lineStrong}}
 .oc-card{all:unset;cursor:pointer;box-sizing:border-box;display:grid;gap:2px;border-radius:10px;padding:8px 10px;border-left:4px solid;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .oc-card:hover{box-shadow:0 0 0 2px var(--ui-accent,#2f5bd1)}
 .oc-name{font-size:13.5px;font-weight:600;overflow-wrap:anywhere}

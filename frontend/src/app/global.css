@@ -78,6 +78,8 @@ button, input, select, textarea {
   --c-neutral-bg: #F8FAFC;
   --c-line-cool: #E3E6EF;
   --c-surface-cool: #F1F3F8;
+  --c-lime-soft: #E9F6CF;
+  --c-lime-ink: #2F4A0C;
 }
 
 /* ---------- The shared look (chosen 2026-10-03: soft corners, cool neutrals, dark sidebar) ----------
