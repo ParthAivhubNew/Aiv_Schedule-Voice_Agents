@@ -203,6 +203,17 @@ async def staff(db):
 
 
 @pytest.fixture(autouse=True)
+def _signup_guard_quiet(monkeypatch):
+    """Sign-up limits start empty in every test, and tests that post the sign-up form directly don't need its page token
+    (tests/test_signup_guard.py switches the check back on)."""
+    from app.services import signup_guard as G
+
+    G.HITS.clear()
+    monkeypatch.setattr(G, "FORM_CHECK", False)
+    monkeypatch.setattr(G, "_alerted_at", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_apollo_key(monkeypatch):
     """A developer's own Apollo key (in .env) must never turn the email finders on in a test: the tests choose their providers."""
     from app.services import enrichment_service

@@ -204,7 +204,8 @@ export function LoginScreen({ onLogin }) {
     if (password.length < 8) return setError({ text: "Use at least 8 characters for the password." });
     run(async () => {
       try {
-        const res = await api.signup({ company: company.trim(), name: name.trim(), email: username.trim(), password, website: trap });
+        const res = await api.signup({ company: company.trim(), name: name.trim(), email: username.trim(), password, website: trap,
+          formToken: config?.formToken || "" });
         if (res.verifyEmail) {
           setMode("check-email");
         } else {
@@ -212,6 +213,10 @@ export function LoginScreen({ onLogin }) {
           if (r?.operator) finish(r.operator);
         }
       } catch (err) {
+        if (err.code === "form_expired") {
+          // The page's sign-up token is a day old (or missing): get a fresh one, so pressing the button again works.
+          api.getSignupConfig().then(setConfig).catch(() => {});
+        }
         if (err.code === "account_exists") {
           // Already registered: go straight to sign in with the email filled in.
           setMode("signin", true);

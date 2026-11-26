@@ -20,9 +20,8 @@ import re
 import secrets
 import time
 import uuid
-from collections import defaultdict, deque
 from datetime import datetime
-from typing import Any, Deque, Dict, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -38,6 +37,7 @@ from app.core.auth_middleware import current
 from app.core.security import ALGORITHM, hash_password, password_problem, signing_key
 from app.database import get_db
 from app.models.models import Operator, Organization
+from app.services import signup_guard as G
 
 router = APIRouter(prefix="/auth", tags=["Signup"])
 
@@ -76,21 +76,29 @@ def _base_url() -> str:
     return (settings.PUBLIC_BASE_URL or "").rstrip("/")
 
 
-# ── Abuse limits (per IP, in memory) ────────────────────────────────────────
-_HITS: Dict[str, Deque[float]] = defaultdict(deque)
-LIMITS = {"signup": (5, 3600), "resend": (5, 3600)}
+# ── Abuse limits and bot checks (services/signup_guard.py) ──────────────────
+_HITS = G.HITS  # tests clear it between runs
+
+
+def _ip(request: Request) -> str:
+    """The visitor's address. main.py's ProxyHeadersMiddleware puts it in request.client, but only from trusted proxies."""
+    return request.client.host if request.client else "?"
 
 
 def _limit(kind: str, request: Request) -> None:
-    n, window = LIMITS[kind]
-    ip = request.client.host if request.client else "?"
-    q = _HITS[f"{kind}|{ip}"]
-    now = time.time()
-    while q and now - q[0] > window:
-        q.popleft()
-    if len(q) >= n:
+    if not G.allow(kind, _ip(request)):
         raise HTTPException(status_code=429, detail="Too many attempts from this network. Try again later.")
-    q.append(now)
+
+
+async def _new_company_allowed(request: Request, partner: Any = None, by_partner: bool = False) -> None:
+    """Every way a new company is made passes here: the visitor (or the partner's server) and the platform are under their limits."""
+    if by_partner and partner is not None:
+        if not G.allow("signup_partner", str(partner.id)):
+            raise HTTPException(status_code=429, detail="Too many new accounts from this partner in the last hour. Try again later.")
+    else:
+        _limit("signup", request)
+    if not await G.platform_ok():
+        raise HTTPException(status_code=503, detail={"message": "We're getting a lot of sign-ups right now. Try again in a few minutes.", "code": "signup_busy"})
 
 
 # ── Small signed tokens for links and one-time codes ────────────────────────
@@ -276,7 +284,9 @@ async def signup_config(request: Request):
     if branded is not None:  # a brand's people join by invitation only
         ready = ready and bool(branded.get("google"))
         return {"allowSignup": False, "google": ready, **({"firebase": firebase_config()} if ready else {})}
-    return {"allowSignup": signup_allowed(), "google": ready, **({"firebase": firebase_config()} if ready else {})}
+    allowed = signup_allowed()
+    return {"allowSignup": allowed, "google": ready, **({"firebase": firebase_config()} if ready else {}),
+            **({"formToken": _sign({"typ": "signup_form"}, G.FORM_TTL_S)} if allowed else {})}
 
 
 class SignupBody(BaseModel):
@@ -285,14 +295,16 @@ class SignupBody(BaseModel):
     email: str
     password: str
     website: Optional[str] = ""  # honeypot: people never fill it
+    formToken: Optional[str] = ""  # from GET /auth/signup-config, so a bot can't post the form without loading the page
 
 
 async def register(db: AsyncSession, request: Request, *, company: str, name: str, email: str, password: str,
-                   website: str = "", partner: Any = None, return_url: str = "") -> Dict[str, Any]:
-    """Create a company and its owner. Used by the sign-up page and, with a partner, by POST /v1/run auth.signup."""
+                   website: str = "", partner: Any = None, return_url: str = "", by_partner: bool = False) -> Dict[str, Any]:
+    """Create a company and its owner. Used by the sign-up page, the partner embed and, with `by_partner` (the partner's own
+    server calls), POST /v1/run auth.signup."""
     if not signup_allowed() or await brand_signin(request) is not None:
         raise HTTPException(status_code=404, detail="Not found")
-    _limit("signup", request)
+    await _new_company_allowed(request, partner, by_partner)
     if (website or "").strip():
         # Browser autofill can fill the hidden trap field; the person did nothing wrong, so say what to try.
         raise HTTPException(status_code=400, detail={"message": "We couldn't check this form. Reload the page and fill it in by hand, without the browser's saved-details suggestions. If it still fails, contact support.", "code": "spam_check"})
@@ -305,6 +317,8 @@ async def register(db: AsyncSession, request: Request, *, company: str, name: st
         raise HTTPException(status_code=400, detail=company_name_problem(company).replace("Your company name is", "That company name is"))
     if not _EMAIL_RE.match(email) or len(email) > 254:
         raise HTTPException(status_code=400, detail="That email address does not look right.")
+    if G.disposable(email):
+        raise HTTPException(status_code=400, detail={"message": "Use an email address you keep. Accounts can't be made with throwaway inbox services.", "code": "disposable_email"})
     problem = password_problem(password)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
@@ -314,6 +328,7 @@ async def register(db: AsyncSession, request: Request, *, company: str, name: st
     from app.core.mailer import configured
 
     verify = configured()
+    G.counted()
     op = await _create_org(db, company, name, email, password, PENDING if verify else "active")
     if partner is not None:
         from app.services import partners as PT
@@ -325,6 +340,9 @@ async def register(db: AsyncSession, request: Request, *, company: str, name: st
 
 @router.post("/signup")
 async def signup(body: SignupBody, request: Request, db: AsyncSession = Depends(get_db)):
+    why = G.form_problem(_read(body.formToken or "", "signup_form"))
+    if why and signup_allowed():
+        raise HTTPException(status_code=400, detail={"message": G.FORM_MESSAGES[why], "code": why})
     out = await register(db, request, company=body.company, name=body.name, email=body.email, password=body.password,
                          website=body.website or "")
     return {k: v for k, v in out.items() if k != "operator"}
@@ -357,6 +375,8 @@ class ResendBody(BaseModel):
 async def resend_verification(body: ResendBody, request: Request, db: AsyncSession = Depends(get_db)):
     _limit("resend", request)
     e = body.email.strip().lower()
+    if not G.allow("resend_to", e):
+        return {"ok": True}  # the same answer, so it doesn't say the address was already sent a few
     op = (await db.execute(select(Operator).where(func.lower(Operator.email) == e))).scalars().first()
     if op and not op.email_verified:
         org = (await db.execute(select(Organization).where(Organization.id == op.org_id))).scalars().first()
@@ -367,7 +387,6 @@ async def resend_verification(body: ResendBody, request: Request, db: AsyncSessi
 
 # ── Forgotten password (by email) ───────────────────────────────────────────
 RESET_TTL_S = 60 * 60
-LIMITS["forgot"] = (5, 3600)
 
 
 def _pw_fingerprint(op: Operator) -> str:
@@ -387,6 +406,8 @@ async def forgot_password(body: ForgotBody, request: Request, db: AsyncSession =
     if not configured():
         return {"ok": True, "mailboxReady": False}
     e = body.email.strip().lower()
+    if not G.allow("forgot_to", e):
+        return {"ok": True, "mailboxReady": True}  # same answer: no more reset e-mails to one address this hour
     op = (await db.execute(select(Operator).where(
         (func.lower(Operator.email) == e) | (func.lower(Operator.username) == e)))).scalars().first()
     if op and op.is_active is not False and op.email:
@@ -500,9 +521,11 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, response: Respo
     if not op:
         if not (signup_allowed() and email and verified):
             raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["no_account"])
+        await _new_company_allowed(request)
         name = str(g.get("name") or email.split("@")[0])
         domain = email.split("@")[1]
         company = default_company_name(name, domain)
+        G.counted()
         op = await _create_org(db, company, name, email, None, "active", google_sub=sub)
     if op.is_active is False:
         raise HTTPException(status_code=403, detail=GOOGLE_ERRORS["disabled"])

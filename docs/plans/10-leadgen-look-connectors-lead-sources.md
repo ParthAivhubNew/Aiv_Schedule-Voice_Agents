@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, and the guard part of item 2, are done; the rest of Phase 4, and cost per source, are still to do. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: Social's inline `Stat`, the near-match colours, splitting the two big Leads files, and dark mode. Details are in section 3.1.
 
 **Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
 - `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.

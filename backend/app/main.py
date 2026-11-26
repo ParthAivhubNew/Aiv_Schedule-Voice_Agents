@@ -1090,9 +1090,11 @@ app.add_middleware(OriginPolicyCORS)
 
 try:
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-    # In production, set TRUSTED_PROXIES="127.0.0.1,10.0.0.1" (or specific reverse proxy IPs).
-    # Defaults to localhost/loopback to prevent remote clients from spoofing IPs via X-Forwarded-For.
-    trusted_raw = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1")
+    # The proxies whose X-Forwarded-For is believed. The default is loopback and Docker's private networks: the host's nginx reaches
+    # us through the frontend container, so without them every visitor looked like that container and shared one set of limits
+    # (sign-up, failed sign-ins, forms). Internet traffic never comes from these ranges, so visitors can't fake their address.
+    # Set TRUSTED_PROXIES to override (addresses or networks, comma-separated).
+    trusted_raw = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1,172.16.0.0/12")
     trusted_hosts = [h.strip() for h in trusted_raw.split(",") if h.strip()]
     app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted_hosts)
 except Exception:

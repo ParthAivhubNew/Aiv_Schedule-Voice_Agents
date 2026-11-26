@@ -339,8 +339,8 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 | ✅ | ~~**Client data is lying in the app folder**~~ **Done 2026-11-24:** the 13 files with e-mails and phones moved to `/root/aivhub-private-data/repo-root-2026-11-24/` (root only, with a README). Delete them when no longer needed. | repo root |
 | ✅ | ~~Feature access by **hard-coded usernames**~~ **Done on the branch 2026-11-25 (step 7):**<br>• `isFsbAccount()` and its username lists are gone. Connectors shows for everyone, and only admins can test.<br>• The FSB sidebar badge is now a brand setting: `theme.accountLink`, set for the FSB brand by migration `2026_12_11_fsb_brand_account_link`.<br>• The unused `operatorFromLogin()` "jitendra" special case is gone.<br>• The Voice call card no longer starts every account with two real phone numbers ("Jitendra Mehta", "Operations Desk"), and the template preview's sample number is an Ofcom drama number. A test keeps them out (`noBuiltInContacts.test.js`). | `hub/SidebarAccountBadge.jsx`, `brand/brandLogic.js` |
 | 🟠 | Postgres, Redis and LiveKit ports: check none is reachable from outside in production (the override binds some to 127.0.0.1; base compose binds `5432` and `6379` openly). | `docker-compose.yml:17,30` |
-| 🟠 | Rate limits exist only on sign-in failures and partner API keys. Add per-IP and per-organisation limits on sign-up, password reset, the assistant, and every paid action. | `api/auth.py:251` |
-| 🟠 | Sign-up has email verification, but no bot protection (captcha / Turnstile) and no disposable-email check. | `api/signup.py` |
+| ✅ | ~~Rate limits exist only on sign-in failures and partner API keys.~~ **Done on the branch 2026-11-26** (`services/signup_guard.py`):<br>• **The real bug:** the backend saw every visitor as the web container (`TRUSTED_PROXIES` defaulted to loopback only), so the "5 sign-ups an hour from one network" limit was 5 an hour for everyone together. The same was true of failed sign-ins: 8 wrong passwords from anyone locked that username for everybody. It now trusts loopback and Docker's private networks, which internet traffic can't come from, and reads the visitor's address from the proxies' header.<br>• **Sign-up:** 5 an hour and 20 a day per visitor, on the form, Google and the partner embed. A partner's own server gets 60 an hour per partner instead. Across the platform, staff get a `SIGN-01` alert from 30 an hour, and sign-up pauses for the hour at 100 (`SIGNUP_ALERT_PER_HOUR`, `SIGNUP_MAX_PER_HOUR`).<br>• **Reset and verification e-mails:** 5 an hour per visitor, and 3 an hour to any one address, with the same answer either way.<br>• The assistant and paid actions are held by the plan limits and fair-use cost cap (step 5).<br>• The counts are in memory, in the one backend process, so a restart clears them. | `api/auth.py:251` |
+| ✅ | ~~Sign-up has email verification, but no bot protection and no disposable-email check.~~ **Done on the branch 2026-11-26:** the hidden trap field; a signed form token from `GET /auth/signup-config` that must be at least 2 seconds old and under a day (the page fetches a new one by itself); and throwaway inbox services refused. **Not done:** Cloudflare Turnstile, which needs a Cloudflare account, so it's your call. | `api/signup.py` |
 
 ### C.2 Money
 | | Item |
@@ -426,11 +426,8 @@ Steps 1–2 are the minimum before letting the public sign up. Steps 3–5 are w
   - **Onboarding** (C.6).
   - **Root scripts** moved (C.5).
   - **CI:** the workflow from step 1 is in place, waiting for a Gitea runner.
-- **Left:**
-  - The FSB rule sets as data and the Rules screen (plan 12, steps 3–5).
-  - "Create demo organisation" (plan 12, step 7).
-  - Rate limits and bot protection on sign-up (C.1).
-  - Off-site backups and error tracking (C.5).
+- **Since done:** the FSB rule sets as data and the Rules screen (plan 12, steps 3–5), "Create demo organisation" (plan 12, step 7), and sign-up rate limits and bot protection (C.1, 2026-11-26).
+- **Left:** off-site backups and error tracking (C.5). Both wait on you.
 
 ---
 

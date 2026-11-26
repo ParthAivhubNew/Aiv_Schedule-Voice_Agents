@@ -214,7 +214,7 @@ About three weeks in total. Steps 1–2 change nothing FSB can see, except the c
 - The company is made exactly as sign-up makes one, with no credits. Its admin gets no password: an invite link (the reset-password link, valid 7 days, once only) is shown to staff once and can be e-mailed.
 - An hourly job (`demo_expiry`) suspends a demo the day after it ends, which signs everyone in it out. "Extend" brings it back, and "New invite link" makes another.
 - Audited as `demo.created`. Tests: `tests/test_demo_orgs.py`.
-- **Not done:** F4 (reusing the Rules screen as the brand policy editor on Brands); sample data in a demo (it searches the shared register from the start).
+- **Not done:** sample data in a demo (it searches the shared register from the start). F4, the Rules screen as the brand editor on Brands, has since been done.
 
 **Status, 2026-11-25 (Social):** step 4 is done, and the Social section of the Rules screen with it.
 - **Policy:** a new `social` block: `approver` (`anyone` or `admin`), `networks` (allowed; empty means all), `ai_images` and `ai_video`.
@@ -232,7 +232,7 @@ About three weeks in total. Steps 1–2 change nothing FSB can see, except the c
 **Status, 2026-11-25 (latest):** step 4 is done for sign-in and Voice.
 - **B9, sign-in rules by company:** every sign-in (password, Google) is checked against the combined rules on every web address (`api/auth.signin_refusal`), not only on the brand's own address. Each session records how it began (`auth_sessions.method`, migration `2026_12_12_session_method`). Switching a method off ends the sessions it began at their next refresh. There is no Microsoft sign-in in the code yet, so its switch does nothing until one is built.
 - **B8, Voice, decision 3:** **keep warning only**, decided 2026-11-25. A call to an unscreened number is never blocked. When the rules ask for screening, the warning says so ("Your company's rules ask for a TPS and CTPS check before calling…"). Exports keep leaving those numbers out.
-- **Still to do in step 4:** Social rules (approval, who approves, networks, AI images and video). They need new fields in the policy shape, then checks in the publish and approve paths, then a Social section on the Rules screen.
+- **Then:** Social rules were done too (see the Social status above), which finished step 4.
 - Tests: `tests/test_rules_everywhere.py`.
 
 **Status, 2026-11-25 (later):** step 3 and the first part of step 5 are done on the branch.

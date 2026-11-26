@@ -8,7 +8,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 
 **Where things are**
 - **Live app** (https://outreach.aivhub.com) runs from `/opt/flow` on `main`. Its backend container bind-mounts `/opt/flow/backend` and restarts on its own. Never switch branches, edit code or restart anything there. Only untracked plan copies live in `/opt/flow/docs/plans/`.
-- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 28 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
+- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 29 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
 - **Test app:** https://new.outreach.aivhub.com runs `/opt/flow-new` as compose project `flownew` (`docker-compose.new.yml`, containers `aivhub_new_*`). It has its own Postgres and Redis, holding a copy of live data.
   - `/opt/flow-new/.env` has `TEST_COPY=true` (`backend/app/core/test_copy.py`): live keys can't make outward writes. **Never remove it** while that file holds the live `SECRET_KEY`.
   - Reach it from the server with `--resolve new.outreach.aivhub.com:443:62.171.163.98`.
@@ -53,6 +53,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
    - Dark mode later.
 3. ~~Cost per source.~~ **Done 2026-11-25:** the Lead sources card shows credits by origin (plan 10, section 3.1).
 4. ~~Prices before paid actions (plan 11, C.6).~~ **Done 2026-11-25:** every paid button reads its price from the rate card (`app/usePrice.js`), guarded by `app/noTypedPrices.test.js`. A public pricing page is still to do.
+5. ~~Sign-up rate limits and bot protection (plan 11, C.1).~~ **Done 2026-11-26** (`services/signup_guard.py`). It also fixes the backend reading every visitor's address as the web container's, which made sign-up and sign-in limits shared by everyone. Cloudflare Turnstile isn't done: it needs a Cloudflare account.
 
 **Waiting on me (ask, don't guess):**
 - Stripe live keys and VAT.
@@ -63,6 +64,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 - Prices for DeepSeek and Apollo, and for Leads / Social top-ups.
 - Whether to raise AI video to 39 credits and phone-number rent to 18 (I said "not yet").
 - Vendor licence terms.
+- Whether to add Cloudflare Turnstile to sign-up (needs a Cloudflare account).
 - Whether to patch live now for the BN Google export gap (on `main`, BN phones and websites can be exported; none have been yet).
 
 **After the branch is merged and live:**

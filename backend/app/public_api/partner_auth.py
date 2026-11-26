@@ -95,7 +95,7 @@ async def signup(request: Request, db: AsyncSession, data: Dict[str, Any]) -> Di
     try:
         out = await S.register(db, request, company=_text(data, "company", 120), name=_text(data, "name", 120), email=_text(data, "email", 254),
                                password=data.get("password") if isinstance(data.get("password"), str) else "",
-                               website=_text(data, "website"), partner=partner, return_url=ret)
+                               website=_text(data, "website"), partner=partner, return_url=ret, by_partner=True)
     except HTTPException as err:
         _from_http(err)
     op: Operator = out["operator"]
