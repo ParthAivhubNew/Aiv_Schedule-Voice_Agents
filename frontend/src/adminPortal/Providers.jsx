@@ -3,6 +3,7 @@ import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, PageTitle, Pill, Table, btn, cell, heading, useLoad } from "./ui";
 import { CustomFinders } from "./CustomFinders";
+import { ProviderBudgets } from "./ProviderBudgets";
 
 // Every outside data provider the app knows: one file each under backend/app/providers, found automatically. Its manifest says
 // what it offers, where its key is saved, what it costs us, what we may do with its data, and which credit item clients pay.
@@ -76,6 +77,7 @@ export function Providers() {
       <div style={{ fontSize: 12, color: C.slate, marginTop: 10 }}>
         A new provider is one file in backend/app/providers. It shows here, joins its routing order and gets its price row on Model Pricing, with no other change.
       </div>
+      <ProviderBudgets />
       <CustomFinders />
     </>
   );

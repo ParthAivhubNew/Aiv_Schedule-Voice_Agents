@@ -401,7 +401,7 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 | 🔴 | Part B fixes 1, 2, 3, 6 and 8: price every provider, record cost on misses, cap the assistant, review the two uncharged organisations. |
 | 🔴 | Stripe live mode: live keys only in `.env`, webhook secret set, `STRIPE_AUTOMATIC_TAX` decided (VAT), and a test purchase, renewal, downgrade and cancel on live with a real card. |
 | 🟠 | Leads and Social top-ups; plan `includes` / `limits`; per-client profit and loss; margin guard (Part B.4). |
-| 🟠 | Vendor budget alerts per provider (`platform_balances.py` already polls balances; add monthly spend limits per provider). |
+| ✅ | ~~Vendor budget alerts per provider~~ **Done on the branch 2026-11-26** (`services/provider_budgets.py`): a monthly budget in US dollars per supplier on the staff Providers page (Monthly budgets), against this month's cost from the cost ledger (every paid provider call and every AI call). Staff get a `BUD-01` alert once a month at 80% and again at 100%; a job checks every 15 minutes. With "pause at the limit" (off by default), the provider wrapper stops calling the supplier until the month turns or the budget is raised, and callers treat it as nothing found; AI models don't go through the wrapper, so for them it only alerts. If the budgets can't be read, nothing is paused. Only staff admins change budgets (audited). Tests: `tests/test_provider_budgets.py`. |
 
 ### C.3 Data, compliance and legal (UK B2B outreach)
 | | Item |

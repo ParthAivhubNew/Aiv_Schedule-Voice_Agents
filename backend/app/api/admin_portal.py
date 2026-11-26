@@ -2170,6 +2170,44 @@ async def fix_provenance(body: ProvenanceFixBody, request: Request):
     return out
 
 
+# ── A monthly budget per supplier (services/provider_budgets.py) ───────────────
+class BudgetBody(BaseModel):
+    usd: Optional[float] = None  # none or 0 removes the budget
+    pause: bool = False  # stop calling the supplier once it has spent its budget this month
+
+
+@router.get("/provider-budgets")
+async def provider_budgets_overview(request: Request):
+    """Every supplier with a budget or a cost this month: what it has cost, its budget and how far through it is."""
+    from app.core.tenancy import system_scope
+    from app.services import provider_budgets as PB
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return await PB.overview(db)
+
+
+@router.put("/provider-budgets/{provider_id}")
+async def save_provider_budget(provider_id: str, body: BudgetBody, request: Request):
+    from app.core.tenancy import system_scope
+    from app.services import audit
+    from app.services import provider_budgets as PB
+
+    who = _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            try:
+                saved = await PB.save(db, provider_id, body.usd, body.pause)
+            except ValueError as err:
+                raise HTTPException(status_code=400, detail=str(err))
+            name = who.get("email") or who.get("name") or "staff"
+            await audit.record(db, "provider.budget_saved", target=provider_id, detail={"usd": body.usd, "pause": body.pause},
+                               actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+            return {"ok": True, "budget": saved}
+
+
 # ── E-mail finders set up in the portal, with no code (providers/generic_http.py) ──
 class CustomProviderBody(BaseModel):
     config: Dict[str, Any]

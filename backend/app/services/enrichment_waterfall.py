@@ -351,10 +351,11 @@ async def lookup_person_waterfall(
     found_email, status, winner, catch_all, answered, asked = "", "", "", None, 0, 0
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         from app.providers.gateway import is_paused
+        from app.services.provider_budgets import paused as over_budget
 
         for provider, key in keys.items():
-            if is_paused(provider):
-                continue  # failing just now: the next finder is asked instead
+            if is_paused(provider) or await over_budget(provider):
+                continue  # failing just now, or stopped at its monthly budget: the next finder is asked instead
             if asked >= MAX_PROVIDERS_ASKED:
                 break
             asked += 1

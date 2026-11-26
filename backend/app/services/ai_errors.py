@@ -42,11 +42,12 @@ CODES: Dict[str, str] = {
     "PRICE-01": "A paid provider is being used with no price set, so its cost counts as $0 in margins and reports. Set it on Model Pricing.",
     "CON-01": "A company pressed Test on a Leads connector and the provider's check failed. Check the key on the Providers page.",
     "PRV-01": "An outside provider failed several times in a row, so the app stopped calling it for a few minutes (it tries again by itself). Check its key and balance on the Providers page.",
+    "BUD-01": "A supplier has used most or all of its monthly budget. See Providers → Monthly budgets; with \"pause at the limit\" on, it is no longer called.",
     "SIGN-01": "Many new companies signed up in the last hour. Check they are real people; past SIGNUP_MAX_PER_HOUR, sign-up pauses for the hour.",
     "CFG-01": "The server's settings have problems to fix before a public launch (Stripe test keys, a weak signing key...). See GET /admin-api/config-check.",
     "BL-01": "Stripe's messages are arriving late or not at all: a company kept needing its plan or credits put right after renewals, or the webhook has gone quiet. The daily check already fixed what it found.",
 }
-STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert", "PRICE-01": "alert", "CAP-01": "alert", "CON-01": "alert", "CFG-01": "alert", "SIGN-01": "alert", "PRV-01": "alert"}
+STAFF_CODES = {"AI-02": "urgent", "AI-03": "alert", "AI-99": "alert", "DS-01": "alert", "BL-01": "alert", "PRICE-01": "alert", "CAP-01": "alert", "CON-01": "alert", "CFG-01": "alert", "SIGN-01": "alert", "PRV-01": "alert", "BUD-01": "alert"}
 ALERTS_KEY = "staff_alerts"
 MAX_ALERTS = 100
 EMAIL_EVERY = timedelta(minutes=30)  # one email per code and company in this time

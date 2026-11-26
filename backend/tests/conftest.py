@@ -206,12 +206,15 @@ async def staff(db):
 def _provider_wrapper_fresh():
     """No provider starts a test paused by another test's failures, and prices are read again (providers/gateway.py)."""
     from app.providers import gateway
+    from app.services import provider_budgets
 
     gateway.reset_breakers()
     gateway.forget_prices()
+    provider_budgets.forget()
     yield
     gateway.reset_breakers()
     gateway.forget_prices()
+    provider_budgets.forget()
 
 
 @pytest.fixture(autouse=True)

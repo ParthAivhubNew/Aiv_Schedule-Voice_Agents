@@ -7,7 +7,8 @@
 1. **Plan:** a company whose plan leaves the provider out gets "not_in_plan" (plan_rules.provider_allowed).
 2. **Shared cache:** with a cache_key, an answer bought before is reused while the licence allows (Licence.cache_days). One client's
    answer serves another only when the licence says share_across_clients; otherwise answers stay with the company that paid.
-3. **Fair-use cost cap:** a company whose plan's cost cap is used up gets "cap_reached" (plan_rules.cap_refusal).
+3. **Fair-use cost cap:** a company whose plan's cost cap is used up gets "cap_reached" (plan_rules.cap_refusal). A supplier staff chose to
+   pause at its monthly budget gets "over_budget" (services/provider_budgets.py).
 4. **Circuit breaker:** after BREAK_AFTER failures in a row, the provider is left alone for a while ("paused"), starting at a minute
    and doubling up to 15 minutes. Staff get a PRV-01 alert. The first call after the pause tests whether it is back.
 5. **Key:** the provider's saved key (Provider.saved_key); "no_key" without one.
@@ -55,7 +56,7 @@ class Answer:
 @dataclass
 class Result:
     data: Any = None
-    outcome: str = ""  # found | none | error | cached | not_in_plan | cap_reached | paused | no_key | unknown_provider
+    outcome: str = ""  # found | none | error | cached | not_in_plan | cap_reached | over_budget | paused | no_key | unknown_provider
     cached: bool = False
     cost_usd: float = 0.0
     error: str = ""
@@ -255,6 +256,10 @@ async def call_provider(provider_id: str, op: str, ask: Callable[[Any, str], Awa
 
     if m.credit_item and await plan_rules.cap_refusal([m.credit_item]):
         return Result(outcome="cap_reached")
+    from app.services import provider_budgets
+
+    if await provider_budgets.paused(provider_id):  # staff chose to stop this supplier at its monthly budget (services/provider_budgets.py)
+        return Result(outcome="over_budget")
     if _paused(provider_id):
         return Result(outcome="paused")
     if pooled:
