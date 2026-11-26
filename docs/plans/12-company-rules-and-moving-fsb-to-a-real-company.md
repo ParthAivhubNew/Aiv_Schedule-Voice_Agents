@@ -202,7 +202,7 @@ About three weeks in total. Steps 1–2 change nothing FSB can see, except the c
 - `team/RulesTab.jsx` `RulesForm` holds every section. It takes `level="brand"`, which changes the wording, shows no "set by" locks, hides the preview (a count needs one company's area) and goes read-only for staff who can't edit.
 - Brands keeps the brand's rules in the same draft shape and saves them with the same payload. The rule sets come from the new staff route `GET /admin-api/rule-sets`.
 - The old hand-built brand editor is gone, so a new rule now appears in both places by itself.
-- **Plan 12 is done**, apart from sample data in demos.
+- **Plan 12 is done** (sample data in demos was added 2026-11-26).
 
 **Status, 2026-11-25 (notices):** F2 is done, and F4 is done in part.
 - **Find Leads:** the "Standing exclusions on" chip has a **See rules** link for admins. It opens Team settings → Company rules through a new app-wide event, `aivhub:open-team-settings`.
@@ -214,7 +214,7 @@ About three weeks in total. Steps 1–2 change nothing FSB can see, except the c
 - The company is made exactly as sign-up makes one, with no credits. Its admin gets no password: an invite link (the reset-password link, valid 7 days, once only) is shown to staff once and can be e-mailed.
 - An hourly job (`demo_expiry`) suspends a demo the day after it ends, which signs everyone in it out. "Extend" brings it back, and "New invite link" makes another.
 - Audited as `demo.created`. Tests: `tests/test_demo_orgs.py`.
-- **Not done:** sample data in a demo (it searches the shared register from the start). F4, the Rules screen as the brand editor on Brands, has since been done.
+- ✅ **Sample data, done 2026-11-26:** "Start with a sample list" (on by default) gives the demo a list, "Sample: accountants and bookkeepers", of up to 25 real companies from the register. They're found by the demo company's own search, so its brand's rules and areas apply, and saved the way Find Leads saves them. If nothing matches, the demo starts with no list and staff are told. F4, the Rules screen as the brand editor on Brands, has also been done.
 
 **Status, 2026-11-25 (Social):** step 4 is done, and the Social section of the Rules screen with it.
 - **Policy:** a new `social` block: `approver` (`anyone` or `admin`), `networks` (allowed; empty means all), `ai_images` and `ai_video`.

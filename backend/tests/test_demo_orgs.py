@@ -69,3 +69,25 @@ async def test_a_demo_ends_after_its_end_date_and_can_be_brought_back(db, staff)
     assert org.status == "active"
     fresh = (await staff.post(f"/api/admin-api/demo-orgs/{out['orgId']}/invite")).json()
     assert "/reset-password?t=" in fresh["inviteLink"]
+
+
+async def test_a_demo_can_start_with_a_sample_list_found_by_its_own_search(db, staff):
+    from app.core.tenancy import org_scope
+    from app.models.models import BusinessRecord as B
+
+    def rec(n, name, sic):
+        return B(id=f"bs{n}", identity_hash=f"hs{n}", name=name, registration_number=f"0900000{n}", postcode="BN1 1AA", status="Active",
+                 company_category="Private Limited Company", sic_codes=sic, sic_text="x", sources=[], rank_score=0, region="Hove", industry="")
+
+    db.add_all([rec(1, "Hove Accountants Ltd", "|69201|"), rec(2, "Brighton Bookkeeping Ltd", "|69202|"), rec(3, "Acme Plumbing Ltd", "|43220|")])
+    await db.commit()
+    made = (await staff.post("/api/admin-api/demo-orgs", json={"company": "Sample Demo Ltd", "adminName": "Bo Lee", "adminEmail": "bo@sample-demo.test",
+                                                               "days": 7, "sampleData": True})).json()
+    assert made["sampleSaved"] == 2 and made["sampleList"] == D.SAMPLE_LIST
+    await db.commit()  # a new transaction, so the demo's own scope applies to the reads below
+    with org_scope(made["orgId"]):
+        names = sorted(r[0] for r in (await db.execute(text("SELECT name FROM lead_accounts"))).all())
+        assert names == ["Brighton Bookkeeping Ltd", "Hove Accountants Ltd"]  # only the trades the sample asks for
+    without = (await staff.post("/api/admin-api/demo-orgs", json={"company": "Plain Demo Ltd", "adminName": "Cy Lee", "adminEmail": "cy@plain-demo.test",
+                                                                  "days": 7})).json()
+    assert without["sampleSaved"] == 0 and without["sampleList"] == ""

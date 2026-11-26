@@ -63,8 +63,40 @@ async def _email_invite(op, company: str, link: str) -> bool:
     return bool(res.get("ok"))
 
 
+SAMPLE_SIZE = 25
+SAMPLE_LIST = "Sample: accountants and bookkeepers"
+
+
+async def add_sample(org_id: str, owner: str) -> int:
+    """A first saved list for a demo: up to SAMPLE_SIZE companies from the shared register, found by the demo company's own search
+    (so its brand's rules and areas apply) and saved the way Find Leads saves them. How many were saved; 0 when none matched.
+    Never raises: a demo without its sample is still a demo."""
+    from app.api.lead_accounts import AccountIn, AccountsIn, save_accounts
+    from app.api.signup import SAMPLE_SEARCH
+    from app.core.tenancy import org_scope
+    from app.database import AsyncSessionLocal
+    from app.services import business_records as BR
+
+    try:
+        with org_scope(org_id):
+            async with AsyncSessionLocal() as s:
+                found = await BR.search_filtered(s, dict(SAMPLE_SEARCH), limit=SAMPLE_SIZE, stats=False)
+                rows = found.get("rows") or []  # register records; saving them fills each company from its record, as Find Leads does
+                if not rows:
+                    return 0
+                accounts = [AccountIn(name=r.name or "", business_record_id=r.id, source="scout", registration_number=r.registration_number or "",
+                                      postcode=r.postcode or "", industry=r.industry or "", region=r.region or "")
+                            for r in rows if getattr(r, "id", None)]
+                out = await save_accounts(s, AccountsIn(accounts=accounts, list_name=SAMPLE_LIST), owner)
+                await s.commit()
+                return int(out.get("added") or 0)
+    except Exception as err:
+        logger.warning(f"[demo] sample list not made for {org_id}: {err}")
+        return 0
+
+
 async def create(db, *, company: str, admin_name: str, admin_email: str, days: int, brand_id: str = "", standard_rules: bool = False,
-                 email_invite: bool = False, staff: str = "staff") -> Dict[str, Any]:
+                 email_invite: bool = False, staff: str = "staff", sample_data: bool = False) -> Dict[str, Any]:
     from app.api.signup import _create_org, _email_taken
     from app.models.models import Brand, Organization
     from app.services import tenant_policy as TP
@@ -100,9 +132,11 @@ async def create(db, *, company: str, admin_name: str, admin_email: str, days: i
     await _save(db, doc)
     await db.commit()
     TP.invalidate(op.org_id)
+    sample = await add_sample(op.org_id, admin_name) if sample_data else 0
     link = invite_link(op)
     emailed = await _email_invite(op, company, link) if email_invite else False
-    return {"orgId": op.org_id, "endsOn": ends, "inviteLink": link, "emailed": emailed, "inviteDays": INVITE_DAYS}
+    return {"orgId": op.org_id, "endsOn": ends, "inviteLink": link, "emailed": emailed, "inviteDays": INVITE_DAYS,
+            "sampleSaved": sample, "sampleList": SAMPLE_LIST if sample else ""}
 
 
 async def listing(db) -> List[Dict[str, Any]]:

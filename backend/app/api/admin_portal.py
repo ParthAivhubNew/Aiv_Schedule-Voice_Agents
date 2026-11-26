@@ -2068,6 +2068,7 @@ class DemoBody(BaseModel):
     brandId: str = ""
     standardRules: bool = False
     emailInvite: bool = False
+    sampleData: bool = False  # start with a saved list of real companies from the register
 
 
 @router.get("/demo-orgs")
@@ -2090,11 +2091,13 @@ async def create_demo_org(body: DemoBody, request: Request):
     async with AsyncSessionLocal() as db:
         try:
             out = await demo_orgs.create(db, company=body.company, admin_name=body.adminName, admin_email=body.adminEmail, days=body.days,
-                                         brand_id=body.brandId, standard_rules=body.standardRules, email_invite=body.emailInvite, staff=name)
+                                         brand_id=body.brandId, standard_rules=body.standardRules, email_invite=body.emailInvite, staff=name,
+                                         sample_data=body.sampleData)
         except demo_orgs.DemoProblem as err:
             raise HTTPException(status_code=400, detail=str(err))
         await audit.record(db, "demo.created", target=f"org:{out['orgId']}", detail={"company": body.company, "endsOn": out["endsOn"],
-                           "brandId": body.brandId, "emailed": out["emailed"]}, actor_id=str(who.get("id") or name), actor_name=name)
+                           "brandId": body.brandId, "emailed": out["emailed"], "sampleSaved": out["sampleSaved"]},
+                           actor_id=str(who.get("id") or name), actor_name=name)
         await db.commit()
     return out
 

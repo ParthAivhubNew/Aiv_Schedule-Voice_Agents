@@ -9,7 +9,7 @@ import { Note, PageTitle, Pill, Table, btn, card, cell, input, useLoad } from ".
 export function DemoOrgs() {
   const [data, err, reload] = useLoad(adminApi.demoOrgs);
   const [brands] = useLoad(adminApi.brands);
-  const [form, setForm] = useState({ company: "", adminName: "", adminEmail: "", days: 14, brandId: "", standardRules: false, emailInvite: true });
+  const [form, setForm] = useState({ company: "", adminName: "", adminEmail: "", days: 14, brandId: "", standardRules: false, emailInvite: true, sampleData: true });
   const [made, setMade] = useState(null);
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,7 +20,8 @@ export function DemoOrgs() {
     setProblem("");
     setMade(null);
     try {
-      setMade(await adminApi.createDemoOrg({ ...form, days: Number(form.days) }));
+      const out = await adminApi.createDemoOrg({ ...form, days: Number(form.days) });
+      setMade({ ...out, sampleAsked: form.sampleData });
       set({ company: "", adminName: "", adminEmail: "" });
       reload();
     } catch (e) {
@@ -59,13 +60,17 @@ export function DemoOrgs() {
           </label>
         </div>
         <label style={{ display: "flex", gap: 8, fontSize: 12.5 }}><input type="checkbox" checked={form.standardRules} onChange={(e) => set({ standardRules: e.target.checked })} /> Start with the Standard B2B exclusions (as a filter they can switch off)</label>
+        <label style={{ display: "flex", gap: 8, fontSize: 12.5 }}><input type="checkbox" checked={form.sampleData} onChange={(e) => set({ sampleData: e.target.checked })} /> Start with a sample list of up to 25 real companies from the register (accountants and bookkeepers, found by the demo's own search, so its rules apply)</label>
         <label style={{ display: "flex", gap: 8, fontSize: 12.5 }}><input type="checkbox" checked={form.emailInvite} onChange={(e) => set({ emailInvite: e.target.checked })} /> E-mail the invite to the admin</label>
         <div style={{ fontSize: 12, color: C.slate }}>It starts with no credits, like a new sign-up. Give credits on Clients if the demo needs paid look-ups.</div>
         <div><button type="button" style={btn(true, busy)} disabled={busy} onClick={create}>{busy ? "Creating…" : "Create demo organisation"}</button></div>
         <Note error>{problem}</Note>
         {made ? (
           <div role="status" style={{ fontSize: 12.5, lineHeight: 1.5, background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: 12, overflowWrap: "anywhere" }}>
-            {made.again ? "A new invite link" : `Created. It ends on ${made.endsOn}.`} {made.emailed ? "The invite was e-mailed." : "Send this invite link to the admin."} It works once, for {made.inviteDays} days:
+            {made.again ? "A new invite link" : `Created. It ends on ${made.endsOn}.`}{" "}
+            {!made.again && made.sampleSaved ? `It starts with a list, "${made.sampleList}", of ${made.sampleSaved} compan${made.sampleSaved === 1 ? "y" : "ies"}. ` : ""}
+            {!made.again && made.sampleAsked && !made.sampleSaved ? "No company matched the sample search, so it starts with no list. " : ""}
+            {made.emailed ? "The invite was e-mailed." : "Send this invite link to the admin."} It works once, for {made.inviteDays} days:
             <div style={{ fontFamily: "monospace", marginTop: 6 }}>{made.inviteLink}</div>
           </div>
         ) : null}

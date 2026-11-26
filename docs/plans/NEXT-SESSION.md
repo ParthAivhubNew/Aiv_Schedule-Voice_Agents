@@ -8,7 +8,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 
 **Where things are**
 - **Live app** (https://outreach.aivhub.com) runs from `/opt/flow` on `main`. Its backend container bind-mounts `/opt/flow/backend` and restarts on its own. Never switch branches, edit code or restart anything there. Only untracked plan copies live in `/opt/flow/docs/plans/`.
-- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 40 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
+- **All work happens in the git worktree `/opt/flow-new`, on branch `company-rules-fsb-migration`.** It is 41 commits ahead of `main` and none are pushed. The server has no Gitea credentials, so I push myself with `git -C /opt/flow-new push -u origin company-rules-fsb-migration`.
 - **Test app:** https://new.outreach.aivhub.com runs `/opt/flow-new` as compose project `flownew` (`docker-compose.new.yml`, containers `aivhub_new_*`). It has its own Postgres and Redis, holding a copy of live data.
   - `/opt/flow-new/.env` has `TEST_COPY=true` (`backend/app/core/test_copy.py`): live keys can't make outward writes. **Never remove it** while that file holds the live `SECRET_KEY`.
   - Reach it from the server with `--resolve new.outreach.aivhub.com:443:62.171.163.98`.
@@ -58,6 +58,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 7. ~~Config-only providers (plan 11, step 4).~~ **Done 2026-11-26:** staff add an e-mail finder on the Providers page with no code (`app/providers/generic_http.py`). Plan 11 step 4 is done.
 8. ~~Pre-filled sample search in Get started (plan 11, C.6).~~ **Done 2026-11-26:** the company's own ideal customers, or accountants and bookkeepers.
 9. ~~Public pricing page (plan 11, C.6).~~ **Done 2026-11-26** at `/pricing`, from the server's plans and rate card. It mentions VAT only when Stripe adds it.
+10. ~~Sample data in demo organisations (plan 12).~~ **Done 2026-11-26:** an optional sample list of up to 25 companies. Plan 12 is now done.
 
 **Waiting on me (ask, don't guess):**
 - Stripe live keys and VAT.
