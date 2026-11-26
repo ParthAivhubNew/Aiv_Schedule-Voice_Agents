@@ -50,7 +50,7 @@ export function FitBadge({ fit, compact = false }) {
       </button>
       {compact ? null : <span style={{ ...text, fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{reasons[0] || tone.word}</span>}
       {spot ? (
-        <span role="tooltip" style={{ position: "fixed", top: spot.top, left: spot.left, zIndex: 80, width: 320, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(20,24,40,.16)", padding: "10px 12px", ...text, fontSize: 12.5, color: C.textInk, whiteSpace: "normal", textAlign: "left" }}>
+        <span role="tooltip" style={{ position: "fixed", top: spot.top, left: spot.left, zIndex: 80, width: 320, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(20,24,40,.16)", padding: "10px 12px", ...text, fontSize: 12.5, color: C.textInk, whiteSpace: "normal", textAlign: "left" }}>
           <span style={{ display: "block", fontWeight: 700, marginBottom: 4 }}>{tone.word}: {fit.score} of 100</span>
           {reasons.length
             ? <span style={{ display: "grid", gap: 3 }}>{reasons.map((r) => <span key={r}>{r}</span>)}</span>
@@ -87,7 +87,7 @@ export function IcpPrompt({ onSet, inset = false }) {
   if (hidden) return null;
   const dismiss = () => { setHidden(true); try { localStorage.setItem(ICP_PROMPT_KEY, "1"); } catch (_) { /* private window: hides for this visit only */ } };
   const card = (
-    <div role="note" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 12px", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff", ...text, fontSize: 13, color: C.textInk }}>
+    <div role="note" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 12px", border: `1px dashed ${C.border}`, borderRadius: 10, background: C.surface, ...text, fontSize: 13, color: C.textInk }}>
       <Target size={16} color={C.cobalt} aria-hidden="true" />
       <span style={{ flex: "1 1 260px" }}>Set your ideal customer to see how well each company fits, and why.</span>
       {onSet ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={onSet}>Set your ideal customer</button> : null}

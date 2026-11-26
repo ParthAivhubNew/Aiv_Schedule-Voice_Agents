@@ -266,9 +266,9 @@ export function AccountPanel({ account, store, onClose, onOpenPage, onOpenRegist
   return (
     <div onClick={page ? undefined : onClose} style={page ? { display: "flex", justifyContent: "center" } : { position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
       <div role={page ? undefined : "dialog"} aria-label={niceName(live.name)} onClick={(e) => e.stopPropagation()} className="ui-scroll"
-        style={page ? { width: "min(100%, 980px)", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column" }
-          : { width: "min(100%, 520px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        <div style={{ position: "sticky", top: 0, background: "#fff", zIndex: 4, borderRadius: page ? "14px 14px 0 0" : 0 }}>
+        style={page ? { width: "min(100%, 980px)", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column" }
+          : { width: "min(100%, 520px)", height: "100%", background: C.surface, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "sticky", top: 0, background: C.surface, zIndex: 4, borderRadius: page ? "14px 14px 0 0" : 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "16px 16px 10px 20px", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 220px", minWidth: 0 }}>
             <div style={{ ...text, fontSize: 16, fontWeight: 600, color: C.ink, overflowWrap: "anywhere" }}>{niceName(live.name)}</div>

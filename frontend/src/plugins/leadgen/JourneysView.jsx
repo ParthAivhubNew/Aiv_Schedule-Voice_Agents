@@ -34,7 +34,7 @@ const WHEEL_CSS = `
 .jw-scroll[data-up="true"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%)}
 .jw-scroll[data-up="true"][data-down="false"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px);mask-image:linear-gradient(to bottom,transparent 0,#000 34px)}
 .jw-scroll[data-up="false"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%)}
-.jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid ${C.lineStrong};color:${C.neutralInk};box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
+.jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:${C.surface};border:1px solid ${C.lineStrong};color:${C.neutralInk};box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
 .jw-arrow:hover{background:${C.surfaceCool}}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .jw-arrow[data-dir="down"]{bottom:2px;animation:jw-nudge 1.8s ease-in-out infinite}
 .jw-arrow[data-dir="up"]{top:2px}
@@ -100,7 +100,7 @@ function ResultsBar({ results, onOpen, finished = false }) {
   if (!results || (!results.sent && !finished)) return null; // a finished journey always shows its results, even when they are all zero
   return (
     <div style={{ display: "grid", gap: 4 }}>
-      <button type="button" onClick={onOpen} aria-label="Open results by step" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(84px, 1fr))", gap: 8, padding: "10px 12px", border: `1px solid ${C.borderLight}`, borderRadius: 12, background: "#fff", minHeight: 44 }}>
+      <button type="button" onClick={onOpen} aria-label="Open results by step" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(84px, 1fr))", gap: 8, padding: "10px 12px", border: `1px solid ${C.borderLight}`, borderRadius: 12, background: C.surface, minHeight: 44 }}>
         {resultsBar(results).map((b) => (
           <span key={b.key}><span style={{ display: "block", fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{b.value}</span><span style={small}>{b.label}</span></span>
         ))}
@@ -165,7 +165,7 @@ function PreviewBox({ journeyId, people, steps }) {
       </div>
       {err ? <div role="status" style={small}>{err}</div> : null}
       {shown ? (
-        <div style={{ border: `1px solid ${C.borderLight}`, borderRadius: 12, background: "#fff", padding: 12, display: "grid", gap: 8, overflowWrap: "anywhere" }}>
+        <div style={{ border: `1px solid ${C.borderLight}`, borderRadius: 12, background: C.surface, padding: 12, display: "grid", gap: 8, overflowWrap: "anywhere" }}>
           <div style={small}>To {shown.to || "(no email address)"}</div>
           <strong style={{ fontSize: 14 }}>{shown.subject || "(same thread)"}</strong>
           <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{shown.body_text}</div>
@@ -185,7 +185,7 @@ function StepRow({ step, index, count, open, onOpen, onChange, onMove, onRemove,
   const isCall = step.channel === "call";
   const second = Boolean(step.body_b || step.subject_b);
   return (
-    <li style={{ border: `1px solid ${open ? C.cobalt : C.borderLight}`, borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+    <li style={{ border: `1px solid ${open ? C.cobalt : C.borderLight}`, borderRadius: 12, background: C.surface, overflow: "hidden" }}>
       <button type="button" onClick={onOpen} aria-expanded={open} style={{ all: "unset", boxSizing: "border-box", width: "100%", cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: "10px 12px" }}>
         <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 15, flexShrink: 0, display: "grid", placeItems: "center", background: bg, color: fg }}><Icon size={14} /></span>
         <span style={{ minWidth: 0, flex: 1 }}>
@@ -1009,7 +1009,7 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
           const on = !creating && j.id === selected;
           return (
             <button key={j.id} type="button" aria-current={on ? "true" : undefined} onClick={() => open(j.id)}
-              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : "#fff" }}>
+              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : C.surface }}>
               <span style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
                 <strong title={j.name} style={{ fontSize: 13.5, flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.35 }}>{j.name}</strong>
                 <span style={{ flex: "none" }}><Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill></span>

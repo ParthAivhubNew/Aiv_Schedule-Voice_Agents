@@ -275,7 +275,7 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
           <div style={{ border: `1px solid ${C.amber}`, background: C.amberSoft, borderRadius: 12, padding: 14, display: "grid", gap: 8 }}>
             <div style={{ ...text, fontSize: 14, fontWeight: 700, color: C.textInk }}>Temporary password for {temp.who}</div>
             <div style={muted}>{temp.emailed ? "Also emailed to them. " : "Send it to them privately. "}Shown only now. They choose their own at first sign-in.</div>
-            <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, background: "#fff", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, overflowWrap: "anywhere" }}>{temp.value}</code>
+            <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, background: C.surface, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, overflowWrap: "anywhere" }}>{temp.value}</code>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={copy}><Copy size={14} aria-hidden="true" /> Copy</button>
               <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={onClose}>Done</button>

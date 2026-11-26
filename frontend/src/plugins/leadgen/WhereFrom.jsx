@@ -38,7 +38,7 @@ export function WhereFrom({ c }) {
     </div>
   );
   return (
-    <section aria-label="Where this came from" style={{ ...text, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, display: "grid", gap: 8, padding: 14 }}>
+    <section aria-label="Where this came from" style={{ ...text, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, display: "grid", gap: 8, padding: 14 }}>
       <strong style={{ fontSize: 13.5 }}>Where this came from</strong>
       {mine ? line("Joined", (
         <>

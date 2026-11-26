@@ -66,7 +66,7 @@ export function RetentionReview({ toast, onGo }) {
       {!ids.length ? <div style={{ ...muted, padding: "16px 0" }}>Nothing to review. Every saved company has been contacted or added within the last 12 months.</div> : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
           {data.accounts.map((a) => (
-            <li key={a.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff" }}>
+            <li key={a.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface }}>
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", minHeight: 40, cursor: "pointer" }}>
                 <input type="checkbox" checked={selected.has(a.id)} onChange={() => setSelected(toggleOne(selected, a.id))} style={{ marginTop: 3 }} />
                 <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>

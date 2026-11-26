@@ -47,12 +47,12 @@ const CHAT_CSS = `
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
 .fl-bar::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:var(--ui-accent,#3457D5);animation:flBar 1s ease-in-out infinite}
 @keyframes flBar{0%{left:-35%}100%{left:100%}}
-.fl-pin{position:sticky;top:0;z-index:6;background:#fff;padding:10px 0 12px;border-bottom:1px solid var(--ui-line-soft);display:flex;flex-direction:column;gap:8px}
+.fl-pin{position:sticky;top:0;z-index:6;background:${C.surface};padding:10px 0 12px;border-bottom:1px solid var(--ui-line-soft);display:flex;flex-direction:column;gap:8px}
 .fl-collapse{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;color:var(--ui-muted)}
 .fl-collapse:hover,.fl-collapse:focus-visible{background:var(--ui-hover);color:var(--ui-ink)}
 .fl-seg{display:inline-flex;height:36px;box-sizing:border-box;background:var(--ui-sunken);border:1px solid var(--ui-line);border-radius:10px;padding:3px;gap:3px}
 .fl-seg-btn{border:none;cursor:pointer;border-radius:7px;padding:0 12px;font:600 13px Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--ui-muted)}
-.fl-seg-btn[data-on="true"]{background:#fff;color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.fl-seg-btn[data-on="true"]{background:${C.surface};color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .fl-seg-btn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
 @media (max-width:820px){
   .fl-toolbar .fl-seg{height:auto;flex:1 1 calc(50% - 6px)}
@@ -730,7 +730,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
               gap: 6,
               height: 36,
               fontWeight: 600,
-              background: "#FFFFFF",
+              background: C.surface,
               border: "1px solid var(--ui-line, #E2E8F0)",
               boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
             }}

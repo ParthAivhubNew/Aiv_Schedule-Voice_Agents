@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { api } from "../../api/apiClient";
+import { C } from "../../tokens";
 
 // A box for a list of things to leave out. Each item becomes a chip with an x and a tag saying how it is read (category, word, SIC code,
 // postcode, company number). While someone types, matching categories and words drop down, and the closest one shows after the text in a
@@ -123,7 +124,7 @@ function ChipInput({ value, onChange, placeholder, label, list, cats, tall }) {
   };
 
   return (
-    <div style={{ background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8 }}>
+    <div style={{ background: C.surface, border: "1px solid var(--ui-line)", borderRadius: 8 }}>
       <div style={{ position: "relative", padding: "8px 10px", borderBottom: groups.length ? "1px solid var(--ui-line)" : "none" }}>
         <span style={{ position: "relative", display: "block" }}>
           <span aria-hidden="true" style={{ ...FONT, position: "absolute", left: 0, top: 0, bottom: 0, display: "flex", alignItems: "center", whiteSpace: "pre", overflow: "hidden", maxWidth: "100%", pointerEvents: "none" }}>
@@ -143,7 +144,7 @@ function ChipInput({ value, onChange, placeholder, label, list, cats, tall }) {
         </span>
         {found.length ? (
           <ul role="listbox" aria-label={`${label} suggestions`}
-            style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 2, zIndex: 30, listStyle: "none", padding: 4, background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.12)" }}>
+            style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 2, zIndex: 30, listStyle: "none", padding: 4, background: C.surface, border: "1px solid var(--ui-line)", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.12)" }}>
             {found.map((s, i) => (
               <li key={s} role="option" aria-selected={i === active} onMouseDown={(e) => { e.preventDefault(); commit(s); inputRef.current && inputRef.current.focus(); }}
                 onMouseEnter={() => setActive(i)}
@@ -191,7 +192,7 @@ function TextMode({ value, onChange, placeholder, label, list }) {
   const accept = () => onChange(head + hint + ", ");
   const box = { ...FONT, padding: "8px 10px", margin: 0, boxSizing: "border-box", whiteSpace: "pre-wrap", overflowWrap: "anywhere" };
   return (
-    <div style={{ position: "relative", background: "#fff", border: "1px solid var(--ui-line)", borderRadius: 8 }}>
+    <div style={{ position: "relative", background: C.surface, border: "1px solid var(--ui-line)", borderRadius: 8 }}>
       <div ref={ghost} aria-hidden="true" style={{ ...box, position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", color: "transparent" }}>
         {value}<span style={FAINT}>{hint ? hint.slice(word.length) : ""}</span>
       </div>
@@ -232,7 +233,7 @@ export default function ExclusionBox({ value, onChange, placeholder, label, titl
       {big ? (
         <div role="dialog" aria-modal="true" aria-label={label} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,20,30,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) setBig(false); }}>
-          <div className="ui-card" style={{ width: "min(900px, 100%)", maxHeight: "92vh", display: "flex", flexDirection: "column", gap: 10, padding: 16, background: "#fff" }}>
+          <div className="ui-card" style={{ width: "min(900px, 100%)", maxHeight: "92vh", display: "flex", flexDirection: "column", gap: 10, padding: 16, background: C.surface }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <strong style={{ fontSize: 15 }}>{label}</strong>
               <span style={{ fontSize: 12, color: "var(--ui-muted)" }}>{count.toLocaleString()} {count === 1 ? "item" : "items"}</span>

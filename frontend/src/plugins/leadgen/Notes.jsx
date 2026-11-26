@@ -239,7 +239,7 @@ function Popover({ anchor, onClose, children, label }) {
   if (!pos) return null;
   return createPortal(
     <div ref={ref} role="dialog" aria-label={label} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
-      className="ui-scroll" style={{ position: "fixed", zIndex: 1200, ...pos, overflowY: "auto", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(16,24,40,.18)", padding: 12, boxSizing: "border-box" }}>
+      className="ui-scroll" style={{ position: "fixed", zIndex: 1200, ...pos, overflowY: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(16,24,40,.18)", padding: 12, boxSizing: "border-box" }}>
       {children}
     </div>,
     document.body,

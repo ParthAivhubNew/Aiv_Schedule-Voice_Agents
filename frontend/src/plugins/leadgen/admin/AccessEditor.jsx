@@ -101,7 +101,7 @@ export function AccessEditor({ draft, allowed = [], idBase, disabled = false }) 
           {[[false, "All postcodes"], [true, "Only these postcodes"]].map(([val, label]) => (
             <button key={label} type="button" role="radio" aria-checked={only === val}
               onClick={() => { setEntryError(""); set(val ? { only: true } : { only: false, districts: [] }); }}
-              style={{ minHeight: 44, padding: "0 14px", borderRadius: 999, border: `1px solid ${only === val ? C.cobalt : C.border}`, background: only === val ? C.cobaltSoft : "#fff", color: only === val ? C.cobaltDeep : C.textInk, fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: only === val ? 700 : 500, cursor: "pointer" }}>
+              style={{ minHeight: 44, padding: "0 14px", borderRadius: 999, border: `1px solid ${only === val ? C.cobalt : C.border}`, background: only === val ? C.cobaltSoft : C.surface, color: only === val ? C.cobaltDeep : C.textInk, fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: only === val ? 700 : 500, cursor: "pointer" }}>
               {only === val ? "✓ " : ""}{label}
             </button>
           ))}
@@ -129,7 +129,7 @@ export function AccessEditor({ draft, allowed = [], idBase, disabled = false }) 
         {only && suggestions.length ? (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Suggested areas">
             {suggestions.map((d) => (
-              <button key={d} type="button" onClick={() => toggle(d)} style={{ minHeight: 44, minWidth: 44, padding: "0 12px", borderRadius: 999, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>{d}</button>
+              <button key={d} type="button" onClick={() => toggle(d)} style={{ minHeight: 44, minWidth: 44, padding: "0 12px", borderRadius: 999, border: `1px solid ${C.border}`, background: C.surface, color: C.textInk, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>{d}</button>
             ))}
           </div>
         ) : null}

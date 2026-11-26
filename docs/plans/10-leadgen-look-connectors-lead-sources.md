@@ -48,6 +48,14 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - **Still deliberate and left as they are:** the org chart's level palette, the filter cards' amber and orange, the emerald filter
     chips, the connector status pills and the TPS dialog's tones. Merging them would change the look; naming them is the step before
     dark mode.
+- ✅ **White by role (2026-11-26): 95 more uses onto tokens; 533 → 438 left.** White was left alone in the earlier passes because dark mode
+  needs two different colours for it. Two new tokens, both white today:
+  - `surface` (the shared `--ui-surface`): card, panel, table, input and pinned-column backgrounds, and white borders and rings. 85 uses.
+  - `onAccent` (`--c-on-accent`): text and icons on a coloured fill (a filled step, a filled chip, a dark button). 10 uses.
+  - Moved by `frontend/scripts/tokens-white-codemod.cjs`, which reads what each white does (the style property, or the CSS property in
+    page CSS). One white whose job couldn't be told is left as it is. Nothing looks different.
+  - **What's left:** about 200 of the 438 are in files where a colour is data or leaves the app (e-mail designs, form embeds, map pins,
+    supplier logos) and must stay as written. The rest are the deliberate sets above and a few dark inks (`#000`, `#111`).
 
 **Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
 - **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).
@@ -264,7 +272,7 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
            its signature, so its body is unchanged.
          - **Left in the screen on purpose:** the map-area actions. They need 20 of the search's own values (its run id, area
            bookkeeping), so a hook would only move the tangle.
-         - Not yet checked in a browser.
+         - **Checked in a browser 2026-11-26:** ticking, Favourite, Add to list, Reveal, Get contacts (opened, not confirmed), Call, Remove, paging and the map all work.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
 
 ### 3.1 Done on the branch (2026-11-25)

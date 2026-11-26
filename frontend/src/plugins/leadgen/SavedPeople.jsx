@@ -117,7 +117,7 @@ export function SavedPeople({ store, onOpen, onGo }) {
 const tabsCss = `
 .sv-tabs{display:inline-flex;height:36px;box-sizing:border-box;background:var(--ui-sunken);border:1px solid var(--ui-line);border-radius:10px;padding:3px;gap:3px;max-width:100%;overflow-x:auto}
 .sv-tab{border:none;cursor:pointer;border-radius:7px;padding:0 12px;font:600 13px Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--ui-muted);white-space:nowrap}
-.sv-tab[data-on="true"]{background:#fff;color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.sv-tab[data-on="true"]{background:${C.surface};color:var(--ui-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .sv-tab:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
 .sv-count{font-weight:500;color:var(--ui-muted);font-variant-numeric:tabular-nums}
 `;

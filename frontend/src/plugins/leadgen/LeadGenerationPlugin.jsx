@@ -397,7 +397,7 @@ export default function LeadGenerationPlugin({
                 alignItems: "center",
                 gap: 6,
                 fontWeight: 600,
-                background: "#FFFFFF",
+                background: C.surface,
                 border: "1px solid var(--ui-line, #E2E8F0)",
                 boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
               }}

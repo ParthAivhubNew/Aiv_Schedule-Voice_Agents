@@ -11,8 +11,8 @@ export { AREAS_HELP, AREA_ERROR, NEED_AREAS_LINE, NO_LIMIT_LINE, cleanArea, prev
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
-const card = { border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff", padding: 14, display: "grid", gap: 12, minWidth: 0 };
-const field = { minHeight: 44, padding: "0 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: FONT_BODY, fontSize: 14, background: "#fff", maxWidth: "100%" };
+const card = { border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14, display: "grid", gap: 12, minWidth: 0 };
+const field = { minHeight: 44, padding: "0 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: FONT_BODY, fontSize: 14, background: C.surface, maxWidth: "100%" };
 
 export const EMPTY_LINE = "No other users yet. Add people in Users and roles.";
 export const HEADING_LINE = "Choose what each person in your organisation can see and do. Admins always see everything.";

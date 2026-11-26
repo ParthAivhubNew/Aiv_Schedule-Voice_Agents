@@ -57,7 +57,7 @@ export function GoogleCard({ result, onClose }) {
     ? `${d.rating} out of 5${d.rating_count != null ? ` (${Number(d.rating_count).toLocaleString("en-GB")} ${d.rating_count === 1 ? "review" : "reviews"})` : ""}`
     : "";
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: "#fff", display: "grid", gap: 6 }}>
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: C.surface, display: "grid", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <MapPin size={15} aria-hidden="true" color={C.slate} />
         <strong style={{ ...text, fontSize: 13.5, color: C.ink, flex: 1 }}>From Google</strong>

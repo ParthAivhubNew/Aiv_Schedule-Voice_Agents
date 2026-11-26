@@ -8,7 +8,7 @@ const text = { fontFamily: FONT_BODY };
 export function TpsPill({ count, on, onClick }) {
   return (
     <button type="button" aria-pressed={on} title="Show only contacts with at least one phone number checked against the TPS and CTPS registers (any number on the record)" onClick={onClick}
-      style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? "#047857" : "#86C5A8"}`, background: on ? "#047857" : C.successBg, color: on ? "#fff" : "#047857", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+      style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? "#047857" : "#86C5A8"}`, background: on ? "#047857" : C.successBg, color: on ? C.onAccent : "#047857", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
       TPS checked {count.toLocaleString()}
     </button>
   );

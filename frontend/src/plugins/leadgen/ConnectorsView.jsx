@@ -41,7 +41,7 @@ function Card({ c, onOpen }) {
   const counts = countLine(c);
   return (
     <button type="button" onClick={() => onOpen(c.id)} className="connector-card" aria-label={`${c.name}: ${c.statusLabel}`}
-      style={{ ...text, textAlign: "left", background: "#FFFFFF", border: `1px solid ${c.status === "connected" ? t.border : C.border}`, borderRadius: 8,
+      style={{ ...text, textAlign: "left", background: C.surface, border: `1px solid ${c.status === "connected" ? t.border : C.border}`, borderRadius: 8,
         padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "pointer", minHeight: 72,
         boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
       <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -107,7 +107,7 @@ export function ConnectorDetail({ c, kinds, canTest, onClose, initialResult = nu
     <div role="dialog" aria-modal="true" aria-label={c.name} onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ ...text, background: "#FFFFFF", borderRadius: 14, width: "min(640px, 100%)", maxHeight: "90vh", overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
+        style={{ ...text, background: C.surface, borderRadius: 14, width: "min(640px, 100%)", maxHeight: "90vh", overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             <Logo name={c.logo} size={40} />
@@ -192,14 +192,14 @@ export function ConnectorsView({ initialData = null }) {
   const pill = (id, label) => (
     <button key={id} type="button" onClick={() => setGroup(id)} aria-pressed={group === id}
       style={{ ...text, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 999, cursor: "pointer", minHeight: 32,
-        border: `1px solid ${group === id ? C.ink : C.border}`, background: group === id ? C.ink : "#FFFFFF", color: group === id ? "#FFFFFF" : C.textInk }}>
+        border: `1px solid ${group === id ? C.ink : C.border}`, background: group === id ? C.ink : C.surface, color: group === id ? C.onAccent : C.textInk }}>
       {label}
     </button>
   );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: "100%", ...text }}>
-      <div className="ui-card" style={{ padding: "20px 24px", background: "#FFFFFF", border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="ui-card" style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
           <h1 style={{ ...head, fontSize: 22, fontWeight: 700, color: C.ink, margin: 0 }}>Connectors</h1>
           <p style={{ fontSize: 13, color: C.slate, margin: "4px 0 0" }}>Where your leads' data comes from, and what's switched on for your account.</p>

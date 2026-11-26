@@ -250,7 +250,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             const on = !picks && tab === k;
             return (
               <button key={k} type="button" role="tab" aria-selected={on} title={tip} onClick={() => { setTabPref(k); setPicksOnly(false); }}
-                style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", color: on ? "#fff" : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : C.surface, color: on ? C.onAccent : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {label} {buckets[k].length.toLocaleString()}
               </button>
             );
@@ -258,13 +258,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
         </div>
         {pickRows.length ? (
           <button type="button" aria-pressed={picks} title="We found more than one phone or email for these. Pick the right one" onClick={() => setPicksOnly((v) => !v)}
-            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? C.warning : C.warningSoft, color: picks ? "#fff" : C.warningInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? C.warning : C.warningSoft, color: picks ? C.onAccent : C.warningInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
             Needs your choice {pickRows.length.toLocaleString()}
           </button>
         ) : null}
         <button type="button" aria-pressed={googleOnly} title="Show only companies whose phone, email or website came from Google"
           onClick={() => setGoogleOnly((v) => !v)}
-          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? C.infoInk : "#93B4F5"}`, background: googleOnly ? C.infoInk : C.infoBg, color: googleOnly ? "#fff" : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? C.infoInk : "#93B4F5"}`, background: googleOnly ? C.infoInk : C.infoBg, color: googleOnly ? C.onAccent : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
           Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
         </button>
         <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
@@ -429,7 +429,7 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
             </thead>
             <tbody>
               {paged.map((a) => (
-                <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : "#fff" }}>
+                <tr key={a.id} style={{ background: a.verification?.verdict === "problem" ? C.redSoft : C.surface }}>
                   <td style={{ padding: 0, width: 48 }} onClick={(e) => e.stopPropagation()}><label className="row-tick" title="Select this company"><input type="checkbox" checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label={`Select ${a.name}`} /></label></td>
                   <td>
                     <button type="button" title={a.name} onClick={() => onOpen(a)} style={{ ...text, all: "unset", cursor: "pointer", fontWeight: 600, color: C.ink, fontSize: 13.5 }}>{displayName(a.name)}</button>

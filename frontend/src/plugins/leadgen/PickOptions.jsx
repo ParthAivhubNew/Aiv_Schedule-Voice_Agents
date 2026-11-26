@@ -99,7 +99,7 @@ export function PickOptions({ kind, company, options, anchorKey, onPick, onClose
   const word = WORDS[kind] || kind;
   const panel = (
     <div role="dialog" aria-modal="false" aria-label={one ? `Is this the right ${word}?` : `Which is the right ${word}?`} ref={box} tabIndex={-1}
-      style={{ outline: "none", background: "#fff", borderRadius: 14, overflow: "auto", padding: 16, display: "grid", gap: 10, boxShadow: "0 12px 40px rgba(0,0,0,.22)", border: `1px solid ${C.border}`,
+      style={{ outline: "none", background: C.surface, borderRadius: 14, overflow: "auto", padding: 16, display: "grid", gap: 10, boxShadow: "0 12px 40px rgba(0,0,0,.22)", border: `1px solid ${C.border}`,
         ...(pos ? { position: "fixed", zIndex: 320, ...pos } : { width: "min(480px,100%)", maxHeight: "90vh" }) }}>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>

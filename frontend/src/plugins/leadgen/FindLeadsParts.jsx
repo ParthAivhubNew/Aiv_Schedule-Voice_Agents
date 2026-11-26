@@ -69,7 +69,7 @@ export function Avatar({ name, size = 32, logo = "" }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [logo]);
   if (logo && !broken) {
-    return <img src={logo} alt="" onError={() => setBroken(true)} style={{ width: size, height: size, borderRadius: 6, flexShrink: 0, objectFit: "contain", background: "#fff", border: `1px solid ${C.borderLight}`, boxSizing: "border-box", padding: 2 }} />;
+    return <img src={logo} alt="" onError={() => setBroken(true)} style={{ width: size, height: size, borderRadius: 6, flexShrink: 0, objectFit: "contain", background: C.surface, border: `1px solid ${C.borderLight}`, boxSizing: "border-box", padding: 2 }} />;
   }
   const words = String(name || "?").replace(/\b(ltd|limited|plc|llp|the)\b/gi, "").trim().split(/\s+/).filter(Boolean);
   const initials = ((words[0] || "?")[0] + (words[1] ? words[1][0] : "")).toUpperCase();
@@ -127,12 +127,12 @@ export function ViewMenu({ sortLabel, sortValue, sortOptions, onSort, pageSize, 
   return (
     <div ref={box} style={{ position: "relative" }}>
       <button type="button" aria-haspopup="true" aria-expanded={open} disabled={busy} onClick={() => setOpen((v) => !v)}
-        style={{ all: "unset", cursor: busy ? "default" : "pointer", boxSizing: "border-box", height: 34, padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff", ...text, fontSize: 13, color: C.ink, whiteSpace: "nowrap", opacity: busy ? 0.6 : 1 }}>
+        style={{ all: "unset", cursor: busy ? "default" : "pointer", boxSizing: "border-box", height: 34, padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, ...text, fontSize: 13, color: C.ink, whiteSpace: "nowrap", opacity: busy ? 0.6 : 1 }}>
         <SlidersHorizontal size={14} aria-hidden="true" />
         View · {sortLabel}
       </button>
       {open ? (
-        <div role="menu" style={{ position: "absolute", right: 0, top: 40, zIndex: 20, width: 220, padding: 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}>
+        <div role="menu" style={{ position: "absolute", right: 0, top: 40, zIndex: 20, width: 220, padding: 6, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}>
           <div style={{ ...text, fontSize: 11, fontWeight: 600, color: C.slate, padding: "6px 10px 4px", textTransform: "uppercase", letterSpacing: 0.4 }}>Sort</div>
           {sortOptions.map(([v, l]) => (
             <button key={v} type="button" role="menuitemradio" aria-checked={sortValue === v} style={row(sortValue === v)} onClick={() => { onSort(v); setOpen(false); }}>
@@ -190,7 +190,7 @@ export function FilterGroup({ title, active = 0, onClear, open, onToggle, childr
 
 const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", padding: "9px 12px", background: C.neutralBg, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 3, whiteSpace: "nowrap" };
 const td = { ...text, fontSize: 13, color: C.textInk, padding: "5px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
-const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: "#fff" });
+const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: C.surface });
 // Pinned by default through GridTools, so the person can unpin them and the unpin is remembered.
 const COMPANY_PIN = ["Company"];
 const NAME_PIN = ["Name"];
@@ -579,7 +579,7 @@ export function Drawer({ open, title, sub, onClose, actions, avatar, children, f
     <>
       <div onClick={onClose} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(16,20,32,.28)", zIndex: 400 }} />
       <aside ref={ref} tabIndex={-1} role="dialog" aria-label={title} className="fl-drawer"
-        style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(480px, 100vw)", background: "#fff", zIndex: 401, boxShadow: "-12px 0 32px rgba(20,24,40,.18)", display: "flex", flexDirection: "column", outline: "none" }}>
+        style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(480px, 100vw)", background: C.surface, zIndex: 401, boxShadow: "-12px 0 32px rgba(20,24,40,.18)", display: "flex", flexDirection: "column", outline: "none" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
           {avatar || <Avatar name={title} size={40} />}
           <div style={{ flex: 1, minWidth: 0 }}>

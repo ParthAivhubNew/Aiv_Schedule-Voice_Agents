@@ -342,7 +342,7 @@ export function FindEmailDrawer({ outreach, onClose, defaultTarget }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }}>
       <div role="dialog" aria-label="Find a work email" onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(100%, 480px)", height: "100%", background: "#fff", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        style={{ width: "min(100%, 480px)", height: "100%", background: C.surface, overflowY: "auto", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 16px 12px 20px", borderBottom: `1px solid ${C.border}` }}>
           <strong style={{ fontSize: 15, flex: 1 }}>Find a work email</strong>
           <button title="Close this panel" type="button" style={btn(false)} onClick={onClose}>Close</button>

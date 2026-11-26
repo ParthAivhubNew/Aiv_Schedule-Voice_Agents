@@ -128,7 +128,7 @@ function ImportReport({ done, accounts = [], onGo, onClose, onToast }) {
   const fresh = (done.newIds || []).map((id) => accounts.find((a) => a.id === id)).filter(Boolean);
   const askConsent = Boolean(done.newIds?.length) && !(fresh.length === done.newIds.length && fresh.every((a) => (a.email_route || {}).group === "ready"));
   const stat = (n, label, tip) => (n ? (
-    <div title={tip} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff" }}>
+    <div title={tip} style={{ flex: "1 1 120px", minWidth: 110, padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface }}>
       <div style={{ ...text, fontSize: 22, lineHeight: 1.15, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString()}</div>
       <div style={{ ...muted, fontSize: 12.5, marginTop: 2 }}>{label}</div>
     </div>
@@ -297,7 +297,7 @@ export function ImportView({ store, onGo, onAskAi }) {
       {!fields.length ? (
         <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files && e.dataTransfer.files[0]); }}
           style={{ border: `1.5px dashed ${C.lineStrong}`, borderRadius: 8, background: "var(--ui-sunken)", padding: done ? "24px 20px" : "36px 20px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 6, background: "#fff", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}><FileSpreadsheet size={20} /></div>
+          <div style={{ width: 44, height: 44, borderRadius: 6, background: C.surface, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.cobalt }}><FileSpreadsheet size={20} /></div>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>{done ? "Import another file" : "Import companies from a file"}</div>
           <div style={{ ...muted, maxWidth: "46ch" }}>Drop an Excel, CSV or JSON file here, or choose one. You check which column is which before anything is saved.</div>
           <ul style={{ ...muted, fontSize: 12.5, margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -308,7 +308,7 @@ export function ImportView({ store, onGo, onAskAi }) {
           <button title="Pick a CSV or Excel file of companies to import" type="button" className="ui-btn ui-btn--primary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} /> Upload CSV / Excel</button>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
             {[".xlsx", ".xls", ".csv", ".tsv", ".ods", ".json"].map((ext) => (
-              <span key={ext} style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: "#fff", borderRadius: 4 }}>{ext}</span>
+              <span key={ext} style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 500, color: C.slate, padding: "2px 6px", border: `1px solid ${C.border}`, background: C.surface, borderRadius: 4 }}>{ext}</span>
             ))}
           </div>
           {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}

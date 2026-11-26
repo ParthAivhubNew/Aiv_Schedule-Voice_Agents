@@ -39,7 +39,7 @@ export function OrgChart({ c, onOpenPerson, onOverview }) {
   return (
     <div className="oc">
       <style>{css}</style>
-      <label style={{ display: "flex", gap: 8, alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 10, padding: "6px 10px", background: "#fff", maxWidth: 360 }}>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 10, padding: "6px 10px", background: C.surface, maxWidth: 360 }}>
         <Search size={14} color={C.slate} aria-hidden="true" />
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a person or role" aria-label="Find a person or role" style={{ border: 0, outline: 0, flex: 1, fontSize: 13.5, minWidth: 0, background: "transparent" }} />
       </label>

@@ -124,7 +124,7 @@ export function CreditsChip({ onOpen, wallet = "leadgen", app = "Leads" }) {
   ].filter(Boolean).join(" ");
   return (
     <button type="button" onClick={onOpen} title={tip} aria-label={tip}
-      style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 11px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: onOpen ? "pointer" : "default", fontFamily: FONT_BODY, fontSize: 12.5, color: tone }}>
+      style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 11px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: onOpen ? "pointer" : "default", fontFamily: FONT_BODY, fontSize: 12.5, color: tone }}>
       <Coins size={14} />
       <strong style={{ fontVariantNumeric: "tabular-nums" }}>{c.balance.toLocaleString()}</strong>
       <span className="hide-xs" style={{ color: C.slate }}>{unit}</span>

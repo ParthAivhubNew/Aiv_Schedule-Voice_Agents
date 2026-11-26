@@ -80,7 +80,7 @@ export function PermissionsPanel({ role, sections, levels, onChange, initialQuer
               <LevelControl label={`${g.name}, set all`} value={gs.state === "off" ? "none" : g.items.every((s) => levelOf(effective, s.key) === "full") ? "full" : g.items.every((s) => levelOf(effective, s.key) === "view") ? "view" : ""} disabled={locked} onChange={(lv) => onChange(setGroupLevel(levels, g.items, lv))} />
             </div>
             {expanded ? g.items.map((s) => (
-              <div key={s.key} style={{ ...rowBox, marginLeft: 20, background: "#fff" }}>
+              <div key={s.key} style={{ ...rowBox, marginLeft: 20, background: C.surface }}>
                 <span style={{ ...text, fontSize: 13, color: C.textInk }}>{s.label}</span>
                 <Help text={s.description || s.label} />
                 <span style={{ flex: 1 }} />
@@ -124,7 +124,7 @@ export function PeoplePanel({ role, roles, users, busy, onAdd, onMove, initialAd
       ) : null}
       {members.length === 0 ? <div style={muted}>Nobody has this role yet.</div> : null}
       {members.map((u) => (
-        <div key={u.id} style={{ ...rowBox, background: "#fff" }}>
+        <div key={u.id} style={{ ...rowBox, background: C.surface }}>
           <div style={{ minWidth: 0, flex: "1 1 180px" }}>
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.textInk, overflowWrap: "anywhere" }}>{u.name}<AdminCrown operator={{ is_admin: u.is_admin || userRoles(u).some((r) => r.is_admin) }} /></div>
             <div style={{ ...muted, fontSize: 12, overflowWrap: "anywhere" }}>{u.email || `@${u.username}`}</div>

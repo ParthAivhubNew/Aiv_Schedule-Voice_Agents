@@ -81,7 +81,7 @@ export function DialogFrame({ title, onClose, busy = false, children }) {
   return (
     <div onClick={busy ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} onKeyDown={keys} onClick={(e) => e.stopPropagation()} className="ui-card"
-        style={{ width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", background: "#fff", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 14, boxSizing: "border-box" }}>
+        style={{ width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", background: C.surface, borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 14, boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <h2 style={{ margin: 0, flex: 1, fontFamily: FONT_BODY, fontSize: 16, fontWeight: 700, color: C.ink }}>{title}</h2>
           <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ minHeight: 44, minWidth: 44 }} onClick={onClose} disabled={busy} aria-label="Close"><X size={18} aria-hidden="true" /></button>

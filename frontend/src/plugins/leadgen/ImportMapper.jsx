@@ -5,7 +5,7 @@ import { CUSTOM, guessMapping, isCustom, mappingWarnings, rememberMapping, saved
 
 const OWN = "__own__"; // the dropdown entry for "keep this column as my own"
 
-const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };
+const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };
 
 // Same popup as the Voice plugin's file import (ImportMapper.jsx under plugins/voice/calling):
 // match each file column to one of our fields, or leave it out. Shown right after a file is
@@ -42,7 +42,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", zIndex: 140, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, boxShadow: "0 24px 70px rgba(0,0,0,0.22)" }}>
+      <div style={{ background: C.surface, borderRadius: 18, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, boxShadow: "0 24px 70px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px 10px" }}>
           <FileSpreadsheet size={20} color={C.ink} />
           <div style={{ flex: 1 }}>

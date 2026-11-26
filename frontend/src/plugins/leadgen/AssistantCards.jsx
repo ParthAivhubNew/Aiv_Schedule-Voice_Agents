@@ -16,12 +16,12 @@ export const cardsCss = `
 .as-view:hover,.as-view:focus-visible{border-color:var(--ui-accent,#3457D5);box-shadow:0 4px 14px rgba(20,24,40,.08);transform:translateY(-1px)}
 .as-view:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .as-view:active{transform:none}
-.as-view-ic{flex:none;width:30px;height:30px;border-radius:8px;background:#fff;border:1px solid var(--ui-line,#E3E6EF);display:inline-flex;align-items:center;justify-content:center;color:var(--ui-accent,#3457D5)}
+.as-view-ic{flex:none;width:30px;height:30px;border-radius:8px;background:${C.surface};border:1px solid var(--ui-line,#E3E6EF);display:inline-flex;align-items:center;justify-content:center;color:var(--ui-accent,#3457D5)}
 .as-view-body{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .as-view-title{font:600 13.5px Inter,sans-serif;color:var(--ui-ink,#111827)}
 .as-view-sum{font:12.5px/1.4 Inter,sans-serif;color:var(--ui-muted,#6B7280);overflow-wrap:anywhere}
 .as-view-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
-.as-view-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:6px;background:#fff;font:12px Inter,sans-serif;color:var(--ui-ink,#111827)}
+.as-view-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:6px;background:${C.surface};font:12px Inter,sans-serif;color:var(--ui-ink,#111827)}
 .as-view-go{flex:none;color:var(--ui-muted,#6B7280);margin-top:7px}
 .as-tag--draft{background:${C.cobaltSoft};color:#2F4BB8}
 .as-choice{padding:12px 12px 6px}
@@ -30,7 +30,7 @@ export const cardsCss = `
 .as-choice-o:hover,.as-choice-o:focus-visible{background:var(--ui-hover,#F1F3F8)}
 .as-choice-o:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:-2px}
 .as-choice-o[disabled]{opacity:.5;cursor:default}
-.as-choice-dot{flex:none;width:16px;height:16px;margin-top:2px;border:1.5px solid var(--ui-line-strong,#C5CAD6);border-radius:50%;background:#fff}
+.as-choice-dot{flex:none;width:16px;height:16px;margin-top:2px;border:1.5px solid var(--ui-line-strong,#C5CAD6);border-radius:50%;background:${C.surface}}
 .as-choice-o:hover .as-choice-dot{border-color:var(--ui-accent,#3457D5)}
 .as-choice-t{display:flex;flex-direction:column;gap:2px;min-width:0}
 .as-choice-l{font:600 13.5px Inter,sans-serif;color:var(--ui-ink,#111827);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -43,7 +43,7 @@ export const cardsCss = `
 .as-fb button[aria-pressed="true"]{color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#EEF2FE)}
 .as-fb-note{font:12px Inter,sans-serif;color:var(--ui-muted,#6B7280);margin-left:6px}
 .as-why{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
-.as-why button{all:unset;cursor:pointer;box-sizing:border-box;padding:4px 10px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;font:12.5px Inter,sans-serif;color:var(--ui-ink,#111827);background:#fff}
+.as-why button{all:unset;cursor:pointer;box-sizing:border-box;padding:4px 10px;border:1px solid var(--ui-line,#E3E6EF);border-radius:999px;font:12.5px Inter,sans-serif;color:var(--ui-ink,#111827);background:${C.surface}}
 .as-why button[aria-pressed="true"]{border-color:var(--ui-accent,#3457D5);background:var(--ui-accent-soft,#EEF2FE)}
 .as-why button:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:1px}
 .as-nudge{display:flex;align-items:stretch;gap:2px;margin:0 0 8px;border:1px solid var(--ui-line,#E3E6EF);border-radius:12px;background:var(--ui-sunken,#F6F7FA);overflow:hidden}

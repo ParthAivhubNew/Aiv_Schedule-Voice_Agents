@@ -22,8 +22,8 @@ const linkBtn = (primary) => ({
   fontWeight: 600,
   textDecoration: "none",
   border: `1px solid ${primary ? TEAL : BORDER}`,
-  background: primary ? TEAL : "#FFFFFF",
-  color: primary ? "#FFFFFF" : INK,
+  background: primary ? TEAL : C.surface,
+  color: primary ? C.onAccent : INK,
 });
 
 // Where to get the connector's API access, where to see its price list, and what it costs. Figures come from each vendor's own pages.
@@ -45,7 +45,7 @@ export function ConnectorPricing({ id }) {
         ) : null}
       </div>
 
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, overflow: "hidden", background: "#FFFFFF" }}>
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, overflow: "hidden", background: C.surface }}>
         <div style={{ padding: "10px 14px", background: C.neutralBg, borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 700, color: INK }}>Estimated cost</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
           <thead>

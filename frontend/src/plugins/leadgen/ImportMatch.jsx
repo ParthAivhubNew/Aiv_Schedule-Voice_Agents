@@ -23,7 +23,7 @@ const css = `.imx .ui-input{width:100%;box-sizing:border-box}.imx .ui-table td{w
 .imx .imx-tab:focus-visible,.imx .imx-pick:focus-visible,.imx .imx-drop:focus-within{outline:2px solid ${C.cobalt};outline-offset:2px}
 .imx .imx-rq{display:grid;grid-template-columns:minmax(200px,280px) 1fr;gap:14px;align-items:start}
 .imx .imx-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.imx .imx-pick{min-height:44px;width:100%;text-align:left;border:1px solid ${C.border};background:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;font:500 13px ${FONT_BODY};color:${C.ink}}
+.imx .imx-pick{min-height:44px;width:100%;text-align:left;border:1px solid ${C.border};background:${C.surface};border-radius:8px;padding:8px 10px;cursor:pointer;font:500 13px ${FONT_BODY};color:${C.ink}}
 @media (max-width:760px){.imx .imx-rq{grid-template-columns:1fr}.imx .imx-qlist{max-height:200px;overflow-y:auto}}`;
 
 

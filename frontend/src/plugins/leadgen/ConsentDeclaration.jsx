@@ -14,7 +14,7 @@ export const CONSENT_OPTIONS = [
 
 const text = { fontFamily: FONT_BODY };
 const small = { ...text, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
-const field = { ...text, fontSize: 13, padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, width: "100%", boxSizing: "border-box", background: "#fff", color: C.ink };
+const field = { ...text, fontSize: 13, padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, width: "100%", boxSizing: "border-box", background: C.surface, color: C.ink };
 
 // Pure, so it can be tested: what is still missing before the answer can be saved, in words.
 export function consentMissing(f) {
@@ -142,7 +142,7 @@ export function ConsentHistory({ listId = "", onChanged }) {
     <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
       <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Answers you gave before</div>
       {rows.map((d) => (
-        <div key={d.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
+        <div key={d.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", background: C.surface }}>
           <div style={{ ...small, flex: "1 1 220px", minWidth: 0, overflowWrap: "anywhere", color: C.ink }}>
             <strong style={{ fontWeight: 600 }}>{d.basis_text}</strong>, {d.count.toLocaleString()} {d.count === 1 ? "contact" : "contacts"}
             <br />{d.source ? `${d.source}. ` : ""}{d.agreed_on ? `Agreed ${d.agreed_on}.` : ""}

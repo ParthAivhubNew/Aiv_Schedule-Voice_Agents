@@ -114,7 +114,7 @@ export function ContactsPanel({ company }) {
             ) : <div style={{ ...muted, fontSize: 12.5 }}>{data.web && data.web.found !== false ? "Not held on the public register. What the web found is below." : "The public register holds no website, phone or email for this company."}</div>}
             {data.web ? (
               data.web.found === false ? <div style={{ ...muted, fontSize: 12.5, marginTop: 4 }}>The web search found no website, phone or email we could tie to this company, so nothing is shown and nothing was charged.</div> : (
-                <div style={{ marginTop: 8, padding: "8px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 8, background: "#fff", display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ marginTop: 8, padding: "8px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 8, background: C.surface, display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, display: "flex", alignItems: "center", gap: 5 }}><Globe size={12} /> Found on the web</div>
                   {data.web.website ? <WebRow label="Website"><a href={/^https?:/.test(data.web.website) ? data.web.website : `https://${data.web.website}`} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>{domainOf(data.web.website) || data.web.website}</a></WebRow> : null}
                   {(data.web.phones || []).map((ph) => <WebRow key={ph} label="Phone"><a href={`tel:${ph.replace(/\s+/g, "")}`} style={{ color: C.textInk }}>{ph}</a></WebRow>)}

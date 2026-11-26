@@ -107,7 +107,7 @@ export function CampaignWizard({ store, listsStore, outreach, initialListId = ""
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>
             <span style={{ ...text, fontSize: 12.5, fontWeight: 600, padding: "4px 10px", borderRadius: 999, display: "inline-flex", gap: 4, alignItems: "center",
-              background: i === step ? C.ink : i < step ? C.greenSoft : C.paperSoft, color: i === step ? "#fff" : i < step ? C.green : C.slate }}>
+              background: i === step ? C.ink : i < step ? C.greenSoft : C.paperSoft, color: i === step ? C.onAccent : i < step ? C.green : C.slate }}>
               {i < step ? <Check size={12} /> : null}{i + 1}. {s}
             </span>
           </React.Fragment>

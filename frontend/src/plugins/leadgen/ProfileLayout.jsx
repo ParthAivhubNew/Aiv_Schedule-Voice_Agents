@@ -36,7 +36,7 @@ export function ProfileTabs({ tabs, value, onChange, label = "Profile sections",
   };
   return (
     <div role="tablist" aria-label={label} className="ui-scroll"
-      style={{ position: "sticky", top, zIndex: 2, background: "#fff", display: "flex", gap: 2, overflowX: "auto", borderBottom: `1px solid ${C.border}`, scrollbarWidth: "none", ...style }}>
+      style={{ position: "sticky", top, zIndex: 2, background: C.surface, display: "flex", gap: 2, overflowX: "auto", borderBottom: `1px solid ${C.border}`, scrollbarWidth: "none", ...style }}>
       {tabs.map((t, i) => {
         const on = t.id === value;
         return (
@@ -184,7 +184,7 @@ export function JourneyControl({ companyId = "", accountId = "", companyName = "
 export function BottomBar({ journey, note, onOpenNotes, actions }) {
   return (
     <div role="region" aria-label="Journey, latest note and save"
-      style={{ position: "sticky", bottom: 0, zIndex: 3, background: "#fff", borderTop: `1px solid ${C.border}`, boxShadow: "0 -6px 16px rgba(16,24,40,.06)",
+      style={{ position: "sticky", bottom: 0, zIndex: 3, background: C.surface, borderTop: `1px solid ${C.border}`, boxShadow: "0 -6px 16px rgba(16,24,40,.06)",
         padding: "8px 14px calc(8px + env(safe-area-inset-bottom, 0px))", display: "flex", flexDirection: "column", gap: 6 }}>
       <LatestNote note={note} onOpen={onOpenNotes} style={{ width: "100%" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "space-between" }}>

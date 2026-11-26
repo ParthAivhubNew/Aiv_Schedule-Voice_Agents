@@ -39,7 +39,7 @@ export function EnrichmentSourcesModal({ open, onClose, initialData = null }) {
     <div role="dialog" aria-modal="true" aria-labelledby="enrichment-modal-title" onClick={onClose}
       style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15, 23, 42, 0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div className="ui-card" onClick={(e) => e.stopPropagation()}
-        style={{ ...text, width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column", background: "#FFFFFF", borderRadius: 14, overflow: "hidden", border: `1px solid ${C.border}` }}>
+        style={{ ...text, width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 14, overflow: "hidden", border: `1px solid ${C.border}` }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: C.neutralBg }}>
           <div>
             <h2 id="enrichment-modal-title" style={{ ...head, margin: 0, fontSize: 18, color: C.ink }}>Where your data comes from</h2>

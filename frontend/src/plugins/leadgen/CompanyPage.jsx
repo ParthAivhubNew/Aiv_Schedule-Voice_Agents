@@ -288,7 +288,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
           {contacts.map((k) => {
             const Icon = ICON[k.kind];
             return (
-              <div key={k.kind} data-reach={k.kind} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff", maxWidth: "100%" }}>
+              <div key={k.kind} data-reach={k.kind} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: C.surface, maxWidth: "100%" }}>
                 <Icon size={14} color={C.slate} aria-hidden="true" />
                 {k.value ? <a href={k.href} target={k.kind === "website" ? "_blank" : undefined} rel="noreferrer" style={{ color: C.cobalt, fontSize: 13, overflowWrap: "anywhere" }}>{k.shown}</a>
                   : k.kind === "website" && c.listing_page && c.listing_page.url
@@ -312,7 +312,7 @@ export function CompanyPage({ id, store, onBack, onGo, onAskAi, onOpenJourney, b
         </div>
         <div style={{ ...row, gap: 10 }}>
           {Object.entries(NETS).map(([network, label]) => (
-            <div key={network} data-reach={network} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: "#fff" }}>
+            <div key={network} data-reach={network} style={{ display: "inline-flex", gap: 7, alignItems: "center", padding: "6px 10px", border: `1px solid ${C.borderLight}`, borderRadius: 10, background: C.surface }}>
               <Link2 size={14} color={C.slate} aria-hidden="true" />
               {(c.links || {})[network] ? <a href={c.links[network]} target="_blank" rel="noreferrer" style={{ color: C.cobalt, fontSize: 13 }}>{label}</a>
                 : <button type="button" title={waiting[network] ? "Check the closest matches and choose the right one" : `Look for this company's ${label}${socialPrice ? `. ${socialPrice} if found` : ""}`} style={{ ...btn(false, li === network), padding: "3px 9px", minHeight: 28 }} disabled={li === network} onClick={() => findNetwork(network)}>

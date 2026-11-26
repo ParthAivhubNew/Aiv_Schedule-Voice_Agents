@@ -144,7 +144,7 @@ export function TpsCheckDialog({ numbers, wallet, title = "Check TPS and CTPS", 
   return (
     <div onClick={phase === "running" ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,18,28,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} onKeyDown={keys} onClick={(e) => e.stopPropagation()} className="ui-card"
-        style={{ width: "min(100%, 560px)", maxHeight: "90vh", overflow: "auto", boxSizing: "border-box", padding: 20, display: "flex", flexDirection: "column", gap: 12, background: "#fff" }}>
+        style={{ width: "min(100%, 560px)", maxHeight: "90vh", overflow: "auto", boxSizing: "border-box", padding: 20, display: "flex", flexDirection: "column", gap: 12, background: C.surface }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1, fontSize: 16, fontWeight: 600, color: C.textInk }}>{title}</div>
           <button type="button" className="ui-icon-btn" style={{ minWidth: 44, minHeight: 44 }} onClick={onClose} disabled={phase === "running"} aria-label="Close"><X size={16} /></button>
