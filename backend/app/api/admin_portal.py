@@ -2170,6 +2170,65 @@ async def fix_provenance(body: ProvenanceFixBody, request: Request):
     return out
 
 
+# ── How long personal data and supplier logs are kept (services/data_retention.py) ──
+class RetentionBody(BaseModel):
+    on: bool = False
+    days: Dict[str, int] = {}
+
+
+@router.get("/retention")
+async def retention_overview(request: Request):
+    """Whether retention is on, each rule's period and what it would remove now (a dry run)."""
+    from app.core.tenancy import system_scope
+    from app.services import data_retention as DR
+
+    _who(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            return await DR.overview(db)
+
+
+@router.put("/retention")
+async def save_retention(body: RetentionBody, request: Request):
+    """Switches retention on or off and sets the periods. Staff admins only; audited."""
+    from app.core.tenancy import system_scope
+    from app.services import audit
+    from app.services import data_retention as DR
+
+    who = _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            try:
+                await DR.save(db, on=body.on, days=body.days)
+            except ValueError as err:
+                raise HTTPException(status_code=400, detail=str(err))
+            name = who.get("email") or who.get("name") or "staff"
+            await audit.record(db, "retention.saved", target="data_retention", detail={"on": body.on, "days": body.days},
+                               actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+            return await DR.overview(db)
+
+
+@router.post("/retention/run")
+async def run_retention(request: Request):
+    """Applies the rules now. Only while retention is switched on: it deletes. Staff admins only; audited."""
+    from app.core.tenancy import system_scope
+    from app.services import audit
+    from app.services import data_retention as DR
+
+    who = _admin_only(request)
+    with system_scope():
+        async with AsyncSessionLocal() as db:
+            out = await DR.run(db)
+            if not out.get("ran"):
+                raise HTTPException(status_code=409, detail="Switch retention on first: running it deletes data.")
+            name = who.get("email") or who.get("name") or "staff"
+            await audit.record(db, "retention.run", target="data_retention", detail=out.get("done") or {},
+                               actor_id=str(who.get("id") or name), actor_name=name)
+            await db.commit()
+            return out
+
+
 # ── A monthly budget per supplier (services/provider_budgets.py) ───────────────
 class BudgetBody(BaseModel):
     usd: Optional[float] = None  # none or 0 removes the budget

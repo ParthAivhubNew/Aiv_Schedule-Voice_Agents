@@ -383,6 +383,24 @@ async def _connector_stats_loop():
         await asyncio.sleep(3600)
 
 
+async def _data_retention_loop():
+    """Once a day, when staff have switched retention on: old call recordings, searched-for names and supplier logs go
+    (services/data_retention.py). Off in the test copy: it deletes."""
+    from app.services import data_retention
+
+    await asyncio.sleep(900)
+    while True:
+        try:
+            out = await data_retention.daily()
+            if out:
+                logger.info(f"[retention] {out.get('done')}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as retention_err:
+            logger.warning(f"[retention] run failed: {retention_err}")
+        await asyncio.sleep(3600)
+
+
 async def _provider_budget_loop():
     """Every 15 minutes: staff hear when a supplier passes 80% and 100% of its monthly budget (services/provider_budgets.py)."""
     from app.services import provider_budgets
@@ -1014,6 +1032,7 @@ async def lifespan(app: FastAPI):
     connector_stats_task = job("connector_stats", _connector_stats_loop)
     demo_expiry_task = job("demo_expiry", _demo_expiry_loop)
     provider_budget_task = job("provider_budgets", _provider_budget_loop)
+    data_retention_task = job("data_retention", _data_retention_loop)
 
     yield
 
@@ -1022,6 +1041,7 @@ async def lifespan(app: FastAPI):
     connector_stats_task.cancel()
     demo_expiry_task.cancel()
     provider_budget_task.cancel()
+    data_retention_task.cancel()
     call_schedule_task.cancel()
     human_calls_task.cancel()
     find_leads_warm_task.cancel()

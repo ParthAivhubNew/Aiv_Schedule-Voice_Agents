@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { Note, Pill, btn, card, input, mono, useAction, useLoad } from "./ui";
+import { Retention } from "./Retention";
 
 const FIELDS = [
   ["controller", "Who is responsible", "The company name the notice speaks for, as registered."],
@@ -89,6 +90,7 @@ export function DataCompliance({ canEdit }) {
           </div>
         )}
       </div>
+      <Retention canEdit={canEdit} />
     </div>
   );
 }
