@@ -380,9 +380,9 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
 ### C.1 Security and access
 | | Item | Evidence |
 |---|---|---|
-| 🔴 | **Logins made by code with passwords in the source code.** Every start-up recreates the FSB organisation with `fsbadmin` / `fsbuser` when it's missing, so a new database gets an Admin with a published password. On this server the password variables aren't set and neither account has changed its password, so both very likely still use the code's passwords. | `services/fsb_demo.py:37,53`, `main.py:611`, `core/migrations.py:1148` |
-| 🔴 | **`fsbadmin` is exempt from the sign-in lockout**, so its password can be guessed without limit. | `api/auth.py:250` |
-| 🔴 | **The FSB logins' e-mail addresses are at `outreach.com`**, a domain we don't own, so reset links and notices would go to someone else. | `services/fsb_demo.py:25,30` |
+| ✅ | ~~**Logins made by code with passwords in the source code.**~~ **Done on the branch (plan 12, step 2):** no code makes, changes or signs in a login any more; `fsbadmin` and `fsbuser` are ordinary users of the FSB company. On live, both still have the old passwords until the branch is merged and they choose new ones. | `services/fsb_demo.py` |
+| ✅ | ~~**`fsbadmin` is exempt from the sign-in lockout**~~ **Done on the branch:** no account is exempt. | `api/auth.py` |
+| 🔴 | **The FSB logins' e-mail addresses are at `outreach.com`**, a domain we don't own, so reset links and notices would go to someone else. **Waiting on you:** FSB's real addresses. | `services/fsb_demo.py:25,30` |
 | ✅ | ~~**Sign-in method rules are checked by web address only.**~~ **Done on the branch 2026-11-25:** every password and Google sign-in is checked against the company's combined rules on every address, and switching a method off ends the sessions it began (plan 12, B9). | `api/auth.py` |
 | ✅ | ~~**Login by username takes the first match across all companies**~~ **Done on the branch 2026-11-24:** usernames are unique across companies (index `uq_operators_username_ci`), a shared e-mail is refused rather than guessed, and admins can't reuse another account's e-mail. | `api/auth.py` |
 | 🟠 | **If a company's rules can't be read, none apply** (fail open), so the member list and exclusions disappear for a few seconds. | `services/tenant_policy.py` `org_effective` |
