@@ -99,3 +99,10 @@ export function personLine(o) {
   const years = o.years_in_role == null ? "" : o.years_in_role === 0 ? "joined this year" : `${o.years_in_role} ${o.years_in_role === 1 ? "year" : "years"} in the role`;
   return [years, o.nationality, o.occupation, o.country_of_residence ? `lives in ${o.country_of_residence}` : "", o.born_year ? `born ${o.born_year}` : ""].filter(Boolean).join(" · ");
 }
+
+// The strip over a search handed to Find Leads: from the assistant, or from "Get started" (the company's ideal customers or a sample).
+export function draftTitle(draft) {
+  if (draft?.own) return "Your ideal customers, from About your business. Change any filter to look further.";
+  if (draft?.sample) return "A sample search, to show how it works. Change any filter, or clear them to start your own.";
+  return "Draft from the AI assistant";
+}

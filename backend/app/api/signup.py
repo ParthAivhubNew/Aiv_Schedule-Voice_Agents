@@ -541,6 +541,26 @@ async def firebase_sign_in(body: FirebaseBody, request: Request, response: Respo
 
 
 # ── First steps checklist (signed in) ───────────────────────────────────────
+# The search Find Leads opens on from "Get started" when the company hasn't said who it sells to: accountants and bookkeepers by trade
+# code, which finds companies wherever the register data covers (no town is assumed).
+SAMPLE_SEARCH = {"sic_codes": ["69201", "69202", "69203"]}
+
+
+async def _sample_search(db: AsyncSession) -> Dict[str, Any]:
+    """{filters, label} for the "Find and save your first companies" step: the company's own ideal customers when it has set them
+    (About your business), else the sample above. Never raises."""
+    try:
+        from app.services import fit_score as FS
+        from app.services import icp as ICP
+
+        mine = await ICP.load(db)
+        if FS.icp_is_set(mine):
+            filters = FS.search_filters(mine)
+            if filters:
+                return {"filters": filters, "label": "Opens on a search for the customers you described", "own": True}
+    except Exception:
+        pass
+    return {"filters": dict(SAMPLE_SEARCH), "label": "Opens on a sample search: accountants and bookkeepers", "own": False}
 @router.get("/onboarding")
 async def onboarding(request: Request, db: AsyncSession = Depends(get_db)):
     """First steps for a new company (plan 11, C.6), for the home screen: the same three for everyone (describe your business, choose a plan
@@ -575,7 +595,8 @@ async def onboarding(request: Request, db: AsyncSession = Depends(get_db)):
         except Exception:
             mailbox = False
         steps += [
-            {"key": "search", "label": "Find and save your first companies", "done": saved > 0, "go": "#/leadgen/find_leads"},
+            {"key": "search", "label": "Find and save your first companies", "done": saved > 0, "go": "#/leadgen/find_leads",
+             "sample": await _sample_search(db)},
             {"key": "mailbox", "label": "Connect a mailbox", "done": mailbox, "go": "#/leadgen/mailboxes"},
         ]
     if voice:

@@ -11,3 +11,13 @@ export function takePendingDraft() {
   pending = null;
   return d;
 }
+
+// Hands a search to Find Leads from anywhere: it waits here if Leads hasn't started yet, and an open Leads screen takes it at once.
+export const DRAFT_EVENT = "outreach-draft";
+
+export function sendDraft(draft) {
+  setPendingDraft(draft);
+  try {
+    window.dispatchEvent(new Event(DRAFT_EVENT));
+  } catch (_) {}
+}

@@ -91,3 +91,16 @@ async def test_first_steps_follow_the_apps_the_company_has(client):
     assert keys == ["company", "plan", "team", "search", "mailbox", "hours", "number", "call"]  # Leads and Voice plans
     assert next(x for x in ob["steps"] if x["key"] == "plan")["done"] is True
     assert all(x["go"].startswith(("#/", "team:")) for x in ob["steps"])
+
+
+@pytest.mark.db
+async def test_the_search_step_opens_on_a_sample_or_on_the_company_s_own_ideal_customers(client):
+    from app.api.signup import SAMPLE_SEARCH
+
+    step = next(x for x in (await client.get("/api/auth/onboarding")).json()["steps"] if x["key"] == "search")
+    assert step["sample"] == {"filters": SAMPLE_SEARCH, "label": "Opens on a sample search: accountants and bookkeepers", "own": False}
+    r = await client.put("/api/leads/icp", json={"sic_codes": ["56102"], "postcode_areas": ["BN1"], "size_bands": ["micro"]})
+    assert r.status_code == 200, r.text
+    step = next(x for x in (await client.get("/api/auth/onboarding")).json()["steps"] if x["key"] == "search")
+    assert step["sample"]["own"] is True and step["sample"]["label"] == "Opens on a search for the customers you described"
+    assert step["sample"]["filters"]["sic_codes"] == ["56102"] and step["sample"]["filters"]["size_bands"] == ["micro"]

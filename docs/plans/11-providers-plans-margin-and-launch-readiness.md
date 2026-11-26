@@ -442,7 +442,14 @@ Rated: 🔴 must fix before launch · 🟠 fix in the first weeks · 🟢 good t
   - A self-sign-up with no app yet gets the Leads steps.
   - Each step is ticked from what the account really holds.
   - A line explains that credits are per app, with a link to "How credits work".
-  - **Not done:** a pre-filled sample search.
+  - ✅ **Pre-filled sample search: done 2026-11-26.** "Find and save your first companies" now opens Find Leads with a search already run,
+    and the step says which one.
+    - **With "who you sell to" set (About your business):** the company's own ideal customers (`fit_score.search_filters`).
+    - **Otherwise:** accountants and bookkeepers, by trade code, so it finds companies wherever the register data covers. No town is
+      assumed: the register copy is mostly Brighton & Hove today.
+    - The strip over the results says it's a sample, or the company's ideal customers, instead of "Draft from the AI assistant".
+    - It's handed over with the assistant's existing route (`utils/draftHandoff.sendDraft`), which now also reaches a Leads screen
+      that's already open.
 - ✅ **"What this will cost" before every paid action: done on the branch 2026-11-25.** Every paid button or help line next to one now reads its price from the company's own rate card, through one shared hook (`app/usePrice.js`: `useRate`, `priceWord` → "1 credit per 5 lines"). One request is made per app's wallet. While the price is loading, the screen says "Charged" or leaves the number out; it never shows a guess.
   - **Covered:**
     - **Leads:** the Google view line, AI e-mail lines, the e-mail finder and web search tooltips on the company page and in Find Leads, and the number check.

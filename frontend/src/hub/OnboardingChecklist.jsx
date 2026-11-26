@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CheckCircle2, Circle, X } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_BODY } from "../tokens";
 import { api } from "../api/apiClient";
+import { sendDraft } from "../utils/draftHandoff";
 
 const HIDE_KEY = "outreach_onboarding_hidden";
 
@@ -15,7 +16,8 @@ function hidden(orgId) {
 
 // First steps for a new organisation, shown to admins on the home screen until done or hidden (plan 11, C.6). The steps and whether each
 // is done come from the server (GET /auth/onboarding), which picks them for the apps the company has.
-// A step's "go" is either an in-app path ("#/voice/hours") or "team:<tab>".
+// A step's "go" is either an in-app path ("#/voice/hours") or "team:<tab>". A step with a "sample" ({filters, label}) opens Find Leads
+// on that search, already run: the company's own ideal customers, or a sample (GET /auth/onboarding).
 export function OnboardingChecklist({ operator, onGo }) {
   const [data, setData] = useState(null);
   const [closed, setClosed] = useState(() => hidden(operator?.org_id));
@@ -54,11 +56,18 @@ export function OnboardingChecklist({ operator, onGo }) {
           <button
             key={s.key}
             type="button"
-            onClick={() => !s.done && onGo(s.go)}
+            onClick={() => {
+              if (s.done) return;
+              if (s.sample?.filters) sendDraft({ filters: s.sample.filters, meta: { sample: !s.sample.own, own: Boolean(s.sample.own) } });
+              onGo(s.go);
+            }}
             style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${s.done ? "transparent" : C.border}`, background: s.done ? C.paperSoft : "#fff", cursor: s.done ? "default" : "pointer", fontFamily: FONT_BODY, fontSize: 13, color: s.done ? C.slate : C.textInk, textAlign: "left", textDecoration: s.done ? "line-through" : "none" }}
           >
             {s.done ? <CheckCircle2 size={15} color={C.teal} /> : <Circle size={15} color={C.slateLight} />}
-            {s.label}
+            <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              {s.label}
+              {!s.done && s.sample?.label ? <span style={{ fontSize: 11.5, color: C.slate, textDecoration: "none" }}>{s.sample.label}</span> : null}
+            </span>
           </button>
         ))}
       </div>

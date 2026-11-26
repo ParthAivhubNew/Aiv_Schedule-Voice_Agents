@@ -35,7 +35,7 @@ import { filterNarrowed } from "../filterNarrowed";
 import { StandingChip } from "../../../brand/StandingChip";
 import { AccessNotice } from "../AccessNotice";
 import { isOutsideAccess, limitedLine } from "../accessLogic";
-import { EMPTY_FORM, FAVOURITES, FIRST_KEY, FORM_OPTIONS, GROUP_KEYS, SELECT_ALL_LIMIT, SIZE_OPTIONS, SOURCE_OPTIONS, TYPE_OPTIONS, appliedWords, asAccount, filtersToForm, formToFilters, isOn, splitList } from "./findLogic";
+import { appliedWords, asAccount, draftTitle, EMPTY_FORM, FAVOURITES, filtersToForm, FIRST_KEY, FORM_OPTIONS, formToFilters, GROUP_KEYS, isOn, SELECT_ALL_LIMIT, SIZE_OPTIONS, SOURCE_OPTIONS, splitList, TYPE_OPTIONS } from "./findLogic";
 import { CHECK_TIPS, DistrictPicker, muted, text } from "./findParts";
 import { ContactsPanel } from "./ContactsPanel";
 
@@ -275,7 +275,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
     // "Give me 20": the table shows exactly those 20, best first, instead of a page of 25.
     const asked = Number(incoming.meta?.asked) || 0;
     pageRef.current = asked ? Math.min(asked, 250) : pageSize;
-    setDraft({ asked });
+    setDraft({ asked, sample: Boolean(incoming.meta?.sample), own: Boolean(incoming.meta?.own) });
     setExcluded([]); setForm(f); setTab("companies"); search(null, f, 0, null, undefined, undefined, true);
   }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1090,7 +1090,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
           <TopBar show={busy} />
           {draft && !area && tab === "companies" && searched ? (
             <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "9px 14px", borderBottom: `1px solid ${C.border}`, background: C.cobaltSoft }}>
-              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Draft from the AI assistant</span>
+              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>{draftTitle(draft)}</span>
               <span style={{ ...muted, fontSize: 12.5 }}>
                 {draft.asked && draft.asked < total ? `The ${draft.asked.toLocaleString()} you asked for, best matches first. ${total.toLocaleString()}${capped ? "+" : ""} match in all.` : `${total.toLocaleString()}${capped ? "+" : ""} match.`}
               </span>

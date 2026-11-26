@@ -3,7 +3,7 @@ import { NOTICE_EVENT, notice } from "../../utils/notice";
 import { WRITE_EMAIL_EVENT } from "../../utils/writeEmail";
 import { OPEN_JOURNEY_EVENT } from "../../utils/openJourney";
 import { api } from "../../api/apiClient";
-import { takePendingDraft } from "../../utils/draftHandoff";
+import { DRAFT_EVENT, takePendingDraft } from "../../utils/draftHandoff";
 import {
   Search,
   Sparkles,
@@ -208,9 +208,14 @@ export default function LeadGenerationPlugin({
     if (window.__outreachFind) { onFind({ detail: { company: window.__outreachFind } }); window.__outreachFind = ""; } // asked before this app loaded
     return () => window.removeEventListener("outreach-find", onFind);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { // a draft the assistant opened while the person was on Voice or Social: it waited for Leads to start
-    const d = takePendingDraft();
-    if (d) { setIncoming({ id: Date.now(), filters: d.filters || {}, meta: d.meta }); setFindOpened(true); setView("find_leads"); }
+  useEffect(() => { // a draft the assistant (or "Get started") opened while the person was elsewhere: it waited for Leads to start
+    const take = () => {
+      const d = takePendingDraft();
+      if (d) { setIncoming({ id: Date.now(), filters: d.filters || {}, meta: d.meta }); setFindOpened(true); setView("find_leads"); }
+    };
+    take();
+    window.addEventListener(DRAFT_EVENT, take); // and one sent while Leads is already open
+    return () => window.removeEventListener(DRAFT_EVENT, take);
   }, []);
 
   const toastTimer = useRef(0);
