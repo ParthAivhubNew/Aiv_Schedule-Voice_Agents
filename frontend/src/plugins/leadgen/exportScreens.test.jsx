@@ -151,8 +151,8 @@ describe("wiring", () => {
   it("Lists, accounts, import detail, drawer and page use the new pieces", () => {
     expect(src("Lists.jsx")).toContain('<ExportDialog kind="companies" scope={exportTarget}');
     expect(src("Lists.jsx")).toContain("Export list");
-    expect(src("AccountsViews.jsx")).toContain('<ExportDialog kind="companies" scope={{ ids: pickedIds }}');
-    expect(src("AccountsViews.jsx")).toContain("<FieldMark flags={a.restricted}");
+    expect(src("accounts/AccountsView.jsx")).toContain('<ExportDialog kind="companies" scope={{ ids: pickedIds }}');
+    expect(src("accounts/AccountsView.jsx")).toContain("<FieldMark flags={a.restricted}");
     expect(src("ImportMatch.jsx")).toContain("<SalesforceDialog importId={id}");
     expect(src("ImportMatch.jsx")).toContain("Download update file");
     expect(src("CompanyDrawer.jsx")).toContain("<GoogleView");

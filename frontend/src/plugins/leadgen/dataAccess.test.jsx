@@ -146,6 +146,6 @@ describe("data_access flags", () => {
   });
   it("wires the export hint and the limited note", () => {
     expect(src("LeadGenerationPlugin.jsx")).toContain("access.exportOff");
-    expect(src("FindLeadsView.jsx")).toContain("limitedLine(access.districts)");
+    expect(src("find/FindLeadsSearch.jsx")).toContain("limitedLine(access.districts)");
   });
 });

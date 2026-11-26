@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: the near-match colours, splitting the two big Leads files, and dark mode. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: the near-match colours that would visibly change, the Find Leads search component itself, and dark mode. Details are in section 3.1.
 
 **Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
 - `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.
@@ -233,6 +233,11 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
    - Company page: provenance panel.
    - Page headers: shorter descriptions. (M)
 6. **Split the big files.** `AccountsViews.jsx` and `FindLeadsView.jsx` become feature folders. Do this alongside Phase 2 so the new code goes into the smaller files. (M)
+   - ✅ **Done 2026-11-26.** A parser moved each top-level piece unchanged and worked out each file's imports from what it uses, so no code was rewritten by hand.
+     - **`accounts/`:** `accountsLogic.js` (pure helpers), `useLeadAccounts.js` (the data hook), `accountParts.jsx` (small parts and menus), `AccountsView.jsx` (the list screen), `AccountPanel.jsx` (the panel, dossier and add form) and `ImportView.jsx`.
+     - **`find/`:** `findLogic.js` (the search form and filters), `findParts.jsx`, `ContactsPanel.jsx` and `FindLeadsSearch.jsx`.
+     - `AccountsViews.jsx` and `FindLeadsView.jsx` now only re-export, so every existing import still works. New code should import from the folders.
+     - **Still big:** the search screen itself, `FindLeadsSearch`, is one 1,250-line component. Splitting it means breaking up its JSX, which needs a look in the browser.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
 
 ### 3.1 Done on the branch (2026-11-25)

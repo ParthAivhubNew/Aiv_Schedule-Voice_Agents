@@ -53,7 +53,7 @@ describe("wiring", () => {
     expect(login).toContain("<PoweredBy");
     expect(src("../hub/PluginShell.jsx")).toContain("hideCredits");
     expect(src("../plugins/voice/calling/CallingWorkspace.jsx")).toContain("brand.hideCredits");
-    expect(src("../plugins/leadgen/FindLeadsView.jsx")).toContain("<StandingChip canSeeRules={isAdmin} />");
+    expect(src("../plugins/leadgen/find/FindLeadsSearch.jsx")).toContain("<StandingChip canSeeRules={isAdmin} />");
     expect(src("../main.jsx")).toContain("<BrandProvider>");
     expect(src("../adminPortal/AdminApp.jsx")).toContain('id: "brands"');
   });

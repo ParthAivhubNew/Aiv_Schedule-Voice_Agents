@@ -84,7 +84,7 @@ describe("running", () => {
 describe("wiring", () => {
   const read = (f) => readFileSync(new URL(f, import.meta.url), "utf8");
   it("Leads has the bulk action with the leadgen wallet", () => {
-    const s = read("./AccountsViews.jsx");
+    const s = read("./accounts/AccountsView.jsx");
     expect(s).toContain("Check TPS/CTPS");
     expect(s).toContain('wallet="leadgen"');
   });

@@ -1,5 +1,4 @@
 {
- "AccountsViews.jsx": 32,
  "AssistantCards.jsx": 39,
  "AssistantPanel.jsx": 77,
  "CampaignWizard.jsx": 1,
@@ -17,7 +16,6 @@
  "ExportDialog.jsx": 2,
  "FilterCards.jsx": 11,
  "FindLeadsParts.jsx": 8,
- "FindLeadsView.jsx": 9,
  "FitParts.jsx": 2,
  "GoogleView.jsx": 1,
  "ImportMapper.jsx": 4,
@@ -45,11 +43,18 @@
  "SummaryParts.jsx": 8,
  "TpsCheckDialog.jsx": 5,
  "WhereFrom.jsx": 1,
+ "accounts/AccountPanel.jsx": 3,
+ "accounts/AccountsView.jsx": 13,
+ "accounts/ImportView.jsx": 5,
+ "accounts/accountParts.jsx": 8,
+ "accounts/accountsLogic.js": 3,
  "admin/AccessEditor.jsx": 2,
  "admin/RoleManagement.jsx": 2,
  "admin/UserManagement.jsx": 1,
  "admin/adminUi.jsx": 7,
  "cardsLayout.js": 9,
  "connectorsLogic.js": 8,
+ "find/ContactsPanel.jsx": 1,
+ "find/FindLeadsSearch.jsx": 8,
  "mapPins.js": 19
 }
