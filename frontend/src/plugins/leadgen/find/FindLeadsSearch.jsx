@@ -225,10 +225,12 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
   }, [icp.loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The opening list never stays empty: if it failed (server busy, a restart, a slow first sort) or came back empty, it is tried
-  // again by itself, up to three times, until the person starts a search of their own.
+  // again by itself, up to three times, until the person starts a search of their own. A drawn map area is their own search: it
+  // empties the list on purpose while it is counted, and a retry then would replace the count with the whole register.
   const openingActive = useRef(true);
   const openingTries = useRef(0);
   useEffect(() => {
+    if (area) { openingActive.current = false; return undefined; }
     const emptyOpening = searched && !busy && companies.length === 0;
     if (!(error || emptyOpening) || busy || !openingActive.current || openingTries.current >= 3) return undefined;
     const n = openingTries.current;
@@ -238,7 +240,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       search(null, EMPTY_FORM, 0, null, undefined, undefined, true);
     }, [2000, 5000, 10000][n]);
     return () => clearTimeout(timer);
-  }, [error, busy, searched, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [error, busy, searched, companies.length, area]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Taking a filter away refreshes the list by itself, on both the Companies and People tabs: no need to press search again.
   // With none left it is the whole register. Adding or editing a filter still waits for the search button.
