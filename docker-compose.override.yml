@@ -12,3 +12,8 @@ services:
   frontend:
     ports: !override
       - "127.0.0.1:8080:80"  # nginx proxies outreach.aivhub.com here
+  livekit:
+    ports: !override  # the backend reaches it inside Docker (ws://livekit:7880); nothing outside the server uses it
+      - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:7882:7882/udp"
