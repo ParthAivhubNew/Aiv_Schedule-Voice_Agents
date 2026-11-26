@@ -19,7 +19,7 @@ export function StatusBadge({ status }) {
 function Dialog({ title, onClose, children, footer }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 90, display: "grid", placeItems: "center", background: "rgba(18,20,28,0.35)", padding: 16 }} onClick={onClose}>
-      <div className="ui-card" onClick={(e) => e.stopPropagation()} style={{ width: "min(100%, 460px)", maxHeight: "86vh", overflow: "auto", background: "#fff", padding: 20, boxSizing: "border-box" }}>
+      <div className="ui-card" onClick={(e) => e.stopPropagation()} style={{ width: "min(100%, 460px)", maxHeight: "86vh", overflow: "auto", background: C.surface, padding: 20, boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontWeight: 600, fontSize: 15, color: C.textInk, flex: 1 }}>{title}</div>
           <button type="button" className="ui-icon-btn ui-icon-btn--sm" onClick={onClose} aria-label="Close"><X size={15} /></button>

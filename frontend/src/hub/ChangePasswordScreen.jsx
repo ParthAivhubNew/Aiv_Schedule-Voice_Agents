@@ -30,7 +30,7 @@ export function ChangePasswordScreen({ operator, onDone, onLogout }) {
   };
 
   const field = {
-    width: "100%", height: 44, borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff",
+    width: "100%", height: 44, borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface,
     padding: "0 14px", fontFamily: FONT_BODY, fontSize: 14, color: C.textInk, marginBottom: 14, boxSizing: "border-box",
   };
   const label = { display: "block", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 };
@@ -40,14 +40,14 @@ export function ChangePasswordScreen({ operator, onDone, onLogout }) {
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: C.ink, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-            <Lock size={20} color="#fff" />
+            <Lock size={20} color={C.onAccent} />
           </div>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 24, color: C.ink, marginTop: 12 }}>Choose a new password</div>
           <div style={{ fontSize: 14, color: C.slate, marginTop: 6 }}>
             {operator && operator.name ? `${operator.name}, your` : "Your"} password is temporary. Pick your own to continue.
           </div>
         </div>
-        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 20, padding: "26px 26px 22px", boxShadow: "0 18px 50px rgba(18,20,28,0.06)" }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20, padding: "26px 26px 22px", boxShadow: "0 18px 50px rgba(18,20,28,0.06)" }}>
           <label style={label}>Current password</label>
           <input type="password" autoFocus value={current} onChange={(e) => { setCurrent(e.target.value); setError(""); }} style={field} autoComplete="current-password" />
           <label style={label}>New password (at least 8 characters)</label>
@@ -59,7 +59,7 @@ export function ChangePasswordScreen({ operator, onDone, onLogout }) {
               <AlertTriangle size={14} /> {error}
             </div>
           )}
-          <button type="submit" disabled={saving} style={{ width: "100%", height: 46, marginTop: 6, borderRadius: 12, border: "none", background: C.ink, color: "#fff", fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 15, cursor: saving ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <button type="submit" disabled={saving} style={{ width: "100%", height: 46, marginTop: 6, borderRadius: 12, border: "none", background: C.ink, color: C.onAccent, fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 15, cursor: saving ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             {saving ? <><Spinner size={15} /> Saving…</> : "Save and continue"}
           </button>
           <button type="button" onClick={onLogout} style={{ width: "100%", marginTop: 10, background: "none", border: "none", color: C.slate, fontSize: 13, cursor: "pointer" }}>

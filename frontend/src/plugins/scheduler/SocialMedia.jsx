@@ -12,14 +12,14 @@ import { useEscapeLayer } from "./escapeLayers";
 // MediaLibraryPage manages it; MediaPicker lets the post editor pick files from it (in order).
 
 const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER, fontFamily: FONT_BODY };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
   display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 12px", borderRadius: 8,
-  border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY,
+  border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY,
 };
-const primary = { ...btn, background: C.ink, color: "#fff", borderColor: C.ink };
-const input = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", minWidth: 0 };
+const primary = { ...btn, background: C.ink, color: C.onAccent, borderColor: C.ink };
+const input = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface, minWidth: 0 };
 // Visually hidden but read by screen readers.
 export const srOnly = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 };
 export const ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime";
@@ -87,12 +87,12 @@ export function MediaThumb({ item, size = "100%", height, onClick, selected, ord
         ? <video src={item.url} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         : <img src={item.url} alt={item.alt || ""} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
       {video ? (
-        <span style={{ position: "absolute", left: 6, bottom: 6, background: "rgba(0,0,0,0.72)", color: "#fff", fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <span style={{ position: "absolute", left: 6, bottom: 6, background: "rgba(0,0,0,0.72)", color: C.onAccent, fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 4 }}>
           <Film size={11} /> {lengthLabel(item.duration) || "Video"}
         </span>
       ) : null}
       {order ? (
-        <span style={{ position: "absolute", right: 6, top: 6, width: 22, height: 22, borderRadius: 99, background: C.teal, color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{order}</span>
+        <span style={{ position: "absolute", right: 6, top: 6, width: 22, height: 22, borderRadius: 99, background: C.teal, color: C.onAccent, fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{order}</span>
       ) : null}
       {badge ? (
         <span style={{ position: "absolute", left: 6, top: 6, background: "rgba(255,255,255,0.92)", color: C.ink, fontSize: 10, fontWeight: 700, borderRadius: 6, padding: "2px 6px" }}>{badge}</span>
@@ -130,7 +130,7 @@ function Toolbar({ lib, kind, setKind, uploader, onImported, showToast, compact 
         <div role="group" aria-label="Show" style={{ display: "flex", gap: 4 }}>
           {[["", "All"], ["image", "Pictures"], ["video", "Videos"]].map(([id, label]) => (
             <button key={id || "all"} type="button" onClick={() => setKind(id)} aria-pressed={kind === id}
-              style={{ ...btn, height: 34, background: kind === id ? C.ink : "#fff", color: kind === id ? "#fff" : C.ink, borderColor: kind === id ? C.ink : C.border }}>{label}</button>
+              style={{ ...btn, height: 34, background: kind === id ? C.ink : C.surface, color: kind === id ? C.onAccent : C.ink, borderColor: kind === id ? C.ink : C.border }}>{label}</button>
           ))}
         </div>
       ) : null}
@@ -253,7 +253,7 @@ export function MediaLibraryPage({ showToast }) {
           <div role="group" aria-label="Filter by tag" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {lib.tags.map((t) => (
               <button key={t} type="button" aria-pressed={lib.tag === t} onClick={() => lib.setTag(lib.tag === t ? "" : t)}
-                style={{ ...btn, height: 28, fontSize: 11.5, borderRadius: 99, background: lib.tag === t ? C.tealSoft || "#E4F5F2" : "#fff", borderColor: lib.tag === t ? C.teal : C.border }}>#{t}</button>
+                style={{ ...btn, height: 28, fontSize: 11.5, borderRadius: 99, background: lib.tag === t ? C.tealSoft || "#E4F5F2" : C.surface, borderColor: lib.tag === t ? C.teal : C.border }}>#{t}</button>
             ))}
           </div>
         ) : null}
@@ -310,7 +310,7 @@ export function MediaPicker({ open, onClose, onPick, max = 20, current = [], sho
   return createPortal(
     <div role="presentation" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(18,20,28,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(900px, 100%)", maxHeight: "min(720px, 100%)", background: "#fff", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FONT_BODY, boxShadow: "0 24px 64px rgba(0,0,0,0.25)" }}>
+        style={{ width: "min(900px, 100%)", maxHeight: "min(720px, 100%)", background: C.surface, borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FONT_BODY, boxShadow: "0 24px 64px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, flex: 1 }}>{title}</div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: C.slate, padding: 4 }}><X size={16} /></button>
@@ -398,7 +398,7 @@ export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, 
   return createPortal(
     <div role="presentation" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(18,20,28,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div role="dialog" aria-modal="true" aria-label="Make a video with AI" onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(560px, 100%)", maxHeight: "100%", overflowY: "auto", background: "#fff", borderRadius: 16, fontFamily: FONT_BODY, boxShadow: "0 24px 64px rgba(0,0,0,0.25)" }}>
+        style={{ width: "min(560px, 100%)", maxHeight: "100%", overflowY: "auto", background: C.surface, borderRadius: 16, fontFamily: FONT_BODY, boxShadow: "0 24px 64px rgba(0,0,0,0.25)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
           <Film size={16} color={C.teal} aria-hidden="true" />
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, flex: 1 }}>Make a video with AI</div>
@@ -442,7 +442,7 @@ export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 6 }}>
                   {SHAPES.map(([id, name, use]) => (
                     <button key={id} type="button" aria-pressed={shape === id} onClick={() => setShape(id)}
-                      style={{ border: `1.5px solid ${shape === id ? C.teal : C.border}`, background: shape === id ? (C.tealSoft || "#E4F5F2") : "#fff", borderRadius: 10, padding: "8px 6px", cursor: "pointer", fontFamily: FONT_BODY, textAlign: "center" }}>
+                      style={{ border: `1.5px solid ${shape === id ? C.teal : C.border}`, background: shape === id ? (C.tealSoft || "#E4F5F2") : C.surface, borderRadius: 10, padding: "8px 6px", cursor: "pointer", fontFamily: FONT_BODY, textAlign: "center" }}>
                       <div style={{ fontWeight: 700, fontSize: 12.5, color: C.ink }}>{name}</div>
                       <div style={{ fontSize: 11, color: C.slate }}>{use}</div>
                     </button>
@@ -454,7 +454,7 @@ export function VideoMaker({ open, onClose, postId, defaultPrompt = "", onDone, 
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                   {(info.lengths || [5, 8]).map((s) => (
                     <button key={s} type="button" aria-pressed={seconds === s} onClick={() => setSeconds(s)}
-                      style={{ ...btn, background: seconds === s ? C.ink : "#fff", color: seconds === s ? "#fff" : C.ink, borderColor: seconds === s ? C.ink : C.border }}>About {s} seconds</button>
+                      style={{ ...btn, background: seconds === s ? C.ink : C.surface, color: seconds === s ? C.onAccent : C.ink, borderColor: seconds === s ? C.ink : C.border }}>About {s} seconds</button>
                   ))}
                 </div>
               </fieldset>

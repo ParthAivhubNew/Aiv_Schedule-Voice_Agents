@@ -4,12 +4,12 @@ import { BadgeCheck, Building2, CheckCircle2, Clock, FileUp, Info, MapPin, Phone
 import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px" };
-const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, fontFamily: FONT_BODY, background: "#fff" };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px" };
+const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, fontFamily: FONT_BODY, background: C.surface };
 const label = { display: "block", fontSize: 12, fontWeight: 600, color: C.textInk, marginBottom: 5 };
 const btn = (primary, disabled) => ({
   display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 10, cursor: disabled ? "not-allowed" : "pointer",
-  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : "#fff", color: primary ? "#fff" : C.textInk,
+  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : C.surface, color: primary ? C.onAccent : C.textInk,
   fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, opacity: disabled ? 0.55 : 1,
 });
 const h2 = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: C.textInk, margin: "0 0 4px" };
@@ -154,7 +154,7 @@ function InfoTip({ text }) {
       </button>
       {open && (
         <span role="tooltip" style={{ position: "absolute", left: 22, top: -6, zIndex: 20, width: 300, padding: "10px 12px", borderRadius: 10,
-          background: C.ink, color: "#fff", fontSize: 12, fontWeight: 400, lineHeight: 1.5, boxShadow: "0 8px 24px rgba(0,0,0,.18)" }}>
+          background: C.ink, color: C.onAccent, fontSize: 12, fontWeight: 400, lineHeight: 1.5, boxShadow: "0 8px 24px rgba(0,0,0,.18)" }}>
           {text}
         </span>
       )}
@@ -217,7 +217,7 @@ function VerificationWizard({ onDone, onCancel }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {[["company", "Company", Building2, "Registered company: certificate of incorporation"], ["sole_trader", "Sole trader", User, "Passport or photo ID"]].map(([key, name, Icon, hint]) => (
               <button key={key} type="button" onClick={() => setEntity(key)}
-                style={{ textAlign: "left", padding: 14, borderRadius: 12, cursor: "pointer", border: `2px solid ${entity === key ? C.cobalt : C.border}`, background: entity === key ? C.cobaltSoft : "#fff" }}>
+                style={{ textAlign: "left", padding: 14, borderRadius: 12, cursor: "pointer", border: `2px solid ${entity === key ? C.cobalt : C.border}`, background: entity === key ? C.cobaltSoft : C.surface }}>
                 <Icon size={18} color={entity === key ? C.cobalt : C.slate} />
                 <div style={{ fontWeight: 700, fontSize: 14, color: C.textInk, marginTop: 6 }}>{name}</div>
                 <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>{hint}, plus a utility bill under 3 months old</div>
@@ -406,8 +406,8 @@ function AllowedCountriesCard({ initialCountries, onSaved }) {
                 padding: "6px 12px",
                 fontSize: 12.5,
                 borderRadius: 8,
-                background: checked ? C.ink : "#fff",
-                color: checked ? "#fff" : C.textInk,
+                background: checked ? C.ink : C.surface,
+                color: checked ? C.onAccent : C.textInk,
                 borderColor: checked ? C.ink : C.border,
               }}
             >

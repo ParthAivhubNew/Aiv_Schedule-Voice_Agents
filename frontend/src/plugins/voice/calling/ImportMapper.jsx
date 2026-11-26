@@ -3,7 +3,7 @@ import { AlertTriangle, FileSpreadsheet, X } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../../tokens";
 import { applyMapping, guessMapping, KEEP, mappingWarnings, rememberMapping, savedMappingFor, SKIP, STANDARD_FIELDS } from "./importMapping";
 
-const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };
+const sel = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, padding: "0 8px", fontSize: 12.5, fontFamily: FONT_BODY, width: "100%" };
 
 // Popup shown after a file is chosen: match each file column to our standard columns,
 // keep it as an extra column, or leave it out. Then the rows open in the list.
@@ -33,7 +33,7 @@ export function ImportMapper({ fileName, sheets, sheetNames, onCancel, onImport 
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", zIndex: 140, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
-      <div style={{ background: "#fff", borderRadius: 18, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, boxShadow: "0 24px 70px rgba(0,0,0,0.22)" }}>
+      <div style={{ background: C.surface, borderRadius: 18, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, boxShadow: "0 24px 70px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "18px 18px 10px" }}>
           <FileSpreadsheet size={20} color={C.cobalt} />
           <div style={{ flex: 1 }}>
@@ -99,8 +99,8 @@ export function ImportMapper({ fileName, sheets, sheetNames, onCancel, onImport 
               Remember these matches for files with the same columns
             </label>
             <div style={{ flex: 1 }} />
-            <button type="button" onClick={onCancel} style={{ height: 38, padding: "0 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-            <button type="button" onClick={doImport} style={{ height: 38, padding: "0 18px", borderRadius: 10, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+            <button type="button" onClick={onCancel} style={{ height: 38, padding: "0 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+            <button type="button" onClick={doImport} style={{ height: 38, padding: "0 18px", borderRadius: 10, border: "none", background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer" }}>
               Import {data.records.length} rows
             </button>
           </div>

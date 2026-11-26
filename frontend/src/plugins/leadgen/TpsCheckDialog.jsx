@@ -5,9 +5,9 @@ import { TPS_CHUNK, badgeTip, creditsWord, dateWord, estimateTps, previewLine, r
 
 const TONES = {
   bad: { color: "var(--ui-bad)", bg: "var(--ui-bad-soft)" },
-  ok: { color: "#176B3F", bg: C.greenSoft },
-  mute: { color: "#5B6573", bg: C.neutralSoft },
-  warn: { color: "#8A5A00", bg: "#FFF1D2" },
+  ok: { color: C.tpsOkInk, bg: C.greenSoft },
+  mute: { color: C.tpsMuteInk, bg: C.neutralSoft },
+  warn: { color: C.tpsWarnInk, bg: C.tpsWarnBg },
 };
 
 function toneOf(status, ctps) {

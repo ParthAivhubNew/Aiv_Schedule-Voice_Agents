@@ -235,7 +235,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
   return (
     <div style={overlay} onClick={onClose}>
       <div role="dialog" aria-label="Call schedules" style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", alignItems: "center", gap: 10 }}>
           <CalendarClock size={18} color={C.cobalt} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Call schedules</div>
@@ -258,7 +258,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
                   key={s.id}
                   type="button"
                   onClick={() => pick(s)}
-                  style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 11px", marginBottom: 6, borderRadius: 10, border: `1px solid ${on ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : "#fff", cursor: "pointer", fontFamily: "inherit" }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 11px", marginBottom: 6, borderRadius: 10, border: `1px solid ${on ? C.cobalt : C.border}`, background: on ? C.cobaltSoft : C.surface, cursor: "pointer", fontFamily: "inherit" }}
                 >
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: C.ink, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
@@ -274,7 +274,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
           </div>
 
           <div style={{ flex: "999 1 420px", minWidth: 0, display: "flex", flexDirection: "column", maxHeight: "100%" }}>
-            <div style={{ display: "flex", gap: 4, padding: "10px 16px 0", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 4, padding: "10px 16px 0", borderBottom: `1px solid ${C.border}`, background: C.surface, overflowX: "auto" }}>
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -287,7 +287,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
               ))}
             </div>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16, background: "#fff" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16, background: C.surface }}>
               {current && current.status === "ended" ? (
                 <Note tone="warn">{current.endedReason || "This schedule has ended."} Change the dates and save to run it again.</Note>
               ) : null}
@@ -407,7 +407,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
               ) : null}
             </div>
 
-            <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 16px", background: "#fff" }}>
+            <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 16px", background: C.surface }}>
               <div style={{ fontSize: 12.5, color: summary.tone === "warn" ? C.red : summary.tone === "ok" ? C.ink : C.slate, marginBottom: 8, lineHeight: 1.4 }}>
                 {summary.text}{summary.tone === "ok" && preview && preview.count && form.frequency === "recurring" && form.endDate ? " · ends " + longDay(form.endDate) : ""}
               </div>

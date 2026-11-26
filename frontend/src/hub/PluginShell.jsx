@@ -57,7 +57,7 @@ export function SidebarHead({ icon, accent, name, collapsed, onToggle, onHome })
         <button type="button" className="sb-home" onClick={onHome} title={home} aria-label={home.replace(":", ",")}>
           <BrandMark size={32} outreach />
           <span className="sb-home-text" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Outreach</span>
+            <span style={{ fontWeight: 600, fontSize: 15, color: `var(--ui-side-strong, ${C.onAccent})`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Outreach</span>
             <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>
           </span>
         </button>
@@ -150,7 +150,7 @@ export function PhoneTabBar({ items, nav, accent }) {
 }
 
 // The top bar takes a light wash of its app's colour, so you can tell at a glance which app you are in.
-export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb, ${accent} 18%, #fff)`, borderBottom: `1px solid color-mix(in srgb, ${accent} 38%, #fff)`, "--bar-bell": `color-mix(in srgb, ${accent} 36%, #fff)`, "--bar-bell-line": `color-mix(in srgb, ${accent} 55%, #fff)` } : { background: "#fff" });
+export const headerTint = (accent) => (accent ? { background: `color-mix(in srgb, ${accent} 18%, #fff)`, borderBottom: `1px solid color-mix(in srgb, ${accent} 38%, #fff)`, "--bar-bell": `color-mix(in srgb, ${accent} 36%, #fff)`, "--bar-bell-line": `color-mix(in srgb, ${accent} 55%, #fff)` } : { background: C.surface });
 
 // The bar across the top of every app, the same as Voice's: the page's name, a short line about it, then
 // anything the page needs (children), your credits, notifications and profile (accountBar).

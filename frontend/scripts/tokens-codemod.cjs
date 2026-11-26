@@ -1,7 +1,7 @@
 // Moves hard-coded colours in the Leads screens onto the tokens (tokens.js C), only where the colour is styling and only when it is
 // exactly a token's value, so nothing looks different (plan 10, Phase 4 item 2). It needs Babel, which the app does not ship:
-//   mkdir /tmp/cm && cd /tmp/cm && npm i @babel/parser@7.26.3 @babel/traverse@7.26.4 && NODE_PATH=/tmp/cm/node_modules node <repo>/frontend/scripts/tokens-codemod.cjs <repo>/frontend/src [--write]
-// Then lower plugins/leadgen/hexBaseline.json (tokens.test.js only lets the counts go down).
+//   mkdir /tmp/cm && cd /tmp/cm && npm i @babel/parser@7.26.3 @babel/traverse@7.26.4 && NODE_PATH=/tmp/cm/node_modules node <repo>/frontend/scripts/tokens-codemod.cjs <repo>/frontend/src [--dirs=plugins/voice,hub] [--write]
+// Then lower the folder's hexBaseline.json (tokens.test.js only lets the counts go down).
 const fs = require("fs");
 const path = require("path");
 const parser = require("@babel/parser");
@@ -23,7 +23,11 @@ const STYLE_KEYS = new Set(["color", "background", "backgroundColor", "borderCol
   "line", "tint", "borderTopColor", "borderBottomColor", "borderLeftColor", "borderRightColor", "background-color", "dot", "bar", "track", "text"]);
 const ATTRS = new Set(["color", "fill", "stroke", "stopColor"]);
 const SKIP_FILES = new Set(["ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
-  "mapPins.js", "drawShape.js", "LeadsMap.jsx"]);
+  "mapPins.js", "drawShape.js", "LeadsMap.jsx",
+  "BrandMark.jsx", "apps.js"]); // the logo, and each app's own identity colour
+// Folders to work on: --dirs plugins/voice,plugins/scheduler,hub (default: the Leads screens).
+const dirsArg = process.argv.find((a) => a.startsWith("--dirs="));
+const DIRS = dirsArg ? dirsArg.slice(7).split(",") : ["plugins/leadgen"];
 const HEX_RX = /#[0-9A-Fa-f]{6}\b/g;
 
 const keyName = (k) => (k.type === "Identifier" ? k.name : k.type === "StringLiteral" ? k.value : "");
@@ -43,8 +47,9 @@ function walk(dir, out = []) {
 
 let total = 0;
 const report = [];
-for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
+for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
   const code = fs.readFileSync(file, "utf8");
+  const charts = /from "recharts"/.test(code); // chart attributes need a real colour (HEX), not a CSS variable
   let ast;
   try {
     ast = parser.parse(code, { sourceType: "module", plugins: ["jsx"] });
@@ -63,7 +68,7 @@ for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
       const parent = p.parent;
       let styling = false;
       if (parent.type === "ObjectProperty" && parent.value === n) styling = STYLE_KEYS.has(keyName(parent.key));
-      if (parent.type === "JSXAttribute") styling = ATTRS.has(parent.name.name);
+      if (parent.type === "JSXAttribute") styling = !charts && ATTRS.has(parent.name.name);
       if (parent.type === "ConditionalExpression" || parent.type === "LogicalExpression") {
         const gp = p.parentPath.parent; // a ? "#x" : "#y" inside a style property
         styling = gp.type === "ObjectProperty" && STYLE_KEYS.has(keyName(gp.key));
@@ -96,7 +101,11 @@ for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
   const spec = rel.startsWith(".") ? rel : "./" + rel;
   const imp = new RegExp(`import \\{([^}]*)\\} from "${spec.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}";`);
   const m = out.match(imp);
-  if (m) {
+  // app/constants.jsx re-exports the same C (with two shadows of its own), so a C imported from either is kept as it is
+  const hasC = /import\s*\{[^}]*\bC\b[^}]*\}\s*from\s*"[^"]*(?:\/tokens|\/app\/constants|\.\/constants)"/.test(out);
+  if (hasC) {
+    // nothing to add
+  } else if (m) {
     const names = m[1].split(",").map((x) => x.trim()).filter(Boolean);
     if (!names.includes("C")) out = out.replace(m[0], `import { ${["C", ...names].join(", ")} } from "${spec}";`);
   } else {

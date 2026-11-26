@@ -8,13 +8,13 @@ import { formatOrgTime, useOrg } from "../../org/orgSettings";
 // is shown on its row; only rows that pass are imported, and they go through approval as usual.
 
 const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER, fontFamily: FONT_BODY };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
   display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 12px", borderRadius: 8,
-  border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY,
+  border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY,
 };
-const primary = { ...btn, background: C.ink, color: "#fff", borderColor: C.ink };
+const primary = { ...btn, background: C.ink, color: C.onAccent, borderColor: C.ink };
 const TITLES = { linkedin: "LinkedIn", x: "X", facebook: "Facebook", instagram: "Instagram", threads: "Threads", reddit: "Reddit" };
 
 const COLUMNS = [
@@ -149,7 +149,7 @@ export function ImportPage({ showToast, onOpenApprovals, onOpenCalendar }) {
               <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}>What goes in each column</summary>
               <ul style={{ listStyle: "none", margin: "10px 0 0", padding: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
                 {COLUMNS.map(([k, v], i) => (
-                  <li key={k} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 150px) minmax(0, 1fr)", gap: "2px 14px", alignItems: "baseline", padding: "9px 12px", borderTop: i ? `1px solid ${C.border}` : "none", background: i % 2 ? "#FAFAF8" : "#fff" }}>
+                  <li key={k} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 150px) minmax(0, 1fr)", gap: "2px 14px", alignItems: "baseline", padding: "9px 12px", borderTop: i ? `1px solid ${C.border}` : "none", background: i % 2 ? "#FAFAF8" : C.surface }}>
                     <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, fontWeight: 700, color: C.ink }}>{k}</span>
                     <span style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.45 }}>{v}</span>
                   </li>

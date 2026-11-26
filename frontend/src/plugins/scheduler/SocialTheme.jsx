@@ -30,7 +30,7 @@ const CSS = `
 .bk-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:14px;align-items:start;min-width:0}
 .bk-main>.bk-wide{grid-column:1/-1}
 .bk-side{position:sticky;top:12px;display:grid;gap:10px}
-.bk-card{background:#fff;border:1px solid ${C.border};border-radius:12px;padding:16px 18px;display:grid;gap:12px}
+.bk-card{background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:16px 18px;display:grid;gap:12px}
 .bk-card h2{margin:0;font:700 14px ${FONT_DISPLAY}}
 .bk-note{margin:0;font-size:12.5px;line-height:1.45;color:${C.slate}}
 .bk-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -42,7 +42,7 @@ const CSS = `
 .bk-strip{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid ${C.border}}
 .bk-strip i{flex:1}
 .bk-presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
-.bk-preset{display:flex;align-items:center;gap:8px;border:1.5px solid ${C.border};background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;font:600 12.5px ${FONT_BODY};color:${C.ink};min-height:44px;text-align:left}
+.bk-preset{display:flex;align-items:center;gap:8px;border:1.5px solid ${C.border};background:${C.surface};border-radius:10px;padding:8px 10px;cursor:pointer;font:600 12.5px ${FONT_BODY};color:${C.ink};min-height:44px;text-align:left}
 .bk-preset[aria-pressed="true"]{border-color:${C.teal};background:${C.tealSoft}}
 .bk-preset:focus-visible,.bk-pos button:focus-visible,.bk-tpl:focus-visible,.bk-logo:focus-visible,.bk-chip:focus-visible{outline:2px solid ${C.teal};outline-offset:2px}
 .bk-sw{display:inline-flex;border-radius:4px;overflow:hidden;border:1px solid rgba(0,0,0,.12);flex:none}
@@ -52,28 +52,28 @@ const CSS = `
 .bk-colour label{font-size:12px;font-weight:700;color:${C.ink};display:grid;gap:1px}
 .bk-colour label small{font-weight:400;color:${C.slate};font-size:11.5px;line-height:1.3}
 .bk-colour .bk-row{gap:6px;flex-wrap:nowrap}
-.bk-colour input[type=color]{width:44px;height:38px;padding:2px;border:1px solid ${C.border};border-radius:8px;background:#fff;flex:none;cursor:pointer}
+.bk-colour input[type=color]{width:44px;height:38px;padding:2px;border:1px solid ${C.border};border-radius:8px;background:${C.surface};flex:none;cursor:pointer}
 .bk-colour input[type=text]{height:38px;border:1px solid ${C.border};border-radius:8px;padding:0 10px;font:13px ${FONT_BODY};min-width:0;width:100%;box-sizing:border-box;text-transform:uppercase}
 .bk-tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
-.bk-tpl{border:1.5px solid ${C.border};background:#fff;border-radius:10px;padding:10px;cursor:pointer;text-align:left;font-family:${FONT_BODY};display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start;min-height:56px}
+.bk-tpl{border:1.5px solid ${C.border};background:${C.surface};border-radius:10px;padding:10px;cursor:pointer;text-align:left;font-family:${FONT_BODY};display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start;min-height:56px}
 .bk-tpl[aria-pressed="true"]{border-color:${C.teal};background:${C.tealSoft}}
 .bk-thumb{position:relative;width:34px;height:44px;border-radius:4px;background:#DDE3EE;overflow:hidden}
 .bk-thumb i{position:absolute;background:var(--bk,#3457D5)}
 .bk-pos{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;padding:6px;border:1px solid ${C.border};border-radius:10px;background:#F4F6FA;width:fit-content}
-.bk-pos button{border:1px solid ${C.border};background:#fff;border-radius:6px;cursor:pointer;padding:0;display:grid;place-items:center}
+.bk-pos button{border:1px solid ${C.border};background:${C.surface};border-radius:6px;cursor:pointer;padding:0;display:grid;place-items:center}
 .bk-pos button[aria-pressed="true"]{background:${C.teal};border-color:${C.teal}}
-.bk-pos button[aria-pressed="true"]::after{content:"";width:14px;height:14px;border-radius:3px;background:#fff}
+.bk-pos button[aria-pressed="true"]::after{content:"";width:14px;height:14px;border-radius:3px;background:${C.surface}}
 .bk-logos{display:flex;gap:8px;flex-wrap:wrap}
-.bk-logo{border:1.5px solid ${C.border};background:#fff;border-radius:10px;padding:6px;cursor:pointer;display:grid;place-items:center;width:84px;height:64px}
+.bk-logo{border:1.5px solid ${C.border};background:${C.surface};border-radius:10px;padding:6px;cursor:pointer;display:grid;place-items:center;width:84px;height:64px}
 .bk-logo[aria-pressed="true"]{border-color:${C.teal};box-shadow:0 0 0 2px ${C.tealSoft}}
 .bk-logo img{max-width:100%;max-height:100%;object-fit:contain}
 .bk-chips{display:flex;gap:6px;flex-wrap:wrap}
 .bk-chip{border:1px solid ${C.border};background:${C.paper};border-radius:999px;padding:3px 10px;font-size:12px;color:${C.ink}}
 .bk-found{border:1px dashed ${C.border};border-radius:10px;padding:10px 12px;display:grid;gap:8px;background:#FBFCFD}
-.bk-help{border:1px solid ${C.border};border-radius:10px;padding:12px 14px;display:grid;gap:8px;background:#fff}
+.bk-help{border:1px solid ${C.border};border-radius:10px;padding:12px 14px;display:grid;gap:8px;background:${C.surface}}
 .bk-check{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:13px}
 .bk-check li[data-ok="true"]{color:#14602F}.bk-check li[data-ok="false"]{color:${C.slate}}
-.bk-prev{border:1px solid ${C.border};border-radius:12px;background:#fff;padding:10px;display:grid;gap:8px}
+.bk-prev{border:1px solid ${C.border};border-radius:12px;background:${C.surface};padding:10px;display:grid;gap:8px}
 .bk-prev img{width:100%;border-radius:8px;display:block;background:#E9EDF5;aspect-ratio:4/5;object-fit:cover}
 .bk-switch{display:flex;align-items:flex-start;gap:10px;font-size:14px;font-weight:600;cursor:pointer}
 .bk-switch input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:${C.teal}}
@@ -345,7 +345,7 @@ export function ThemePage({ showToast, onOpenVoice }) {
             </div>
           ) : null}
           <div className="bk-row">
-            {kit.logoUrl ? <img src={kit.logoUrl} alt="Your logo" style={{ height: 44, maxWidth: 140, objectFit: "contain", border: `1px solid ${C.border}`, borderRadius: 8, background: "#fff", padding: 4 }} /> : <span className="bk-note">No logo yet.</span>}
+            {kit.logoUrl ? <img src={kit.logoUrl} alt="Your logo" style={{ height: 44, maxWidth: 140, objectFit: "contain", border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, padding: 4 }} /> : <span className="bk-note">No logo yet.</span>}
             <button type="button" className="ui-btn ui-btn--secondary" onClick={() => fileRef.current && fileRef.current.click()}><Upload size={15} aria-hidden="true" /> {kit.logoUrl ? "Upload a different logo" : "Upload logo"}</button>
             {kit.logoUrl ? <button type="button" className="ui-btn ui-btn--ghost" onClick={() => set("logoUrl", "")}><Trash2 size={15} aria-hidden="true" /> Remove</button> : null}
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={pickLogo} style={{ display: "none" }} aria-label="Logo file" />

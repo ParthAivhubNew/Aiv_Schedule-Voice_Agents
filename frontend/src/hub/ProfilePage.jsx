@@ -12,23 +12,23 @@ const LANGUAGES = [["en", "English"], ["es", "Español"], ["fr", "Français"], [
 const FIELDS = ["first_name", "last_name", "gender", "job_title", "department", "company", "bio", "website", "secondary_email", "timezone", "language", "date_format", "time_format", "signature"];
 
 const label = { display: "block", fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 };
-const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", color: C.textInk };
+const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface, color: C.textInk };
 const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 14 };
 const sub = { fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.textInk };
 const note = { fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate };
-const btn = { padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY };
-const btnDark = { ...btn, border: "none", background: C.ink, color: "#fff", fontWeight: 600 };
+const btn = { padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY };
+const btnDark = { ...btn, border: "none", background: C.ink, color: C.onAccent, fontWeight: 600 };
 
 
 // A dialog with the sections down the left; on a phone the sections run along the top and the dialog fills the screen.
 const MODAL_CSS = `
-.pf-modal{display:flex;width:100%;max-width:860px;height:min(680px,calc(100dvh - 32px));background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
+.pf-modal{display:flex;width:100%;max-width:860px;height:min(680px,calc(100dvh - 32px));background:${C.surface};border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22);border:1px solid ${C.border}}
 .pf-side{width:210px;flex-shrink:0;background:${C.paperSoft};border-right:1px solid ${C.border};display:flex;flex-direction:column;gap:14px;padding:18px 12px;overflow-y:auto}
 .pf-who{display:flex;align-items:center;gap:10px;padding:0 6px}
 .pf-tabs{display:flex;flex-direction:column;gap:2px}
 .pf-tab{all:unset;cursor:pointer;box-sizing:border-box;padding:9px 12px;border-radius:8px;font:600 13.5px ${FONT_BODY};color:${C.slate};white-space:nowrap}
-.pf-tab:hover{background:#fff}
-.pf-tab.on{background:#fff;color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
+.pf-tab:hover{background:${C.surface}}
+.pf-tab.on{background:${C.surface};color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
 .pf-main{flex:1;min-width:0;display:flex;flex-direction:column}
 .pf-head{display:flex;align-items:center;gap:8px;padding:16px 22px;border-bottom:1px solid ${C.border}}
 .pf-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 22px;display:flex;flex-direction:column;gap:18px}

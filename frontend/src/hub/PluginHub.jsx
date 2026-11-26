@@ -57,7 +57,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: open ? "#fff" : "#fff",
+          background: open ? C.surface : C.surface,
           border: `1px solid ${open ? C.cobalt : C.border}`,
           borderRadius: 999,
           padding: compact ? "3px 8px 3px 3px" : "4px 14px 4px 5px",
@@ -97,7 +97,7 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
           top: "calc(100% + 8px)",
           right: 0,
           width: 305,
-          background: "#fff",
+          background: C.surface,
           border: `1px solid ${C.border}`,
           borderRadius: 16,
           boxShadow: "0 18px 50px rgba(18,20,28,0.16)",
@@ -214,7 +214,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
         border: needsPerson ? "2px solid #F87171" : "2px solid #6366F1",
         borderRadius: 14,
         boxShadow: needsPerson ? "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(248, 113, 113, 0.5)" : "0 14px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(99, 102, 241, 0.4)",
-        color: "#fff",
+        color: C.onAccent,
         padding: "16px 18px",
         fontFamily: "Inter, system-ui, sans-serif",
       }}
@@ -268,7 +268,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
 
       {/* Caller Info */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.onAccent, marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
           <span>📞</span>
           <span>{callerLabel}</span>
         </div>
@@ -302,7 +302,7 @@ export function UniversalCallNotificationBanner({ activeCalls, currentPlugin, on
           style={{
             flex: 1,
             background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-            color: "#fff",
+            color: C.onAccent,
             border: "none",
             borderRadius: 8,
             padding: "8px 14px",

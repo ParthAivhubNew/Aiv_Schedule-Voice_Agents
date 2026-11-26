@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Mail, RefreshCw, Sparkles } from "lucide-react";
 import { C, FONT_BODY } from "../../../tokens";
 
-const small = { height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY };
+const small = { height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textInk, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY };
 
 /**
  * The AI summary of a call. Never emailed on its own: "Email me this" sends it to the user who asks.

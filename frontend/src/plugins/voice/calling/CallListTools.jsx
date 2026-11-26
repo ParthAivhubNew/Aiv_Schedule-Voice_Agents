@@ -84,7 +84,7 @@ export function DetailsBar({ d }) {
 export function CallListSummary({ rows, phoneOf, status, setStatus, q, setQ, onToast }) {
   const n = countCalls(rows, phoneOf);
   const held = listDetails(rows, phoneOf);
-  const tab = (on) => ({ minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", color: on ? "#fff" : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" });
+  const tab = (on) => ({ minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : C.surface, color: on ? C.onAccent : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" });
   const more = MORE.filter((k) => n.chips[k] > 0 || status === k);
   const chipLabel = (k) => (CHIPS.find(([id]) => id === k) || [])[1] || k;
   return (
@@ -251,7 +251,7 @@ export function ContactPanel({ row, phone, calls, leadsOn, needNumber, onClose, 
   const fields = [["Contact", row.contact], ["Phone", phone], ["Email", row.email], ["Website", row.website], ["Place", [row.town, row.postcode].filter(Boolean).join(" ")], ["Type of business", row.sector]].filter(([, v]) => v);
   const ordered = [...calls].sort((a, b) => new Date(b.startedAt || b.endedAt || 0) - new Date(a.startedAt || a.endedAt || 0));
   return (
-    <aside role="dialog" aria-label={`Details for ${name}`} style={{ position: "fixed", top: 57, right: 0, bottom: 0, width: "min(460px, 100vw)", zIndex: 70, background: "#fff", borderLeft: `1px solid ${C.border}`, boxShadow: "-12px 0 32px rgba(20,24,40,.10)", display: "flex", flexDirection: "column", fontFamily: FONT_BODY }}>
+    <aside role="dialog" aria-label={`Details for ${name}`} style={{ position: "fixed", top: 57, right: 0, bottom: 0, width: "min(460px, 100vw)", zIndex: 70, background: C.surface, borderLeft: `1px solid ${C.border}`, boxShadow: "-12px 0 32px rgba(20,24,40,.10)", display: "flex", flexDirection: "column", fontFamily: FONT_BODY }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, color: C.textInk, overflowWrap: "anywhere" }}>{name}</div>

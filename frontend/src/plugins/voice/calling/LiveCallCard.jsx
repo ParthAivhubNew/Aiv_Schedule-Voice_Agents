@@ -79,7 +79,7 @@ function Transcript({ lines, live, tall, them = "" }) {
             <div style={{ fontSize: 10, fontWeight: 800, color: mine ? C.cobaltDeep : C.teal, marginBottom: 2, textAlign: mine ? "left" : "right", letterSpacing: "0.04em", textTransform: "uppercase" }}>
               {l.who === "ai" ? "AI" : l.who === "human" ? "You" : them || "Them"}
             </div>
-            <div style={{ background: mine ? "#fff" : C.tealSoft, border: `1px solid ${mine ? C.border : "#BFE6DF"}`, borderRadius: 10, padding: "7px 10px", fontSize: 13, lineHeight: 1.45, color: C.textInk }}>
+            <div style={{ background: mine ? C.surface : C.tealSoft, border: `1px solid ${mine ? C.border : "#BFE6DF"}`, borderRadius: 10, padding: "7px 10px", fontSize: 13, lineHeight: 1.45, color: C.textInk }}>
               {l.text}
             </div>
           </div>
@@ -98,7 +98,7 @@ const btn = (extra = {}) => ({
   padding: "0 12px",
   borderRadius: 9,
   border: `1px solid ${C.border}`,
-  background: "#fff",
+  background: C.surface,
   color: C.textInk,
   cursor: "pointer",
   display: "inline-flex",
@@ -144,7 +144,7 @@ export function LiveCallCard({
   };
 
   return (
-    <div style={{ background: "#fff", border: `1.5px solid ${onLine ? C.red : listening ? C.cobalt : C.border}`, borderRadius: 16, padding: 18, boxShadow: "0 8px 28px rgba(18,20,28,0.06)" }}>
+    <div style={{ background: C.surface, border: `1.5px solid ${onLine ? C.red : listening ? C.cobalt : C.border}`, borderRadius: 16, padding: 18, boxShadow: "0 8px 28px rgba(18,20,28,0.06)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -197,7 +197,7 @@ export function LiveCallCard({
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", background: C.redSoft, padding: 10, borderRadius: 10 }}>
           <span style={{ flex: 1, fontSize: 13, color: C.red, fontWeight: 600 }}>Hang up on {name}?</span>
           <button type="button" onClick={onCancelEnd} style={btn({ height: 32 })}>Keep call</button>
-          <button type="button" disabled={busy === "end"} onClick={() => run("end", onConfirmEnd)} style={btn({ height: 32, border: "none", background: C.red, color: "#fff" })}>
+          <button type="button" disabled={busy === "end"} onClick={() => run("end", onConfirmEnd)} style={btn({ height: 32, border: "none", background: C.red, color: C.onAccent })}>
             {busy === "end" ? "Ending…" : "Hang up"}
           </button>
         </div>
@@ -209,10 +209,10 @@ export function LiveCallCard({
             </span>
           ) : canListen ? (
             <>
-              <button type="button" onClick={() => run("listen", onListen)} style={btn({ borderColor: listening ? C.cobalt : C.border, background: listening ? C.cobaltSoft : "#fff", color: listening ? C.cobalt : C.textInk })}>
+              <button type="button" onClick={() => run("listen", onListen)} style={btn({ borderColor: listening ? C.cobalt : C.border, background: listening ? C.cobaltSoft : C.surface, color: listening ? C.cobalt : C.textInk })}>
                 <Headphones size={14} /> {listening ? "Stop listening" : "Listen"}
               </button>
-              <button type="button" onClick={() => run("takeover", onTakeover)} style={btn({ background: taken ? C.redSoft : "#fff" })}>
+              <button type="button" onClick={() => run("takeover", onTakeover)} style={btn({ background: taken ? C.redSoft : C.surface })}>
                 {taken ? "Hand back to AI" : "Take over"}
               </button>
             </>
@@ -241,7 +241,7 @@ export function LiveCallCard({
             disabled={pending || busy === "book" || call.booked}
             onClick={() => run("book", onBook)}
             title="Books from what was said on this call (time + email in the transcript) onto the real calendar"
-            style={btn({ border: "none", background: call.booked ? C.greenSoft : C.green, color: call.booked ? C.green : "#fff", opacity: pending ? 0.5 : 1, cursor: pending || call.booked ? "default" : "pointer" })}
+            style={btn({ border: "none", background: call.booked ? C.greenSoft : C.green, color: call.booked ? C.green : C.onAccent, opacity: pending ? 0.5 : 1, cursor: pending || call.booked ? "default" : "pointer" })}
           >
             <Calendar size={14} /> {call.booked ? "Booked" : busy === "book" ? "Booking…" : "Book from call"}
           </button>
@@ -267,7 +267,7 @@ export function RecentlyEndedList({ calls, onOpenHistory }) {
           Open call history →
         </button>
       </div>
-      <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
         {calls.map((c, i) => {
           const open = openId === c.id;
           return (

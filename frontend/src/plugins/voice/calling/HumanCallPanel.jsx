@@ -222,7 +222,7 @@ export default function HumanCallPanel({ request, onClose }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", background: "rgba(16,20,27,.45)", padding: 16 }}
       onClick={() => { if (!busy) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}
-        style={{ ...text, width: "min(480px, 100%)", maxHeight: "92vh", overflowY: "auto", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, display: "grid", gap: 12, boxShadow: "0 12px 40px rgba(0,0,0,.2)" }}>
+        style={{ ...text, width: "min(480px, 100%)", maxHeight: "92vh", overflowY: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, display: "grid", gap: 12, boxShadow: "0 12px 40px rgba(0,0,0,.2)" }}>
         <audio id={audioId} autoPlay />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <strong style={{ fontSize: 16 }}>{phase === "transcript" ? "Call transcript" : title}</strong>
@@ -285,7 +285,7 @@ export default function HumanCallPanel({ request, onClose }) {
               <button type="button" className="ui-btn ui-btn--secondary" onClick={() => { const m = !muted_; setMuted(m); try { m ? call.current?.muteAudio() : call.current?.unmuteAudio(); } catch { /* not connected yet */ } }}>
                 {muted_ ? <MicOff size={15} /> : <Mic size={15} />} {muted_ ? "Unmute" : "Mute"}
               </button>
-              <button type="button" className="ui-btn" style={{ background: C.red, color: "#fff", borderColor: C.red }} onClick={hangUp}><PhoneOff size={15} /> Hang up</button>
+              <button type="button" className="ui-btn" style={{ background: C.red, color: C.onAccent, borderColor: C.red }} onClick={hangUp}><PhoneOff size={15} /> Hang up</button>
             </div>
           </div>
         ) : null}
@@ -301,7 +301,7 @@ export default function HumanCallPanel({ request, onClose }) {
                 <div role="radiogroup" aria-label="How did it go?" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {OUTCOMES.map((o) => (
                     <button key={o.id} type="button" role="radio" aria-checked={outcome === o.id} onClick={() => setOutcome(o.id)}
-                      style={{ ...text, fontSize: 12.5, padding: "4px 10px", borderRadius: 99, cursor: "pointer", border: `1px solid ${outcome === o.id ? C.cobalt : C.border}`, background: outcome === o.id ? C.cobalt : "#fff", color: outcome === o.id ? "#fff" : C.textInk }}>{o.label}</button>
+                      style={{ ...text, fontSize: 12.5, padding: "4px 10px", borderRadius: 99, cursor: "pointer", border: `1px solid ${outcome === o.id ? C.cobalt : C.border}`, background: outcome === o.id ? C.cobalt : C.surface, color: outcome === o.id ? C.onAccent : C.textInk }}>{o.label}</button>
                   ))}
                 </div>
                 <label style={{ ...muted, display: "grid", gap: 3 }}>Note

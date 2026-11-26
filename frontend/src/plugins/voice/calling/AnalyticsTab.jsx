@@ -47,7 +47,7 @@ function Delta({ now, before, suffix = "", invert = false }) {
 
 function Card({ title, subtitle, children, right }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: INK }}>{title}</div>
@@ -63,7 +63,7 @@ function Card({ title, subtitle, children, right }) {
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", boxShadow: "0 6px 18px rgba(0,0,0,0.08)", fontSize: 12 }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", boxShadow: "0 6px 18px rgba(0,0,0,0.08)", fontSize: 12 }}>
       <div style={{ fontWeight: 700, color: INK, marginBottom: 4 }}>{fmtDay(label)}</div>
       {payload.map((p) => (
         <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 6, color: INK }}>
@@ -151,7 +151,7 @@ function BestTimeGrid({ cells }) {
         </tbody>
       </table>
       {tip && (
-        <div style={{ position: "absolute", left: Math.min(tip.x + 30, 120), top: tip.y - 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 9px", fontSize: 12, color: INK, boxShadow: "0 6px 18px rgba(0,0,0,0.08)", pointerEvents: "none", whiteSpace: "nowrap" }}>
+        <div style={{ position: "absolute", left: Math.min(tip.x + 30, 120), top: tip.y - 6, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 9px", fontSize: 12, color: INK, boxShadow: "0 6px 18px rgba(0,0,0,0.08)", pointerEvents: "none", whiteSpace: "nowrap" }}>
           <b>{tip.wd} {tip.h}:00</b> · {tip.cell.calls} calls · {tip.cell.connected} connected ({tip.cell.rate}%)
         </div>
       )}
@@ -191,7 +191,7 @@ function SharePanel({ onClose }) {
   };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.45)", zIndex: 330, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "85vh", overflowY: "auto", padding: 20, fontFamily: FONT_BODY }}>
+      <div style={{ background: C.surface, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "85vh", overflowY: "auto", padding: 20, fontFamily: FONT_BODY }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, flex: 1 }}>Share call stats</div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", cursor: "pointer", color: MUTED }}><X size={18} /></button>
@@ -240,8 +240,8 @@ export function AnalyticsTab({ operator }) {
   const cur = data?.current;
   const prev = data?.previous;
   const pill = (active) => ({
-    padding: "6px 12px", borderRadius: 8, border: `1px solid ${active ? C.ink : C.border}`, background: active ? C.ink : "#fff",
-    color: active ? "#fff" : INK, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
+    padding: "6px 12px", borderRadius: 8, border: `1px solid ${active ? C.ink : C.border}`, background: active ? C.ink : C.surface,
+    color: active ? C.onAccent : INK, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
   });
 
   return (

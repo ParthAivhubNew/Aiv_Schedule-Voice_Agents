@@ -186,7 +186,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         )}
       </button>
       {dirty && !saved && !saving && (
-        <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: 12, color: C.warning, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
           ● Unsaved changes
         </span>
       )}
@@ -373,8 +373,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               padding: "8px 16px",
               borderRadius: 8,
               border: `1px solid ${active ? C.ink : C.border}`,
-              background: active ? C.ink : "#fff",
-              color: active ? "#fff" : C.slate,
+              background: active ? C.ink : C.surface,
+              color: active ? C.onAccent : C.slate,
               fontFamily: FONT_BODY,
               fontSize: 13,
               fontWeight: 600,
@@ -416,7 +416,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
             <div style={{ background: C.paperCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
               <SectionIntro icon={Users} title="Company identity" desc="Basic facts the AI introduces itself with and uses to explain who it's calling on behalf of." />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
-              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: C.surface }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Business</div>
               <Field label="Company name" value={profile.name} onChange={(v) => update("name", v)} placeholder="Your company" maxLength={29} hint="Up to 29 characters. It names your phone line, so keep it short." />
               <Field
@@ -428,12 +428,12 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               />
               <Field label="Industry" value={profile.industry || ""} onChange={(v) => update("industry", v)} placeholder="Industry" />
               </div>
-              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: C.surface }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Online</div>
               <Field label="Website" value={profile.website || ""} onChange={(v) => update("website", v)} placeholder="https://" hint="Also added automatically as a knowledge source." />
               <Field label="LinkedIn / other social links" value={profile.social || ""} onChange={(v) => update("social", v)} placeholder="linkedin.com/company/…" />
               </div>
-              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+              <div style={{ border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: C.surface }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>AI caller</div>
               <Field label="Caller persona name" value={profile.callerName} onChange={(v) => update("callerName", v)} placeholder="Name the agent uses" hint="The name the AI introduces itself as on calls." />
               {ownedNumbers.length === 0 ? (
@@ -451,7 +451,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   <select
                     value={ownedNumbers.some((n) => n.e164 === profile.callerId) ? profile.callerId : (ownedNumbers.find((n) => n.isDefault) || ownedNumbers[0]).e164}
                     onChange={(e) => update("callerId", e.target.value)}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}
                   >
                     {ownedNumbers.map((n) => <option key={n.id} value={n.e164}>{n.e164}{n.label ? ` · ${n.label}` : ""}</option>)}
                   </select>
@@ -461,7 +461,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               <Field label="Tone" value={profile.tone} onChange={(v) => update("tone", v)} placeholder="Professional, concise, friendly" />
               </div>
               </div>
-              <div style={{ marginTop: 16, border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: "#fff" }}>
+              <div style={{ marginTop: 16, border: `1px solid ${C.borderLight || C.border}`, borderRadius: 10, padding: "16px 16px 4px", background: C.surface }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.slateLight, marginBottom: 12 }}>Region and time</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", columnGap: 18 }}>
               <div style={{ marginBottom: 14 }}>
@@ -482,7 +482,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   <select
                     value={profile.weekStart || "monday"}
                     onChange={(e) => update("weekStart", e.target.value)}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}
                   >
                     <option value="monday">Monday</option>
                     <option value="sunday">Sunday</option>
@@ -494,7 +494,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   <select
                     value={profile.timeFormat || "24h"}
                     onChange={(e) => update("timeFormat", e.target.value)}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}
                   >
                     <option value="24h">24-hour (14:30)</option>
                     <option value="12h">12-hour (2:30 PM)</option>
@@ -520,14 +520,14 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   const ragChunks = sources.reduce((n, s) => n + (Number(s.chunkCount) || 0), 0);
                   const ragLive = sources.filter((s) => s.status !== "failed" && s.status !== "crawling").length;
                   const ragTone = ragCrawling
-                    ? { bg: "#FFFBEB", bd: "#FDE68A", fg: "#92400E", label: "Indexing sources", sub: "Crawler is splitting pages into chunks for on-call search." }
+                    ? { bg: C.warningBg, bd: "#FDE68A", fg: C.warningInk, label: "Indexing sources", sub: "Crawler is splitting pages into chunks for on-call search." }
                     : ragLive && !ragFailed
                       ? { bg: "#ECFDF5", bd: "#A7F3D0", fg: "#065F46", label: "Knowledge live on calls", sub: `${ragLive} source${ragLive === 1 ? "" : "s"} · ${ragChunks} chunk${ragChunks === 1 ? "" : "s"} · pitch, pricing and product answers come from these pages.` }
                       : ragLive && ragFailed
                         ? { bg: "#FFF7ED", bd: "#FED7AA", fg: "#9A3412", label: "Knowledge partial", sub: `${ragLive} live · ${ragFailed} failed · Re-crawl the failed URL so the agent is not answering from a thin index.` }
                         : ragFailed
-                          ? { bg: "#FEF2F2", bd: "#FECACA", fg: "#991B1B", label: "Knowledge offline", sub: "All sources failed. Re-crawl before expecting website answers on a call." }
-                          : { bg: "#F8FAFC", bd: C.border, fg: C.slate, label: "No sources indexed", sub: "Add your website or docs. The agent only enriches the pitch from what you index here." };
+                          ? { bg: C.dangerBg, bd: "#FECACA", fg: "#991B1B", label: "Knowledge offline", sub: "All sources failed. Re-crawl before expecting website answers on a call." }
+                          : { bg: C.neutralBg, bd: C.border, fg: C.slate, label: "No sources indexed", sub: "Add your website or docs. The agent only enriches the pitch from what you index here." };
                   return (
                     <>
                   <SectionIntro
@@ -566,7 +566,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                           padding: "12px 16px",
                           border: `1px solid ${C.border}`,
                           borderRadius: 10,
-                          background: "#fff",
+                          background: C.surface,
                           boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
                         }}
                       >
@@ -589,15 +589,15 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                         {/* Crawling / Indexed Badge */}
                         <div>
                           {isCrawling ? (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fef3c7", color: "#b45309", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.warningSoft, color: C.warning, padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
                               <Spinner size={11} /> Crawling & Indexing...
                             </span>
                           ) : s.status === "failed" ? (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fee2e2", color: "#dc2626", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }} title={s.lastError || "Extraction failed"}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fee2e2", color: C.redSolid, padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }} title={s.lastError || "Extraction failed"}>
                               Failed
                             </span>
                           ) : (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#dcfce7", color: "#15803d", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.successSoft, color: C.green, padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
                               Indexed · {s.chunkCount || 0} chunks
                             </span>
                           )}
@@ -612,7 +612,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                               display: "inline-flex",
                               alignItems: "center",
                               gap: 4,
-                              background: "#fff",
+                              background: C.surface,
                               border: `1px solid ${C.border}`,
                               borderRadius: 6,
                               padding: "5px 9px",
@@ -633,7 +633,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                               display: "inline-flex",
                               alignItems: "center",
                               gap: 4,
-                              background: "#fff",
+                              background: C.surface,
                               border: `1px solid ${C.border}`,
                               borderRadius: 6,
                               padding: "5px 9px",
@@ -661,7 +661,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   })}
 
                   {sources.length === 0 && (
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slateLight, padding: "28px 0", textAlign: "center", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff" }}>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slateLight, padding: "28px 0", textAlign: "center", border: `1px dashed ${C.border}`, borderRadius: 10, background: C.surface }}>
                       No knowledge sources yet — add your company website or objection playbook to activate RAG.
                     </div>
                   )}
@@ -689,8 +689,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                                 padding: "7px 12px",
                                 borderRadius: 8,
                                 border: `1.5px solid ${active ? C.ink : C.border}`,
-                                background: active ? C.ink : "#fff",
-                                color: active ? "#fff" : C.textInk,
+                                background: active ? C.ink : C.surface,
+                                color: active ? C.onAccent : C.textInk,
                                 fontFamily: FONT_BODY,
                                 fontSize: 12,
                                 fontWeight: 600,
@@ -715,7 +715,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                         value={newSource.name}
                         onChange={(e) => setNewSource((n) => ({ ...n, name: e.target.value }))}
                         placeholder={newSource.type === "Website URL" ? "e.g. Main Company Website" : newSource.type === "Manual text" ? "e.g. Pricing Objection Playbook" : "e.g. Service Catalogue 2026"}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: C.surface }}
                       />
                     </div>
 
@@ -733,7 +733,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                             setUploadError(file && file.size > 10 * 1024 * 1024 ? "That file is over 10 MB." : "");
                             setNewSource((n) => ({ ...n, file: file || null, name: n.name || (file ? file.name.replace(/\.[^.]+$/, "") : "") }));
                           }}
-                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff" }}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: C.surface }}
                         />
                       ) : newSource.type === "Manual text" ? (
                         <textarea
@@ -741,14 +741,14 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                           onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
                           placeholder={SOURCE_TYPES.find((st) => st.id === newSource.type)?.placeholder}
                           rows={4}
-                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff", resize: "vertical" }}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: C.surface, resize: "vertical" }}
                         />
                       ) : (
                         <input
                           value={newSource.value}
                           onChange={(e) => setNewSource((n) => ({ ...n, value: e.target.value }))}
                           placeholder={SOURCE_TYPES.find((st) => st.id === (newSource.type || "Website URL"))?.placeholder}
-                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: "#fff" }}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, outline: "none", background: C.surface }}
                         />
                       )}
                       <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.slateLight, marginTop: 4 }}>
@@ -758,10 +758,10 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                     </div>
 
                     <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                      <button onClick={addSource} disabled={uploading} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+                      <button onClick={addSource} disabled={uploading} style={{ background: C.ink, color: C.onAccent, border: "none", borderRadius: 8, padding: "9px 20px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
                         {newSource.type === "File upload" ? (uploading ? "Uploading…" : "Upload & index") : "Start Crawl & Ingest"}
                       </button>
-                      <button onClick={() => setAddingSource(false)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
+                      <button onClick={() => setAddingSource(false)} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 14px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
                         Cancel
                       </button>
                     </div>
@@ -783,7 +783,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               {/* Chunks Inspection Modal */}
               {activeChunkModal && (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}>
-                  <div style={{ background: "#fff", borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)" }}>
+                  <div style={{ background: C.surface, borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)" }}>
                     <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.textInk }}>
@@ -813,7 +813,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                                 CHUNK {String(i + 1).padStart(2, "0")} · {chk.content.length} chars
                               </span>
                               {chk.hasEmbedding && (
-                                <span style={{ fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 5px", borderRadius: 4 }}>
+                                <span style={{ fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: C.green, background: C.successSoft, padding: "1px 5px", borderRadius: 4 }}>
                                   384-dim Vector
                                 </span>
                               )}
@@ -827,7 +827,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                     </div>
 
                     <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end" }}>
-                      <button onClick={() => setActiveChunkModal(null)} style={{ background: C.ink, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                      <button onClick={() => setActiveChunkModal(null)} style={{ background: C.ink, color: C.onAccent, border: "none", borderRadius: 8, padding: "8px 16px", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                         Close
                       </button>
                     </div>
@@ -850,9 +850,9 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                 </div>
                 {faq.length > FAQ_PAGE_SIZE ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>
-                    <button type="button" disabled={faqPageNo <= 1} onClick={() => setFaqPage(faqPageNo - 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: faqPageNo <= 1 ? "default" : "pointer", opacity: faqPageNo <= 1 ? 0.5 : 1 }}>‹ Previous</button>
+                    <button type="button" disabled={faqPageNo <= 1} onClick={() => setFaqPage(faqPageNo - 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: faqPageNo <= 1 ? "default" : "pointer", opacity: faqPageNo <= 1 ? 0.5 : 1 }}>‹ Previous</button>
                     <span>Page {faqPageNo} of {faqPageCount}</span>
-                    <button type="button" disabled={faqPageNo >= faqPageCount} onClick={() => setFaqPage(faqPageNo + 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: faqPageNo >= faqPageCount ? "default" : "pointer", opacity: faqPageNo >= faqPageCount ? 0.5 : 1 }}>Next ›</button>
+                    <button type="button" disabled={faqPageNo >= faqPageCount} onClick={() => setFaqPage(faqPageNo + 1)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: faqPageNo >= faqPageCount ? "default" : "pointer", opacity: faqPageNo >= faqPageCount ? 0.5 : 1 }}>Next ›</button>
                   </div>
                 ) : null}
                 <button onClick={() => { addFaq(); setFaqPage(Math.floor(faq.length / FAQ_PAGE_SIZE) + 1); }} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px dashed ${C.border}`, borderRadius: 8, padding: "9px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, cursor: "pointer", width: "100%", justifyContent: "center", marginTop: 12 }}>
@@ -869,7 +869,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
               <SectionIntro icon={Package} title="Services & ideal customer" desc="What you're pitching, and who it's a good fit for — helps the AI tailor the pitch dynamically to each prospect's sector and size." />
               
               {services.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "36px 20px", border: `1px dashed ${C.border}`, borderRadius: 10, background: "#fff", color: C.slate, margin: "14px 0" }}>
+                <div style={{ textAlign: "center", padding: "36px 20px", border: `1px dashed ${C.border}`, borderRadius: 10, background: C.surface, color: C.slate, margin: "14px 0" }}>
                   <Package size={28} color={C.slateLight} style={{ margin: "0 auto 8px" }} />
                   <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.textInk }}>No services listed yet</div>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.slateLight, marginTop: 4 }}>Add what you offer so the voice AI can accurately pitch and answer prospect questions.</div>
@@ -880,7 +880,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                     <div
                       key={s.id}
                       style={{
-                        background: "#fff",
+                        background: C.surface,
                         border: `1px solid ${C.border}`,
                         borderRadius: 10,
                         padding: 14,
@@ -964,7 +964,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "#fff",
+                    background: C.surface,
                     border: `1px dashed ${C.border}`,
                     borderRadius: 8,
                     padding: "9px 16px",
@@ -1001,7 +1001,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
       </div>
 
       {saved && (
-        <div className="app-toast" style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: "#fff", padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="app-toast" style={{ position: "fixed", bottom: 24, right: 32, background: C.ink, color: C.onAccent, padding: "12px 18px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 12.5, display: "flex", alignItems: "center", gap: 10 }}>
           <CheckCircle2 size={15} color={C.teal} /> Saved — used on all future calls
         </div>
       )}
@@ -1023,7 +1023,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
         >
           <div
             style={{
-              background: "#ffffff",
+              background: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 460,
@@ -1041,7 +1041,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   width: 42,
                   height: 42,
                   borderRadius: 12,
-                  background: "#FEF3C7",
+                  background: C.warningSoft,
                   border: "1px solid #FDE68A",
                   display: "flex",
                   alignItems: "center",
@@ -1056,7 +1056,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#0F172A", lineHeight: 1.3 }}>
                   Unsaved changes
                 </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.neutralInk, marginTop: 6, lineHeight: 1.5 }}>
                   You have unsaved changes on this page. If you leave now without saving, your recent edits will be lost.
                 </div>
               </div>
@@ -1087,7 +1087,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                 gap: 8,
                 marginTop: 8,
                 paddingTop: 16,
-                borderTop: "1px solid #F1F5F9",
+                borderTop: `1px solid ${C.neutralSoft}`,
               }}
             >
               <button
@@ -1097,8 +1097,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   padding: "8px 14px",
                   borderRadius: 8,
                   border: "1px solid #E2E8F0",
-                  background: "#ffffff",
-                  color: "#475569",
+                  background: C.surface,
+                  color: C.neutralInk,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -1114,8 +1114,8 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   padding: "8px 14px",
                   borderRadius: 8,
                   border: "1px solid #FCA5A5",
-                  background: "#FEF2F2",
-                  color: "#DC2626",
+                  background: C.dangerBg,
+                  color: C.redSolid,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -1133,7 +1133,7 @@ export function CompanyProfileView({ profile, setProfile, notifications, setNoti
                   borderRadius: 8,
                   border: "none",
                   background: "linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)",
-                  color: "#ffffff",
+                  color: C.onAccent,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: saving ? "wait" : "pointer",

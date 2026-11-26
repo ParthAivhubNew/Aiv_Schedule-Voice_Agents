@@ -13,11 +13,11 @@ export const STATUS_TONE = {
 };
 
 export const TONE_COLOURS = {
-  good: { bg: C.successSoft, ink: C.successInk, border: "#BBEBDC" },
-  warn: { bg: C.warningSoft, ink: C.warningInk, border: "#FDE68A" },
-  bad: { bg: "#FEE2E2", ink: "#991B1B", border: "#FECACA" },
+  good: { bg: C.successSoft, ink: C.successInk, border: C.pillGoodLine },
+  warn: { bg: C.warningSoft, ink: C.warningInk, border: C.pillWarnLine },
+  bad: { bg: C.pillBadBg, ink: C.pillBadInk, border: C.pillBadLine },
   muted: { bg: C.neutralSoft, ink: C.neutralInk, border: C.border },
-  soon: { bg: "#EEF2FF", ink: "#3730A3", border: "#E0E7FF" },
+  soon: { bg: C.pillSoonBg, ink: C.pillSoonInk, border: C.pillSoonLine },
 };
 
 export const toneOf = (status) => STATUS_TONE[status] || "muted";

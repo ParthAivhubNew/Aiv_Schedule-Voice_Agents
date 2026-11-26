@@ -3,12 +3,12 @@ import { Mic, Plus, Trash2, Upload } from "lucide-react";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { api } from "../../api/apiClient";
 
-export const box = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, display: "grid", gap: 12 };
-export const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: "#fff", boxSizing: "border-box", width: "100%" };
+export const box = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, display: "grid", gap: 12 };
+export const input = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, fontFamily: FONT_BODY, background: C.surface, boxSizing: "border-box", width: "100%" };
 export const label = { display: "grid", gap: 5, fontSize: 12, fontWeight: 600, color: C.slate };
 export const btn = (primary, disabled) => ({
   display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer",
-  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : "#fff", color: primary ? "#fff" : C.textInk,
+  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : C.surface, color: primary ? C.onAccent : C.textInk,
   fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, opacity: disabled ? 0.55 : 1, justifySelf: "start",
 });
 const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };

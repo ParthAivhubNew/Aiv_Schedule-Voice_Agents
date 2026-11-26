@@ -4,10 +4,10 @@ import { C, FONT_BODY, FONT_DISPLAY, FONT_MONO } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 
 const WA = "#1FA855";
-const input = { boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, fontFamily: FONT_BODY, background: "#fff" };
+const input = { boxSizing: "border-box", padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13.5, fontFamily: FONT_BODY, background: C.surface };
 const btn = (primary, disabled) => ({
   display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, cursor: disabled ? "not-allowed" : "pointer",
-  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : "#fff", color: primary ? "#fff" : C.textInk,
+  border: primary ? "none" : `1px solid ${C.border}`, background: primary ? C.ink : C.surface, color: primary ? C.onAccent : C.textInk,
   fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, opacity: disabled ? 0.55 : 1,
 });
 
@@ -123,7 +123,7 @@ export function WhatsappInbox() {
 
   if (status && waNumbers.length === 0 && threads.length === 0) {
     return (
-      <div style={{ maxWidth: 640, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, fontFamily: FONT_BODY }}>
+      <div style={{ maxWidth: 640, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 24, fontFamily: FONT_BODY }}>
         <MessageCircle size={28} color={WA} />
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, margin: "10px 0 6px" }}>WhatsApp on your own number</div>
         <p style={{ fontSize: 13.5, color: C.slate, lineHeight: 1.6, margin: 0 }}>
@@ -141,7 +141,7 @@ export function WhatsappInbox() {
 
   const t = conv?.thread;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 320px) minmax(0, 1fr)", height: "calc(100vh - 150px)", minHeight: 480, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden", background: "#fff", fontFamily: FONT_BODY }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 320px) minmax(0, 1fr)", height: "calc(100vh - 150px)", minHeight: 480, border: `1px solid ${C.border}`, borderRadius: 16, overflow: "hidden", background: C.surface, fontFamily: FONT_BODY }}>
       <div style={{ borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 14px 10px" }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 6 }}><MessageCircle size={17} color={WA} /> WhatsApp</div>
@@ -151,14 +151,14 @@ export function WhatsappInbox() {
           {threads.length === 0 && <div style={{ padding: 14, fontSize: 13, color: C.slate }}>No conversations yet. They appear here when customers message you.</div>}
           {threads.map((th) => (
             <button key={th.id} type="button" onClick={() => { setStarting(false); setActiveId(th.id); }}
-              style={{ width: "100%", textAlign: "left", border: "none", borderTop: `1px solid ${C.border}`, background: th.id === activeId ? C.cobaltSoft : "#fff", padding: "10px 14px", cursor: "pointer", display: "grid", gap: 2 }}>
+              style={{ width: "100%", textAlign: "left", border: "none", borderTop: `1px solid ${C.border}`, background: th.id === activeId ? C.cobaltSoft : C.surface, padding: "10px 14px", cursor: "pointer", display: "grid", gap: 2 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ fontWeight: 700, fontSize: 13.5, color: C.textInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{th.contactName || th.contactNumber}</span>
                 <span style={{ fontSize: 11, color: C.slateLight, flexShrink: 0 }}>{when(th.lastMessageAt)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
                 <span style={{ fontSize: 12.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{th.preview}</span>
-                {th.unread > 0 && <span style={{ background: WA, color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "1px 7px" }}>{th.unread}</span>}
+                {th.unread > 0 && <span style={{ background: WA, color: C.onAccent, fontSize: 11, fontWeight: 700, borderRadius: 99, padding: "1px 7px" }}>{th.unread}</span>}
               </div>
             </button>
           ))}
@@ -186,7 +186,7 @@ export function WhatsappInbox() {
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.tealSoft, display: "flex", alignItems: "center", justifyContent: "center" }}><User size={16} color={C.teal} /></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{t.contactName || t.contactNumber}</div>
@@ -201,7 +201,7 @@ export function WhatsappInbox() {
                 const out = m.direction === "outbound";
                 return (
                   <div key={m.id} style={{ alignSelf: out ? "flex-end" : "flex-start", maxWidth: "72%" }}>
-                    <div style={{ background: out ? (m.sender === "ai" ? "#E3ECFF" : "#D9FDD3") : "#fff", borderRadius: 12, borderTopRightRadius: out ? 4 : 12, borderTopLeftRadius: out ? 12 : 4, padding: "7px 10px", fontSize: 13.5, color: C.textInk, boxShadow: "0 1px 1px rgba(0,0,0,.06)", whiteSpace: "pre-wrap" }}>
+                    <div style={{ background: out ? (m.sender === "ai" ? "#E3ECFF" : "#D9FDD3") : C.surface, borderRadius: 12, borderTopRightRadius: out ? 4 : 12, borderTopLeftRadius: out ? 12 : 4, padding: "7px 10px", fontSize: 13.5, color: C.textInk, boxShadow: "0 1px 1px rgba(0,0,0,.06)", whiteSpace: "pre-wrap" }}>
                       {m.kind === "template" && <div style={{ fontSize: 11, fontWeight: 700, color: C.slate, marginBottom: 2 }}>TEMPLATE</div>}
                       {m.text}
                       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, fontSize: 10.5, color: C.slate, marginTop: 3 }}>
@@ -215,7 +215,7 @@ export function WhatsappInbox() {
               })}
               <div ref={endRef} />
             </div>
-            <div style={{ padding: 12, background: "#fff", borderTop: `1px solid ${C.border}` }}>
+            <div style={{ padding: 12, background: C.surface, borderTop: `1px solid ${C.border}` }}>
               {error && <div role="alert" style={{ fontSize: 12.5, color: C.red, marginBottom: 8 }}>{error}</div>}
               {t.windowOpen ? (
                 <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send({ text }); }} style={{ display: "flex", gap: 8 }}>

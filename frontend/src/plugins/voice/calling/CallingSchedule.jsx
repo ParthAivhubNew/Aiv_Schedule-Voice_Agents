@@ -66,7 +66,7 @@ function fieldStyle() {
     padding: "0 12px",
     fontFamily: FONT_BODY,
     fontSize: 13,
-    background: "#fff",
+    background: C.surface,
     boxSizing: "border-box",
   };
 }
@@ -96,7 +96,7 @@ function FilterMenu({ value, onChange, options }) {
         <ChevronDown size={16} color={C.slate} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none" }} />
       </button>
       {open ? (
-        <div role="listbox" aria-label="Show" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 18px 50px rgba(18,20,28,0.16)", padding: 6 }}>
+        <div role="listbox" aria-label="Show" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 18px 50px rgba(18,20,28,0.16)", padding: 6 }}>
           {options.map(([id, label]) => (
             <button key={id} type="button" role="option" aria-selected={id === value}
               onClick={() => { onChange(id); setOpen(false); }}
@@ -113,7 +113,7 @@ function FilterMenu({ value, onChange, options }) {
 
 function card() {
   return {
-    background: "#fff",
+    background: C.surface,
     border: `1px solid ${C.border}`,
     borderRadius: 16,
     padding: 18,
@@ -239,21 +239,21 @@ function DetailRow({ icon: Icon, label, children }) {
 }
 
 function statusChipStyle(status, cancelled) {
-  if (cancelled) return { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA" };
+  if (cancelled) return { bg: C.dangerBg, fg: "#991B1B", border: "#FECACA" };
   const s = String(status || "").toLowerCase();
   if (s === "completed" || s === "done" || s === "attended" || s === "converted" || s === "honored") {
     return { bg: "#ECFDF5", fg: "#047857", border: "#A7F3D0" };
   }
   if (s === "no_show" || s === "missed") {
-    return { bg: "#FFF7ED", fg: "#C2410C", border: "#FED7AA" };
+    return { bg: "#FFF7ED", fg: C.red, border: "#FED7AA" };
   }
   if (s === "needs_outcome") {
-    return { bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D" };
+    return { bg: C.warningSoft, fg: C.warningInk, border: "#FCD34D" };
   }
   if (s === "upcoming" || s === "booked" || s === "confirmed" || s === "scheduled") {
-    return { bg: C.cobaltSoft || "#EAEEFC", fg: C.cobalt || "#3457D5", border: "#BFD5FA" };
+    return { bg: C.cobaltSoft || "#EAEEFC", fg: C.cobalt || C.cobalt, border: "#BFD5FA" };
   }
-  return { bg: "#F1F5F9", fg: "#475569", border: "#E2E8F0" };
+  return { bg: C.neutralSoft, fg: C.neutralInk, border: "#E2E8F0" };
 }
 
 function formatStatusLabel(st) {
@@ -286,7 +286,7 @@ function eventChipStyle(ev, kinds) {
       fontSize: 10,
       fontWeight: 700,
       color: "#991B1B",
-      background: "#FEF2F2",
+      background: C.dangerBg,
       borderLeft: "3px solid #EF4444",
       borderRadius: 5,
       padding: "3px 5px",
@@ -301,7 +301,7 @@ function eventChipStyle(ev, kinds) {
     fontSize: 10,
     fontWeight: 700,
     color: C.ink,
-    background: "#fff",
+    background: C.surface,
     borderLeft: `3px solid ${meta.color || C.cobalt}`,
     borderRadius: 5,
     padding: "3px 5px",
@@ -761,8 +761,8 @@ export function CallingSchedule({
                   padding: "10px 10px",
                   borderRadius: 12,
                   border: `1.5px solid ${active ? C.ink : C.border}`,
-                  background: active ? C.ink : "#fff",
-                  color: active ? "#fff" : C.textInk,
+                  background: active ? C.ink : C.surface,
+                  color: active ? C.onAccent : C.textInk,
                   cursor: "pointer",
                 }}
               >
@@ -863,7 +863,7 @@ export function CallingSchedule({
         </label>
         ) : null}
 
-        <button type="button" disabled={saving} onClick={savePlan} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: "100%" }}>
+        <button type="button" disabled={saving} onClick={savePlan} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer", width: "100%" }}>
           {saving ? "Saving…" : "Add to schedule"}
         </button>
       </div>
@@ -900,8 +900,8 @@ export function CallingSchedule({
                 padding: "0 12px",
                 borderRadius: 999,
                 border: `1px solid ${filter === id ? C.ink : C.border}`,
-                background: filter === id ? C.ink : "#fff",
-                color: filter === id ? "#fff" : C.slate,
+                background: filter === id ? C.ink : C.surface,
+                color: filter === id ? C.onAccent : C.slate,
                 fontWeight: 700,
                 fontSize: 12,
                 cursor: "pointer",
@@ -919,7 +919,7 @@ export function CallingSchedule({
               padding: "0 12px",
               borderRadius: 999,
               border: `1px solid ${C.border}`,
-              background: "#fff",
+              background: C.surface,
               color: C.ink,
               fontWeight: 700,
               fontSize: 12,
@@ -1077,9 +1077,9 @@ export function CallingSchedule({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{day.getDate()}</span>
-                    {dayEvents.length ? <span className="vcal-dot" style={{ background: cancelledCount ? "#B91C1C" : C.cobalt }} /> : null}
+                    {dayEvents.length ? <span className="vcal-dot" style={{ background: cancelledCount ? C.dangerInk : C.cobalt }} /> : null}
                     {dayEvents.length ? (
-                      <span className="vcal-tag" style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? "#B91C1C" : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "#047857" : C.cobalt, background: "#fff", padding: "2px 6px", borderRadius: 999 }}>
+                      <span className="vcal-tag" style={{ fontSize: 9, fontWeight: 800, color: cancelledCount ? C.dangerInk : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "#047857" : C.cobalt, background: C.surface, padding: "2px 6px", borderRadius: 999 }}>
                         {dayEvents.length} · {cancelledCount ? `${cancelledCount}×` : dayEvents.every((e) => String(e.status || "").toLowerCase() === "completed") ? "done" : "booked"}
                       </span>
                     ) : (
@@ -1116,7 +1116,7 @@ export function CallingSchedule({
                       className="vcal-chip"
                       onClick={(e) => { e.stopPropagation(); setScheduleOpen(true); }}
                       title={`${c.name}: the list is dialled at ${c.time}${c.status === "paused" ? " (paused)" : c.done ? " (done)" : ""}. Click to open schedules.`}
-                      style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: c.status === "paused" ? C.slate : C.cobalt, background: "#fff", border: `1px dashed ${c.status === "paused" ? C.border : C.cobalt}`, borderRadius: 6, padding: "2px 5px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", textDecoration: c.done ? "line-through" : "none", cursor: "pointer" }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: c.status === "paused" ? C.slate : C.cobalt, background: C.surface, border: `1px dashed ${c.status === "paused" ? C.border : C.cobalt}`, borderRadius: 6, padding: "2px 5px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", textDecoration: c.done ? "line-through" : "none", cursor: "pointer" }}
                     >
                       <PhoneCall size={10} style={{ flexShrink: 0 }} />{formatOrgTime(c.time, org.timeFormat)} · {c.name}
                     </div>
@@ -1160,8 +1160,8 @@ export function CallingSchedule({
                     style={{
                       textAlign: "left",
                       border: `1px solid ${cancelled ? "#FECACA" : C.border}`,
-                      background: cancelled ? "#FEF2F2" : C.ink,
-                      color: cancelled ? "#991B1B" : "#fff",
+                      background: cancelled ? C.dangerBg : C.ink,
+                      color: cancelled ? "#991B1B" : C.onAccent,
                       borderRadius: 10,
                       padding: "10px 12px",
                       cursor: "pointer",
@@ -1231,7 +1231,7 @@ export function CallingSchedule({
               overflow: "auto",
               borderRadius: 16,
               boxShadow: "0 24px 64px rgba(18,20,28,0.28)",
-              background: "#fff",
+              background: C.surface,
             }}
           >
             <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px 0" }}>
@@ -1274,7 +1274,7 @@ export function CallingSchedule({
               width: 640,
               maxWidth: "100%",
               height: "min(720px, calc(100vh - 40px))",
-              background: "#fff",
+              background: C.surface,
               borderRadius: 16,
               display: "flex",
               flexDirection: "column",
@@ -1287,7 +1287,7 @@ export function CallingSchedule({
               style={{
                 padding: "14px 18px",
                 borderBottom: `1px solid ${C.border}`,
-                background: "#fff",
+                background: C.surface,
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
@@ -1330,7 +1330,7 @@ export function CallingSchedule({
                           padding: "14px 16px",
                           borderRadius: 12,
                           border: `1.5px solid ${cancelled ? "#FECACA" : C.border}`,
-                          background: cancelled ? "#FEF2F2" : "#fff",
+                          background: cancelled ? C.dangerBg : C.surface,
                           cursor: "pointer",
                           display: "grid",
                           gap: 6,
@@ -1360,7 +1360,7 @@ export function CallingSchedule({
                           <Icon size={14} /> {meta.label}{ev.platform ? ` · ${shownPlatform(ev.platform)}` : ""}
                         </div>
                         {cancelled && ev.cancellationReason ? (
-                          <div style={{ fontSize: 12, color: "#B91C1C" }}>{ev.cancellationReason}</div>
+                          <div style={{ fontSize: 12, color: C.dangerInk }}>{ev.cancellationReason}</div>
                         ) : null}
                       </button>
                     );
@@ -1399,7 +1399,7 @@ export function CallingSchedule({
             style={{
               width: "min(420px, 100%)",
               height: "100%",
-              background: "#fff",
+              background: C.surface,
               boxShadow: "-16px 0 40px rgba(18,20,28,0.18)",
               display: "flex",
               flexDirection: "column",
@@ -1441,7 +1441,7 @@ export function CallingSchedule({
                   <button
                     type="button"
                     onClick={() => setOpenId("")}
-                    style={{ border: "none", background: C.paperSoft || "#F1F5F9", borderRadius: 8, width: 32, height: 32, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ border: "none", background: C.paperSoft || C.neutralSoft, borderRadius: 8, width: 32, height: 32, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
                   >
                     <X size={16} />
                   </button>
@@ -1458,7 +1458,7 @@ export function CallingSchedule({
               </div>
 
               {notes.main || notes.meta || (cancelled && open.cancellationReason) ? (
-                <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: cancelled ? "#FEF2F2" : "#F8FAFC", border: `1px solid ${cancelled ? "#FECACA" : C.border}` }}>
+                <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: cancelled ? C.dangerBg : C.neutralBg, border: `1px solid ${cancelled ? "#FECACA" : C.border}` }}>
                   <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: cancelled ? "#991B1B" : C.slateLight, marginBottom: 6 }}>
                     {cancelled ? "Cancellation" : "Notes"}
                   </div>
@@ -1477,7 +1477,7 @@ export function CallingSchedule({
               ) : null}
 
               {open.kind === "video" ? (
-                <div style={{ marginTop: 16, padding: 14, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+                <div style={{ marginTop: 16, padding: 14, borderRadius: 12, border: `1px solid ${C.border}`, background: C.surface }}>
                   <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: C.slateLight, marginBottom: 8 }}>
                     Join link
                   </div>
@@ -1491,14 +1491,14 @@ export function CallingSchedule({
                           href={hrefFor(open.videoLink)}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ flex: 1, height: 38, padding: "0 12px", borderRadius: 9, background: C.ink, color: "#fff", fontWeight: 700, fontSize: 12.5, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}
+                          style={{ flex: 1, height: 38, padding: "0 12px", borderRadius: 9, background: C.ink, color: C.onAccent, fontWeight: 700, fontSize: 12.5, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none" }}
                         >
                           <ExternalLink size={13} /> Join now
                         </a>
                         <button
                           type="button"
                           onClick={() => copy(open.videoLink)}
-                          style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+                          style={{ height: 38, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, fontWeight: 700, fontSize: 12.5, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
                         >
                           {copied === open.videoLink ? <Check size={13} /> : <Copy size={13} />} {copied === open.videoLink ? "Copied" : "Copy"}
                         </button>
@@ -1513,7 +1513,7 @@ export function CallingSchedule({
               ) : null}
             </div>
 
-            <div style={{ padding: "14px 20px 18px", borderTop: `1px solid ${C.border}`, display: "grid", gap: 8, flexShrink: 0, background: "#fff" }}>
+            <div style={{ padding: "14px 20px 18px", borderTop: `1px solid ${C.border}`, display: "grid", gap: 8, flexShrink: 0, background: C.surface }}>
               {digitsInPhone(open.phone).length >= 7 ? (
                 <button type="button" onClick={() => onCall(open)} style={actionBtn(C.cobalt, "#fff")}>
                   <PhoneCall size={14} /> Call now
@@ -1578,7 +1578,7 @@ const calNavBtn = {
   height: 36,
   borderRadius: 10,
   border: `1px solid ${C.border}`,
-  background: "#fff",
+  background: C.surface,
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
@@ -1628,7 +1628,7 @@ function VideoLinkEditor({ item, onSaved, onToast }) {
     <div>
       <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>This booking has no join URL. Paste one:</div>
       <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://meet.google.com/…" style={{ ...fieldStyle(), marginBottom: 8 }} />
-      <button type="button" disabled={saving} onClick={save} style={{ height: 36, padding: "0 12px", border: "none", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+      <button type="button" disabled={saving} onClick={save} style={{ height: 36, padding: "0 12px", border: "none", borderRadius: 8, background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer" }}>
         {saving ? "Saving…" : "Save join URL"}
       </button>
     </div>

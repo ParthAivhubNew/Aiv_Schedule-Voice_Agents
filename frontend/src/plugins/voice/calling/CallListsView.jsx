@@ -68,7 +68,7 @@ export function CallListsView({ lists, leadLists = [], leadBusy = "", onOpenLead
 
         {pageNo === pages - 1 ? (
           <button type="button" onClick={onImport} title="Choose a spreadsheet to make a new list"
-            style={{ minHeight: 120, border: "1.5px dashed #CBD1D9", borderRadius: 8, background: "var(--ui-sunken)", color: C.slate, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, font: "500 13px Inter, sans-serif" }}>
+            style={{ minHeight: 120, border: `1.5px dashed ${C.lineStrong}`, borderRadius: 8, background: "var(--ui-sunken)", color: C.slate, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, font: "500 13px Inter, sans-serif" }}>
             <FileSpreadsheet size={20} color={C.cobalt} />
             Import a new list
             <span style={{ fontSize: 11.5, fontWeight: 400 }}>.csv, .xlsx, .xls, .tsv, .ods, .json</span>

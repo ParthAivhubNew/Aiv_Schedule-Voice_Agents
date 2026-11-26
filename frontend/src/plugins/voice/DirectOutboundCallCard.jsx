@@ -210,7 +210,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
 
   return (
     <div style={{
-      background: "#fff",
+      background: C.surface,
       borderRadius: 16,
       padding: isExpanded ? "20px 24px" : "14px 16px",
       color: C.textInk,
@@ -299,7 +299,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
       {isExpanded && (
         <form onSubmit={handleDial} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Quick Dial Saved Contacts Bar */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#F8FAFC", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: C.neutralBg, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               ⚡ Quick Dial:
             </span>
@@ -312,11 +312,11 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   setProspectName(sc.name);
                 }}
                 style={{
-                  background: toNumber === sc.phone ? C.cobalt : "#fff",
+                  background: toNumber === sc.phone ? C.cobalt : C.surface,
                   border: `1px solid ${toNumber === sc.phone ? C.cobalt : C.border}`,
                   borderRadius: 16,
                   padding: "4px 10px",
-                  color: toNumber === sc.phone ? "#fff" : C.textInk,
+                  color: toNumber === sc.phone ? C.onAccent : C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 11.5,
                   fontWeight: 600,
@@ -348,7 +348,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   padding: "9px 12px",
                   borderRadius: 7,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   color: C.textInk,
                   fontFamily: FONT_MONO,
                   fontSize: 13.5,
@@ -375,7 +375,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   padding: "9px 12px",
                   borderRadius: 7,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   color: C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 13,
@@ -402,7 +402,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   padding: "9px 12px",
                   borderRadius: 7,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   color: C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 13,
@@ -427,7 +427,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   padding: "9px 12px",
                   borderRadius: 7,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   color: C.textInk,
                   fontFamily: FONT_BODY,
                   fontSize: 13,
@@ -460,7 +460,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                   padding: "9px 12px",
                   borderRadius: 7,
                   border: `1px solid ${C.border}`,
-                  background: "#fff",
+                  background: C.surface,
                   color: C.textInk,
                   fontFamily: FONT_MONO,
                   fontSize: 13,
@@ -476,7 +476,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
           {/* Twilio credentials vault */}
           {carrierChoice === "twilio" && (
             <div style={{
-              background: "#F8FAFC",
+              background: C.neutralBg,
               border: `1px solid ${C.border}`,
               borderRadius: 10,
               padding: "12px 14px",
@@ -505,7 +505,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                         } catch (_) {}
                       }}
                       style={{
-                        background: "#fff",
+                        background: C.surface,
                         color: C.slate,
                         border: `1px solid ${C.border}`,
                         borderRadius: 6,
@@ -526,7 +526,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                       alignItems: "center",
                       gap: 5,
                       background: C.cobalt,
-                      color: "#fff",
+                      color: C.onAccent,
                       border: "none",
                       borderRadius: 6,
                       padding: "5px 12px",
@@ -569,7 +569,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                       padding: "8px 10px",
                       borderRadius: 6,
                       border: `1px solid ${accountSid && (accountSid.length !== 34 || !accountSid.startsWith("AC")) ? "#FCA5A5" : C.border}`,
-                      background: "#fff",
+                      background: C.surface,
                       color: C.textInk,
                       fontFamily: FONT_MONO,
                       fontSize: 12,
@@ -598,7 +598,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                       padding: "8px 10px",
                       borderRadius: 6,
                       border: `1px solid ${authToken && authToken.length !== 32 ? "#FCA5A5" : C.border}`,
-                      background: "#fff",
+                      background: C.surface,
                       color: C.textInk,
                       fontFamily: FONT_MONO,
                       fontSize: 12,
@@ -663,7 +663,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
                     onClick={onViewLiveCalls}
                     style={{
                       background: C.green,
-                      color: "#fff",
+                      color: C.onAccent,
                       border: "none",
                       borderRadius: 6,
                       padding: "4px 10px",
@@ -692,7 +692,7 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
               disabled={dialing}
               style={{
                 background: dialing ? C.slateLight : C.ink,
-                color: "#fff",
+                color: C.onAccent,
                 border: "none",
                 borderRadius: 7,
                 padding: "10px 22px",
@@ -721,8 +721,8 @@ export function DirectOutboundCallCard({ notifications, setNotifications, defaul
               type="button"
               onClick={() => setLiveKitModalOpen(true)}
               style={{
-                background: "linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)",
-                color: "#fff",
+                background: `linear-gradient(135deg, ${C.info} 0%, ${C.infoInk} 100%)`,
+                color: C.onAccent,
                 border: "none",
                 borderRadius: 7,
                 padding: "10px 22px",

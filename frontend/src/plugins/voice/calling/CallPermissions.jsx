@@ -10,8 +10,8 @@ import { Pill } from "../../../app/ui";
 
 const text = { fontFamily: FONT_BODY };
 const small = { ...text, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
-const field = { ...text, fontSize: 13, padding: "8px 10px", minHeight: 40, border: `1px solid ${C.border}`, borderRadius: 8, width: "100%", boxSizing: "border-box", background: "#fff", color: C.ink };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginTop: 16, display: "grid", gap: 12, minWidth: 0 };
+const field = { ...text, fontSize: 13, padding: "8px 10px", minHeight: 40, border: `1px solid ${C.border}`, borderRadius: 8, width: "100%", boxSizing: "border-box", background: C.surface, color: C.ink };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, marginTop: 16, display: "grid", gap: 12, minWidth: 0 };
 
 
 const blank = { number: "", company: "", person: "", product: "", method: "verbal_recorded", evidence_ref: "", confirmed: false };

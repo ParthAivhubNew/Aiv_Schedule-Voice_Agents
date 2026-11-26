@@ -87,7 +87,7 @@ function PhoneHome({ operator, firstName, needsName, firstVisit, apps, statusOf,
   return (
     <div className="phone-home" style={{ display: "flex", flexDirection: "column", background: C.paper, fontFamily: FONT_BODY }}>
       <AppChrome />
-      <header style={{ height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 16px", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
+      <header style={{ height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 16px", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <BrandLockup size={28} />
         <UserProfileMenu operator={operator} compact {...menuProps} />
       </header>
@@ -114,7 +114,7 @@ function PhoneHome({ operator, firstName, needsName, firstVisit, apps, statusOf,
           })}
         </div>
         {installable ? (
-          <button type="button" onClick={() => setInstallOpen(true)} style={{ minHeight: 48, border: `1px solid ${C.border}`, borderRadius: 12, background: "#fff", color: C.cobalt, fontFamily: FONT_BODY, fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+          <button type="button" onClick={() => setInstallOpen(true)} style={{ minHeight: 48, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, color: C.cobalt, fontFamily: FONT_BODY, fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
             <Smartphone size={18} /> Get the app on your phone
           </button>
         ) : null}
@@ -170,7 +170,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, fontFamily: FONT_BODY }}>
       <AppChrome />
-      <header style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 clamp(16px, 4vw, 32px)", background: "#fff", borderBottom: `1px solid ${C.border}` }}>
+      <header style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 clamp(16px, 4vw, 32px)", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <BrandLockup size={30} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button type="button" className="ui-btn ui-btn--ghost hide-mobile" onClick={() => openSupport({ plugin: "home" })} title="Support">
@@ -210,7 +210,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
           {APPS.map(card)}
         </div>
-        <button type="button" onClick={() => openWorkflows({})} className="ui-card" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%", marginTop: 16, padding: "16px 18px", background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14 }}>
+        <button type="button" onClick={() => openWorkflows({})} className="ui-card" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%", marginTop: 16, padding: "16px 18px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14 }}>
           <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.cobaltSoft, color: C.cobalt, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Workflow size={20} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 600, fontSize: 15, color: C.ink }}>Workflows</span>

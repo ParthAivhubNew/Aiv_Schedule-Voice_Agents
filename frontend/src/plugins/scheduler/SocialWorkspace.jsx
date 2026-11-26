@@ -82,7 +82,7 @@ const LS_PINS = "aivhub_social_v2_pins";
 
 const CHANNELS = [
   { id: "linkedin", label: "LinkedIn", color: "#0A66C2", soft: "#E8F1FA", mark: "in" },
-  { id: "x", label: "X", color: "#111827", soft: "#EFEFEF", mark: "X" },
+  { id: "x", label: "X", color: C.uiInk, soft: "#EFEFEF", mark: "X" },
   { id: "facebook", label: "Facebook", color: "#1877F2", soft: "#E7F0FE", mark: "f" },
   { id: "instagram", label: "Instagram", color: "#E4405F", soft: "#FDECEE", mark: "Ig" },
   { id: "threads", label: "Threads", color: "#000000", soft: "#F4F4F5", mark: "@" },
@@ -114,7 +114,7 @@ function queueProgress(p) {
 // The AI queue paused because Post scheduler credits ran out. Nothing paused was charged.
 function CreditsPaused({ count, reason, busy, onContinue, onStartNew, onTopUp }) {
   if (!count) return null;
-  const b = (primary) => ({ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.red}`, background: primary ? C.red : "#fff", color: primary ? "#fff" : C.red, fontWeight: 700, fontSize: 12, cursor: busy ? "wait" : "pointer" });
+  const b = (primary) => ({ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.red}`, background: primary ? C.red : C.surface, color: primary ? C.onAccent : C.red, fontWeight: 700, fontSize: 12, cursor: busy ? "wait" : "pointer" });
   return (
     <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.red}`, background: "#FFF5F5", fontSize: 12.5, color: C.red }}>
       <span style={{ flex: "1 1 260px", minWidth: 0 }}>
@@ -146,7 +146,7 @@ function BatchProgress({ batches, tips }) {
   }, [live.length, tips]);
   if (!live.length) return null;
   return (
-    <div role="status" aria-live="polite" style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontSize: 12.5, display: "grid", gap: 8 }}>
+    <div role="status" aria-live="polite" style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, display: "grid", gap: 8 }}>
       {live.map((b) => {
         const pct = b.total ? Math.round(((b.written + b.done) / (2 * b.total)) * 100) : 0;
         return (
@@ -174,7 +174,7 @@ function GenFailed({ post, onRetry }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 11.5, color: C.red }}>
       <span style={{ flex: 1, minWidth: 0 }}>AI could not finish this post: {post.genError || "unknown error"}</span>
       {onRetry ? (
-        <button type="button" onClick={(e) => { e.stopPropagation(); onRetry([post.id]); }} style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.red}`, background: "#fff", color: C.red, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onRetry([post.id]); }} style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.surface, color: C.red, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
           Retry
         </button>
       ) : null}
@@ -195,7 +195,7 @@ function GenProgressBar({ pct, label, compact }) {
           {n}%
         </div>
       </div>
-      <div style={{ height: compact ? 4 : 6, borderRadius: 99, background: C.paperSoft || "#F0F2F5", overflow: "hidden" }}>
+      <div style={{ height: compact ? 4 : 6, borderRadius: 99, background: C.paperSoft || C.paperSoft, overflow: "hidden" }}>
         <div style={{
           height: "100%",
           width: n + "%",
@@ -252,7 +252,7 @@ function BrandVoicePanel({ onClose, onSaved, modal = false }) {
     }
   };
   return (
-    <div style={{ position: "absolute", top: modal ? 0 : 52, left: modal ? 0 : 10, right: modal ? 0 : 10, bottom: modal ? 0 : 10, zIndex: 9, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)", fontFamily: FONT_BODY }}>
+    <div style={{ position: "absolute", top: modal ? 0 : 52, left: modal ? 0 : 10, right: modal ? 0 : 10, bottom: modal ? 0 : 10, zIndex: 9, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, overflowY: "auto", boxShadow: "0 8px 24px rgba(18,20,28,0.12)", fontFamily: FONT_BODY }}>
       <div style={{ display: "flex", alignItems: "center" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, flex: 1 }}>Brand voice</div>
         <button type="button" onClick={onClose} title="Close" style={{ border: "none", background: "none", cursor: "pointer", color: C.slate }}><X size={15} /></button>
@@ -270,7 +270,7 @@ function BrandVoicePanel({ onClose, onSaved, modal = false }) {
             <textarea key={i} style={{ ...field, minHeight: 60, resize: "vertical" }} value={s} maxLength={1500} placeholder={`Example post ${i + 1}`}
               onChange={(e) => set("samples", v.samples.map((x, j) => (j === i ? e.target.value : x)))} />
           ))}
-          <button type="button" disabled={busy} onClick={save} style={{ marginTop: 10, width: "100%", height: 34, border: "none", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+          <button type="button" disabled={busy} onClick={save} style={{ marginTop: 10, width: "100%", height: 34, border: "none", borderRadius: 8, background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer" }}>
             {busy ? "Saving…" : "Save brand voice"}
           </button>
           <LearnedStyle learned={v.learned} onChange={(l) => set("learned", l)} />
@@ -380,8 +380,8 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
                 maxWidth: "88%",
                 padding: "10px 13px",
                 borderRadius: m.who === "user" ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
-                background: m.who === "user" ? C.ink : "#fff",
-                color: m.who === "user" ? "#fff" : C.textInk,
+                background: m.who === "user" ? C.ink : C.surface,
+                color: m.who === "user" ? C.onAccent : C.textInk,
                 fontSize: 14,
                 lineHeight: 1.45,
                 border: m.who === "user" ? "none" : `1px solid ${C.border}`,
@@ -399,7 +399,7 @@ function MiniChat({ messages, busyLabel, value, onChange, onSubmit, disabled, pl
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 14px", fontFamily: FONT_BODY, fontSize: 14, background: "#fff", boxSizing: "border-box" }}
+          style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${C.border}`, padding: "0 14px", fontFamily: FONT_BODY, fontSize: 14, background: C.surface, boxSizing: "border-box" }}
         />
         <button type="submit" aria-label="Send" disabled={disabled || !(value || "").trim()}
           style={{ ...priBtn, height: 44, width: 44, flexShrink: 0, padding: 0, justifyContent: "center", background: C.teal, opacity: disabled || !(value || "").trim() ? 0.5 : 1, cursor: disabled || !(value || "").trim() ? "default" : "pointer" }}>
@@ -498,7 +498,7 @@ function EditableText({ value, onSave, disabled, placeholder, multiline, textSty
           borderRadius: 8,
           padding: "4px 6px",
           margin: "-5px -7px",
-          background: look === "focus" ? "#fff" : "transparent",
+          background: look === "focus" ? C.surface : "transparent",
           resize: "none",
           overflow: "hidden",
           fontFamily: FONT_BODY,
@@ -551,7 +551,7 @@ function VersionHistory({ post, reloadKey, onRestore, onClose }) {
   };
 
   return (
-    <div ref={boxRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: "#fff" }}>
+    <div ref={boxRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${C.border}`, background: C.surface }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
         <History size={14} color={C.teal} />
         <div style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>Versions</div>
@@ -755,7 +755,7 @@ function ChannelFit({ post }) {
         </div>
       ) : null}
       {needsPicture ? (
-        <div style={{ fontSize: 11.5, color: C.amberInk || "#92400E" }}>
+        <div style={{ fontSize: 11.5, color: C.amberInk || C.warningInk }}>
           Instagram needs a picture. Add one, or one is drawn when it posts{imagePrice ? ` (${imagePrice})` : ""}.
         </div>
       ) : null}
@@ -776,7 +776,7 @@ function PostExtras({ post, canEdit, onSave, trackDefault }) {
   const reddit = (post.channelOptions && post.channelOptions.reddit) || {};
   if (!canEdit && !post.altText && !post.firstComment && id !== "reddit") return null;
   return (
-    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ marginTop: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
       {id === "reddit" ? (
         <div>
           <div style={labelStyle}>Subreddit</div>
@@ -873,7 +873,7 @@ function BrandOnPost({ post, canEdit, onSave, showToast }) {
     catch (err) { setShown({ key: "", image: "", busy: false }); showToast(err.message || "The preview could not be drawn."); }
   };
   return (
-    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "grid", gap: 8 }}>
+    <div style={{ marginTop: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", display: "grid", gap: 8 }}>
       <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, fontWeight: 600, color: C.ink, cursor: canEdit ? "pointer" : "default" }}>
         <input type="checkbox" style={{ marginTop: 2, accentColor: C.teal }} checked={on} disabled={!canEdit}
           onChange={(e) => onSave({ channelOptions: { _brand: { off: !e.target.checked } } })} />
@@ -905,7 +905,7 @@ function MediaStrip({ post, canEdit, onSave, showToast, onRefresh }) {
     save(next);
   };
   return (
-    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
+    <div style={{ marginTop: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: items.length ? 8 : 4, flexWrap: "wrap" }}>
         <div style={{ ...labelStyle, margin: 0, flex: 1 }}>{items.length > 1 ? `Carousel · ${items.length} files` : "Pictures and video"}</div>
         {canEdit ? (
@@ -970,7 +970,7 @@ function PostResults({ post }) {
   const shown = totals ? RESULT_FIELDS.filter(([k]) => totals[k] != null) : [];
   const note = data && (data.channels || []).map((c) => c.error).find(Boolean);
   return (
-    <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
+    <div style={{ marginTop: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, flex: 1 }}>Results</div>
         {links.map((l) => (
@@ -1338,7 +1338,7 @@ function ApprovalsBoard({
 
   return (
     <div style={{
-      background: "#fff",
+      background: C.surface,
       border: `1px solid ${C.border}`,
       borderRadius: 16,
       display: "flex",
@@ -1394,7 +1394,7 @@ function ApprovalsBoard({
               >
                 {t.date === "undated" ? "No date" : dayLabel(t.date)}
                 {t.waiting ? (
-                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#fff", background: C.amber, borderRadius: 99, padding: "1px 6px" }}>
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: C.onAccent, background: C.amber, borderRadius: 99, padding: "1px 6px" }}>
                     {t.waiting}
                   </span>
                 ) : null}
@@ -1423,8 +1423,8 @@ function ApprovalsBoard({
                 padding: "0 10px",
                 borderRadius: 8,
                 border: `1px solid ${scope === s.id ? C.ink : C.border}`,
-                background: scope === s.id ? C.ink : "#fff",
-                color: scope === s.id ? "#fff" : C.ink,
+                background: scope === s.id ? C.ink : C.surface,
+                color: scope === s.id ? C.onAccent : C.ink,
                 fontSize: 11,
                 fontWeight: 700,
                 cursor: "pointer",
@@ -1479,7 +1479,7 @@ function ApprovalsBoard({
                           width: "calc(100% - 8px)",
                           border: `1px solid ${busy || (wide && open) ? C.teal : C.border}`,
                           borderRadius: 10,
-                          background: wide && open ? C.tealSoft : "#fff",
+                          background: wide && open ? C.tealSoft : C.surface,
                           padding: "8px 10px",
                           display: "flex",
                           flexDirection: "column",
@@ -1575,7 +1575,7 @@ function ApprovalsBoard({
               position: "fixed",
               inset: 0,
               zIndex: 400,
-              background: "#fff",
+              background: C.surface,
               fontFamily: FONT_BODY,
               display: "flex",
               paddingTop: "env(safe-area-inset-top)",
@@ -1611,7 +1611,7 @@ function ApprovalsBoard({
               style={{
               width: "100%",
               maxWidth: wide ? "none" : asPage ? (editMode ? 1320 : 680) : (editMode ? 860 : 560),
-              background: "#fff",
+              background: C.surface,
               border: `1px solid ${C.border}`,
               borderRadius: 16,
               boxShadow: wide ? "0 2px 10px rgba(18,20,28,0.06)" : "0 20px 48px rgba(18,20,28,0.22)",
@@ -1633,7 +1633,7 @@ function ApprovalsBoard({
                   borderBottom: `1px solid ${C.border}`,
                   alignItems: "center",
                   flexShrink: 0,
-                  background: "#fff",
+                  background: C.surface,
                   cursor: wide || fullScreen ? "default" : (previewDragging ? "grabbing" : "grab"),
                   userSelect: "none",
                 }}
@@ -1672,7 +1672,7 @@ function ApprovalsBoard({
                     </div>
                   ) : null}
                   {expandedPost.retryAtMs && (expandedPost.status === "approved" || expandedPost.status === "scheduled") ? (
-                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || "#FCEFDA", border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || C.amberSoft, border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Publishing failed, trying again at {formatOrgTime(orgDateTime(expandedPost.retryAtMs, orgTz).time, orgTimeFormat)}.</strong> {expandedPost.lastError || ""}
                     </div>
                   ) : null}
@@ -1691,7 +1691,7 @@ function ApprovalsBoard({
                     </div>
                   ) : null}
                   {expandedPost.status === "missed" ? (
-                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || "#FCEFDA", border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.amberSoft || C.amberSoft, border: `1px solid ${C.amber}`, fontSize: 12.5, color: C.ink, lineHeight: 1.45 }}>
                       <strong>Not posted: nobody approved it before {expandedPost.time || "its time"}.</strong>
                       <div style={{ color: C.slate, marginTop: 4 }}>Pick a new time under Schedule (it goes back for approval), or approve and post it now.</div>
                     </div>
@@ -1714,7 +1714,7 @@ function ApprovalsBoard({
                     </div>
                   ) : null}
                   <div style={{
-                    background: "#fff",
+                    background: C.surface,
                     borderRadius: 14,
                     border: `1px solid ${C.border}`,
                     overflow: "hidden",
@@ -1764,7 +1764,7 @@ function ApprovalsBoard({
                       ) : expandedPost.imageUrl ? (
                         <>
                           {mediaCount > 1 ? (
-                            <span style={{ position: "absolute", left: 10, top: 10, background: "rgba(0,0,0,0.72)", color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 8, padding: "3px 8px", zIndex: 1 }}>
+                            <span style={{ position: "absolute", left: 10, top: 10, background: "rgba(0,0,0,0.72)", color: C.onAccent, fontSize: 11, fontWeight: 700, borderRadius: 8, padding: "3px 8px", zIndex: 1 }}>
                               1 of {mediaCount}
                             </span>
                           ) : null}
@@ -1796,7 +1796,7 @@ function ApprovalsBoard({
                               borderRadius: 8,
                               border: "none",
                               background: "rgba(0,0,0,0.72)",
-                              color: "#fff",
+                              color: C.onAccent,
                               cursor: "pointer",
                               fontSize: 11,
                               fontWeight: 700,
@@ -1812,17 +1812,17 @@ function ApprovalsBoard({
                               type="button"
                               onClick={() => uploadRef.current && uploadRef.current.click()}
                               title="Use your own picture"
-                              style={{ position: "absolute", left: 10, bottom: 10, height: 32, padding: "0 10px", borderRadius: 8, border: "none", background: "rgba(0,0,0,0.72)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}
+                              style={{ position: "absolute", left: 10, bottom: 10, height: 32, padding: "0 10px", borderRadius: 8, border: "none", background: "rgba(0,0,0,0.72)", color: C.onAccent, cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}
                             >
                               <ImageIcon size={12} /> Replace
                             </button>
                           ) : null}
                         </>
                       ) : (
-                        <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 13, padding: 16, gap: 10 }}>
+                        <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: C.slateLight, fontSize: 13, padding: 16, gap: 10 }}>
                           {expandedProg || expandedPost.enriching || imageBusy === expandedPost.id ? (
                             <div style={{ width: "100%", maxWidth: 280 }}>
-                              <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", textAlign: "center", marginBottom: 8, fontVariantNumeric: "tabular-nums" }}>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: C.onAccent, textAlign: "center", marginBottom: 8, fontVariantNumeric: "tabular-nums" }}>
                                 {expandedProg ? Math.round(expandedProg.pct) : 8}%
                               </div>
                               <GenProgressBar
@@ -1904,7 +1904,7 @@ function ApprovalsBoard({
                   ) : null}
 
                   {scheduleOpen ? (
-                    <div ref={schedPanelRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : "#fff" }}>
+                    <div ref={schedPanelRef} style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${schedIsPast ? C.amber : C.border}`, background: schedIsPast ? (C.amberSoft || "#FCEFDA") : C.surface }}>
                       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
                         <Clock size={14} color={schedIsPast ? C.amber : C.teal} /> Change schedule
                       </div>
@@ -1920,7 +1920,7 @@ function ApprovalsBoard({
                             type="date"
                             value={schedDraft.date || ""}
                             onChange={(e) => setSchedDraft((s) => ({ ...s, date: e.target.value }))}
-                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface }}
                           />
                         </div>
                         <div style={{ flex: "1 1 110px", minWidth: 0 }}>
@@ -1929,7 +1929,7 @@ function ApprovalsBoard({
                             type="time"
                             value={schedDraft.time || "09:00"}
                             onChange={(e) => setSchedDraft((s) => ({ ...s, time: e.target.value }))}
-                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff" }}
+                            style={{ width: "100%", height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface }}
                           />
                         </div>
                         <button type="button" onClick={saveSched} style={{ ...priBtn, height: 36, ...(schedIsPast ? { background: C.amber } : {}) }}>
@@ -1948,7 +1948,7 @@ function ApprovalsBoard({
                     flexShrink: 0,
                     overflowY: "auto",
                     borderLeft: fullScreen ? "none" : `1px solid ${C.border}`,
-                    background: "#fff",
+                    background: C.surface,
                     display: "flex",
                     flexDirection: "column",
                     padding: 12,
@@ -1973,7 +1973,7 @@ function ApprovalsBoard({
                             cursor: "pointer",
                             fontWeight: 700,
                             fontSize: 13,
-                            background: editTab === t.id ? "#fff" : "transparent",
+                            background: editTab === t.id ? C.surface : "transparent",
                             color: editTab === t.id ? C.ink : C.slate,
                             boxShadow: editTab === t.id ? "0 1px 3px rgba(18,20,28,0.08)" : "none",
                           }}
@@ -2084,7 +2084,7 @@ function ApprovalsBoard({
                 gap: 8,
                 flexWrap: "wrap",
                 alignItems: "center",
-                background: "#fff",
+                background: C.surface,
                 flexShrink: 0,
               }}>
                 {canEdit ? (
@@ -2093,8 +2093,8 @@ function ApprovalsBoard({
                     onClick={() => setEditMode((v) => !v)}
                     style={{
                       ...secBtn,
-                      background: editMode ? C.ink : "#fff",
-                      color: editMode ? "#fff" : C.ink,
+                      background: editMode ? C.ink : C.surface,
+                      color: editMode ? C.onAccent : C.ink,
                       borderColor: editMode ? C.ink : C.border,
                     }}
                   >
@@ -2169,7 +2169,7 @@ function ApprovalsBoard({
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
-                    style={{ position: "absolute", top: 18, right: 18, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", width: 40, height: 40, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}
+                    style={{ position: "absolute", top: 18, right: 18, border: "none", background: "rgba(255,255,255,0.14)", color: C.onAccent, width: 40, height: 40, borderRadius: 99, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}
                     title="Close"
                   >
                     <X size={20} />
@@ -2431,7 +2431,7 @@ class SimpleBoundary extends React.Component {
           <button
             type="button"
             onClick={() => this.setState({ err: null })}
-            style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 600, cursor: "pointer" }}
+            style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: C.onAccent, fontWeight: 600, cursor: "pointer" }}
           >
             Try again
           </button>
@@ -2566,7 +2566,7 @@ function SimpleCompanyKnowledge({ profile, setProfile, knowledgeSources, setKnow
   );
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 22 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <BookOpen size={16} color={C.teal} />
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16 }}>Company knowledge</div>
@@ -2650,7 +2650,7 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
     }
   };
   const tm = extras.testMode || { on: false, outcome: "ok" };
-  const box = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+  const box = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 22 }}>
       <section style={{ ...box, borderColor: tm.on ? C.amber : C.border }} aria-labelledby="tm-h">
@@ -2667,7 +2667,7 @@ function SocialExtrasPanel({ extras, onChange, showToast }) {
           <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginTop: 10 }}>
             When a post goes out
             <select value={tm.outcome} disabled={busy} onChange={(e) => save({ testMode: { outcome: e.target.value } })}
-              style={{ display: "block", width: "100%", height: 34, marginTop: 4, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" }}>
+              style={{ display: "block", width: "100%", height: 34, marginTop: 4, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: C.surface }}>
               <option value="ok">It posts (pretend)</option>
               <option value="login">The network refuses the login</option>
               <option value="busy">The network is busy (tests automatic retries)</option>
@@ -2756,7 +2756,7 @@ function SimpleAccountsPage({
             const liveCount = rows.filter((a) => a.status === "connected").length;
             const hasAny = rows.length > 0;
             return (
-              <div key={ch.id} style={{ background: "#fff", border: `1px solid ${liveCount ? C.teal : hasAny ? "#F59E0B" : C.border}`, borderRadius: 14, padding: 16 }}>
+              <div key={ch.id} style={{ background: C.surface, border: `1px solid ${liveCount ? C.teal : hasAny ? "#F59E0B" : C.border}`, borderRadius: 14, padding: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: hasAny ? 12 : 10 }}>
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: ch.soft, color: ch.color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12 }}>
                     {ch.mark}
@@ -2782,7 +2782,7 @@ function SimpleAccountsPage({
                             <div style={{ fontSize: 12.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {displayName(acc) || ch.label}
                             </div>
-                            <div style={{ fontSize: 10.5, color: live ? C.teal : "#B45309" }}>{statusLabel(acc)}</div>
+                            <div style={{ fontSize: 10.5, color: live ? C.teal : C.warning }}>{statusLabel(acc)}</div>
                             {acc.followers != null ? (
                               <div style={{ fontSize: 10.5, color: C.slate }}>
                                 {Number(acc.followers).toLocaleString()} followers
@@ -4046,7 +4046,7 @@ export function SocialWorkspace({
           onTopUp={operator?.is_admin ? () => { setApprovalOpen(false); setPage("subscription"); } : null} />
         <BatchProgress batches={batchProgress.batches} tips={batchProgress.tips} />
         {extras && extras.testMode && extras.testMode.on && !pluginLocked ? (
-          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "10px 16px 0", padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.amber}`, background: C.amberSoft || "#FCEFDA", fontSize: 12.5, color: C.ink }}>
+          <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "10px 16px 0", padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.amber}`, background: C.amberSoft || C.amberSoft, fontSize: 12.5, color: C.ink }}>
             <FlaskConical size={14} aria-hidden="true" />
             <span style={{ flex: "1 1 240px", minWidth: 0 }}><b>Test mode is on.</b> Posts go through approval and publishing, but nothing is sent to any network.</span>
             <button type="button" style={{ ...secBtn, height: 28, fontSize: 11.5 }} onClick={() => goPage("accounts")}>Change</button>
@@ -4054,7 +4054,7 @@ export function SocialWorkspace({
         ) : null}
         {approvalOpen && !pluginLocked ? (
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: HUB_PAPER }}>
-            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12.5, color: C.slate }}>
                   {drafts.length ? drafts.length + " post" + (drafts.length === 1 ? "" : "s") + " need you. Open one to read it, edit it and approve." : "Nothing waiting"}
@@ -4124,7 +4124,7 @@ export function SocialWorkspace({
                 gap: 10,
               }}
             >
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#0C8C7D", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: C.teal, color: C.onAccent, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Lock size={16} />
               </div>
               <div>
@@ -4188,7 +4188,7 @@ export function SocialWorkspace({
           </div>
         ) : (
         <>
-        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <section id="ov-anchor" aria-label="Overview" style={{ flex: 1, minWidth: 0, scrollMarginTop: 12 }}>
             <OverviewPage embedded
               onOpenPost={(id) => openApprovals(id)}
@@ -4210,7 +4210,7 @@ export function SocialWorkspace({
                 borderRadius: 10,
                 border: "none",
                 background: cta.tone === "go" ? C.teal : cta.tone === "approve" ? C.ink : C.paperSoft,
-                color: cta.tone === "idle" ? C.slate : "#fff",
+                color: cta.tone === "idle" ? C.slate : C.onAccent,
                 fontWeight: 700,
                 fontSize: 13,
                 cursor: cta.disabled ? "default" : "pointer",
@@ -4224,7 +4224,7 @@ export function SocialWorkspace({
         </div>
 
         {serverDown || posts.some((p) => p.syncError) ? (
-          <div style={{ padding: "8px 20px", background: C.amberSoft || "#FCEFDA", borderBottom: `1px solid ${C.border}`, fontSize: 12.5, color: C.ink }}>
+          <div style={{ padding: "8px 20px", background: C.amberSoft || C.amberSoft, borderBottom: `1px solid ${C.border}`, fontSize: 12.5, color: C.ink }}>
             {serverDown
               ? "Can't reach the server. Changes stay in this browser and are saved once it is back."
               : "Some changes are not saved to the server yet. Retrying automatically."}
@@ -4311,7 +4311,7 @@ export function SocialWorkspace({
                       width: "100%",
                       boxSizing: "border-box",
                       overflow: "hidden",
-                      background: pinned ? C.tealSoft : "#fff",
+                      background: pinned ? C.tealSoft : C.surface,
                       border: `1px solid ${pinned ? C.teal : isToday ? C.teal : C.border}`,
                       borderRadius: 10,
                       padding: 8,
@@ -4443,7 +4443,7 @@ export function SocialWorkspace({
             {phone ? (() => {
               const list = (postsByDay[phoneDay] || []).slice().sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
               return (
-                <section aria-label="Posts on the chosen day" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, display: "grid", gap: 10, flexShrink: 0 }}>
+                <section aria-label="Posts on the chosen day" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, display: "grid", gap: 10, flexShrink: 0 }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                     <strong style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.ink, marginRight: "auto" }}>{phoneDay === todayIso() ? "Today" : dayLabel(phoneDay)}</strong>
                     <span style={{ fontSize: 12.5, color: C.slate }}>{list.length ? `${list.length} post${list.length === 1 ? "" : "s"}` : ""}</span>
@@ -4452,7 +4452,7 @@ export function SocialWorkspace({
                     const ch = CHANNELS.find((c) => c.id === String(p.channel || "").toLowerCase()) || { label: p.channel, color: C.ink, soft: HUB_PAPER, mark: "?" };
                     return (
                       <button key={p.id} type="button" onClick={() => openApprovals(p.id, p.date)}
-                        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, padding: "10px 12px", textAlign: "left", border: `1px solid ${C.border}`, borderRadius: 10, background: "#fff", cursor: "pointer", fontFamily: FONT_BODY }}>
+                        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, padding: "10px 12px", textAlign: "left", border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, cursor: "pointer", fontFamily: FONT_BODY }}>
                         <span aria-label={ch.label} style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "grid", placeItems: "center", background: ch.soft, color: ch.color, fontSize: 11, fontWeight: 800 }}>{ch.mark}</span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.enriching ? "Writing…" : p.headline || "Draft post"}</span>
@@ -4472,14 +4472,14 @@ export function SocialWorkspace({
               );
             })() : null}
 
-            <section aria-label="The rest of the chosen day" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, flexShrink: 0 }}>
+            <section aria-label="The rest of the chosen day" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, flexShrink: 0 }}>
               <DayAgenda date={phone ? phoneDay : dateDraft} focus="social" hideKinds={["post"]}
                 heading={`The rest of ${(phone ? phoneDay : dateDraft) === todayIso() ? "today" : dayLabel(phone ? phoneDay : dateDraft)}`} />
             </section>
 
             {drafts.length ? (
               <button type="button" onClick={() => openApprovals()} title="Review, edit and approve the drafts waiting for you"
-                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 48, padding: "8px 14px", textAlign: "left", border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.teal}`, borderRadius: 10, background: "#fff", cursor: "pointer", fontFamily: FONT_BODY, flexShrink: 0 }}>
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 48, padding: "8px 14px", textAlign: "left", border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.teal}`, borderRadius: 10, background: C.surface, cursor: "pointer", fontFamily: FONT_BODY, flexShrink: 0 }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, color: C.ink }}>Post approve</span>
                   <span style={{ display: "block", fontSize: 12, color: C.slate, marginTop: 1 }}>{drafts.length} draft{drafts.length === 1 ? "" : "s"} waiting for your approval</span>
@@ -4513,7 +4513,7 @@ export function SocialWorkspace({
       <style>{`.aiv-hide-scrollbar::-webkit-scrollbar{display:none;height:0;width:0}`}</style>
 
       {toast ? (
-        <div className="app-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: C.ink, color: "#fff", padding: "10px 16px", borderRadius: 10, fontSize: 13, zIndex: 80 }}>
+        <div className="app-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: C.ink, color: C.onAccent, padding: "10px 16px", borderRadius: 10, fontSize: 13, zIndex: 80 }}>
           {toast}
         </div>
       ) : null}
@@ -4529,7 +4529,7 @@ const chipBtn = {
   padding: "0 9px",
   borderRadius: 999,
   border: `1px solid ${C.border}`,
-  background: "#fff",
+  background: C.surface,
   color: C.ink,
   fontWeight: 600,
   fontSize: 11,
@@ -4542,7 +4542,7 @@ const navBtn = {
   height: 32,
   borderRadius: 8,
   border: `1px solid ${C.border}`,
-  background: "#fff",
+  background: C.surface,
   cursor: "pointer",
   display: "flex",
   alignItems: "center",
@@ -4559,7 +4559,7 @@ const secBtn = {
   padding: "0 12px",
   borderRadius: 9,
   border: `1px solid ${C.border}`,
-  background: "#fff",
+  background: C.surface,
   color: C.ink,
   fontWeight: 600,
   fontSize: 12.5,
@@ -4585,7 +4585,7 @@ const priBtn = {
   ...secBtn,
   border: "none",
   background: C.ink,
-  color: "#fff",
+  color: C.onAccent,
 };
 
 export function SocialWorkspaceGate(props) {

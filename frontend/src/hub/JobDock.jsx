@@ -16,7 +16,7 @@ function PickCard({ card, onChoose, onSkip, busy }) {
   const [value, setValue] = useState("");
   const name = `pick_${card.account_id}_${card.field}`;
   return (
-    <fieldset className="ui-card" style={{ margin: 0, padding: 12, border: "1px solid #E3E6EB", display: "grid", gap: 8 }}>
+    <fieldset className="ui-card" style={{ margin: 0, padding: 12, border: `1px solid ${C.border}`, display: "grid", gap: 8 }}>
       <legend style={{ ...text, fontSize: 13.5, fontWeight: 600, padding: "0 4px" }}>{card.name} <span style={muted}>· {FIELD_WORDS[card.field] || card.field}{card.region ? ` · ${card.region}` : ""}</span></legend>
       {card.options.map((o, i) => (
         <label key={o.value} style={{ ...text, display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5, minHeight: 44, cursor: "pointer" }}>

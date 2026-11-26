@@ -12,7 +12,7 @@ import { C, FONT_BODY, HUB_PAPER } from "../../tokens";
 
 const secBtn = {
   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 36, padding: "0 12px",
-  borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 700, fontSize: 12.5,
+  borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 700, fontSize: 12.5,
   cursor: "pointer", fontFamily: FONT_BODY, width: "100%",
 };
 

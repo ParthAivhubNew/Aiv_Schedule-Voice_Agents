@@ -111,13 +111,13 @@ export function KnowledgeChat() {
               <div key={m.id} style={{ marginBottom: 12, display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
                 <div style={{
                   maxWidth: "92%", padding: "9px 12px", borderRadius: 14, fontFamily: FONT_BODY, fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap",
-                  background: mine ? C.ink : "#fff", color: mine ? "#fff" : (m.error ? C.red : C.textInk), border: mine ? "none" : `1px solid ${C.border}`,
+                  background: mine ? C.ink : C.surface, color: mine ? C.onAccent : (m.error ? C.red : C.textInk), border: mine ? "none" : `1px solid ${C.border}`,
                 }}>{m.text}</div>
                 {(m.matches || []).map((x, i) => (
                   <div key={x.id || i} style={{ maxWidth: "92%", marginTop: 6, background: C.paper, borderRadius: 10, padding: 10, border: `1px solid ${C.borderLight}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                       <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 700, color: C.textInk }}>{x.title || "From your sources"}</span>
-                      <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: 4, flexShrink: 0 }}>{Math.round((x.score || 0) * 100)}% match</span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: C.green, background: C.successSoft, padding: "1px 6px", borderRadius: 4, flexShrink: 0 }}>{Math.round((x.score || 0) * 100)}% match</span>
                     </div>
                     <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.textInk, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{x.content}</div>
                   </div>
@@ -130,7 +130,7 @@ export function KnowledgeChat() {
         </div>
       )}
 
-      <form onSubmit={send} style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 12, padding: "6px 6px 6px 12px", background: "#fff" }}>
+      <form onSubmit={send} style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 12, padding: "6px 6px 6px 12px", background: C.surface }}>
         <input value={input} onChange={(e) => setInput(e.target.value)} disabled={busy} aria-label="Ask your knowledge"
           placeholder="e.g. What is your pricing? Do you integrate with a CRM?"
           style={{ flex: 1, minWidth: 0, height: 30, border: 0, outline: 0, background: "transparent", fontFamily: FONT_BODY, fontSize: 13, color: C.textInk }} />

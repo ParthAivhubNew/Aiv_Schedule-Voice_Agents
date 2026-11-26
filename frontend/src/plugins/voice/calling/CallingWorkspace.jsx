@@ -157,8 +157,8 @@ const CONV_SPLIT_CSS = `
   @media (max-width: 900px) {
     .conv-split { grid-template-columns: minmax(0, 1fr); }
     .conv-tabs { display: flex; gap: 8px; }
-    .conv-tabs button { flex: 1; height: 38px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; font-weight: 700; cursor: pointer; }
-    .conv-tabs button[aria-selected="true"] { background: #12141C; color: #fff; border-color: #12141C; }
+    .conv-tabs button { flex: 1; height: 38px; border-radius: 10px; border: 1px solid #E6E3DC; background: ${C.surface}; font-weight: 700; cursor: pointer; }
+    .conv-tabs button[aria-selected="true"] { background: ${C.ink}; color: ${C.onAccent}; border-color: ${C.ink}; }
     .conv-split[data-pane="logs"] .conv-pane--live, .conv-split[data-pane="live"] .conv-pane--logs { display: none; }
     .conv-pane-title { display: none; }
   }
@@ -167,9 +167,9 @@ const CONV_SPLIT_CSS = `
 const WA_POPUP_CSS = `
   .wa-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(18,20,28,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
   .wa-window { width: 100%; max-width: 1200px; height: 100%; max-height: 860px; background: #F8F7F4; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(18,20,28,0.35); }
-  .wa-head { display: flex; align-items: center; padding: 12px 18px; background: #fff; border-bottom: 1px solid #E6E3DC; flex-shrink: 0; }
+  .wa-head { display: flex; align-items: center; padding: 12px 18px; background: ${C.surface}; border-bottom: 1px solid #E6E3DC; flex-shrink: 0; }
   .wa-head h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; }
-  .wa-close { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #E6E3DC; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .wa-close { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #E6E3DC; background: ${C.surface}; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .wa-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
   @media (max-width: 900px) { .wa-overlay { padding: 0; } .wa-window { border-radius: 0; max-height: none; } }
 `;
@@ -865,13 +865,13 @@ function fieldStyle() {
     padding: "0 12px",
     fontFamily: FONT_BODY,
     fontSize: 13,
-    background: "#fff",
+    background: C.surface,
   };
 }
 
 function card() {
   return {
-    background: "#fff",
+    background: C.surface,
     border: `1px solid ${C.border}`,
     borderRadius: 8,
     padding: 18,
@@ -898,7 +898,7 @@ function PhoneLineSetup({ isAdmin, onGetNumber, style }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const step = (n, title, text) => (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flex: "1 1 200px", minWidth: 0, padding: "12px 16px" }}>
-      <div style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid #CBD1D9", color: C.textInk, fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</div>
+      <div style={{ width: 20, height: 20, borderRadius: "50%", border: `1px solid ${C.lineStrong}`, color: C.textInk, fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</div>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: C.textInk }}>{title}</div>
         <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.45, marginTop: 2 }}>{text}</div>
@@ -2923,10 +2923,10 @@ export function CallingWorkspace({
           .calling-scroll {
             overflow: auto;
             scrollbar-width: thin;
-            scrollbar-color: #CBD1D9 transparent;
+            scrollbar-color: ${C.lineStrong} transparent;
           }
           .calling-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-          .calling-scroll::-webkit-scrollbar-thumb { background: #CBD1D9; border-radius: 99px; }
+          .calling-scroll::-webkit-scrollbar-thumb { background: ${C.lineStrong}; border-radius: 99px; }
           .calling-scroll::-webkit-scrollbar-track { background: transparent; }
         `}</style>
         <div data-wf-anchor="" style={{ minHeight: 56, padding: "8px 16px 8px 24px", boxSizing: "border-box", borderBottom: `1px solid ${C.border}`, ...headerTint(C.cobalt), display: "flex", alignItems: "center", gap: 12, position: "relative", zIndex: 60, overflow: "visible", flexShrink: 0 }}>
@@ -2988,7 +2988,7 @@ export function CallingWorkspace({
             padding: "7px 12px",
             borderRadius: 8,
             background: C.ink,
-            color: "#fff",
+            color: C.onAccent,
             fontSize: 12,
             fontWeight: 600,
             boxShadow: "0 10px 28px rgba(18,20,28,0.18)",
@@ -3012,7 +3012,7 @@ export function CallingWorkspace({
         <div className={(page === "list" || page === "assistant") && !pluginLocked ? "app-page app-page--flush" : "app-page"} style={{ flex: 1, minHeight: 0, overflow: (page === "list" || page === "templates" || page === "assistant") ? "hidden" : "auto", padding: (page === "list" || page === "assistant") && !pluginLocked ? 0 : "20px 24px 24px", display: (page === "list" || page === "templates" || page === "assistant") ? "flex" : undefined, flexDirection: (page === "list" || page === "templates" || page === "assistant") ? "column" : undefined }}>
           {page === "assistant" && !pluginLocked ? <AssistantPanel page plugin="voice" open onClose={() => goPage("list")} /> : null}
           {pluginLocked && peekCallList() ? (
-            <div role="status" style={{ maxWidth: 1240, marginBottom: 14, padding: "12px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "#fff", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
+            <div role="status" style={{ maxWidth: 1240, marginBottom: 14, padding: "12px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
               Your list of {peekCallList().count.toLocaleString()} {peekCallList().count === 1 ? "company" : "companies"} from Lead Gen is saved. Choose a plan below and it will be ready to call straight after.
             </div>
           ) : null}
@@ -3030,11 +3030,11 @@ export function CallingWorkspace({
                   gap: 10,
                 }}
               >
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "#3457D5", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: C.cobalt, color: C.onAccent, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Lock size={16} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: "#26409E" }}>Subscription Required</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.cobaltDeep }}>Subscription Required</div>
                   <div style={{ fontSize: 12.5, color: C.slate }}>Choose a plan or buy a top-up below to unlock Voice.</div>
                 </div>
               </div>
@@ -3073,7 +3073,7 @@ export function CallingWorkspace({
                     backdropFilter: "blur(2px)",
                     pointerEvents: "none",
                   }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 8, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}` }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 8, background: C.surface, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}` }}>
                       <Upload size={22} color={C.cobalt} />
                     </div>
                     <div style={{ fontSize: 16, fontWeight: 600, color: C.textInk }}>
@@ -3094,7 +3094,7 @@ export function CallingWorkspace({
                       alignItems: "center",
                       border: `1px solid ${C.border}`,
                       borderRadius: 6,
-                      background: "#fff",
+                      background: C.surface,
                       height: 34,
                       flex: "1.3 1 220px",
                       minWidth: 0,
@@ -3114,7 +3114,7 @@ export function CallingWorkspace({
                             borderRight: `1px solid ${C.borderLight}`,
                             borderTopLeftRadius: 5,
                             borderBottomLeftRadius: 5,
-                            background: countryMenuOpen ? "#EEF2FE" : "#F8F9FB",
+                            background: countryMenuOpen ? C.cobaltSoft : "#F8F9FB",
                             padding: "0 8px 0 10px",
                             display: "inline-flex",
                             alignItems: "center",
@@ -3148,7 +3148,7 @@ export function CallingWorkspace({
                               left: 0,
                               zIndex: 1000,
                               width: 310,
-                              background: "#fff",
+                              background: C.surface,
                               borderRadius: 12,
                               border: `1px solid ${C.border}`,
                               boxShadow: "0 14px 36px rgba(15,23,42,0.2)",
@@ -3162,7 +3162,7 @@ export function CallingWorkspace({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 6,
-                                background: "#F8FAFC",
+                                background: C.neutralBg,
                                 border: `1px solid ${C.borderLight}`,
                                 borderRadius: 8,
                                 padding: "6px 8px",
@@ -3273,7 +3273,7 @@ export function CallingWorkspace({
                                             padding: "1px 4px",
                                             borderRadius: 4,
                                             background: isSelected ? "#C7D7FA" : "#E2E8F0",
-                                            color: isSelected ? C.cobaltDeep : "#475569",
+                                            color: isSelected ? C.cobaltDeep : C.neutralInk,
                                             fontFamily: FONT_MONO,
                                           }}
                                         >
@@ -3821,7 +3821,7 @@ export function CallingWorkspace({
                 </div>
               </div>
 
-              <div data-pane="side" className="list-ai" style={{ display: listAiShown ? "flex" : "none", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "#fff", borderLeft: `1px solid ${C.border}`, position: "relative" }}>
+              <div data-pane="side" className="list-ai" style={{ display: listAiShown ? "flex" : "none", flexDirection: "column", minHeight: 0, overflow: "hidden", background: C.surface, borderLeft: `1px solid ${C.border}`, position: "relative" }}>
                 <div
                   className="split-resize"
                   role="separator"
@@ -3856,7 +3856,7 @@ export function CallingWorkspace({
                 {findProgress ? (
                   <div style={{ flexShrink: 0, margin: "12px 16px 0", padding: "8px 10px", borderRadius: 6, background: C.paperSoft }}>
                     <div style={{ fontSize: 12, fontWeight: 500, color: C.slate, fontVariantNumeric: "tabular-nums" }}>Find missing · {findProgress.done}/{findProgress.total} · {findProgress.filled} filled</div>
-                    <div style={{ height: 3, background: "#fff", borderRadius: 99, marginTop: 5, overflow: "hidden" }}>
+                    <div style={{ height: 3, background: C.surface, borderRadius: 99, marginTop: 5, overflow: "hidden" }}>
                       <div style={{ width: `${Math.round((findProgress.done / Math.max(findProgress.total, 1)) * 100)}%`, height: "100%", background: C.cobalt }} />
                     </div>
                   </div>
@@ -3890,7 +3890,7 @@ export function CallingWorkspace({
                             <div style={{
                               width: "100%",
                               boxSizing: "border-box",
-                              background: "#fff",
+                              background: C.surface,
                               border: `1px solid ${C.ink}`,
                               borderRadius: 14,
                               padding: "10px 12px 10px",
@@ -3932,7 +3932,7 @@ export function CallingWorkspace({
                                 <button
                                   type="button"
                                   onClick={() => { setEditingId(""); setEditText(""); }}
-                                  style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
+                                  style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
                                 >
                                   <X size={12} /> Cancel
                                 </button>
@@ -3940,7 +3940,7 @@ export function CallingWorkspace({
                                   <button
                                     type="button"
                                     onClick={() => sendChat(null, { text: editText, replaceFromId: m.id })}
-                                    style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.textInk, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
+                                    style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textInk, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
                                   >
                                     <RotateCcw size={12} /> Resend
                                   </button>
@@ -3948,7 +3948,7 @@ export function CallingWorkspace({
                                 <button
                                   type="button"
                                   onClick={() => saveEdit(m.id)}
-                                  style={{ height: 30, padding: "0 12px", borderRadius: 8, border: "none", background: C.ink, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
+                                  style={{ height: 30, padding: "0 12px", borderRadius: 8, border: "none", background: C.ink, color: C.onAccent, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
                                 >
                                   <Check size={12} /> Save
                                 </button>
@@ -3975,7 +3975,7 @@ export function CallingWorkspace({
                                   alignItems: "center",
                                   gap: 1,
                                   marginTop: 4,
-                                  background: "#fff",
+                                  background: C.surface,
                                   border: `1px solid ${C.border}`,
                                   borderRadius: 8,
                                   padding: 2,
@@ -4020,7 +4020,7 @@ export function CallingWorkspace({
                   </div>
                 )}
                 <div style={{ padding: 12, borderTop: `1px solid ${C.borderLight}`, flexShrink: 0 }}>
-                  <form className="ui-field" onSubmit={(e) => { e.preventDefault(); sendChat(e); }} style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 4px 4px 10px", background: "#fff" }}>
+                  <form className="ui-field" onSubmit={(e) => { e.preventDefault(); sendChat(e); }} style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.border}`, borderRadius: 8, padding: "4px 4px 4px 10px", background: C.surface }}>
                     <input ref={chatInputRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Find companies, fill gaps, or start a list" aria-label="Message List AI" title="Tell List AI what you need, for example: find 20 dental practices in Leeds" disabled={busy === "chat" || busy === "find"} style={{ flex: 1, minWidth: 0, height: 30, border: 0, outline: 0, background: "transparent", fontFamily: FONT_BODY, fontSize: 13, color: C.textInk }} />
                     <button type="submit" className="ui-btn ui-btn--primary" title="Send your message to List AI" disabled={busy === "chat" || busy === "find" || !chatInput.trim()} style={{ width: 30, height: 30, padding: 0 }}>
                       <ArrowUp size={16} />
@@ -4053,22 +4053,22 @@ export function CallingWorkspace({
                     style={{ ...fieldStyle(), paddingLeft: 34, height: 40 }}
                   />
                 </div>
-                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: "#fff" }} role="group" aria-label="Who made the call">
+                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: C.surface }} role="group" aria-label="Who made the call">
                   {[["all", "Everyone"], ["ai", "AI calls"], ["mine", "My own calls"]].map(([id, label]) => (
                     <button key={id} type="button" aria-pressed={logWho === id} onClick={() => { setLogWho(id); setLogPage(1); }}
-                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logWho === id ? C.ink : "transparent", color: logWho === id ? "#fff" : C.textInk }}>
+                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logWho === id ? C.ink : "transparent", color: logWho === id ? C.onAccent : C.textInk }}>
                       {label}
                     </button>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: "#fff" }} role="group" aria-label="Direction of the call">
+                <div style={{ display: "flex", gap: 2, padding: 3, border: `1px solid ${C.border}`, borderRadius: 999, background: C.surface }} role="group" aria-label="Direction of the call">
                   {[
                     ["all", "All calls", null],
                     ["inbound", "Incoming", directionCount.inbound],
                     ["outbound", "Outgoing", directionCount.outbound],
                   ].map(([id, label, n]) => (
                     <button key={id} type="button" aria-pressed={logDirection === id} onClick={() => { setLogDirection(id); setLogPage(1); }}
-                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logDirection === id ? C.ink : "transparent", color: logDirection === id ? "#fff" : C.textInk }}>
+                      style={{ height: 28, padding: "0 12px", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, background: logDirection === id ? C.ink : "transparent", color: logDirection === id ? C.onAccent : C.textInk }}>
                       {label}{n ? ` · ${n}` : ""}
                     </button>
                   ))}
@@ -4092,8 +4092,8 @@ export function CallingWorkspace({
                         padding: "0 12px",
                         borderRadius: 999,
                         border: `1px solid ${logOutcome === id ? C.ink : C.border}`,
-                        background: logOutcome === id ? C.ink : "#fff",
-                        color: logOutcome === id ? "#fff" : C.textInk,
+                        background: logOutcome === id ? C.ink : C.surface,
+                        color: logOutcome === id ? C.onAccent : C.textInk,
                         fontWeight: 700,
                         fontSize: 12,
                         cursor: "pointer",
@@ -4190,7 +4190,7 @@ export function CallingWorkspace({
                               borderRadius: 20,
                               border: "none",
                               background: activeAudioLogId === l.id && isPlayingAudio ? "#10B981" : C.cobaltSoft,
-                              color: activeAudioLogId === l.id && isPlayingAudio ? "#fff" : C.cobaltDeep,
+                              color: activeAudioLogId === l.id && isPlayingAudio ? C.onAccent : C.cobaltDeep,
                               fontSize: 11.5,
                               fontWeight: 700,
                               cursor: "pointer",
@@ -4200,7 +4200,7 @@ export function CallingWorkspace({
                           >
                             {activeAudioLogId === l.id && isPlayingAudio ? (
                               <>
-                                <Pause size={12} fill="#fff" />
+                                <Pause size={12} fill={C.onAccent} />
                                 <span>Playing</span>
                               </>
                             ) : (
@@ -4286,7 +4286,7 @@ export function CallingWorkspace({
                         </button>
                       ) : null}
                       {open && (
-                        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, marginTop: 8, padding: "10px 14px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, marginTop: 8, padding: "10px 14px", background: C.surface, borderRadius: 10, border: `1px solid ${C.border}` }}>
                           <button
                             type="button"
                             onClick={(e) => togglePlayRecording(e, l.id)}
@@ -4299,14 +4299,14 @@ export function CallingWorkspace({
                               borderRadius: "50%",
                               border: "none",
                               background: activeAudioLogId === l.id && isPlayingAudio ? "#10B981" : C.cobalt,
-                              color: "#fff",
+                              color: C.onAccent,
                               cursor: "pointer",
                               flexShrink: 0,
                               transition: "all 0.15s ease",
                             }}
                             title={activeAudioLogId === l.id && isPlayingAudio ? "Pause" : "Play Recording"}
                           >
-                            {activeAudioLogId === l.id && isPlayingAudio ? <Pause size={14} fill="#fff" /> : <Play size={14} fill="#fff" style={{ marginLeft: 2 }} />}
+                            {activeAudioLogId === l.id && isPlayingAudio ? <Pause size={14} fill={C.onAccent} /> : <Play size={14} fill={C.onAccent} style={{ marginLeft: 2 }} />}
                           </button>
                           <span style={{ fontSize: 12, fontWeight: 700, color: C.textInk, display: "inline-flex", alignItems: "center", gap: 6 }}>
                             <Volume2 size={14} color={C.cobalt} /> Call Audio:
@@ -4389,14 +4389,14 @@ export function CallingWorkspace({
               {assistantQueued > 0 ? (
                 <div style={{ ...card(), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
                   <span style={{ flex: 1 }}><b>{assistantQueued}</b> more contact{assistantQueued === 1 ? "" : "s"} queued for the AI Assistant — the next one dials as soon as a line frees up.</span>
-                  <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
+                  <button type="button" onClick={() => { assistantQueueRef.current = []; setAssistantQueued(0); showToast("Queue stopped."); }} style={{ height: 30, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontWeight: 700 }}>Stop queue</button>
                 </div>
               ) : null}
               {!activeLive.length ? (
                 <div style={{ ...card(), padding: 40, textAlign: "center", color: C.slate }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, marginBottom: 6 }}>No calls in progress</div>
                   <div style={{ fontSize: 13 }}>Dial someone from <b>Call anyone</b> or start calls from a list — they show here the moment they ring.</div>
-                  <button type="button" onClick={() => goPage("list")} style={{ marginTop: 14, height: 36, padding: "0 14px", borderRadius: 9, border: "none", background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Go to list</button>
+                  <button type="button" onClick={() => goPage("list")} style={{ marginTop: 14, height: 36, padding: "0 14px", borderRadius: 9, border: "none", background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer" }}>Go to list</button>
                 </div>
               ) : activeLive.map((c) => {
                 const id = c.id || c.call_sid;
@@ -4457,7 +4457,7 @@ export function CallingWorkspace({
                 <div style={card()}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, marginBottom: 8 }}>Open platform AI keys</div>
                   <div style={{ color: C.slate, fontSize: 13, marginBottom: 12 }}>Chat and Find missing use the Voice AI keys. Paste them in the common config.</div>
-                  <button type="button" onClick={() => onOpenCommonAi && onOpenCommonAi()} style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Open AI config</button>
+                  <button type="button" onClick={() => onOpenCommonAi && onOpenCommonAi()} style={{ height: 40, padding: "0 16px", border: "none", borderRadius: 10, background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer" }}>Open AI config</button>
                 </div>
               ))}
             </div>
@@ -4491,7 +4491,7 @@ export function CallingWorkspace({
                       <div style={{ fontWeight: 500, color: C.slateLight, marginTop: 4, fontSize: 11.5 }}>{hint}</div>
                     </label>
                   ))}
-                  <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: "#fff", fontWeight: 700, cursor: "pointer", width: 160 }}>
+                  <button type="button" disabled={busy === "save"} onClick={saveSetup} style={{ height: 42, border: "none", borderRadius: 10, background: C.ink, color: C.onAccent, fontWeight: 700, cursor: "pointer", width: 160 }}>
                     {busy === "save" ? "Saving…" : "Save"}
                   </button>
                   </div>
@@ -4574,7 +4574,7 @@ export function CallingWorkspace({
         >
           <div
             style={{
-              background: "#ffffff",
+              background: C.surface,
               borderRadius: 16,
               width: "100%",
               maxWidth: 460,
@@ -4592,7 +4592,7 @@ export function CallingWorkspace({
                   width: 42,
                   height: 42,
                   borderRadius: 12,
-                  background: "#FEF3C7",
+                  background: C.warningSoft,
                   border: "1px solid #FDE68A",
                   display: "flex",
                   alignItems: "center",
@@ -4607,7 +4607,7 @@ export function CallingWorkspace({
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: "#0F172A", lineHeight: 1.3 }}>
                   Unsaved changes
                 </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: "#475569", marginTop: 6, lineHeight: 1.5 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.neutralInk, marginTop: 6, lineHeight: 1.5 }}>
                   You have unsaved changes in {unsavedLeaveTarget?.source === "templates" ? "What the AI says" : "Company profile"}. If you leave now without saving, your recent edits will be lost.
                 </div>
               </div>
@@ -4638,7 +4638,7 @@ export function CallingWorkspace({
                 gap: 8,
                 marginTop: 8,
                 paddingTop: 16,
-                borderTop: "1px solid #F1F5F9",
+                borderTop: `1px solid ${C.neutralSoft}`,
               }}
             >
               <button
@@ -4648,8 +4648,8 @@ export function CallingWorkspace({
                   padding: "8px 14px",
                   borderRadius: 8,
                   border: "1px solid #E2E8F0",
-                  background: "#ffffff",
-                  color: "#475569",
+                  background: C.surface,
+                  color: C.neutralInk,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -4665,8 +4665,8 @@ export function CallingWorkspace({
                   padding: "8px 14px",
                   borderRadius: 8,
                   border: "1px solid #FCA5A5",
-                  background: "#FEF2F2",
-                  color: "#DC2626",
+                  background: C.dangerBg,
+                  color: C.redSolid,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -4683,7 +4683,7 @@ export function CallingWorkspace({
                   borderRadius: 8,
                   border: "none",
                   background: "linear-gradient(135deg, #2a47ae 0%, #1a2d7a 100%)",
-                  color: "#ffffff",
+                  color: C.onAccent,
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",

@@ -1,5 +1,5 @@
 import React from "react";
-import { FONT_BODY } from "../tokens";
+import { C, FONT_BODY } from "../tokens";
 import { AdminCrown } from "../components/AdminCrown";
 import { useBrand } from "../brand/BrandContext";
 
@@ -11,7 +11,7 @@ export function BrandMark({ brand, size = 32 }) {
     <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`${brand.name} logo`}
       style={{ flexShrink: 0, borderRadius: 6 }}>
       <rect width="36" height="36" rx="6" fill={brand.accent || "#006972"} />
-      <text x="18" y="21" fill="#FFFFFF" fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize={text.length > 3 ? 11 : 14}
+      <text x="18" y="21" fill={C.onAccent} fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" fontSize={text.length > 3 ? 11 : 14}
         fontWeight="800" letterSpacing="-0.5px" textAnchor="middle">{text}</text>
     </svg>
   );

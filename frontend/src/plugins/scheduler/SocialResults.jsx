@@ -19,12 +19,12 @@ export const plainError = (e) => (!e ? "" : /[{[]/.test(e) ? "The network no lon
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER, fontFamily: FONT_BODY };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const h2 = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, margin: "0 0 10px" };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
   display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8,
-  border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
+  border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
 };
 
 function when(ms, org) {
@@ -53,7 +53,7 @@ function Failed({ what, onRetry }) {
 function ChartTip({ active, payload, label, name }) {
   if (!active || !payload || !payload.length || payload[0].value == null) return null;
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: C.ink }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: C.ink }}>
       <div style={{ color: C.slate }}>{new Date(label + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
       <div style={{ fontWeight: 700 }}>{fmt(payload[0].value)} {name}</div>
     </div>
@@ -76,7 +76,7 @@ function TrendChart({ data, field, name, height = 180, kind = "area" }) {
           {kind === "bar"
             ? <Bar dataKey={field} fill={HEX.teal} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
             : <Area dataKey={field} type="monotone" stroke={HEX.teal} strokeWidth={2} fill={HEX.tealSoft || "#E4F5F2"} connectNulls isAnimationActive={false}
-                dot={false} activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2, fill: C.teal }} />}
+                dot={false} activeDot={{ r: 4, stroke: C.onAccent, strokeWidth: 2, fill: C.teal }} />}
         </Chart>
       </ResponsiveContainer>
     </div>
@@ -139,7 +139,7 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
           {data.failed.length ? (
             <button type="button" style={{ ...btn, height: 24, fontSize: 11.5 }} onClick={() => onOpenPost(data.failed[0].id)}><AlertTriangle size={12} color={C.red} /> {data.failed.length} failed, fix</button>
           ) : null}
-          {!attention ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: C.green || "#16A34A" }} />Nothing needs you right now</span> : null}
+          {!attention ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: C.green || C.success }} />Nothing needs you right now</span> : null}
           <span style={{ flex: 1 }} />
           {next ? (
             <button type="button" onClick={() => onOpenPost(next.id)} title={next.title}
@@ -211,7 +211,7 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
                 style={{ display: "flex", flexWrap: "wrap", width: "100%", alignItems: "center", gap: "2px 10px", padding: "8px 4px", border: "none", borderBottom: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
                 <div style={{ width: 118, flexShrink: 0, fontSize: 11.5, color: C.slate }}>{when(p.dueAtMs, org)}</div>
                 <div style={{ flex: "1 1 160px", minWidth: 0, fontSize: 13, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
-                <span style={{ fontSize: 11, color: p.status === "awaiting_approval" ? "#92400E" : C.slate, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: p.status === "awaiting_approval" ? C.warningInk : C.slate, flexShrink: 0 }}>
                   {title(p.channel)}{p.status === "awaiting_approval" ? " · needs approval" : ""}
                 </span>
               </button>
@@ -289,10 +289,10 @@ export function InsightsPage({ onOpenPost, showToast, side }) {
       <div style={{ maxWidth: side ? 1320 : 1100, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20 }}>
       <div id="insights-main" style={{ flex: "1 1 620px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-          <div role="group" aria-label="Time range" style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden", background: "#fff" }}>
+          <div role="group" aria-label="Time range" style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 9, overflow: "hidden", background: C.surface }}>
             {[7, 30, 90].map((d) => (
               <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}
-                style={{ height: 32, padding: "0 12px", border: "none", background: days === d ? C.ink : "#fff", color: days === d ? "#fff" : C.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY }}>
+                style={{ height: 32, padding: "0 12px", border: "none", background: days === d ? C.ink : C.surface, color: days === d ? C.onAccent : C.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY }}>
                 {d} days
               </button>
             ))}
@@ -410,7 +410,7 @@ function Picker({ label, allLabel, noun, options, value, onChange }) {
         style={{ ...btn, paddingRight: 10, borderColor: all ? C.border : C.ink }}>
         <span style={{ display: "inline-flex" }}>
           {(all ? [] : chosen.slice(0, 3)).map((id, i) => (
-            <span key={id} style={{ width: 9, height: 9, borderRadius: 99, background: (options.find((o) => o.id === id) || {}).dot || C.slate, border: "1.5px solid #fff", marginLeft: i ? -3 : 0 }} />
+            <span key={id} style={{ width: 9, height: 9, borderRadius: 99, background: (options.find((o) => o.id === id) || {}).dot || C.slate, border: `1.5px solid ${C.surface}`, marginLeft: i ? -3 : 0 }} />
           ))}
         </span>
         {text}
@@ -418,7 +418,7 @@ function Picker({ label, allLabel, noun, options, value, onChange }) {
       </button>
       {open ? (
         <div role="listbox" aria-label={label} aria-multiselectable="true"
-          style={{ position: "absolute", top: 38, left: 0, zIndex: 30, minWidth: 250, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(20,24,40,.16)", padding: 6 }}>
+          style={{ position: "absolute", top: 38, left: 0, zIndex: 30, minWidth: 250, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(20,24,40,.16)", padding: 6 }}>
           <div style={{ display: "flex", alignItems: "center", padding: "4px 8px 6px", gap: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: C.slate, textTransform: "uppercase" }}>{label}</span>
             <button type="button" onClick={() => onChange([])} disabled={all}
@@ -432,7 +432,7 @@ function Picker({ label, allLabel, noun, options, value, onChange }) {
               <div key={o.id} role="option" aria-selected={on} tabIndex={0} onClick={() => toggle(o.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(o.id); } }}
                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 8px", borderRadius: 8, cursor: "pointer", fontSize: 13, color: C.ink, background: on ? "#F4F6FB" : "transparent" }}>
-                <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${on ? C.ink : C.border}`, background: on ? C.ink : C.surface, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {on ? <Check size={11} color="#fff" strokeWidth={3} /> : null}
                 </span>
                 <span style={{ width: 9, height: 9, borderRadius: 99, background: o.dot || C.slate, flexShrink: 0 }} />
@@ -688,7 +688,7 @@ function PostResultsDialog({ post, onClose, onOpenPost, showToast }) {
               style={{ height: 36, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13 }} />
             <textarea value={note} onChange={(e) => setNote(e.target.value)} aria-label="Message (optional)" placeholder="A message to go with it (optional)" rows={2} maxLength={1000}
               style={{ borderRadius: 8, border: `1px solid ${C.border}`, padding: 10, fontFamily: FONT_BODY, fontSize: 13, resize: "vertical" }} />
-            <div><button type="submit" style={{ ...btn, background: C.ink, color: "#fff", borderColor: C.ink }} disabled={!to.trim() || busy === "mail"} title="Email these numbers"><Send size={13} /> {busy === "mail" ? "Sending…" : "Email these numbers"}</button></div>
+            <div><button type="submit" style={{ ...btn, background: C.ink, color: C.onAccent, borderColor: C.ink }} disabled={!to.trim() || busy === "mail"} title="Email these numbers"><Send size={13} /> {busy === "mail" ? "Sending…" : "Email these numbers"}</button></div>
           </form>
         </div>
       </div>

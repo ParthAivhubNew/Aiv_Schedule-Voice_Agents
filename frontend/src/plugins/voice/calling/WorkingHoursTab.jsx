@@ -6,11 +6,11 @@ import { api } from "../../../api/apiClient";
 import { notice } from "../../../utils/notice";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const time = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: "#fff" };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 18 };
+const time = { height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 8px", fontFamily: FONT_BODY, fontSize: 13, background: C.surface };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18 };
 const pill = (on) => ({
-  padding: "7px 12px", borderRadius: 9, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : "#fff",
-  color: on ? "#fff" : C.textInk, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
+  padding: "7px 12px", borderRadius: 9, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : C.surface,
+  color: on ? C.onAccent : C.textInk, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
 });
 
 function mins(t) {

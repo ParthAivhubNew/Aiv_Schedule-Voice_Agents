@@ -65,7 +65,7 @@ function DuplicatesDialog({ notice, onClose }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", padding: 12 }} onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Duplicates that were not added" ref={ref} tabIndex={-1} onClick={(e) => e.stopPropagation()}
-        style={{ outline: "none", background: "#fff", borderRadius: 14, width: "min(860px, 100%)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,.25)" }}>
+        style={{ outline: "none", background: C.surface, borderRadius: 14, width: "min(860px, 100%)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,.25)" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "16px 18px 10px" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={{ ...text, fontSize: 17, fontWeight: 700, color: C.ink, margin: 0 }}>
@@ -102,7 +102,7 @@ export function DuplicatesNotice() {
   const list = notice.kind === "list";
   return (
     <>
-      {!open ? <div role="status" style={{ position: "fixed", left: 16, bottom: 16, zIndex: 1900, maxWidth: "min(460px, calc(100vw - 32px))", background: "#fff", border: `1px solid ${C.border}`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, boxShadow: C.shadowCardHover, padding: "10px 12px", display: "flex", gap: 10, alignItems: "center" }}>
+      {!open ? <div role="status" style={{ position: "fixed", left: 16, bottom: 16, zIndex: 1900, maxWidth: "min(460px, calc(100vw - 32px))", background: C.surface, border: `1px solid ${C.border}`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, boxShadow: C.shadowCardHover, padding: "10px 12px", display: "flex", gap: 10, alignItems: "center" }}>
         <Copy size={16} color={C.amber} aria-hidden="true" style={{ flex: "none" }} />
         <div style={{ ...text, fontSize: 13.5, color: C.textInk, flex: 1, minWidth: 0 }}>
           {list ? `${plural(notice.total, "company was", "companies were")} already in that list.` : `${plural(notice.total, "duplicate", "duplicates")} not added: already saved.`}

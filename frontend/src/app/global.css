@@ -81,6 +81,33 @@ button, input, select, textarea {
   --c-lime-soft: #E9F6CF;
   --c-lime-ink: #2F4A0C;
   --c-on-accent: #FFFFFF;
+  /* deliberate colour sets (tokens.js): filter cards, emerald chips, connector pills, TPS tones, org chart levels */
+  --c-filter-amber: #D97706;
+  --c-filter-orange: #EA580C;
+  --c-chip-emerald: #047857;
+  --c-chip-emerald-line: #86C5A8;
+  --c-chip-emerald-ink: #065F46;
+  --c-pill-good-line: #BBEBDC;
+  --c-pill-warn-line: #FDE68A;
+  --c-pill-bad-bg: #FEE2E2;
+  --c-pill-bad-ink: #991B1B;
+  --c-pill-bad-line: #FECACA;
+  --c-pill-soon-bg: #EEF2FF;
+  --c-pill-soon-ink: #3730A3;
+  --c-pill-soon-line: #E0E7FF;
+  --c-tps-ok-ink: #176B3F;
+  --c-tps-mute-ink: #5B6573;
+  --c-tps-warn-ink: #8A5A00;
+  --c-tps-warn-bg: #FFF1D2;
+  --c-org-green-bar: #6AA621;
+  --c-org-blue-bg: #DCECFB;
+  --c-org-blue-bar: #2F7FD1;
+  --c-org-blue-ink: #12395F;
+  --c-org-orange-bg: #FBE3D8;
+  --c-org-orange-bar: #D9622B;
+  --c-org-orange-ink: #6A2A0C;
+  --c-org-root-bg: #FBEAA0;
+  --c-org-root-line: #E3CF6F;
 }
 
 /* ---------- The shared look (chosen 2026-10-03: soft corners, cool neutrals, dark sidebar) ----------

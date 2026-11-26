@@ -32,7 +32,7 @@ export function ListHandoffPrompt({ plugin }) {
   }, [plugin]);
 
   if (!offer) {
-    return note ? <div role="status" style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 1000, background: C.ink, color: "#fff", padding: "10px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, maxWidth: "calc(100vw - 32px)" }}>{note}</div> : null;
+    return note ? <div role="status" style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 1000, background: C.ink, color: C.onAccent, padding: "10px 16px", borderRadius: 10, fontFamily: FONT_BODY, fontSize: 13, maxWidth: "calc(100vw - 32px)" }}>{note}</div> : null;
   }
   const { from, to, list } = offer;
   const close = () => setOffer(null);
@@ -67,7 +67,7 @@ export function ListHandoffPrompt({ plugin }) {
   return (
     <div onClick={decline} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.45)", display: "grid", placeItems: "center", padding: 16 }}>
       <div role="dialog" aria-modal="true" aria-label="Bring your list across" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === "Escape") decline(); }}
-        style={{ width: "min(440px, 100%)", background: "#fff", borderRadius: 14, padding: 22, display: "grid", gap: 12, fontFamily: FONT_BODY, color: C.ink, boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}>
+        style={{ width: "min(440px, 100%)", background: C.surface, borderRadius: 14, padding: 22, display: "grid", gap: 12, fontFamily: FONT_BODY, color: C.ink, boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}>
         <strong style={{ fontSize: 17 }}>Bring "{list.name}" to {LABEL[to]}?</strong>
         <div style={{ fontSize: 14, color: C.slate, lineHeight: 1.5 }}>
           You had this list open in {LABEL[from]} ({what}). {from === "leadgen" ? "It opens on the Voice call list, ready to look over before calling." : "Its companies are saved to Leads, skipping any you already have, and grouped in a list of the same name."}

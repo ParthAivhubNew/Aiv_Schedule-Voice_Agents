@@ -10,7 +10,7 @@ export function Avatar({ user, size = 32, bg }) {
     return <img src={src} alt="" onError={() => setBroken(src)} style={{ ...circle, objectFit: "cover", display: "block" }} />;
   }
   return (
-    <div aria-hidden="true" style={{ ...circle, background: bg || (user?.is_admin ? C.cobalt : C.slate), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_BODY, fontSize: Math.max(10, Math.round(size * 0.38)), fontWeight: 700 }}>
+    <div aria-hidden="true" style={{ ...circle, background: bg || (user?.is_admin ? C.cobalt : C.slate), color: C.onAccent, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_BODY, fontSize: Math.max(10, Math.round(size * 0.38)), fontWeight: 700 }}>
       {initialsFromName(user?.name)}
     </div>
   );

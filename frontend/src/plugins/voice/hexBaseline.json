@@ -1,0 +1,18 @@
+{
+ "CompanyProfileView.jsx": 27,
+ "ConversationTemplatesView.jsx": 6,
+ "DirectOutboundCallCard.jsx": 16,
+ "TelephonyDocsView.jsx": 80,
+ "VoicePicker.jsx": 13,
+ "VoiceTrunkingHubTab.jsx": 46,
+ "calling/AnalyticsTab.jsx": 4,
+ "calling/CallListTools.jsx": 3,
+ "calling/CallListsView.jsx": 2,
+ "calling/CallPermissions.jsx": 1,
+ "calling/CallScheduleWindow.jsx": 2,
+ "calling/CallingSchedule.jsx": 37,
+ "calling/CallingWorkspace.jsx": 24,
+ "calling/LiveCallCard.jsx": 1,
+ "calling/NumbersPage.jsx": 8,
+ "calling/WhatsappInbox.jsx": 8
+}

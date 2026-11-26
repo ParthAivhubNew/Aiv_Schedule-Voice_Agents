@@ -10,14 +10,14 @@ import { useEscapeLayer } from "./escapeLayers";
 // with a link (no sign-in). Sent on demand, every Monday or on the 1st of each month.
 
 const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER, fontFamily: FONT_BODY };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8,
-  border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
+  border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
 };
-const primary = { ...btn, background: C.ink, color: "#fff", borderColor: C.ink };
-const field = { width: "100%", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", marginTop: 4 };
+const primary = { ...btn, background: C.ink, color: C.onAccent, borderColor: C.ink };
+const field = { width: "100%", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface, marginTop: 4 };
 const label = { display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginTop: 12 };
 const CHANNELS = [["linkedin", "LinkedIn"], ["x", "X"], ["facebook", "Facebook"], ["instagram", "Instagram"], ["threads", "Threads"], ["reddit", "Reddit"]];
 const FREQ = { none: "Sent when you press Send", weekly: "Every Monday at 08:00", monthly: "On the 1st of each month at 08:00" };
@@ -89,7 +89,7 @@ function Preview({ data, onClose }) {
   return createPortal(
     <div role="presentation" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(18,20,28,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div role="dialog" aria-modal="true" aria-label="Report preview" onClick={(e) => e.stopPropagation()}
-        style={{ width: "min(860px, 100%)", height: "min(860px, 100%)", background: "#fff", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FONT_BODY }}>
+        style={{ width: "min(860px, 100%)", height: "min(860px, 100%)", background: C.surface, borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FONT_BODY }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
           <div style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>Preview · {data.period}</div>
           <a href={data.link} target="_blank" rel="noreferrer" className="ui-link" style={{ fontSize: 12.5, fontWeight: 700 }}>Open the shareable page</a>
@@ -169,7 +169,7 @@ export function ReportsPage({ showToast, embedded = false }) {
       </div>
       {embedded ? <div style={{ ...muted, marginTop: -6 }}>Share these numbers with a client or your manager. Everything sent is listed below.</div> : null}
       {mailOff ? (
-        <div style={{ ...card, background: C.amberSoft || "#FCEFDA", borderColor: C.amber, fontSize: 12.5 }}>
+        <div style={{ ...card, background: C.amberSoft || C.amberSoft, borderColor: C.amber, fontSize: 12.5 }}>
           Email sending is not set up for your account yet, so reports cannot be emailed. You can still share each report’s link.
         </div>
       ) : null}

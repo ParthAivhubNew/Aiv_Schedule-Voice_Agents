@@ -358,7 +358,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
 
       <div className="stack-flex" style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
         {/* Left Sidebar: Template Directory */}
-        <div style={{ width: 320, minWidth: 320, borderRight: `1px solid ${C.border}`, background: "#FFFFFF", display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 320, minWidth: 320, borderRight: `1px solid ${C.border}`, background: C.surface, display: "flex", flexDirection: "column" }}>
           {/* Header & Filter Controls */}
           <div style={{ padding: "18px 20px", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -372,7 +372,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   padding: "5px 10px",
                   borderRadius: 7,
                   background: C.cobalt,
-                  color: "#fff",
+                  color: C.onAccent,
                   border: "none",
                   fontSize: 12,
                   fontWeight: 600,
@@ -394,7 +394,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     padding: "5px 0",
                     border: "none",
                     borderRadius: 6,
-                    background: filterDirection === dir ? "#fff" : "transparent",
+                    background: filterDirection === dir ? C.surface : "transparent",
                     color: filterDirection === dir ? C.ink : C.slate,
                     fontFamily: FONT_BODY,
                     fontSize: 11.5,
@@ -429,7 +429,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       borderRadius: 10,
                       cursor: "pointer",
                       border: `1px solid ${isSelected ? C.cobalt : C.border}`,
-                      background: isSelected ? "rgba(75, 115, 255, 0.05)" : "#fff",
+                      background: isSelected ? "rgba(75, 115, 255, 0.05)" : C.surface,
                       transition: "all 0.15s ease"
                     }}
                   >
@@ -452,7 +452,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                           style={{
                             border: "none",
                             background: "transparent",
-                            color: "#DC2626",
+                            color: C.redSolid,
                             cursor: "pointer",
                             padding: "2px 4px",
                             borderRadius: 4,
@@ -479,8 +479,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                           fontWeight: 600,
                           padding: "2px 7px",
                           borderRadius: 4,
-                          background: isOutbound ? "#F0FDF4" : "#F8FAFC",
-                          color: isOutbound ? "#16A34A" : C.slate
+                          background: isOutbound ? C.successBg : C.neutralBg,
+                          color: isOutbound ? C.success : C.slate
                         }}
                       >
                         {isOutbound ? <PhoneCall size={10} /> : <PhoneIncoming size={10} />}
@@ -500,9 +500,9 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
         </div>
 
         {/* Main Workspace */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#F8FAFC" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: C.neutralBg }}>
           {/* Top Bar for active template */}
-          <div className="wrap-narrow tpl-head" style={{ padding: "14px 28px", background: "#fff", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div className="wrap-narrow tpl-head" style={{ padding: "14px 28px", background: C.surface, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <div className="wrap-narrow" style={{ display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ display: "flex", background: C.paperSoft, padding: 3, borderRadius: 8 }}>
                 <button
@@ -511,7 +511,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     padding: "6px 14px",
                     borderRadius: 6,
                     border: "none",
-                    background: activeTab === "editor" ? "#fff" : "transparent",
+                    background: activeTab === "editor" ? C.surface : "transparent",
                     color: activeTab === "editor" ? C.ink : C.slate,
                     fontFamily: FONT_BODY,
                     fontSize: 12.5,
@@ -528,7 +528,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     padding: "6px 14px",
                     borderRadius: 6,
                     border: "none",
-                    background: activeTab === "preview" ? "#fff" : "transparent",
+                    background: activeTab === "preview" ? C.surface : "transparent",
                     color: activeTab === "preview" ? C.ink : C.slate,
                     fontFamily: FONT_BODY,
                     fontSize: 12.5,
@@ -545,7 +545,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     padding: "6px 14px",
                     borderRadius: 6,
                     border: "none",
-                    background: activeTab === "booking" ? "#fff" : "transparent",
+                    background: activeTab === "booking" ? C.surface : "transparent",
                     color: activeTab === "booking" ? C.ink : C.slate,
                     fontFamily: FONT_BODY,
                     fontSize: 12.5,
@@ -559,7 +559,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
               </div>
 
               {statusMsg && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: statusMsg.type === "success" ? "#16A34A" : "#DC2626" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: statusMsg.type === "success" ? C.success : C.redSolid }}>
                   {statusMsg.type === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
                   {statusMsg.text}
                 </div>
@@ -579,8 +579,8 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     gap: 6,
                     padding: "8px 14px",
                     borderRadius: 8,
-                    background: "#FEF2F2",
-                    color: "#DC2626",
+                    background: C.dangerBg,
+                    color: C.redSolid,
                     border: "1px solid #FECACA",
                     fontSize: 13,
                     fontWeight: 600,
@@ -603,7 +603,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   padding: "8px 18px",
                   borderRadius: 8,
                   background: C.cobalt,
-                  color: "#fff",
+                  color: C.onAccent,
                   border: "none",
                   fontSize: 13,
                   fontWeight: 600,
@@ -625,7 +625,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     aria-label="Insert variable"
                     value=""
                     onChange={(e) => insertVariable(e.target.value)}
-                    style={{ maxWidth: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: "#fff", cursor: "pointer" }}
+                    style={{ maxWidth: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 12.5, background: C.surface, cursor: "pointer" }}
                   >
                     <option value="">Insert variable…</option>
                     {VARIABLE_TAGS.map((v) => <option key={v.tag} value={v.tag}>{v.desc} — {v.tag}</option>)}
@@ -633,7 +633,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   <span>Click inside any text box below, then pick a variable. It is filled in on every call.</span>
                 </div>
                 {/* Meta Configuration Card */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 14 }}>
                     Template Information
                   </div>
@@ -652,7 +652,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <select
                         value={formData.call_direction}
                         onChange={(e) => updateFormData({ call_direction: e.target.value })}
-                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: "#fff" }}
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.surface }}
                       >
                         <option value="outbound">Outbound (Proactive Prospecting)</option>
                         <option value="inbound">Inbound (Reception & Qualification)</option>
@@ -662,7 +662,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 1: Greeting Hook */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       1. Opening Hook & Greeting
@@ -679,7 +679,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 2: Permission Check */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       2. Permission & Timing Check
@@ -696,7 +696,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 3: Value Proposition */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       3. Value Proposition & Core Pitch
@@ -713,7 +713,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 4: Smart Objection Handling Matrix */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
@@ -754,7 +754,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                               [obj.key]: e.target.value
                             }
                           }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, background: "#fff", lineHeight: 1.4 }}
+                          style={{ width: "100%", padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12.5, background: C.surface, lineHeight: 1.4 }}
                         />
                       </div>
                     ))}
@@ -762,7 +762,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 5: Booking Transition & Confirmation */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 14 }}>
                     5. Booking Flow & Closing
                   </div>
@@ -801,7 +801,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Section 6: Business Rules & Demo Script */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 4 }}>
                     6. Business Rules & Demo Script
                   </div>
@@ -840,7 +840,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
             <div className="tpl-body" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
               <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
                 {/* Scenario Switcher Card */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
@@ -853,7 +853,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                     <button
                       onClick={runPreview}
                       disabled={previewLoading}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 7, background: C.cobalt, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 7, background: C.cobalt, color: C.onAccent, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                     >
                       <RotateCcw size={12} /> {previewLoading ? "Rendering..." : "Refresh Preview"}
                     </button>
@@ -886,7 +886,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 </div>
 
                 {/* Where each part of the prompt comes from, with a way to change it at its source */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 20, boxShadow: C.shadowCard }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>Where each part comes from</div>
                   <div style={{ fontSize: 12, color: C.slate, margin: "2px 0 12px" }}>This text is put together from several places. Change a part where it lives and it updates here and on every call.</div>
                   <div style={{ display: "grid", gap: 8 }}>
@@ -901,14 +901,14 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       <div key={what} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 10px", padding: "8px 12px", borderRadius: 9, background: C.paperSoft, border: `1px solid ${C.border}`, fontSize: 12.5 }}>
                         <span style={{ flex: "1 1 180px", minWidth: 0, color: C.ink }}>{what}</span>
                         <span style={{ color: C.slate }}>{where}</span>
-                        {go && <button type="button" onClick={go} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Edit</button>}
+                        {go && <button type="button" onClick={go} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Edit</button>}
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Rendered Prompt Box */}
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink }}>
                       What the AI is told on every call
@@ -932,13 +932,13 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
           {activeTab === "booking" && (
             <div className="tpl-body" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
               <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
-                <div className="tpl-card" style={{ background: "#fff", borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
+                <div className="tpl-card" style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 22, boxShadow: C.shadowCard }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>
                       Booking & Call Rules
                     </div>
                     {bookingSaveStatus && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: bookingSaveStatus.type === "success" ? "#16A34A" : "#DC2626" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: bookingSaveStatus.type === "success" ? C.success : C.redSolid }}>
                         {bookingSaveStatus.type === "success" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
                         {bookingSaveStatus.text}
                       </div>
@@ -958,7 +958,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                       padding: "8px 18px",
                       borderRadius: 8,
                       background: bookingDirty ? C.cobalt : C.paperSoft,
-                      color: bookingDirty ? "#fff" : C.slate,
+                      color: bookingDirty ? C.onAccent : C.slate,
                       border: "none",
                       fontSize: 13,
                       fontWeight: 600,
@@ -997,7 +997,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
             style={{
               width: "100%",
               maxWidth: 440,
-              background: "#fff",
+              background: C.surface,
               borderRadius: 14,
               border: `1px solid ${C.border}`,
               boxShadow: "0 24px 60px rgba(15,23,42,0.28)",
@@ -1041,7 +1041,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                 onClick={() => setDeleteModalTarget(null)}
                 disabled={saving}
                 style={{
-                  background: "#fff",
+                  background: C.surface,
                   border: `1px solid ${C.border}`,
                   borderRadius: 8,
                   padding: "9px 16px",
@@ -1065,7 +1065,7 @@ export function ConversationTemplatesView({ notifications, setNotifications, emb
                   fontSize: 13,
                   fontWeight: 700,
                   cursor: saving ? "wait" : "pointer",
-                  color: "#fff",
+                  color: C.onAccent,
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,

@@ -122,7 +122,7 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
   ];
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, margin: 0 }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20, margin: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>What Calling uses</div>
@@ -133,7 +133,7 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
         <button
           type="button"
           onClick={() => onOpenCredentials && onOpenCredentials()}
-          style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}
         >
           Connect providers
         </button>
@@ -151,7 +151,7 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
               padding: "12px 14px",
               borderRadius: 10,
               border: `1px solid ${r.ok ? "#E2E8F0" : "#FDE68A"}`,
-              background: r.ok ? "#F8FAFC" : "#FFFBEB",
+              background: r.ok ? C.neutralBg : C.warningBg,
             }}
           >
             <div>
@@ -169,9 +169,9 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
                       gap: 5,
                       padding: "2px 8px",
                       borderRadius: 6,
-                      background: r.isPhone ? "#F1F5F9" : "#EFF6FF",
+                      background: r.isPhone ? C.neutralSoft : C.infoBg,
                       border: `1px solid ${r.isPhone ? "#CBD5E1" : "#BFDBFE"}`,
-                      color: r.isPhone ? "#334155" : "#1D4ED8",
+                      color: r.isPhone ? "#334155" : C.infoInk,
                       fontSize: 11.5,
                       fontWeight: 600,
                       fontFamily: FONT_MONO,
@@ -179,13 +179,13 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
                     }}
                     title={r.isPhone ? `Line Number: ${r.model}` : `Active Model: ${r.model}`}
                   >
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: r.isPhone ? "#64748B" : "#2563EB" }} />
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: r.isPhone ? "#64748B" : C.info }} />
                     {r.model}
                   </span>
                 )}
               </div>
               {r.recommend && (
-                <span style={{ display: "block", fontSize: 11, fontWeight: 500, color: "#B45309", marginTop: 2 }}>
+                <span style={{ display: "block", fontSize: 11, fontWeight: 500, color: C.warning, marginTop: 2 }}>
                   Tip: add TTS plugin + Voice ID for your clone
                 </span>
               )}
@@ -193,7 +193,7 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{
                 fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
-                background: r.ok ? "#D1FAE5" : "#FEF3C7", color: r.ok ? "#065F46" : "#92400E",
+                background: r.ok ? "#D1FAE5" : C.warningSoft, color: r.ok ? "#065F46" : C.warningInk,
               }}>
                 {r.ok ? "Ready" : "Needed"}
               </span>
@@ -208,7 +208,7 @@ export function CallPluginStackBoard({ hubData, connections = [], onChangeModel,
                     }
                   }}
                   style={{
-                    background: C.ink, color: "#fff", border: "none", borderRadius: 7,
+                    background: C.ink, color: C.onAccent, border: "none", borderRadius: 7,
                     padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
                   }}
                 >
@@ -342,7 +342,7 @@ export function TelnyxAssistantSettingsCard() {
             type="button"
             onClick={handleSave}
             disabled={!loaded || saving}
-            style={{ background: C.ink, border: "none", borderRadius: 8, padding: "8px 16px", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}
+            style={{ background: C.ink, border: "none", borderRadius: 8, padding: "8px 16px", color: C.onAccent, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}
           >
             {saving ? "Saving..." : "Save"}
           </button>
@@ -363,7 +363,7 @@ export function TelnyxAssistantSettingsCard() {
                   <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.slate }}>{label}</div>
                   <div style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: C.textInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{url}</div>
                 </div>
-                <button type="button" onClick={() => copyUrl(k, url)} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                <button type="button" onClick={() => copyUrl(k, url)} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
                   {copied === k ? "Copied" : "Copy"}
                 </button>
               </div>
@@ -385,7 +385,7 @@ export function TelnyxAssistantSettingsCard() {
               type="button"
               onClick={handleDial}
               disabled={dialing || !dialTo.trim()}
-              style={{ background: C.cobalt || C.ink, border: "none", borderRadius: 8, padding: "0 16px", color: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: dialing ? "wait" : "pointer", whiteSpace: "nowrap" }}
+              style={{ background: C.cobalt || C.ink, border: "none", borderRadius: 8, padding: "0 16px", color: C.onAccent, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: dialing ? "wait" : "pointer", whiteSpace: "nowrap" }}
             >
               {dialing ? "Calling..." : "Call"}
             </button>
@@ -650,7 +650,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
       {/* 1. HERO ACTIVE STACK CARD */}
       <div
         style={{
-          background: "#fff",
+          background: C.surface,
           borderRadius: 14,
           padding: "24px 28px",
           color: C.textInk,
@@ -674,8 +674,8 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                     <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} /> Live Call Ready
                   </span>
                 ) : (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: "#FEF3C7", border: "1px solid #FDE68A", color: "#92400E", fontSize: 11, fontWeight: 600 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#F59E0B" }} /> Not Configured
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 12, background: C.warningSoft, border: "1px solid #FDE68A", color: C.warningInk, fontSize: 11, fontWeight: 600 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.warningBright }} /> Not Configured
                   </span>
                 )}
               </div>
@@ -712,11 +712,11 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               type="button"
               onClick={() => setLiveKitModalOpen(true)}
               style={{
-                background: "linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)",
+                background: `linear-gradient(135deg, ${C.info} 0%, ${C.infoInk} 100%)`,
                 border: "none",
                 borderRadius: 8,
                 padding: "8px 16px",
-                color: "#fff",
+                color: C.onAccent,
                 fontFamily: FONT_BODY,
                 fontSize: 12.5,
                 fontWeight: 700,
@@ -739,7 +739,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 border: "none",
                 borderRadius: 8,
                 padding: "8px 16px",
-                color: "#fff",
+                color: C.onAccent,
                 fontFamily: FONT_BODY,
                 fontSize: 12.5,
                 fontWeight: 700,
@@ -811,12 +811,12 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
 
         {/* 5-Point Diagnostic Scorecard Banner */}
         {diagScore && (
-          <div style={{ padding: "14px 16px", borderRadius: 10, background: diagScore.all_passed ? "#F0FDF4" : "#FFFBEB", border: `1px solid ${diagScore.all_passed ? "#BBF7D0" : "#FDE68A"}`, marginTop: 8 }}>
+          <div style={{ padding: "14px 16px", borderRadius: 10, background: diagScore.all_passed ? C.successBg : C.warningBg, border: `1px solid ${diagScore.all_passed ? "#BBF7D0" : "#FDE68A"}`, marginTop: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Activity size={16} color={diagScore.all_passed ? "#16A34A" : "#D97706"} />
                 <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: C.ink }}>5-Point Universal Diagnostics</span>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: diagScore.all_passed ? "#DCFCE7" : "#FEF3C7", color: diagScore.all_passed ? "#15803D" : "#B45309" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 5, background: diagScore.all_passed ? C.successSoft : C.warningSoft, color: diagScore.all_passed ? C.green : C.warning }}>
                   SCORE: {diagScore.overall_score || (diagScore.all_passed ? "5/5 PASS" : "ATTENTION")}
                 </span>
               </div>
@@ -833,7 +833,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 const isWarn = item.data?.status === "warn";
                 const summary = item.data?.summary || (Array.isArray(item.data?.details) ? item.data.details[0] : item.data?.details) || (passed ? "Ready" : "Not configured");
                 return (
-                  <div key={idx} style={{ padding: "8px 10px", borderRadius: 7, background: "#fff", border: `1px solid ${passed ? "#BBF7D0" : isWarn ? "#FDE68A" : "#FCA5A5"}` }}>
+                  <div key={idx} style={{ padding: "8px 10px", borderRadius: 7, background: C.surface, border: `1px solid ${passed ? "#BBF7D0" : isWarn ? "#FDE68A" : "#FCA5A5"}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink }}>{item.label}</span>
                       {passed ? <CheckCircle2 size={13} color="#16A34A" /> : isWarn ? <AlertTriangle size={13} color="#D97706" /> : <AlertTriangle size={13} color="#DC2626" />}
@@ -933,7 +933,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
       >
         
         {/* Line Credentials & Activation Form */}
-        <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 24, margin: 0 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 24, margin: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk, margin: 0 }}>Configure Line Credentials & Activation</h3>
           </div>
@@ -1027,7 +1027,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               <select
                 value={silenceDurationMs}
                 onChange={(e) => setSilenceDurationMs(Number(e.target.value))}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: C.surface }}
               >
                 <option value={320}>Fast (320ms)</option>
                 <option value={380}>Balanced (380ms)</option>
@@ -1042,7 +1042,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               <select
                 value={temperature}
                 onChange={(e) => setTemperature(Number(e.target.value))}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: "#fff" }}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, outline: "none", background: C.surface }}
               >
                 <option value={0.85}>Warm</option>
                 <option value={0.80}>Balanced</option>
@@ -1063,7 +1063,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 12,
-                background: inboundRoutingOpen ? "#F8FAFC" : "#fff",
+                background: inboundRoutingOpen ? C.neutralBg : C.surface,
                 border: `1px solid ${C.border}`,
                 borderRadius: 10,
                 padding: "12px 14px",
@@ -1102,13 +1102,13 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
             {inboundRoutingOpen && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginTop: 12 }}>
               {/* Webhook Box */}
-              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Public Inbound Webhook URL</span>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(webhookUrl, "webhook")}
-                    style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                    style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
                   >
                     {copiedWebhook ? <Check size={11} color={C.green} /> : <Copy size={11} />}
                     {copiedWebhook ? "Copied" : "Copy"}
@@ -1119,13 +1119,13 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               </div>
 
               {/* Carrier SIP Box */}
-              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Inbound FQDN Target</span>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(`${hubData?.xaiFqdn || "sip.voice.x.ai"}:5060`, "fqdn")}
-                    style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                    style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
                   >
                     {copiedFqdn ? <Check size={11} color={C.green} /> : <Copy size={11} />}
                     {copiedFqdn ? "Copied" : "Copy"}
@@ -1138,14 +1138,14 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               </div>
 
               {/* Webhook Signing Secret Box */}
-              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+              <div style={{ background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: C.slate, textTransform: "uppercase" }}>Webhook Signing Secret (Svix)</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <button
                       type="button"
                       onClick={() => setShowSecret(!showSecret)}
-                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
                       title={signingSecret ? (showSecret ? "Hide" : "Show one-time secret") : "Full secret stays encrypted — only mask is available"}
                     >
                       {showSecret ? <EyeOff size={11} /> : <Eye size={11} />}
@@ -1164,7 +1164,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                         }
                         copyToClipboard(copyVal, "secret");
                       }}
-                      style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
+                      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.slate }}
                     >
                       {copiedSecret ? <Check size={11} color={C.green} /> : <Copy size={11} />}
                       {copiedSecret ? "Copied" : "Copy"}
@@ -1209,7 +1209,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
               {provisionMsg.message}
             </div>
             {provisionMsg.signingSecret && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", padding: "10px 14px", borderRadius: 8, border: "1px solid #A7F3D0", flexWrap: "wrap", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.surface, padding: "10px 14px", borderRadius: 8, border: "1px solid #A7F3D0", flexWrap: "wrap", gap: 10 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   <span style={{ fontSize: 11, color: C.slate, fontWeight: 700, textTransform: "uppercase" }}>🔑 Your Webhook Signing Secret (Copy & Save)</span>
                   <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: C.ink, wordBreak: "break-all" }}>{provisionMsg.signingSecret}</span>
@@ -1242,7 +1242,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 padding: "10px 12px",
                 borderRadius: 10,
                 background: "#0F172A",
-                color: "#F8FAFC",
+                color: C.neutralBg,
                 fontSize: 12.5,
                 lineHeight: 1.45,
                 boxShadow: "0 10px 28px rgba(15,23,42,0.28)",
@@ -1271,7 +1271,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
             aria-describedby="provision-stack-tip"
             style={{
               background: "linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%)",
-              color: "#fff",
+              color: C.onAccent,
               border: "none",
               borderRadius: 10,
               padding: "14px 32px",
@@ -1330,7 +1330,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
             style={{
               width: "100%",
               maxWidth: 420,
-              background: "#fff",
+              background: C.surface,
               borderRadius: 14,
               border: `1px solid ${C.border}`,
               boxShadow: "0 24px 60px rgba(15,23,42,0.28)",
@@ -1372,7 +1372,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                 type="button"
                 onClick={() => setProvisionConfirmOpen(false)}
                 style={{
-                  background: "#fff",
+                  background: C.surface,
                   border: `1px solid ${C.border}`,
                   borderRadius: 8,
                   padding: "9px 16px",
@@ -1395,7 +1395,7 @@ export function VoiceTrunkingHubTab({ notifications, setNotifications, profile, 
                   fontSize: 14,
                   fontWeight: 800,
                   cursor: "pointer",
-                  color: "#fff",
+                  color: C.onAccent,
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 8,

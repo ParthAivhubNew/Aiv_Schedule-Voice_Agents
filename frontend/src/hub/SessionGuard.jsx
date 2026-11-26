@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api/apiClient";
 import { authStorage } from "../api/authStore";
+import { C } from "../tokens";
 
 // Signs the user out after a stretch of inactivity, and after a maximum time since they signed in,
 // so a screen left open (or a borrowed browser) is not open to anyone for days.
@@ -75,7 +76,7 @@ export function SessionGuard({ onTimeout, busy = false }) {
   if (left == null) return null;
   return (
     <div role="alertdialog" aria-modal="true" aria-label="Still there?" style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(17,24,39,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 22, maxWidth: 380, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,.25)", fontFamily: "inherit" }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 22, maxWidth: 380, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,.25)", fontFamily: "inherit" }}>
         <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Still there?</div>
         <div style={{ fontSize: 13.5, color: "#4B5260", lineHeight: 1.5, marginBottom: 16 }}>
           You haven't done anything for a while. For your security you'll be signed out in {left} second{left === 1 ? "" : "s"}.

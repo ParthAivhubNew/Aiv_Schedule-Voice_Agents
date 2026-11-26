@@ -22,7 +22,7 @@ const NETWORKS = {
 
 const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14 };
 const h3 = { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, margin: 0 };
 
 function when(iso) {
@@ -169,7 +169,7 @@ function PostRow({ post, toast, lists, meetings }) {
                 <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare(null)}>Cancel</button>
               </div>
               {share.pick && preview ? (
-                <div style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: 8 }}>
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 8 }}>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
                     <input className="ui-input" aria-label="Search the list" placeholder="Search name, company or email" style={{ flex: 1, minWidth: 160, height: 30 }} value={share.q || ""} onChange={(e) => setShare({ ...share, q: e.target.value })} />
                     <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setShare({ ...share, chosen: new Set(sendable.map((p) => p.id)) })}>All</button>
@@ -203,7 +203,7 @@ function PostRow({ post, toast, lists, meetings }) {
             <span style={{ ...muted, fontSize: 12 }}>Only people who commented or replied in public are listed. Tick them, then add them to your leads.</span>
           </div>
           {!data ? <Loader compact label="Loading" /> : !data.engagers.length ? (
-            <div style={{ ...muted, background: "#fff", border: `1px dashed ${C.border}`, borderRadius: 10, padding: 12 }}>
+            <div style={{ ...muted, background: C.surface, border: `1px dashed ${C.border}`, borderRadius: 10, padding: 12 }}>
               Nobody yet. Press <b>Check the networks for comments</b>. Some networks do not share who commented, so you can also add someone by hand below.
             </div>
           ) : (
@@ -222,7 +222,7 @@ function PostRow({ post, toast, lists, meetings }) {
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                 {data.engagers.map((e) => (
                   <li key={e.id}>
-                    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", ...text, fontSize: 13, background: "#fff", border: `1px solid ${picked.has(e.id) ? TEAL : C.border}`, borderRadius: 10, padding: "8px 10px", cursor: e.lead_id ? "default" : "pointer" }}>
+                    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", ...text, fontSize: 13, background: C.surface, border: `1px solid ${picked.has(e.id) ? TEAL : C.border}`, borderRadius: 10, padding: "8px 10px", cursor: e.lead_id ? "default" : "pointer" }}>
                       <input type="checkbox" style={{ marginTop: 3, accentColor: TEAL }} disabled={Boolean(e.lead_id)} checked={picked.has(e.id)}
                         onChange={(ev) => setPicked((p) => { const n = new Set(p); if (ev.target.checked) n.add(e.id); else n.delete(e.id); return n; })} />
                       <span style={{ flex: 1, minWidth: 0 }}>
@@ -466,9 +466,9 @@ export function SocialConnect({ showToast, onDrafted, onOpenApprovals }) {
             return (
               <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => setTab(t.id)}
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13,
-                  border: `1px solid ${on ? "#12141C" : C.border}`, background: on ? "#12141C" : "#fff", color: on ? "#fff" : "#12141C" }}>
+                  border: `1px solid ${on ? "#12141C" : C.border}`, background: on ? C.ink : C.surface, color: on ? C.onAccent : C.ink }}>
                 <Icon size={14} /> {t.label}
-                {t.count != null ? <span style={{ fontSize: 11, borderRadius: 99, padding: "0 7px", background: on ? "rgba(255,255,255,0.22)" : HUB_PAPER, color: on ? "#fff" : C.slate }}>{t.count}</span> : null}
+                {t.count != null ? <span style={{ fontSize: 11, borderRadius: 99, padding: "0 7px", background: on ? "rgba(255,255,255,0.22)" : HUB_PAPER, color: on ? C.onAccent : C.slate }}>{t.count}</span> : null}
               </button>
             );
           })}

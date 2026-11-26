@@ -56,6 +56,17 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
     page CSS). One white whose job couldn't be told is left as it is. Nothing looks different.
   - **What's left:** about 200 of the 438 are in files where a colour is data or leaves the app (e-mail designs, form embeds, map pins,
     supplier logos) and must stay as written. The rest are the deliberate sets above and a few dark inks (`#000`, `#111`).
+- ✅ **Voice, Social and the home screen, and Leads' sets named (2026-11-26): no visible change.**
+  - Both scripts now take `--dirs=` and ran on `plugins/voice`, `plugins/scheduler` (Social) and `hub` (home, sign-in, profile):
+    147 exact token colours and 431 whites (`surface` / `onAccent`) moved, **1,021 → 440** hard-coded colours there. Eight whites whose
+    job couldn't be told were left. They reuse a `C` already imported from `app/constants.jsx`, which re-exports the same tokens.
+  - Left as written: the logo (`BrandMark.jsx`), each app's own colour (`hub/apps.js`) and chart attributes in files that draw
+    recharts charts, which use `HEX`.
+  - `tokens.test.js` now ratchets all four folders, each with its own `hexBaseline.json` (Voice 278, Social 93, home 69).
+  - **Leads' deliberate sets are named**, each colour with exactly today's value and its own CSS variable, so dark mode can give it a
+    dark one: filter cards (`filterAmber`, `filterOrange`; ready / new were exactly `success` / `info`), emerald chips (`chipEmerald*`),
+    connector pills (`pill*`), TPS tones (`tps*`) and org chart levels (`org*`). Leads **438 → 400**.
+  - Tests 749 passed, no lint errors, build clean. Not looked at in a browser: every value is unchanged.
 
 **Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
 - **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).

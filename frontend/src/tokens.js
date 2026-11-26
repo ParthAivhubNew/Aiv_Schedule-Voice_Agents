@@ -53,6 +53,39 @@ export const HEX = {
   limeInk: "#2F4A0C",
   surface: "#FFFFFF", // the shared --ui-surface: cards, panels, tables, inputs (a dark colour in dark mode)
   onAccent: "#FFFFFF", // text and icons on a coloured fill: a filled button, a badge, a dark tooltip (stays light in dark mode)
+  // Deliberate colour sets, named so dark mode can give each its own dark value. Each is a set of colours meant to go together, kept
+  // exactly as it was (plan 10, Phase 4): merging them into the status colours above would change the look.
+  // The filter cards' counts (Find Leads, Lists): the amber and orange marks; ready / new use success / info.
+  filterAmber: "#D97706",
+  filterOrange: "#EA580C",
+  // The emerald filter chips (Lists' filter bar).
+  chipEmerald: "#047857",
+  chipEmeraldLine: "#86C5A8",
+  chipEmeraldInk: "#065F46",
+  // The connector status pills (Connectors).
+  pillGoodLine: "#BBEBDC",
+  pillWarnLine: "#FDE68A",
+  pillBadBg: "#FEE2E2",
+  pillBadInk: "#991B1B",
+  pillBadLine: "#FECACA",
+  pillSoonBg: "#EEF2FF",
+  pillSoonInk: "#3730A3",
+  pillSoonLine: "#E0E7FF",
+  // The TPS check's tones (Leads, Voice).
+  tpsOkInk: "#176B3F",
+  tpsMuteInk: "#5B6573",
+  tpsWarnInk: "#8A5A00",
+  tpsWarnBg: "#FFF1D2",
+  // The org chart's levels (company page): a tint, a bar and an ink for each, and the top card.
+  orgGreenBar: "#6AA621",
+  orgBlueBg: "#DCECFB",
+  orgBlueBar: "#2F7FD1",
+  orgBlueInk: "#12395F",
+  orgOrangeBg: "#FBE3D8",
+  orgOrangeBar: "#D9622B",
+  orgOrangeInk: "#6A2A0C",
+  orgRootBg: "#FBEAA0",
+  orgRootLine: "#E3CF6F",
 };
 
 // The CSS variable each colour lives in. The accent ones are the shared --ui-accent variables, which hold the same colours.

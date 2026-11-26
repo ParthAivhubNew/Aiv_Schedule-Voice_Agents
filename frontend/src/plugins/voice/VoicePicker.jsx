@@ -72,10 +72,10 @@ export function useVoiceLibrary() {
 
 const PILL = {
   ok: { bg: "#ECFDF5", border: "#A7F3D0", color: "#065F46" },
-  missing: { bg: "#FFFBEB", border: "#FDE68A", color: "#92400E" },
-  engine_mismatch: { bg: "#FFFBEB", border: "#FDE68A", color: "#92400E" },
-  key_missing: { bg: "#FEF2F2", border: "#FECACA", color: "#991B1B" },
-  invalid: { bg: "#FEF2F2", border: "#FECACA", color: "#991B1B" },
+  missing: { bg: C.warningBg, border: "#FDE68A", color: C.warningInk },
+  engine_mismatch: { bg: C.warningBg, border: "#FDE68A", color: C.warningInk },
+  key_missing: { bg: C.dangerBg, border: "#FECACA", color: "#991B1B" },
+  invalid: { bg: C.dangerBg, border: "#FECACA", color: "#991B1B" },
 };
 
 // Yellow: nothing picked (or it doesn't fit the engine). Green: set. Red: its key is missing.
@@ -169,7 +169,7 @@ export function VoicePicker({ variant = "full" }) {
               const [kind, ...rest] = e.target.value.split(":");
               if (kind) run("pick", () => setActive(kind, rest.join(":")), "").then((ok) => { if (ok) notice("Call voice changed."); });
             }}
-            style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", color: C.ink }}
+            style={{ width: "100%", boxSizing: "border-box", height: 38, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface, color: C.ink }}
           >
             <option value="">{value ? "" : "Pick a call voice…"}</option>
             {canBuiltin ? (
@@ -228,7 +228,7 @@ export function VoicePicker({ variant = "full" }) {
                     aria-pressed={b.active}
                     disabled={!!busy}
                     onClick={() => run("b_" + b.voiceId, () => setActive("builtin", b.voiceId), "Call voice set to " + b.label + ".")}
-                    style={{ ...chip, borderColor: b.active ? C.teal : C.border, background: b.active ? "#EAF5F3" : "#fff", color: b.active ? C.teal : C.ink }}
+                    style={{ ...chip, borderColor: b.active ? C.teal : C.border, background: b.active ? "#EAF5F3" : C.surface, color: b.active ? C.teal : C.ink }}
                   >
                     {b.active ? <CheckCircle2 size={12} /> : null} {b.label}
                   </button>
@@ -247,11 +247,11 @@ export function VoicePicker({ variant = "full" }) {
                 <div key={prov} style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: C.slate, margin: "4px 0" }}>{grouped[prov][0].providerName}</div>
                   {grouped[prov].map((v) => (
-                    <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: `1px solid ${v.active ? C.teal : C.border}`, borderRadius: 9, marginBottom: 5, background: v.active ? "#F3FAF8" : "#fff" }}>
+                    <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: `1px solid ${v.active ? C.teal : C.border}`, borderRadius: 9, marginBottom: 5, background: v.active ? "#F3FAF8" : C.surface }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{v.label}</div>
                         <div style={{ fontSize: 11, color: C.slate, fontFamily: FONT_MONO, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.voiceId}</div>
-                        {statusNote(v) ? <div style={{ fontSize: 11.5, color: v.status === "key_missing" ? C.red : "#92400E", marginTop: 2 }}>{statusNote(v)}</div> : null}
+                        {statusNote(v) ? <div style={{ fontSize: 11.5, color: v.status === "key_missing" ? C.red : C.warningInk, marginTop: 2 }}>{statusNote(v)}</div> : null}
                       </div>
                       {v.active ? (
                         <span style={{ fontSize: 11.5, fontWeight: 700, color: C.teal }}>In use</span>
@@ -292,7 +292,7 @@ export function VoicePicker({ variant = "full" }) {
                     const ok = await run("add", () => addVoice({ provider: form.provider, voiceId: form.voiceId.trim(), label: form.label.trim(), useForCalls: form.useForCalls }), form.useForCalls ? "Saved and set as the call voice." : "Saved.");
                     if (ok) setForm((f) => ({ ...f, voiceId: "", label: "" }));
                   }}
-                  style={{ ...smallBtn, background: C.ink, color: "#fff", borderColor: C.ink }}
+                  style={{ ...smallBtn, background: C.ink, color: C.onAccent, borderColor: C.ink }}
                 >
                   {busy === "add" ? "Saving…" : "Add voice"}
                 </button>
@@ -339,6 +339,6 @@ export function VoicePicker({ variant = "full" }) {
 }
 
 const sectionLabel = { fontSize: 11.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 };
-const chip = { display: "inline-flex", alignItems: "center", gap: 5, height: 32, padding: "0 12px", borderRadius: 99, border: `1px solid ${C.border}`, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, background: "#fff" };
-const smallBtn = { display: "inline-flex", alignItems: "center", gap: 5, height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY };
-const input = { height: 34, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: "#fff", boxSizing: "border-box", color: C.ink, width: "100%" };
+const chip = { display: "inline-flex", alignItems: "center", gap: 5, height: 32, padding: "0 12px", borderRadius: 99, border: `1px solid ${C.border}`, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, background: C.surface };
+const smallBtn = { display: "inline-flex", alignItems: "center", gap: 5, height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY };
+const input = { height: 34, padding: "0 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: FONT_BODY, fontSize: 13, background: C.surface, boxSizing: "border-box", color: C.ink, width: "100%" };

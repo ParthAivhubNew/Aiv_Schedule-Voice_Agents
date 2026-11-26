@@ -20,7 +20,7 @@ export const SHAPES = [["4:5", "Portrait", "Instagram, Facebook, LinkedIn"], ["1
 export const QUALITIES = [["standard", "Standard", "Faster"], ["high", "High", "Sharper detail, takes longer"]];
 
 const choiceBtn = (on) => ({
-  border: `1.5px solid ${on ? C.teal : C.border}`, background: on ? (C.tealSoft || "#E4F5F2") : "#fff", borderRadius: 10,
+  border: `1.5px solid ${on ? C.teal : C.border}`, background: on ? (C.tealSoft || "#E4F5F2") : C.surface, borderRadius: 10,
   padding: "9px 10px", cursor: "pointer", fontFamily: FONT_BODY, textAlign: "left", minWidth: 0,
 });
 
@@ -66,7 +66,7 @@ export function PictureSettings({ showToast, onOpenTheme }) {
     }
   };
   return (
-    <section aria-labelledby="pics-h" style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 22 }}>
+    <section aria-labelledby="pics-h" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 22 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ImageIcon size={16} color={C.teal} aria-hidden="true" />
         <h3 id="pics-h" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, margin: 0, color: C.ink }}>AI pictures</h3>
@@ -92,7 +92,7 @@ export function PictureSettings({ showToast, onOpenTheme }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
         <button type="button" disabled={busy || !changed || (s.style === "custom" && (s.styleCustom || "").trim().length < 5)} onClick={save}
-          style={{ height: 34, padding: "0 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY, opacity: busy || !changed ? 0.6 : 1 }}>
+          style={{ height: 34, padding: "0 14px", borderRadius: 8, border: "none", background: C.teal, color: C.onAccent, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY, opacity: busy || !changed ? 0.6 : 1 }}>
           {busy ? "Saving…" : "Save picture settings"}
         </button>
         {!changed ? <span style={{ fontSize: 12, color: C.slate }}>Saved</span> : null}

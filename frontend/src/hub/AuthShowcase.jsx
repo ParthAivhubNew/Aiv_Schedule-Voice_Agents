@@ -1,5 +1,5 @@
 import React from "react";
-import { FONT_BODY } from "../tokens";
+import { C, FONT_BODY } from "../tokens";
 import { APPS } from "./apps";
 
 // The left half of the sign-in page (wide screens only): what Outreach is, in one sentence,
@@ -31,14 +31,14 @@ export function AuthShowcase() {
 }
 
 const SHOW_CSS = `
-.auth-show { position: relative; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; padding: 40px clamp(32px, 5vw, 64px); color: #fff; font-family: ${FONT_BODY};
+.auth-show { position: relative; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; padding: 40px clamp(32px, 5vw, 64px); color: ${C.onAccent}; font-family: ${FONT_BODY};
   background: radial-gradient(900px 600px at 0% 0%, rgba(52,87,213,.22), transparent 60%), #111520; }
 .sh-body { margin: auto 0; max-width: 500px; padding: 48px 0; }
 .sh-body h2 { font-size: clamp(28px, 3vw, 38px); font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 14px; text-wrap: balance; }
 .sh-body > p { font-size: 15px; line-height: 1.55; color: #A7AEBD; margin: 0 0 36px; }
 .sh-apps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
 .sh-apps li { display: flex; gap: 14px; align-items: flex-start; }
-.sh-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; }
+.sh-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: ${C.onAccent}; }
 .sh-apps strong { display: block; font-size: 15px; font-weight: 600; margin-bottom: 3px; }
 .sh-desc { display: block; font-size: 13.5px; line-height: 1.5; color: #A7AEBD; }
 `;

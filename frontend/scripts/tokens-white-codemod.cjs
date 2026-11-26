@@ -4,8 +4,8 @@
 //   C.onAccent  text, an icon's fill or stroke on a coloured fill                  -> --c-on-accent
 // Both are white today, so nothing looks different. A white whose job can't be told from where it is written is left alone, and so are
 // the files where a colour is data or leaves the app (the same list as tokens-codemod.cjs).
-//   mkdir /tmp/cm && cd /tmp/cm && npm i @babel/parser@7.26.3 @babel/traverse@7.26.4 && NODE_PATH=/tmp/cm/node_modules node <repo>/frontend/scripts/tokens-white-codemod.cjs <repo>/frontend/src [--write]
-// Then lower plugins/leadgen/hexBaseline.json (tokens.test.js only lets the counts go down).
+//   mkdir /tmp/cm && cd /tmp/cm && npm i @babel/parser@7.26.3 @babel/traverse@7.26.4 && NODE_PATH=/tmp/cm/node_modules node <repo>/frontend/scripts/tokens-white-codemod.cjs <repo>/frontend/src [--dirs=plugins/voice,hub] [--write]
+// Then lower the folder's hexBaseline.json (tokens.test.js only lets the counts go down).
 const fs = require("fs");
 const path = require("path");
 const parser = require("@babel/parser");
@@ -14,7 +14,11 @@ const traverse = require("@babel/traverse").default;
 const SRC = path.resolve(process.argv[2]);
 const WRITE = process.argv.includes("--write");
 const SKIP_FILES = new Set(["ConnectorLogos.jsx", "EmailDesign.jsx", "EmailWriter.jsx", "MailView.jsx", "InboundForms.jsx", "inboundFormLogic.js",
-  "mapPins.js", "drawShape.js", "LeadsMap.jsx"]);
+  "mapPins.js", "drawShape.js", "LeadsMap.jsx",
+  "BrandMark.jsx", "apps.js"]); // the logo, and each app's own identity colour
+// Folders to work on: --dirs plugins/voice,plugins/scheduler,hub (default: the Leads screens).
+const dirsArg = process.argv.find((a) => a.startsWith("--dirs="));
+const DIRS = dirsArg ? dirsArg.slice(7).split(",") : ["plugins/leadgen"];
 const TEXT_KEYS = new Set(["color", "fill", "stroke", "caretColor", "textDecorationColor", "fg", "ink", "text"]);
 const SURFACE_KEYS = new Set(["background", "backgroundColor", "bg", "border", "borderColor", "borderTop", "borderBottom", "borderLeft", "borderRight",
   "borderTopColor", "borderBottomColor", "borderLeftColor", "borderRightColor", "outline", "outlineColor", "boxShadow", "soft", "tint", "track"]);
@@ -45,8 +49,9 @@ function cssProp(text, at) {
 
 let total = 0, unsure = 0;
 const report = [];
-for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
+for (const file of DIRS.flatMap((d) => walk(path.join(SRC, d)))) {
   const code = fs.readFileSync(file, "utf8");
+  const charts = /from "recharts"/.test(code); // chart attributes need a real colour (HEX), not a CSS variable
   let ast;
   try {
     ast = parser.parse(code, { sourceType: "module", plugins: ["jsx"] });
@@ -65,7 +70,7 @@ for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
       let key = "";
       const parent = p.parent;
       if (parent.type === "ObjectProperty" && parent.value === n) key = keyName(parent.key);
-      else if (parent.type === "JSXAttribute") key = ATTR_TEXT.has(parent.name.name) ? "color" : "";
+      else if (parent.type === "JSXAttribute") key = !charts && ATTR_TEXT.has(parent.name.name) ? "color" : "";
       else if (parent.type === "ConditionalExpression" || parent.type === "LogicalExpression") {
         const gp = p.parentPath.parent;
         if (gp.type === "ObjectProperty") key = keyName(gp.key);
@@ -104,7 +109,11 @@ for (const file of walk(path.join(SRC, "plugins/leadgen"))) {
   const spec = rel.startsWith(".") ? rel : "./" + rel;
   const imp = new RegExp(`import \\{([^}]*)\\} from "${spec.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}";`);
   const m = out.match(imp);
-  if (m) {
+  // app/constants.jsx re-exports the same C (with two shadows of its own), so a C imported from either is kept as it is
+  const hasC = /import\s*\{[^}]*\bC\b[^}]*\}\s*from\s*"[^"]*(?:\/tokens|\/app\/constants|\.\/constants)"/.test(out);
+  if (hasC) {
+    // nothing to add
+  } else if (m) {
     const names = m[1].split(",").map((x) => x.trim()).filter(Boolean);
     if (!names.includes("C")) out = out.replace(m[0], `import { ${["C", ...names].join(", ")} } from "${spec}";`);
   } else {

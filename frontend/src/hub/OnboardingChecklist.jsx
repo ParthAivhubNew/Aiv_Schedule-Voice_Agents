@@ -38,7 +38,7 @@ export function OnboardingChecklist({ operator, onGo }) {
 
   const pct = Math.round((data.done / data.total) * 100);
   return (
-    <div style={{ width: "100%", maxWidth: 720, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 32, boxShadow: "0 10px 30px rgba(18,20,28,0.05)" }}>
+    <div style={{ width: "100%", maxWidth: 720, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 32, boxShadow: "0 10px 30px rgba(18,20,28,0.05)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Get started</div>
@@ -61,7 +61,7 @@ export function OnboardingChecklist({ operator, onGo }) {
               if (s.sample?.filters) sendDraft({ filters: s.sample.filters, meta: { sample: !s.sample.own, own: Boolean(s.sample.own) } });
               onGo(s.go);
             }}
-            style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${s.done ? "transparent" : C.border}`, background: s.done ? C.paperSoft : "#fff", cursor: s.done ? "default" : "pointer", fontFamily: FONT_BODY, fontSize: 13, color: s.done ? C.slate : C.textInk, textAlign: "left", textDecoration: s.done ? "line-through" : "none" }}
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, border: `1px solid ${s.done ? "transparent" : C.border}`, background: s.done ? C.paperSoft : C.surface, cursor: s.done ? "default" : "pointer", fontFamily: FONT_BODY, fontSize: 13, color: s.done ? C.slate : C.textInk, textAlign: "left", textDecoration: s.done ? "line-through" : "none" }}
           >
             {s.done ? <CheckCircle2 size={15} color={C.teal} /> : <Circle size={15} color={C.slateLight} />}
             <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>

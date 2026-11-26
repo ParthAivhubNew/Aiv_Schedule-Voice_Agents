@@ -5,15 +5,15 @@ import { niceName, orgGroups } from "./companyLogic";
 
 // The people of one company drawn as an org chart. Clicking anyone opens that person's own page.
 const TONE = {
-  green: { bg: C.limeSoft, bar: "#6aa621", ink: C.limeInk },
-  blue: { bg: "#dcecfb", bar: "#2f7fd1", ink: "#12395f" },
-  orange: { bg: "#fbe3d8", bar: "#d9622b", ink: "#6a2a0c" },
+  green: { bg: C.limeSoft, bar: C.orgGreenBar, ink: C.limeInk },
+  blue: { bg: C.orgBlueBg, bar: C.orgBlueBar, ink: C.orgBlueInk },
+  orange: { bg: C.orgOrangeBg, bar: C.orgOrangeBar, ink: C.orgOrangeInk },
 };
 const css = `
 .oc{display:grid;gap:14px;min-width:0}
 .oc-scroll{overflow-x:auto;padding:4px 2px 10px}
 .oc-root{display:flex;flex-direction:column;align-items:center;min-width:min-content}
-.oc-rootcard{all:unset;cursor:pointer;box-sizing:border-box;background:#fbeaa0;border:1px solid #e3cf6f;border-radius:12px;padding:10px 16px;max-width:340px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.oc-rootcard{all:unset;cursor:pointer;box-sizing:border-box;background:${C.orgRootBg};border:1px solid ${C.orgRootLine};border-radius:12px;padding:10px 16px;max-width:340px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.08)}
 .oc-rootcard:focus-visible,.oc-card:focus-visible,.oc-head:focus-visible{outline:2px solid var(--ui-accent,#2f5bd1);outline-offset:2px}
 .oc-stem{width:2px;height:18px;background:${C.lineStrong}}
 .oc-cols{display:flex;gap:18px;align-items:flex-start;justify-content:center;border-top:2px solid ${C.lineStrong}}

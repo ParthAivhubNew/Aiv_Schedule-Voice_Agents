@@ -8,14 +8,14 @@ import { C, FONT_BODY, FONT_DISPLAY, HUB_PAPER } from "../../tokens";
 // apps search. Each source says plainly when it cannot search and what would fix it.
 
 const page = { flex: 1, overflowY: "auto", padding: "22px 28px 48px", background: HUB_PAPER, fontFamily: FONT_BODY };
-const card = { background: "#fff", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
+const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 };
 const muted = { fontSize: 12.5, color: C.slate, lineHeight: 1.5 };
 const btn = {
   display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8,
-  border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
+  border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY,
 };
-const primary = { ...btn, background: C.ink, color: "#fff", borderColor: C.ink };
-const field = { width: "100%", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", marginTop: 4 };
+const primary = { ...btn, background: C.ink, color: C.onAccent, borderColor: C.ink };
+const field = { width: "100%", height: 34, borderRadius: 8, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface, marginTop: 4 };
 const label = { display: "block", fontSize: 11.5, fontWeight: 700, color: C.slate, marginTop: 10 };
 const SOURCES = [
   ["reddit", "Reddit", "Posts across Reddit, checked every hour."],
@@ -188,12 +188,12 @@ export function ListeningPage({ showToast }) {
                 style={{ border: "none", background: "none", padding: 0, textAlign: "left", width: "100%", cursor: "pointer", fontFamily: FONT_BODY }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontWeight: 700, fontSize: 13.5, flex: 1, minWidth: 0 }}>{t.name}</span>
-                  {t.newCount ? <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: C.teal, borderRadius: 99, padding: "1px 7px" }}>{t.newCount} new</span> : null}
+                  {t.newCount ? <span style={{ fontSize: 11, fontWeight: 700, color: C.onAccent, background: C.teal, borderRadius: 99, padding: "1px 7px" }}>{t.newCount} new</span> : null}
                 </div>
                 <div style={{ ...muted, fontSize: 12 }}>{t.keywords.join(", ")} · {t.sources.map((s) => NAME[s]).join(", ")}</div>
               </button>
               {Object.entries(t.errors || {}).map(([s, e]) => (
-                <div key={s} style={{ display: "flex", gap: 6, fontSize: 11.5, color: C.amberInk || "#92400E", marginTop: 6 }}>
+                <div key={s} style={{ display: "flex", gap: 6, fontSize: 11.5, color: C.amberInk || C.warningInk, marginTop: 6 }}>
                   <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {e}
                 </div>
               ))}
@@ -217,7 +217,7 @@ export function ListeningPage({ showToast }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }} role="group" aria-label="Show">
             {[["new", "New"], ["all", "All"], ["ignored", "Ignored"]].map(([id, name]) => (
               <button key={id} type="button" aria-pressed={status === id} onClick={() => setStatus(id)}
-                style={{ ...btn, background: status === id ? C.ink : "#fff", color: status === id ? "#fff" : C.ink, borderColor: status === id ? C.ink : C.border }}>{name}</button>
+                style={{ ...btn, background: status === id ? C.ink : C.surface, color: status === id ? C.onAccent : C.ink, borderColor: status === id ? C.ink : C.border }}>{name}</button>
             ))}
             <div style={{ flex: 1 }} />
             {total > mentions.length ? <span style={{ ...muted, fontSize: 12 }}>Showing the latest {mentions.length.toLocaleString()} of {total.toLocaleString()}</span> : null}

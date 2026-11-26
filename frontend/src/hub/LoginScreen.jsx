@@ -439,8 +439,8 @@ function StrengthBar({ password }) {
 }
 
 const AUTH_CSS = `
-.auth-root { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: #fff; font-family: ${FONT_BODY}; }
-.auth-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: #fff; }
+.auth-root { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: ${C.surface}; font-family: ${FONT_BODY}; }
+.auth-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: ${C.surface}; }
 .auth-card { width: 100%; max-width: 380px; animation: authIn .35s ease-out both; }
 .auth-brand { display: flex; justify-content: center; margin-bottom: 32px; }
 .auth-title { font-family: ${FONT_DISPLAY}; font-weight: 600; font-size: 24px; letter-spacing: -0.02em; color: ${C.ink}; margin: 0 0 6px; text-align: center; }
@@ -448,17 +448,17 @@ const AUTH_CSS = `
 .auth-stack { display: flex; flex-direction: column; gap: 16px; }
 .auth-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .auth-label label { font-size: 13px; font-weight: 500; color: ${C.textInk}; }
-.auth-input { width: 100%; box-sizing: border-box; height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: #fff; padding: 0 12px; font-family: ${FONT_BODY}; font-size: 14px; color: ${C.textInk}; outline: none; transition: border-color .12s, box-shadow .12s; }
+.auth-input { width: 100%; box-sizing: border-box; height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: ${C.surface}; padding: 0 12px; font-family: ${FONT_BODY}; font-size: 14px; color: ${C.textInk}; outline: none; transition: border-color .12s, box-shadow .12s; }
 .auth-input::placeholder { color: ${C.slateLight}; }
-.auth-input:hover { border-color: #CBD1D9; }
+.auth-input:hover { border-color: ${C.lineStrong}; }
 .auth-input:focus { border-color: ${C.cobalt}; box-shadow: 0 0 0 3px rgba(52,87,213,.22); }
 .auth-eye { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; border: none; background: none; color: ${C.slateLight}; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
-.auth-eye:hover { color: ${C.ink}; background: #F0F2F5; }
-.auth-primary { height: 40px; border-radius: 6px; border: none; color: #fff; background: ${C.cobalt}; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 1px 2px rgba(38,64,158,.25); transition: background .12s; }
+.auth-eye:hover { color: ${C.ink}; background: ${C.paperSoft}; }
+.auth-primary { height: 40px; border-radius: 6px; border: none; color: ${C.onAccent}; background: ${C.cobalt}; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 1px 2px rgba(38,64,158,.25); transition: background .12s; }
 .auth-primary:hover:not(:disabled) { background: #2A49BD; }
 .auth-primary:disabled { opacity: .75; cursor: wait; }
-.auth-secondary { height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: #fff; display: flex; align-items: center; justify-content: center; gap: 10px; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; color: ${C.textInk}; cursor: pointer; transition: background .12s, border-color .12s; }
-.auth-secondary:hover:not(:disabled) { background: #F8F9FB; border-color: #CBD1D9; }
+.auth-secondary { height: 40px; border-radius: 6px; border: 1px solid ${C.border}; background: ${C.surface}; display: flex; align-items: center; justify-content: center; gap: 10px; font-family: ${FONT_BODY}; font-weight: 500; font-size: 14px; color: ${C.textInk}; cursor: pointer; transition: background .12s, border-color .12s; }
+.auth-secondary:hover:not(:disabled) { background: #F8F9FB; border-color: ${C.lineStrong}; }
 .auth-link { background: none; border: none; padding: 0; color: ${C.cobalt}; font-family: ${FONT_BODY}; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .auth-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .auth-primary:focus-visible, .auth-secondary:focus-visible, .auth-link:focus-visible, .auth-eye:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }

@@ -365,7 +365,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
   return (
     <div style={overlay} onClick={onClose}>
       <div role="dialog" aria-label="Schedules" style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", alignItems: "center", gap: 10 }}>
           <CalendarClock size={18} color={C.teal} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18 }}>Schedules</div>
@@ -388,7 +388,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
                   key={s.id}
                   type="button"
                   onClick={() => pick(s)}
-                  style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 11px", marginBottom: 6, borderRadius: 10, border: `1px solid ${on ? C.teal : C.border}`, background: on ? "#EAF5F3" : "#fff", cursor: "pointer", fontFamily: FONT_BODY }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 11px", marginBottom: 6, borderRadius: 10, border: `1px solid ${on ? C.teal : C.border}`, background: on ? "#EAF5F3" : C.surface, cursor: "pointer", fontFamily: FONT_BODY }}
                 >
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: C.ink, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
@@ -404,7 +404,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
           </div>
 
           <div style={{ flex: "999 1 420px", minWidth: 0, display: "flex", flexDirection: "column", maxHeight: "100%" }}>
-            <div style={{ display: "flex", gap: 4, padding: "10px 16px 0", borderBottom: `1px solid ${C.border}`, background: "#fff", overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 4, padding: "10px 16px 0", borderBottom: `1px solid ${C.border}`, background: C.surface, overflowX: "auto" }}>
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -417,7 +417,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
               ))}
             </div>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16, background: "#fff" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16, background: C.surface }}>
               {current && current.status === "ended" ? (
                 <Note tone="warn">{current.endedReason || "This schedule has ended."} Change the end date and save to run it again.</Note>
               ) : null}
@@ -641,7 +641,7 @@ export function ScheduleWindow({ open, onClose, onChanged }) {
               ) : null}
             </div>
 
-            <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 16px", background: "#fff" }}>
+            <div style={{ borderTop: `1px solid ${C.border}`, padding: "10px 16px", background: C.surface }}>
               <div style={{ fontSize: 12.5, color: summary.tone === "warn" ? C.red : summary.tone === "ok" ? C.ink : C.slate, marginBottom: 8, lineHeight: 1.4 }}>
                 {summary.text}
               </div>
@@ -702,7 +702,7 @@ export function Segmented({ value, onChange, options }) {
           type="button"
           aria-pressed={value === o.id}
           onClick={() => onChange(o.id)}
-          style={{ height: 32, padding: "0 12px", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12.5, fontFamily: FONT_BODY, background: value === o.id ? "#fff" : "transparent", color: value === o.id ? C.ink : C.slate, boxShadow: value === o.id ? "0 1px 3px rgba(18,20,28,0.08)" : "none" }}
+          style={{ height: 32, padding: "0 12px", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12.5, fontFamily: FONT_BODY, background: value === o.id ? C.surface : "transparent", color: value === o.id ? C.ink : C.slate, boxShadow: value === o.id ? "0 1px 3px rgba(18,20,28,0.08)" : "none" }}
         >
           {o.label}
         </button>
@@ -721,7 +721,7 @@ export function Chips({ options, value, onChange }) {
           type="button"
           aria-pressed={on.has(o.id)}
           onClick={() => onChange(on.has(o.id) ? (value || []).filter((x) => x !== o.id) : [...(value || []), o.id])}
-          style={{ height: 32, padding: "0 12px", borderRadius: 99, cursor: "pointer", fontWeight: 700, fontSize: 12.5, fontFamily: FONT_BODY, border: `1px solid ${on.has(o.id) ? C.teal : C.border}`, background: on.has(o.id) ? "#EAF5F3" : "#fff", color: on.has(o.id) ? C.teal : C.slate }}
+          style={{ height: 32, padding: "0 12px", borderRadius: 99, cursor: "pointer", fontWeight: 700, fontSize: 12.5, fontFamily: FONT_BODY, border: `1px solid ${on.has(o.id) ? C.teal : C.border}`, background: on.has(o.id) ? "#EAF5F3" : C.surface, color: on.has(o.id) ? C.teal : C.slate }}
         >
           {o.label}
         </button>
@@ -734,7 +734,7 @@ export const overlay = { position: "fixed", inset: 0, background: "rgba(18,20,28
 export const dialog = {
   width: "min(1040px, 100%)",
   height: "min(760px, calc(100vh - 32px))",
-  background: "#fff",
+  background: C.surface,
   borderRadius: 16,
   display: "flex",
   flexDirection: "column",
@@ -743,6 +743,6 @@ export const dialog = {
   fontFamily: FONT_BODY,
   color: C.ink,
 };
-export const input = { width: "100%", height: 38, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: "#fff", color: C.ink };
-export const secBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 36, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: "#fff", color: C.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY };
-export const priBtn = { ...secBtn, border: "none", background: C.ink, color: "#fff" };
+export const input = { width: "100%", height: 38, borderRadius: 9, border: `1px solid ${C.border}`, padding: "0 10px", fontFamily: FONT_BODY, fontSize: 13, boxSizing: "border-box", background: C.surface, color: C.ink };
+export const secBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 36, padding: "0 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FONT_BODY };
+export const priBtn = { ...secBtn, border: "none", background: C.ink, color: C.onAccent };

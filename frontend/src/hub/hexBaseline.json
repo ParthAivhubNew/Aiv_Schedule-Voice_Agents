@@ -1,0 +1,15 @@
+{
+ "AuthShowcase.jsx": 3,
+ "BillingReturnBanner.jsx": 1,
+ "BrandMark.jsx": 12,
+ "ChangePasswordScreen.jsx": 2,
+ "JobDock.jsx": 4,
+ "LoginScreen.jsx": 11,
+ "PluginHub.jsx": 21,
+ "PluginShell.jsx": 6,
+ "ProfilePage.jsx": 3,
+ "SessionGuard.jsx": 1,
+ "SidebarAccountBadge.jsx": 3,
+ "SupportWidgetBridge.jsx": 1,
+ "apps.js": 1
+}
