@@ -6,7 +6,7 @@ import { BrandContext, useBrand } from "./BrandContext";
 import { NO_BRAND, resolveBrand } from "./brandLogic";
 import { PoweredBy } from "./PoweredBy";
 import { StandingChip } from "./StandingChip";
-import { BrandLockup } from "../hub/BrandMark";
+import { BrandLockup, BrandMark } from "../hub/BrandMark";
 
 const FSB = resolveBrand({ host: { name: "FSB", displayName: "FSB Outreach", logoUrl: "https://x.example/l.png", accent: "#112233", poweredBy: true } });
 const wrap = (value, node) => renderToStaticMarkup(<BrandContext.Provider value={value}>{node}</BrandContext.Provider>);
@@ -69,5 +69,21 @@ describe("a brand's accent is the app's accent (plan 10, Phase 4 item 3)", async
     expect(contrastWithWhite(light["--ui-accent"])).toBeGreaterThanOrEqual(4.5);
     expect(accentShades("not a colour")).toBe(null);
     expect(contrastWithWhite("#3457D5")).toBeGreaterThan(4.5); // the default cobalt already reads
+  });
+});
+
+describe("the top of the sidebar", () => {
+  it("always shows the Outreach logo and name, whatever the brand; the company sits in the badge at the bottom", () => {
+    expect(FSB.active && FSB.logoUrl).toBeTruthy();
+    const own = wrap({ ...FSB, loading: false }, <BrandMark size={32} outreach />);
+    expect(own).toContain("<svg");
+    expect(own).not.toContain("x.example/l.png");
+    expect(wrap({ ...FSB, loading: false }, <BrandMark size={32} />)).toContain("x.example/l.png"); // elsewhere the brand's logo still shows
+    const shell = src("../hub/PluginShell.jsx");
+    const head = shell.slice(shell.indexOf("export function SidebarHead"), shell.indexOf("export function PluginSidebar"));
+    expect(head).toContain("<BrandMark size={32} outreach />");
+    expect(head).toContain(">Outreach<");
+    expect(head).toContain("BY AIVHUB");
+    expect(head).not.toContain("brand.name");
   });
 });

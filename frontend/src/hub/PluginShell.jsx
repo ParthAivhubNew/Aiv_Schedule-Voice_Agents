@@ -45,20 +45,20 @@ export function SidebarToggle({ collapsed, onToggle }) {
   );
 }
 
-// The top of an app's sidebar: its icon and name, with the collapse button at the right end of that row. In the icon rail
-// there is no room beside the icon, so the button sits under it (global.css).
+// The top of an app's sidebar: the Outreach logo, with the collapse button at the right end of that row. In the icon rail
+// there is no room beside the icon, so the button sits under it (global.css). It is always Outreach's, for every brand: the
+// company's own name and logo sit in the account badge at the bottom of the sidebar (SidebarAccountBadge).
 export function SidebarHead({ icon, accent, name, collapsed, onToggle, onHome }) {
   const embedded = useEmbedded();
-  const brand = useBrand();
-  const home = brand.active ? `${brand.name}: back to Home` : "Outreach by aivhub: back to Home";
+  const home = "Outreach by aivhub: back to Home";
   return (
     <div className="sb-head">
       {onHome && !embedded ? (
         <button type="button" className="sb-home" onClick={onHome} title={home} aria-label={home.replace(":", ",")}>
-          <BrandMark size={32} accentTile />
+          <BrandMark size={32} outreach />
           <span className="sb-home-text" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand.active ? brand.name : "Outreach"}</span>
-            {brand.active ? null : <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>}
+            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Outreach</span>
+            <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>
           </span>
         </button>
       ) : (

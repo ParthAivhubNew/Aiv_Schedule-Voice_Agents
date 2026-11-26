@@ -2,11 +2,13 @@ import React, { useId } from "react";
 import { useBrand } from "../brand/BrandContext";
 
 // The Outreach by Aivhub logo.
-// A white-label brand swaps in its own logo; with `accentTile` (the sidebar head) a brand without a logo gets a tile in its accent colour.
-export function BrandMark({ size = 36, accentTile = false }) {
+// A white-label brand swaps in its own logo; with `accentTile` a brand without a logo gets a tile in its accent colour. `outreach`
+// always shows Outreach's own logo, whatever the brand (the sidebar head).
+export function BrandMark({ size = 36, accentTile = false, outreach = false }) {
   // Each logo needs its own gradient id: a shared id breaks when the first copy is hidden.
   const gid = `aiv-${useId().replace(/:/g, "")}`;
-  const brand = useBrand();
+  const own = useBrand();
+  const brand = outreach ? { active: false } : own;
   if (brand.active && brand.logoUrl) {
     return <img src={brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ display: "block", flexShrink: 0, height: size, maxWidth: size * 3.5, objectFit: "contain" }} />;
   }
