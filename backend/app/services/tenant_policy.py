@@ -336,6 +336,7 @@ class Policy:
 
 # -- resolution and cache ---------------------------------------------------------
 _CACHE: Dict[str, Any] = {}  # org -> (when, Policy)
+CACHE_MAX = 2000
 
 
 def invalidate(org_id: Optional[str] = None) -> None:
@@ -391,8 +392,8 @@ async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
 
 
 async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
-    """The Policy of an organisation (default: the current one), remembered for 60 seconds. If it cannot be read the last known policy is used,
-    else an empty one is returned unremembered and the problem is logged."""
+    """The Policy of an organisation (default: the current one), remembered for 60 seconds. If it cannot be read, the last known policy is
+    used however old it is, else PolicyUnavailable is raised (answered as 503): the rules are never skipped because a read failed."""
     if not org_id:
         from app.core.tenancy import current_org
 
@@ -415,8 +416,10 @@ async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy
             return hit[1]  # the last known rules, however old: never fewer rules than before
         # Never answer without the rules: a company's member list, exclusions or blocked sources must not vanish because a read failed.
         raise PolicyUnavailable(f"The rules of {org_id} could not be read") from err
-    if len(_CACHE) > 2000:
-        _CACHE.clear()
+    if len(_CACHE) >= CACHE_MAX:
+        # Forget the half read longest ago, not everything: the others' last known rules must stay to fall back on if a read fails.
+        for old in sorted(_CACHE, key=lambda k: _CACHE[k][0])[: CACHE_MAX // 2]:
+            _CACHE.pop(old, None)
     _CACHE[org_id] = (time.monotonic(), pol)
     return pol
 

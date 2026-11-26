@@ -318,12 +318,15 @@ async def _keys(org_id: str, uses: Dict[str, int], staff: bool) -> List[Dict[str
         where = {}
     try:
         pol = await TP.effective(None, org_id)
-    except Exception:
-        pol = None
+    except Exception as err:
+        logger.warning(f"[connectors] company rules unread for {org_id}: {err}")
+        pol = None  # unknown: a source the rules could switch off is shown as off, as using it would be refused too (source_allowed)
     out = []
     for k in KEYS:
         source = where.get(k["word"], "none")
-        if pol is not None and k.get("rule") and pol.restricted(k["rule"]):
+        if pol is None and k.get("rule"):
+            status, why = "off", "Your company's rules couldn't be read just now. Try again in a minute."
+        elif pol is not None and k.get("rule") and pol.restricted(k["rule"]):
             status, why = "off", "Switched off in your company's rules."
         elif source == "none":
             status, why = "not_connected", "No key yet."

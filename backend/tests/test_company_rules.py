@@ -217,3 +217,36 @@ async def test_a_company_under_a_brand_cannot_unlock_the_brand_s_rules_or_leave_
         assert body["brandName"] == "Brand X" and body["combined"]["restricted_sources"]["google"] is True and body["combined"]["exclusions"]["fsb"] is True
         assert body["combined"]["geo"] == {"districts": ["BN2"], "locked": ["BN1", "BN2"], "none": False}
     assert len(await audit_rows(db, "org_member")) == 1  # the refused save left no row
+
+
+def test_a_full_cache_forgets_the_oldest_half_not_every_company_s_last_known_rules(monkeypatch):
+    TP.invalidate()
+    monkeypatch.setattr(TP, "CACHE_MAX", 10)
+    for i in range(10):
+        TP._CACHE[f"org_{i}"] = (float(i), TP.Policy(f"org_{i}", "b", FSB))
+    import asyncio
+
+    async def fresh(db, org_id):
+        return TP.Policy(org_id)
+
+    monkeypatch.setattr(TP, "_load", fresh)
+    asyncio.run(TP.org_effective(_NoNest(), "org_new"))
+    assert sorted(TP._CACHE) == ["org_5", "org_6", "org_7", "org_8", "org_9", "org_new"]
+    TP.invalidate()
+
+
+async def test_connectors_show_rule_bound_sources_as_off_when_the_rules_cannot_be_read(monkeypatch):
+    from app.services import connector_catalog as CC
+
+    async def provided():
+        return {"tavily": "platform", "apollo": "platform", "google_places": "platform", "openai": "platform"}
+
+    async def unreadable(db=None, org_id=None):
+        raise TP.PolicyUnavailable("database away")
+
+    monkeypatch.setattr("app.api.connections.platform_provided", provided)
+    monkeypatch.setattr(TP, "effective", unreadable)
+    cards = {c["id"]: c for c in await CC._keys("org_z", {}, staff=False)}
+    for cid in ("key_tavily", "key_apollo", "key_google_places"):
+        assert cards[cid]["status"] == "off" and "couldn't be read" in cards[cid]["statusText"]
+    assert cards["key_openai"]["status"] == "connected"  # no company rule switches it off
