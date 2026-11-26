@@ -64,12 +64,13 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 13. ~~Retention for call recordings and supplier logs.~~ **Done 2026-11-26:** staff portal → Data compliance → How long data is kept. Decided: default periods; **switch it on when the branch goes live** (staff portal → Data compliance), not on the test copy; raw register data is kept.
 
 **Still open, in order (2026-11-26):**
-1. **LiveKit is open to the internet.** Looked into 2026-11-26:
+1. ~~**LiveKit is open to the internet.**~~ Closed on live 2026-11-26:
    - Nothing outside the server uses it. The backend reaches it inside Docker (`ws://livekit:7880`). No room has been made on live since it restarted on 2026-10-18; its log shows only internet scanners.
    - The browser's "Test call in web (LiveKit)" button (Voice) is handed `wss://<site>:7880`. Port 7880 has no TLS, so that button can't work over HTTPS today, and closing the port changes nothing for it.
    - **Worse than open: live uses the published development key and secret** (`devkey`, the same in `livekit.yaml` and the compose defaults). Anyone who can reach port 7880 can make room tokens.
    - **On the branch:** `docker-compose.override.yml` binds 7880–7882 to 127.0.0.1 (the test copy doesn't read that file).
-   - **Waiting on my OK (touches live):** the same block in `/opt/flow/docker-compose.override.yml`, then `docker compose up -d --no-deps livekit` in `/opt/flow` (only the LiveKit container restarts). Then, separately, new random `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `/opt/flow/.env` and `livekit.yaml`, and restart LiveKit and the backend.
+   - ✅ **Applied to live 2026-11-26** (my OK): the same block is in `/opt/flow/docker-compose.override.yml` and only the LiveKit container was recreated. Ports 7880–7882 now listen on 127.0.0.1 only; the public address is refused; the backend still reaches `livekit:7880`; the site answers.
+   - **Still waiting on my OK (touches live):** new random `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `/opt/flow/.env` and `livekit.yaml`, then restart LiveKit and the backend. Less urgent now that the port is closed.
    - Later: either serve LiveKit through nginx with TLS so the browser test call works, or hide that button.
 2. **Colour passes for Voice, Social and the home screen**, like the three done for Leads (tokens, `surface` / `onAccent`), and naming Leads' deliberate colour sets. No visible change; it's what dark mode needs.
 3. Optional: the Find Leads map-area actions as a hook (left in the screen: they need 20 of the search's own values).
