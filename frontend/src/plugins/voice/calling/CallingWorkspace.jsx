@@ -66,7 +66,6 @@ import { AppChrome } from "../../../components/AppChrome";
 import { NotificationBell } from "../../../components/TopBar";
 import { PluginCredits } from "../../../team/PluginCredits";
 import { useBrand } from "../../../brand/BrandContext";
-import { PoweredBy } from "../../../brand/PoweredBy";
 import { SidebarAccountBadge } from "../../../hub/SidebarAccountBadge";
 import { AppSwitcher } from "../../../hub/AppSwitcher";
 import { useEmbedded } from "../../../embed/EmbedContext";
@@ -2904,7 +2903,6 @@ export function CallingWorkspace({
         )}
         {!embedded && !brand.hideCredits && <div className="sb-credits"><PluginCredits wallet="voice" operator={operator} onOpen={() => goPage("subscription")} refreshKey={page} /></div>}
         {!embedded && <SidebarAccountBadge operator={operator} collapsed={sidebarCollapsed} />}
-        {!embedded && <PoweredBy dark style={{ padding: "8px 8px 0" }} />}
       </div>
       <PhoneTabBar nav={nav} accent={C.cobalt} items={[
         { id: "list", short: "Call list", icon: List },

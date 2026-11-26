@@ -113,8 +113,8 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
         {sectionTitle(isNew ? "New brand" : `Look: ${brand.name}`)}
         {off ? <Note error>{DENIED}</Note> : null}
         <Field label="Name" help="Your own label for the brand. Staff see it; customers see the display name."><input style={{ ...input, width: "100%" }} value={look.name} disabled={off} onChange={(e) => setLook({ ...look, name: e.target.value })} /></Field>
-        <Field label="Display name" help="What customers see in the menu and on the sign-in page. Leave empty to use the name."><input style={{ ...input, width: "100%" }} value={look.displayName} disabled={off} onChange={(e) => setLook({ ...look, displayName: e.target.value })} /></Field>
-        <Field label="Logo address" help="An https:// address or a path starting with /. A square or wide image on a transparent background works best.">
+        <Field label="Display name" help="What customers see in the company badge at the bottom of the menu. Leave empty to use the name. Outreach's own logo stays at the top."><input style={{ ...input, width: "100%" }} value={look.displayName} disabled={off} onChange={(e) => setLook({ ...look, displayName: e.target.value })} /></Field>
+        <Field label="Logo address" help="Shown in the company badge at the bottom of the menu. An https:// address or a path starting with /. A square image on a transparent background works best.">
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <input style={{ ...input, flex: 1 }} value={look.logoUrl} disabled={off} placeholder="https://" onChange={(e) => setLook({ ...look, logoUrl: e.target.value })} />
             {look.logoUrl && !broken ? <img src={look.logoUrl} alt="Logo preview" referrerPolicy="no-referrer" onError={() => setBroken(true)} style={{ height: 32, maxWidth: 110, objectFit: "contain", border: `1px solid ${C.border}`, borderRadius: 6, padding: 2 }} /> : look.logoUrl ? <span style={{ fontSize: 12, color: C.red }}>Cannot load</span> : null}
@@ -126,7 +126,6 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
             <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${C.border}`, background: accent || "transparent" }} />
           </div>
         </Field>
-        <Toggle label="Show Powered by Outreach" help="A small line under the menu and on the sign-in page." checked={look.poweredBy} disabled={off} onChange={(v) => setLook({ ...look, poweredBy: v })} />
         <Toggle label="Hide credits" help="Customers of this brand never see credit balances." checked={look.hideCredits} disabled={off} onChange={(v) => setLook({ ...look, hideCredits: v })} />
         <Field label="Status" help="Suspended brands stop showing on their web addresses.">
           <select style={input} value={look.status} disabled={off} onChange={(e) => setLook({ ...look, status: e.target.value })}>

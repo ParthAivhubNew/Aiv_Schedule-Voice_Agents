@@ -13,7 +13,6 @@ import { SidebarBrand, useEmbedded } from "../embed/EmbedContext";
 import { WORKFLOWS_HEADER, useWorkflowsOpen } from "../workflows/openWorkflows";
 import { openSupport } from "./openSupport";
 import { useBrand } from "../brand/BrandContext";
-import { PoweredBy } from "../brand/PoweredBy";
 import { SidebarAccountBadge } from "./SidebarAccountBadge";
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
@@ -103,7 +102,6 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
       )}
       {wallet && !embedded && !hideCredits ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded ? <SidebarAccountBadge operator={operator} collapsed={collapsed} /> : null}
-      {!embedded ? <PoweredBy dark style={{ padding: "8px 8px 0" }} /> : null}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
     </>

@@ -1,24 +1,11 @@
 import React, { useId } from "react";
-import { useBrand } from "../brand/BrandContext";
 
-// The Outreach by Aivhub logo.
-// A white-label brand swaps in its own logo; with `accentTile` a brand without a logo gets a tile in its accent colour. `outreach`
-// always shows Outreach's own logo, whatever the brand (the sidebar head).
-export function BrandMark({ size = 36, accentTile = false, outreach = false }) {
+// The Outreach by Aivhub logo. It is always Outreach's, for every company and brand (decided 2026-11-26, plan 13): a company's own
+// name and logo appear only in the account badge at the bottom of an app's sidebar (SidebarAccountBadge). `outreach` and `accentTile`
+// (old props callers still pass) make no difference.
+export function BrandMark({ size = 36 }) {
   // Each logo needs its own gradient id: a shared id breaks when the first copy is hidden.
   const gid = `aiv-${useId().replace(/:/g, "")}`;
-  const own = useBrand();
-  const brand = outreach ? { active: false } : own;
-  if (brand.active && brand.logoUrl) {
-    return <img src={brand.logoUrl} alt="" referrerPolicy="no-referrer" style={{ display: "block", flexShrink: 0, height: size, maxWidth: size * 3.5, objectFit: "contain" }} />;
-  }
-  if (brand.active && accentTile) {
-    return (
-      <span aria-hidden="true" style={{ width: size, height: size, borderRadius: 9, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--brand-accent, #3457D5)", color: "#fff", fontWeight: 700, fontSize: Math.round(size * 0.5) }}>
-        {(brand.name || "?").trim().charAt(0).toUpperCase()}
-      </span>
-    );
-  }
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -48,19 +35,16 @@ export function BrandMark({ size = 36, accentTile = false, outreach = false }) {
 // The logo with the name stacked beside it: "Outreach", and a small "BY AIVHUB" under it.
 // `size` is the logo's; the name scales with it. `dark` is for dark backgrounds.
 export function BrandLockup({ size = 34, dark = false }) {
-  const brand = useBrand();
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
       <BrandMark size={size} />
       <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, textAlign: "left" }}>
         <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: Math.round(size * 0.53), letterSpacing: "-0.01em", color: dark ? "#FFFFFF" : "#111827" }}>
-          {brand.active ? brand.name : "Outreach"}
+          Outreach
         </span>
-        {brand.active ? null : (
-          <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: 10.5, letterSpacing: "0.12em", color: dark ? "#9BA3B4" : "#6B7280" }}>
-            BY AIVHUB
-          </span>
-        )}
+        <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: 10.5, letterSpacing: "0.12em", color: dark ? "#9BA3B4" : "#6B7280" }}>
+          BY AIVHUB
+        </span>
       </span>
     </span>
   );

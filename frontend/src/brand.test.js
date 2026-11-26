@@ -34,7 +34,6 @@ const CLIENT_FILES = [
   "brand/BrandContext.jsx",
   "brand/brandLogic.js",
   "brand/brandApi.js",
-  "brand/PoweredBy.jsx",
   "brand/StandingChip.jsx",
   "utils/callConsent.js",
   "plugins/voice/calling/CallingWorkspace.jsx",

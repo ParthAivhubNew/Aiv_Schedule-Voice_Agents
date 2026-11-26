@@ -6,7 +6,6 @@ import { api } from "../api/apiClient";
 import { ACCESS_OFF_LINE } from "../api/authStore";
 import { BrandLockup } from "./BrandMark";
 import { useBrand } from "../brand/BrandContext";
-import { PoweredBy } from "../brand/PoweredBy";
 import { AuthShowcase } from "./AuthShowcase";
 import { googleErrorText, googleIdToken } from "./firebaseGoogle";
 import { InstallStepsSheet } from "../components/InstallSteps";
@@ -408,7 +407,6 @@ export function LoginScreen({ onLogin }) {
             <a href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
             <a href="/data-deletion" target="_blank" rel="noreferrer">Data deletion</a>
           </nav>
-          <PoweredBy align="center" style={{ marginTop: 10 }} />
         </div>
       </main>
     </div>
