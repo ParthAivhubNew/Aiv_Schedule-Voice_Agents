@@ -22,7 +22,9 @@ Columns: source, ref, at, org_id, provider, model, capability, feature, route, u
 
 Providers moved onto the wrapper write provider_call_log (plan 11, Part A), and readers of this view don't change. Tavily keeps its
 own tavily_calls rows (they say which key was used) and number checks keep their results, but from a provider's first wrapper row on,
-its cost is read from provider_call_log only, so nothing is counted twice. The e-mail finders and Apollo are not moved yet.
+its cost is read from provider_call_log only, so nothing is counted twice. The same goes for each e-mail finder (enrichment_attempts
+keeps the per-company history) and Apollo (apollo_calls keeps which key was used). Before the switch an Apollo e-mail look-up was in
+both enrichment_attempts and apollo_calls, so it was costed twice; after it, once.
 
 A migration that changes a column type in one of these tables must first run DROP VIEW IF EXISTS provider_calls. The view is
 remade at the next start-up.
@@ -48,6 +50,7 @@ SELECT 'email_finder', e.id::varchar, e.created_at, coalesce(e.org_id, '')::varc
   FROM enrichment_attempts e
   LEFT JOIN provider_prices p ON p.provider = e.provider AND p.kind = 'lookup' AND coalesce(p.model, '') = ''
  WHERE coalesce(e.provider, '') NOT IN ('cache', 'miss_cache')
+   AND e.created_at < coalesce((SELECT min(g.at) FROM provider_call_log g WHERE g.provider = e.provider), 'infinity'::timestamp)
 UNION ALL
 SELECT 'web_search', t.id::varchar, t.at, coalesce(t.for_org, '')::varchar, 'tavily', '', 'web_search', coalesce(t.purpose, '')::varchar,
        coalesce(t.route, '')::varchar, coalesce(t.credits, 0)::float, (coalesce(t.credits, 0) * coalesce(p.price_in_usd, 0))::float,
@@ -64,6 +67,7 @@ SELECT 'company_data', a.id::varchar, a.at, coalesce(a.for_org, '')::varchar, 'a
        (coalesce(p.confirmed, false) OR coalesce(p.price_in_usd, 0) > 0), coalesce(a.outcome, '') = 'found'
   FROM apollo_calls a
   LEFT JOIN provider_prices p ON p.provider = 'apollo' AND p.kind = 'lookup' AND coalesce(p.model, '') = ''
+ WHERE a.at < coalesce((SELECT min(at) FROM provider_call_log WHERE provider = 'apollo'), 'infinity'::timestamp)
 UNION ALL
 SELECT 'number_lookup', n.id::varchar, n.checked_at, coalesce(n.org_id, '')::varchar, 'telnyx_lookup', '', 'number_lookup', 'voice', '',
        1::float, coalesce(p.price_in_usd, 0)::float, (coalesce(p.confirmed, false) OR coalesce(p.price_in_usd, 0) > 0), true

@@ -96,6 +96,11 @@ def _paused(pid: str) -> bool:
     return bool(b and b.until > _clock())
 
 
+def is_paused(provider_id: str) -> bool:
+    """True while the circuit breaker is leaving this provider alone, so a waterfall can go straight to the next one."""
+    return _paused(provider_id)
+
+
 async def _failed(pid: str, why: str) -> None:
     b = _BREAKERS.setdefault(pid, _Breaker())
     b.failures += 1

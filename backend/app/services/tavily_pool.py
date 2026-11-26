@@ -78,7 +78,8 @@ async def _log(key: Tuple[str, str, str], purpose: str, looked_for: str, status:
 
 async def search(client: Any, body: Dict[str, Any], *, purpose: str = "search") -> Any:
     """POST one search, failing over to the next key when one is exhausted, over its limit or refused. Returns the last response
-    (a refused one when every key was), or None when there is no key at all. A network error is raised: it is not the key's fault."""
+    (a refused one when every key was), or None when there is no key at all, the plan has no web search, the fair-use cap is used up,
+    Tavily is paused after failing, or the network failed. Goes through the provider wrapper (providers/gateway.py)."""
     from app.providers.keypool import Verdict
 
     async def send(entry):

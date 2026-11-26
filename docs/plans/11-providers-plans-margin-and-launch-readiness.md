@@ -134,7 +134,16 @@ call_provider(capability, request, org, feature)
       its first logged call, as for Google.
     - **A plan's supplier list now also covers number checks and TPS screening.** No plan sets a list today; one that does must include
       `telnyx_lookup` and `provero_tps` to keep them.
-    - **Still direct:** the e-mail finders (their waterfall logs to `enrichment_attempts`) and Apollo (its key pool logs to `apollo_calls`).
+    - ~~**Still direct:** the e-mail finders and Apollo.~~ **Moved the same day:**
+      - **E-mail finders:** each finder call goes through the wrapper. Its circuit breaker replaces the finder waterfall's own copy, so a
+        paused finder is skipped and the next one asked. The per-person cache (with its bounce and re-check rules) stays as it was.
+        `enrichment_attempts` keeps each company's history, with the same cost. The platform-wide log holds the company's domain,
+        never the person's name.
+      - **Apollo:** every request (company look-ups and its e-mail finding) goes through the wrapper inside `apollo_pool.call`. Its
+        key pool still picks the key and writes `apollo_calls`.
+      - **Cost view:** each finder and Apollo count from their old logs only until their own first wrapper row. That also ends a
+        double count: an Apollo e-mail look-up used to be in both `enrichment_attempts` and `apollo_calls`.
+      - **Every paid provider now goes through the wrapper.** What's left in step 4 is config-only providers.
   - ~~one generic key pool in place of `apollo_pool` and `tavily_pool`~~ **done (2026-11-25):** `app/providers/keypool.py` (main key,
     backups, set-aside per key or per kind of request, failover, one log row per request with only the key's id and label).
     `apollo_pool` and `tavily_pool` keep their names and status rules on top of it. On new.outreach, Apollo and Tavily each

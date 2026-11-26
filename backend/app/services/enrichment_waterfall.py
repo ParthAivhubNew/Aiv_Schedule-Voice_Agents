@@ -37,10 +37,10 @@ CORPORATE_SUFFIXES = [
 CORPORATE_REGEX = re.compile("|".join(CORPORATE_SUFFIXES), re.IGNORECASE)
 
 # Circuit breaker state: provider -> failure_count
-_PROVIDER_FAILS: Dict[str, int] = {}
-_PROVIDER_BACKOFF_UNTIL: Dict[str, float] = {}
-CIRCUIT_FAIL_LIMIT = 5
-CIRCUIT_RESET_SECONDS = 300  # 5 min backoff on failing API
+# Every finder call goes through the provider wrapper (providers/gateway.py): plan, cost cap, circuit breaker (it replaces the
+# waterfall's own) and one log row with the cost. Apollo's adapter already goes through it inside apollo_pool.call, so it isn't
+# wrapped twice here.
+WRAPPED_INSIDE = {"apollo"}
 
 
 def classify_pecr_entity(company_name: str, email: str = "") -> str:
@@ -158,6 +158,37 @@ def _check(res: httpx.Response, provider: str) -> Any:
 
 # Each adapter: (client, key, person) -> (email, status), status "verified", "catch_all" or "" (none): the provider's own find_email.
 ADAPTERS = {p.manifest.id: p.find_email for p in _registry.email_finders()}
+
+
+async def _ask_finder(provider: str, client: httpx.AsyncClient, key: str, p: Dict[str, str]):
+    """One finder, as the provider wrapper wants it: (email, status) as the answer, "found" when it gave back an address."""
+    from app.providers.gateway import Answer
+
+    email_addr, st = await ADAPTERS[provider](client, key, p)
+    return Answer((email_addr, st), outcome="found" if email_addr else "none", status=200)
+
+
+async def _find_with(provider: str, client: httpx.AsyncClient, key: str, p: Dict[str, str], db: AsyncSession) -> Optional[Tuple[str, str, float]]:
+    """(email, status, cost in USD) from one finder, or None when it couldn't answer (failed, paused, refused by the plan or the cap)."""
+    from app.providers.gateway import call_provider
+
+    if provider in WRAPPED_INSIDE:
+        try:
+            email_addr, st = await ADAPTERS[provider](client, key, p)
+        except Exception as err:
+            logger.warning(f"[Email Finder] {provider} failed: {err}")
+            return None
+        from app.services.ai_pricing import lookup_cost
+
+        return email_addr, st, await lookup_cost(db, provider, bool(email_addr))
+    res = await call_provider(provider, "find_email", lambda c, k: _ask_finder(provider, c, k, p), key=key, client=client,
+                              feature="email_finder", looked_for=p["domain"] or p["company"])  # the company, never the person's name
+    if res.outcome not in ("found", "none"):
+        if res.outcome == "error":
+            logger.warning(f"[Email Finder] {provider} failed")
+        return None
+    email_addr, st = res.data or ("", "")
+    return email_addr, st, res.cost_usd
 
 
 def _person_out(email_addr: str, p: Dict[str, str], entity: str, status: str, source: str) -> Dict[str, Any]:
@@ -303,26 +334,20 @@ async def lookup_person_waterfall(
 
     found_email, status, winner, catch_all, answered, asked = "", "", "", None, 0, 0
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        from app.providers.gateway import is_paused
+
         for provider, key in keys.items():
-            if _PROVIDER_BACKOFF_UNTIL.get(provider, 0) > time.time():
-                continue
+            if is_paused(provider):
+                continue  # failing just now: the next finder is asked instead
             if asked >= MAX_PROVIDERS_ASKED:
                 break
             asked += 1
             started = time.time()
-            try:
-                email_addr, st = await ADAPTERS[provider](client, key, p)
-                _PROVIDER_FAILS[provider] = 0
-                answered += 1
-            except Exception as err:
-                logger.warning(f"[Email Finder] {provider} failed: {err}")
-                _PROVIDER_FAILS[provider] = _PROVIDER_FAILS.get(provider, 0) + 1
-                if _PROVIDER_FAILS[provider] >= CIRCUIT_FAIL_LIMIT:
-                    _PROVIDER_BACKOFF_UNTIL[provider] = time.time() + CIRCUIT_RESET_SECONDS
+            got = await _find_with(provider, client, key, p, db)
+            if got is None:
                 continue
-            from app.services.ai_pricing import lookup_cost
-
-            cost = await lookup_cost(db, provider, bool(email_addr))  # a miss costs too when the vendor bills every search
+            email_addr, st, cost = got  # a miss costs too when the vendor bills every search
+            answered += 1
             db.add(EnrichmentAttempt(id=str(uuid.uuid4()), org_id=org_id, query=query, provider=provider,
                                      found_email=email_addr or "", cost_usd=cost,
                                      latency_ms=int((time.time() - started) * 1000), hit=st == "verified"))

@@ -115,9 +115,9 @@ async def _log(key: Tuple[str, str, str], purpose: str, looked_for: str, status:
 async def call(client: Any, method: str, url: str, *, purpose: str, looked_for: str = "", lead: str = "",
                found: Optional[Callable[[Any], bool]] = None, **kw: Any) -> Any:
     """Send one request, failing over to the next key when one is out of credits. Returns the last response
-    (an exhausted one when every key was), or None when there is no key at all. A network error is raised: it is not the key's fault."""
+    (an exhausted one when every key was), or None when there is no key at all, the plan leaves Apollo out, its fair-use cap is used
+    up, Apollo is paused after failing, or the network failed. Goes through the provider wrapper (providers/gateway.py)."""
     from app.providers.keypool import Verdict
-    from app.services import enrichment_service as E
 
     async def send(entry):
         headers = {**(kw.get("headers") or {}), "x-api-key": entry[2], "Content-Type": "application/json"}
@@ -138,15 +138,28 @@ async def call(client: Any, method: str, url: str, *, purpose: str, looked_for: 
             hit = False
         return Verdict("found" if hit else "none")
 
-    async def counted_send(entry):
-        r = await send(entry)
-        status = int(getattr(r, "status_code", 0) or 0)
-        if not (status in _OUTCOME and (status != 422 or "credit" in str(getattr(r, "text", "") or "").lower())):
-            await E._bump_vendor_call("apollo")  # an answer that stands is one Apollo call
-        return r
+    from app.providers.gateway import Answer, call_provider
 
-    return await _pool().run(counted_send, judge, purpose=purpose, looked_for=looked_for, lead=lead,
-                             skip_scopes=lambda e: [e[0], f"{e[0]}:{purpose}"])
+    async def ask(_client, _key) -> Answer:
+        r = await _pool().run(send, judge, purpose=purpose, looked_for=looked_for, lead=lead,
+                              skip_scopes=lambda e: [e[0], f"{e[0]}:{purpose}"])
+        if r is None:
+            return Answer(None, outcome="none", units=0)  # no key at all (or the plan leaves Apollo out): nothing was sent
+        status = int(getattr(r, "status_code", 0) or 0)
+        exhausted = status in _OUTCOME and (status != 422 or "credit" in str(getattr(r, "text", "") or "").lower())
+        if status == 200:
+            try:
+                hit = found(r.json()) if found else True
+            except Exception:
+                hit = False
+            return Answer(r, outcome="found" if hit else "none", status=200)  # an answer that stands is one Apollo call
+        if exhausted or status >= 500:
+            return Answer(r, outcome="error", status=status, units=0)  # every key used up or refused, or Apollo failing
+        return Answer(r, outcome="none", status=status or None, units=0)
+
+    # The key pool picks the key (pooled); the wrapper adds the cost cap, the circuit breaker and one log row (providers/gateway.py).
+    res = await call_provider("apollo", purpose, ask, client=client, pooled=True, feature=purpose, looked_for=looked_for[:200])
+    return res.data
 
 
 # One company is asked about once. The answer (or the fact that Apollo had nothing) is kept for everyone, so no other button, screen or
