@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTitle, defaultPolicy, isHost, normaliseAccent, normaliseHost, NO_BRAND, parseDistricts, parseExtra, resolveBrand, withPolicyDefaults } from "./brandLogic";
+import { defaultPolicy, isHost, normaliseAccent, normaliseHost, NO_BRAND, parseDistricts, parseExtra, resolveBrand, withPolicyDefaults } from "./brandLogic";
 
 describe("brandLogic", () => {
   it("normalises a host", () => {
@@ -30,11 +30,6 @@ describe("brandLogic", () => {
     expect(p.geo.districts).toEqual(["BN1"]);
     expect(p.screening).toEqual({ block_unscreened: false });
     expect(withPolicyDefaults({ screening: { block_unscreened: true } }).screening.block_unscreened).toBe(true);
-  });
-  it("builds the title", () => {
-    expect(buildTitle("FSB Outreach", "Leads")).toBe("FSB Outreach | Leads");
-    expect(buildTitle("", "Outreach by Aivhub")).toBe("Outreach by Aivhub");
-    expect(buildTitle("FSB", "FSB")).toBe("FSB");
   });
   it("gives today's look when there is no brand", () => {
     expect(resolveBrand({ host: {}, me: {}, policy: {} })).toEqual(NO_BRAND);

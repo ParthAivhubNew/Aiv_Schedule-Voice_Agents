@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AUTH_LOST_EVENT, SESSION_SET_EVENT, getAccessToken } from "../api/authStore";
 import { getHostBrand, getMyBrand, getOrgPolicy } from "./brandApi";
-import { ACCENT_PROPS, NO_BRAND, accentShades, buildTitle, resolveBrand } from "./brandLogic";
+import { ACCENT_PROPS, NO_BRAND, accentShades, resolveBrand } from "./brandLogic";
 
 export const BrandContext = createContext({ ...NO_BRAND, loading: false });
 
@@ -45,24 +45,17 @@ export function BrandProvider({ children }) {
   return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>;
 }
 
-// The tab title, the tab icon and the accent variable follow the brand; with none they are put back as found.
+// The accent variable follows the brand; with none it is put back as found. The tab title and icon stay Outreach's for every
+// company, like the top of the sidebar: the company's own name and logo show in the account badge at the bottom of the sidebar.
 function useBrandInDocument(brand) {
-  const original = useRef(null);
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
-    const icons = Array.from(document.querySelectorAll("link[rel~='icon']"));
-    if (!original.current) original.current = { title: document.title, icons: icons.map((l) => [l, l.getAttribute("href"), l.getAttribute("type")]) };
     const root = document.documentElement;
-    document.title = brand.active ? buildTitle(brand.name, original.current.title) : original.current.title;
     if (brand.active && brand.accent) root.style.setProperty("--brand-accent", brand.accent);
     else root.style.removeProperty("--brand-accent");
     // The brand's accent is the app's accent everywhere: buttons, links, selected items, focus rings (one accent per product).
     const shades = brand.active ? accentShades(brand.accent) : null;
     ACCENT_PROPS.forEach((name) => (shades ? root.style.setProperty(name, shades[name]) : root.style.removeProperty(name)));
-    original.current.icons.forEach(([link, href, type]) => {
-      if (brand.logoUrl) { link.setAttribute("href", brand.logoUrl); link.removeAttribute("type"); }
-      else { if (href !== null) link.setAttribute("href", href); if (type) link.setAttribute("type", type); }
-    });
     return undefined;
-  }, [brand.active, brand.name, brand.accent, brand.logoUrl]);
+  }, [brand.active, brand.accent]);
 }

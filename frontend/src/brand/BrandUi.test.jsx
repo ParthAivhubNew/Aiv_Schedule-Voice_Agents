@@ -86,4 +86,10 @@ describe("the top of the sidebar", () => {
     expect(head).toContain("BY AIVHUB");
     expect(head).not.toContain("brand.name");
   });
+
+  it("leaves the browser tab's title and icon as Outreach's for every company", () => {
+    const ctx = src("./BrandContext.jsx");
+    expect(ctx).not.toContain("document.title");
+    expect(ctx).not.toContain("rel~='icon'");
+  });
 });

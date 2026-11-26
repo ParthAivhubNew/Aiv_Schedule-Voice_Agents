@@ -84,15 +84,6 @@ export function withPolicyDefaults(policy) {
   };
 }
 
-// The tab title: "FSB Outreach | Leads". With no brand the page keeps its own title.
-export function buildTitle(brandName, base) {
-  const name = String(brandName || "").trim();
-  const rest = String(base || "").trim();
-  if (!name) return rest;
-  if (!rest || rest.toLowerCase().startsWith(name.toLowerCase())) return name;
-  return `${name} | ${rest}`;
-}
-
 // One look for the whole app. `host` is the public look for this address, `me` the signed-in account's look
 // ({} when it has no brand), `policy` the account's /org/policy answer. Either may be missing.
 export function resolveBrand({ host, me, policy } = {}) {
