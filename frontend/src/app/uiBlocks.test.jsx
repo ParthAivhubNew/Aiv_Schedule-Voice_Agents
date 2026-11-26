@@ -55,6 +55,13 @@ describe("shared building blocks", () => {
     expect(renderToStaticMarkup(<StatTile label="Failed" value={2} tone="alert" />)).toContain("--c-red");
   });
 
+  it("a compact stat tile has no card frame, for a row of figures inside a card, and an accent one uses the product accent", () => {
+    const compact = renderToStaticMarkup(<StatTile compact label="Leads from posts" value="3" tone="accent" />);
+    expect(compact).not.toContain("border");
+    expect(compact).toContain("--ui-accent");
+    expect(renderToStaticMarkup(<StatTile label="Reach" value="1,200" />)).toContain("border");
+  });
+
   it("a pill can carry a status dot that pulses for something happening now", () => {
     const live = renderToStaticMarkup(<Pill tone="green" dot pulse>Live</Pill>);
     expect(live).toContain("ui-pulse");

@@ -227,10 +227,10 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
           {hasResults ? (
             <>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 22px", margin: "6px 0 10px" }}>
-                <Stat label="Reach" value={week.totals.reach ?? week.totals.impressions} />
-                <Stat label="Engagements" value={week.totals.engagements} />
-                <Stat label="Leads from posts" value={week.leads} accent />
-                <Stat label="Meetings from posts" value={week.meetings} accent />
+                <StatTile compact label="Reach" value={fmt(week.totals.reach ?? week.totals.impressions)} />
+                <StatTile compact label="Engagements" value={fmt(week.totals.engagements)} />
+                <StatTile compact label="Leads from posts" value={fmt(week.leads)} tone="accent" />
+                <StatTile compact label="Meetings from posts" value={fmt(week.meetings)} tone="accent" />
               </div>
               <TrendChart data={week.series} field="reach" name="reach" height={140} />
             </>
@@ -243,16 +243,10 @@ export function OverviewPage({ onOpenPost, onRetry, onReconnect, onOpenApprovals
   );
 }
 
-function Stat({ label, value, change, accent }) {
-  return (
-    <div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: accent ? C.teal : C.ink, fontVariantNumeric: "tabular-nums" }}>{typeof value === "string" ? value : fmt(value)}</div>
-      <div style={{ fontSize: 11.5, color: C.slate }}>
-        {label}
-        {change != null ? <span style={{ marginLeft: 6, fontWeight: 700, color: change >= 0 ? C.teal : C.red }}>{change >= 0 ? "+" : ""}{change}%</span> : null}
-      </div>
-    </div>
-  );
+// "+12%" on the period before (the note under the tiles says so), green up and red down; nothing without an earlier period.
+export function Change({ pct }) {
+  if (pct == null) return null;
+  return <span style={{ fontWeight: 700, color: pct >= 0 ? C.successInk : C.dangerInk }}>{pct >= 0 ? "+" : ""}{pct}%</span>;
 }
 
 // ── Insights ────────────────────────────────────────────────────────────────
@@ -339,12 +333,12 @@ function InsightsBody({ data, onOpenPost, loading, single, onPickChannel, showTo
       ) : (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-            <div style={card}><Stat label="Reach" value={t.reach} change={ch.reach} /></div>
-            <div style={card}><Stat label="Views" value={t.impressions} change={ch.impressions} /></div>
-            <div style={card}><Stat label="Engagements" value={t.engagements} change={ch.engagements} /></div>
-            <div style={card}><Stat label="Engagement rate" value={t.engagementRate == null ? null : t.engagementRate + "%"} /></div>
-            <div style={card}><Stat label="Clicks (from the networks)" value={t.clicks} change={ch.clicks} /></div>
-            <div style={card}><Stat label="Tracked link clicks" value={t.linkClicks} change={ch.linkClicks} /></div>
+            <StatTile label="Reach" value={fmt(t.reach)} delta={<Change pct={ch.reach} />} />
+            <StatTile label="Views" value={fmt(t.impressions)} delta={<Change pct={ch.impressions} />} />
+            <StatTile label="Engagements" value={fmt(t.engagements)} delta={<Change pct={ch.engagements} />} />
+            <StatTile label="Engagement rate" value={t.engagementRate == null ? fmt(null) : t.engagementRate} unit={t.engagementRate == null ? "" : "%"} />
+            <StatTile label="Clicks (from the networks)" value={fmt(t.clicks)} delta={<Change pct={ch.clicks} />} />
+            <StatTile label="Tracked link clicks" value={fmt(t.linkClicks)} delta={<Change pct={ch.linkClicks} />} />
           </div>
           <div style={{ ...muted, marginTop: -6 }}>
             {t.measured} of {t.posts} post{t.posts === 1 ? "" : "s"} have numbers. Changes compare with the {data.days} days before.

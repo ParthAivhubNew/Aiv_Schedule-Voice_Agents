@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: Social's inline `Stat`, the near-match colours, splitting the two big Leads files, and dark mode. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: the near-match colours, splitting the two big Leads files, and dark mode. Details are in section 3.1.
 
 **Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
 - `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.
@@ -46,7 +46,7 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - The shared `Pill` can carry a status dot that pulses for something happening now (`ui-pulse`; still for people who ask for less motion).
   - These now use the shared pill: Connectors' status, Voice's live-call state (ringing, live, needs you, ended) and Voice's number-check status.
   - `components/Badges.jsx`, a second status badge that nothing imported, is deleted.
-- **Still to do in item 4:** Social's small inline `Stat`. Item 4 is otherwise done for the shared pieces the plan named.
+- ✅ **Item 4 done 2026-11-26:** Social's own `Stat` is gone. The Results figures are shared `StatTile`s, and the "Last 7 days" row uses its new `compact` form (no card frame, inside another card). `tone="accent"` marks leads and meetings from posts in the product accent instead of Social's teal.
 - Tests: `app/uiBlocks.test.jsx`.
 Adding new providers, plans and margin, and launch readiness are covered in [11-providers-plans-margin-and-launch-readiness.md](11-providers-plans-margin-and-launch-readiness.md).
 The app was **not** reviewed in a browser, so the look-and-feel notes come from the code, not from screenshots.

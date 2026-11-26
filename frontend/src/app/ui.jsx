@@ -690,12 +690,18 @@ export function useLoad(fn, deps = []) {
 
 // One figure on a dashboard: its name on top, the number, an optional unit, and a line under it (a change, a note). "alert" marks a figure
 // that needs a look (it turns red); the words say why, not only the colour.
-export function StatTile({ label, value, unit, sub, delta, tone }) {
+// `tone`: "alert" (red, for failures) or "accent" (the product accent, for the figure that matters most). `compact` drops the card
+// frame, for a row of figures inside another card.
+export function StatTile({ label, value, unit, sub, delta, tone, compact = false }) {
   const alert = tone === "alert";
+  const ink = alert ? C.red : tone === "accent" ? C.cobalt : C.ink;
+  const frame = compact
+    ? { minWidth: 0, fontFamily: FONT_BODY }
+    : { background: "#fff", border: `1px solid ${alert ? C.red : C.border}`, borderRadius: 14, padding: "14px 16px", minWidth: 0, fontFamily: FONT_BODY };
   return (
-    <div style={{ background: "#fff", border: `1px solid ${alert ? C.red : C.border}`, borderRadius: 14, padding: "14px 16px", minWidth: 0, fontFamily: FONT_BODY }}>
-      <div style={{ fontSize: 12, color: C.slate, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 700, color: alert ? C.red : C.ink, margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>
+    <div style={frame}>
+      <div style={{ fontSize: compact ? 11.5 : 12, color: C.slate, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: compact ? 18 : 26, fontWeight: 700, color: ink, margin: compact ? "2px 0 0" : "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>
         {value}{unit ? <span style={{ fontSize: 15, color: C.slate, fontWeight: 600 }}>{unit}</span> : null}
       </div>
       {delta || sub ? <div style={{ fontSize: 11.5, color: C.slate }}>{delta || sub}</div> : null}
