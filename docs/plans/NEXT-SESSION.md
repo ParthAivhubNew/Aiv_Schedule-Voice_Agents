@@ -50,7 +50,7 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
    - ~~Social's small inline `Stat`.~~ Done 2026-11-26.
    - ~~Near-match colours.~~ Three passes done 2026-11-26 (438 hard-coded colours left in Leads, about 200 of them data that must stay; new tokens `lineStrong`, `limeSoft`, `limeInk`, `surface`, `onAccent`). What's left changes the look, so it needs a design decision and a browser check.
    - ~~Split `AccountsViews.jsx` and `FindLeadsView.jsx` into feature folders.~~ Done 2026-11-26 (`leadgen/accounts/`, `leadgen/find/`; the old files re-export). Its filter panel and results card moved into `find/FilterPanel.jsx` and `find/ResultsCard.jsx` on 2026-11-26 (checked in a browser); its state was grouped into hooks the same day (`find/useContactActions.js`, `useSelectionActions.js`, `useFavourites.js`; checked in a browser).
-   - Dark mode later.
+   - Dark mode: moved to the end of the list (below).
 3. ~~Cost per source.~~ **Done 2026-11-25:** the Lead sources card shows credits by origin (plan 10, section 3.1).
 4. ~~Prices before paid actions (plan 11, C.6).~~ **Done 2026-11-25:** every paid button reads its price from the rate card (`app/usePrice.js`), guarded by `app/noTypedPrices.test.js`. A public pricing page is still to do.
 5. ~~Sign-up rate limits and bot protection (plan 11, C.1).~~ **Done 2026-11-26** (`services/signup_guard.py`). It also fixes the backend reading every visitor's address as the web container's, which made sign-up and sign-in limits shared by everyone. Cloudflare Turnstile isn't done: it needs a Cloudflare account.
@@ -62,6 +62,12 @@ Continue my Outreach (Aivhub) launch work. Read this whole message first, then `
 11. ~~Company rules that switch off when they can't be read (plan 11, C.1).~~ **Checked 2026-11-26:** they already fail safe; the cache and Connectors were tidied.
 12. ~~Monthly spending limits per supplier.~~ **Done 2026-11-26:** Providers → Monthly budgets (alerts at 80% and 100%, optional pause).
 13. ~~Retention for call recordings and supplier logs.~~ **Done 2026-11-26:** staff portal → Data compliance → How long data is kept. Decided: default periods; **switch it on when the branch goes live** (staff portal → Data compliance), not on the test copy; raw register data is kept.
+
+**Still open, in order (2026-11-26):**
+1. **LiveKit is open to the internet** on ports 7880–7882, but the app reaches it inside Docker (`ws://livekit:7880`) and the browser code never uses it. Find out whether anything outside the server needs it; if not, bind it to 127.0.0.1 on live (my OK needed: it touches live). Postgres and Redis are already on 127.0.0.1 only.
+2. **Colour passes for Voice, Social and the home screen**, like the three done for Leads (tokens, `surface` / `onAccent`), and naming Leads' deliberate colour sets. No visible change; it's what dark mode needs.
+3. Optional: the Find Leads map-area actions as a hook (left in the screen: they need 20 of the search's own values).
+4. **Dark mode, last:** a dark value for every shared colour, a light / dark / match-system switch, and a check of each screen.
 
 **Waiting on me (ask, don't guess):**
 - Stripe live keys and VAT.
