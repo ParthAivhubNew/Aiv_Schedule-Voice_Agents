@@ -85,17 +85,19 @@ export function AdminApp() {
       <style>{`
         .admin-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
         .admin-nav { position: sticky; top: 0; height: 100vh; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; }
-        .admin-nav-links { display: flex; flex-direction: column; gap: 2px; }
+        .admin-nav-links { display: flex; flex-direction: column; gap: 1px; }
+        .admin-nav-signout { display: none !important; }
         @media (max-width: 760px) {
           .admin-shell { grid-template-columns: minmax(0, 1fr); }
           .admin-nav { position: static; height: auto; }
           .admin-nav-links { flex-direction: row; overflow-x: auto; }
           .admin-nav-group { display: none; }
           .admin-nav-foot { display: none !important; }
+          .admin-nav-signout { display: flex !important; }
         }
       `}</style>
       <nav className="admin-nav" aria-label="Admin" style={{ background: C.ink, color: "#fff", padding: "18px 12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 12px" }}>
           <ShieldCheck size={20} color="#8FA6FF" />
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Outreach admin</div>
@@ -105,22 +107,27 @@ export function AdminApp() {
         <div className="admin-nav-links">
           {PAGES.map(({ id: pid, label, icon: Icon, group }, i) => (
             <React.Fragment key={pid}>
-            {group !== PAGES[i - 1]?.group ? <div className="admin-nav-group" style={{ padding: i ? "14px 10px 4px" : "2px 10px 4px", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7C8293" }}>{group}</div> : null}
+            {group !== PAGES[i - 1]?.group ? <div className="admin-nav-group" style={{ padding: i ? "10px 10px 3px" : "0 10px 3px", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#7C8293" }}>{group}</div> : null}
             <button type="button" onClick={() => go(pid)} aria-current={page === pid ? "page" : undefined}
-              style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", whiteSpace: "nowrap",
+              style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer", whiteSpace: "nowrap",
                 background: page === pid ? C.inkLine : "transparent", color: page === pid ? "#fff" : "#C7CAD3", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, textAlign: "left" }}>
               <Icon size={15} /> {label}
             </button>
             </React.Fragment>
           ))}
-          <button type="button" onClick={signOut} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: "transparent", color: "#C7CAD3", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+          <button type="button" className="admin-nav-signout" onClick={signOut} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 10px", borderRadius: 9, border: "none", cursor: "pointer", background: "transparent", color: "#C7CAD3", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
             <LogOut size={15} /> Sign out
           </button>
         </div>
         <div className="admin-nav-foot" style={{ marginTop: "auto", padding: "12px 8px 0", borderTop: `1px solid ${C.inkLine}`, fontSize: 12 }}>
           <div style={{ fontWeight: 600 }}>{staff.name || staff.email}</div>
           <div style={{ color: "#9CA3AF", wordBreak: "break-all" }}>{staff.email}</div>
-          <div style={{ color: "#9CA3AF" }}>{canEdit ? "Admin" : "Support (view only)"}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ color: "#9CA3AF" }}>{canEdit ? "Admin" : "Support (view only)"}</span>
+            <button type="button" onClick={signOut} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 7, border: `1px solid ${C.inkLine}`, background: "transparent", color: "#C7CAD3", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              <LogOut size={13} /> Sign out
+            </button>
+          </div>
         </div>
       </nav>
       <main style={{ padding: "24px 16px 48px", minWidth: 0, maxWidth: 1240, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
