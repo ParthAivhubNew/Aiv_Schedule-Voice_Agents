@@ -2,7 +2,7 @@
 
 Written 2026-11-24 from a read of the code plus read-only queries on the live database.
 
-**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: the near-match colours that would visibly change, the Find Leads search component itself, and dark mode. Details are in section 3.1.
+**Status (2026-11-25, branch `company-rules-fsb-migration`, plan 11 step 6):** Phases 0–3 are done. Phase 4 items 1 and 3, the guard part of item 2, and the shared pieces of item 4 are done. Cost per source is done. The rest of Phase 4 is still to do: the near-match colours that would visibly change, grouping the Find Leads search state, and dark mode. Details are in section 3.1.
 
 **Phase 4, item 1 (2026-11-25): one source for the colours, with no visual change.**
 - `tokens.js` `HEX` holds the values. `app/global.css` declares each as a CSS variable with exactly that value: `--c-ink`, `--c-teal` and so on. The accent ones are the existing `--ui-accent` / `--ui-accent-ink`, which already held the same colours.
@@ -237,7 +237,14 @@ Sizes: S ≈ ½–1 day, M ≈ 2–3 days, L ≈ 4–6 days.
      - **`accounts/`:** `accountsLogic.js` (pure helpers), `useLeadAccounts.js` (the data hook), `accountParts.jsx` (small parts and menus), `AccountsView.jsx` (the list screen), `AccountPanel.jsx` (the panel, dossier and add form) and `ImportView.jsx`.
      - **`find/`:** `findLogic.js` (the search form and filters), `findParts.jsx`, `ContactsPanel.jsx` and `FindLeadsSearch.jsx`.
      - `AccountsViews.jsx` and `FindLeadsView.jsx` now only re-export, so every existing import still works. New code should import from the folders.
-     - **Still big:** the search screen itself, `FindLeadsSearch`, is one 1,250-line component. Splitting it means breaking up its JSX, which needs a look in the browser.
+     - **The search component itself, first pass (2026-11-26):** its two largest blocks of layout moved into `find/FilterPanel.jsx` (the
+       filter column) and `find/ResultsCard.jsx` (the draft strip, tables, map and pager), so `FindLeadsSearch.jsx` went from 1,336 to
+       967 lines.
+       - **How:** a parser moved each block unchanged. It worked out every value the block uses from the component and passed it in
+         under the same name, so nothing is rewritten. Lint then checks that no name is left undefined.
+       - **Not checked in a browser.**
+       - **Still to do:** the results card takes 88 values, which shows how much of the screen's state it shares. The next step is to
+         group that state in a few hooks (search, selection, map area, contacts), which is a real refactor and wants a browser check.
 7. Optional, later: dark mode, which becomes cheap once steps 1–2 are done.
 
 ### 3.1 Done on the branch (2026-11-25)

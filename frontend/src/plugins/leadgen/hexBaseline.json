@@ -55,6 +55,7 @@
  "cardsLayout.js": 9,
  "connectorsLogic.js": 8,
  "find/ContactsPanel.jsx": 1,
- "find/FindLeadsSearch.jsx": 8,
+ "find/FilterPanel.jsx": 1,
+ "find/FindLeadsSearch.jsx": 7,
  "mapPins.js": 19
 }

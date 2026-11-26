@@ -2,42 +2,37 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "../sear
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "../PickOptions";
 import { Spinner, TableSkeleton, TopBar } from "../../../app/Loader";
-import { ShieldCheck, Building2, Check, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
+import { Building2, Check, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { domainOf } from "../accounts/accountsLogic";
 import { ImportView } from "../accounts/ImportView";
-import { CheckDialog, CheckProgress, useCompanyCheck } from "../CheckCompanies";
-import { nameAsKeywordTown } from "../companyLogic";
-import { LeadsMap } from "../LeadsMap";
-import { amountChoices, PAGE_SIZES, typedAmount } from "../drawShape";
-import { SearchStatus, useHold } from "../SearchStatus";
+import { useCompanyCheck } from "../CheckCompanies";
+import { PAGE_SIZES } from "../drawShape";
+import { useHold } from "../SearchStatus";
 import { askList, askText } from "../Dialogs";
 import { CallButton, useCallDialog } from "../CallFlow";
 import { PaneSwitch } from "../../../components/PaneSwitch";
 import { useConnection } from "../../../hooks/useConnections";
-import { CompaniesTable, CountTiles, FilterGroup, Pager, PeopleTable, SelectionBar, ViewMenu } from "../FindLeadsParts";
-import { IcpPrompt, useIcp } from "../FitParts";
-import { sortOptions } from "../fitLogic";
+import { useIcp } from "../FitParts";
 import { CompanyDrawer } from "../CompanyDrawer";
 import { notesChanged } from "../Notes";
 import { announceCreditsChanged } from "../CreditsChip";
 import { useBulkSelect } from "../../../components/bulkSelect";
-import { SelectAllNotice } from "../../../components/SelectAllNotice";
 import { notice } from "../../../utils/notice";
-import ExclusionBox from "../ExclusionBox";
-import IndustryPicker from "../IndustryPicker";
 import { SearchField } from "../../../components/SearchField";
 import { SavedSearches } from "../SavedSearches";
-import { RADIUS_MILES, SIGNAL_OPTIONS, cleanFilters, coversText, nearFromReply, toggleIn } from "../savedSearchLogic";
-import { DATA_FROM_OPTIONS, TPS_OPTIONS, summaryChips } from "../filterSummary";
+import { cleanFilters, nearFromReply } from "../savedSearchLogic";
+import { summaryChips } from "../filterSummary";
 import { filterNarrowed } from "../filterNarrowed";
 import { StandingChip } from "../../../brand/StandingChip";
 import { AccessNotice } from "../AccessNotice";
 import { isOutsideAccess, limitedLine } from "../accessLogic";
-import { appliedWords, asAccount, draftTitle, EMPTY_FORM, FAVOURITES, filtersToForm, FIRST_KEY, FORM_OPTIONS, formToFilters, GROUP_KEYS, isOn, SELECT_ALL_LIMIT, SIZE_OPTIONS, SOURCE_OPTIONS, splitList, TYPE_OPTIONS } from "./findLogic";
-import { CHECK_TIPS, DistrictPicker, muted, text } from "./findParts";
+import { appliedWords, asAccount, EMPTY_FORM, FAVOURITES, filtersToForm, FIRST_KEY, formToFilters, GROUP_KEYS, isOn, SELECT_ALL_LIMIT, splitList } from "./findLogic";
+import { CHECK_TIPS, muted, text } from "./findParts";
 import { ContactsPanel } from "./ContactsPanel";
+import { FilterPanel } from "./FilterPanel";
+import { ResultsCard } from "./ResultsCard";
 
 // Find Leads layout and control styles.
 const CHAT_CSS = `
@@ -888,162 +883,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
-      <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
-        <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }}>
-          <div className="fl-pin">
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0 }} value={words} disabled={wordsBusy}
-                title="Type it as a sentence. The filters below are filled in for you, including what to leave out"
-                onChange={(e) => setWords(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") fillFromWords(e); }}
-                placeholder="Describe it: accountants in Leeds, leave out charities" />
-              <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!words.trim() || wordsBusy} aria-busy={wordsBusy} title="Fill the filters from your sentence. It does not run the search" onClick={fillFromWords}>
-                <Sparkles size={14} /> {wordsBusy ? "Reading…" : "Fill"}
-              </button>
-            </div>
-          </div>
-          {tab === "people" ? (
-            <FilterGroup title="Job title" active={activeIn("person")} open={groups.person} onToggle={() => setGroup("person")} onClear={() => clearGroup("person")} chips={chipsFor("person")}>
-              <label style={field} title="A word from their role, like director or secretary"><span style={label}>Role includes</span>
-                <input className="ui-input" value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder="director, secretary" /></label>
-            </FilterGroup>
-          ) : null}
-          <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")} chips={chipsFor("industry")}>
-            <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
-              <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" />
-              <span style={{ ...muted, fontSize: 12 }}>A common word on its own can be slow across the whole register. Add a town to speed it up.</span></label>
-            <div style={field} title="Leave out companies whose name or sector has any of these words, or that are in one of these categories"><span style={label}>Leave out</span>
-              <ExclusionBox label="Leave out" value={form.notSector} onChange={(v) => setField("notSector", v)} placeholder="franchise, holdings, Hospitals" /></div>
-            <div style={field} title="Pick from the industries on the register, with how many companies each has. A short SIC code takes every code that starts with it"><span style={label}>Industry</span>
-              <IndustryPicker codes={splitList(form.sic)} labels={sicLabels} types={form.industryTypes || []}
-                onChange={({ codes, labels, types }) => { setForm((f) => ({ ...f, sic: codes.join(", "), industryTypes: types })); setSicLabels(labels); }} /></div>
-            {check("includeSecondary", "Include side activities")}
-            {check("includeNonBusiness", "Include schools & community places")}
-          </FilterGroup>
-          <FilterGroup title="Location" active={activeIn("location")} open={groups.location} onToggle={() => setGroup("location")} onClear={() => clearGroup("location")} chips={chipsFor("location")}>
-            <div style={field}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4 }} title="One or more towns, separated by commas"><span style={label}>Town / city</span>
-                <input className="ui-input" value={form.town} onChange={(e) => setField("town", e.target.value)} placeholder="London, Leeds" /></label>
-              <DistrictPicker town={form.town} includeClosed={form.includeClosed} postcode={form.postcode} onChange={(v) => setField("postcode", v)} />
-            </div>
-            <label style={field} title="Only companies whose postcode begins with this, like EC1 or M1"><span style={label}>Postcode starts with</span>
-              <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
-            <label style={field} title="Leave out companies in these towns"><span style={label}>Leave out towns</span>
-              <input className="ui-input" value={form.notTown} onChange={(e) => setField("notTown", e.target.value)} placeholder="Bradford" /></label>
-            <div style={field} title="Companies whose registered office is in the postcode districts inside this distance">
-              <span style={label}>Within</span>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <select className="ui-input" aria-label="Miles" style={{ width: 96, flex: "0 0 auto" }} value={form.nearMiles}
-                  onChange={(e) => { setField("nearMiles", e.target.value); if (form.nearPostcode.trim()) lookRadius(form.nearPostcode, e.target.value); }}>
-                  {RADIUS_MILES.map((m) => <option key={m} value={m}>{m} {m === 1 ? "mile" : "miles"}</option>)}
-                </select>
-                <input className="ui-input" aria-label="of this postcode" style={{ flex: "1 1 120px", minWidth: 0 }} value={form.nearPostcode} placeholder="of LS1 4AP"
-                  onChange={(e) => setField("nearPostcode", e.target.value)} onBlur={() => lookRadius(form.nearPostcode, form.nearMiles)} />
-              </div>
-              {form.near?.districts?.length ? <span style={muted}>{coversText(form.near)}</span> : null}
-              {form.nearError ? <span role="alert" style={{ ...muted, color: C.red }}>{form.nearError}</span> : null}
-            </div>
-          </FilterGroup>
-          <FilterGroup title="Reasons to get in touch now" active={activeIn("signals")} open={groups.signals} onToggle={() => setGroup("signals")} onClear={() => clearGroup("signals")} chips={chipsFor("signals")}>
-            {SIGNAL_OPTIONS.map(([key, name, tip]) => (
-              <label key={key} title={tip} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", minHeight: 40 }}>
-                <input type="checkbox" checked={form.signals.includes(key)} onChange={() => setField("signals", toggleIn(form.signals, key))} /> {name}
-              </label>
-            ))}
-          </FilterGroup>
-          <FilterGroup title="Size / accounts type" active={activeIn("size")} open={groups.size} onToggle={() => setGroup("size")} onClear={() => clearGroup("size")} chips={chipsFor("size")}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="From each company's filed accounts category. It is not a headcount.">
-              {SIZE_OPTIONS.map(([id, name]) => (
-                <button key={id} type="button" title={`Only ${name} companies`} aria-label={`Size: ${name}`} className={`ui-chip${form.sizes.includes(id) ? " is-active" : ""}`} aria-pressed={form.sizes.includes(id)} onClick={() => toggleSize(id)}
-                  style={form.sizes.includes(id) ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
-              ))}
-            </div>
-          </FilterGroup>
-          <FilterGroup title="Company" active={activeIn("company")} open={groups.company} onToggle={() => setGroup("company")} onClear={() => clearGroup("company")} chips={chipsFor("company")}>
-            {form.legalForm !== "sole" ? (<>
-              <label style={field} title="The legal form: Limited, LLP, PLC and so on"><span style={label}>Company type</span>
-                <input className="ui-input" value={form.category} onChange={(e) => setField("category", e.target.value)} placeholder="Limited, LLP, PLC" /></label>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Any of the legal forms ticked">
-                {TYPE_OPTIONS.map(([id, name]) => {
-                  const on = (form.types || []).includes(id);
-                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Type: ${name}`} onClick={() => setField("types", on ? form.types.filter((x) => x !== id) : [...(form.types || []), id])}
-                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
-                })}
-              </div>
-            </>) : null}
-            <label style={field} title={CHECK_TIPS.legalForm}><span style={label}>Registered or sole trader</span>
-              <select className="ui-input" value={form.legalForm} onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, legalForm: v, ...(v === "sole" ? { category: "", types: [], noCharities: false } : {}) })); }}>
-                {FORM_OPTIONS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-              </select></label>
-            {form.legalForm === "sole" ? (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Only records that came from these registers (none ticked: all of them)">
-                {SOURCE_OPTIONS.map(([id, name]) => {
-                  const on = (form.recordSources || []).includes(id);
-                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Record from: ${name}`} onClick={() => setField("recordSources", on ? form.recordSources.filter((x) => x !== id) : [...(form.recordSources || []), id])}
-                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
-                })}
-              </div>
-            ) : null}
-            {form.legalForm !== "sole" ? check("noCharities", "Leave out charities") : null}
-            {check("googleData", "Includes Google data")}
-            <div style={field} title="Only companies with a phone, email or website that came from any of the sources ticked">
-              <span style={label}>Data from</span>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {DATA_FROM_OPTIONS.map(([id, name]) => {
-                  const on = (form.dataFrom || []).includes(id);
-                  return <button key={id} type="button" className="ui-chip" aria-pressed={on} aria-label={`Data from: ${name}`} onClick={() => setField("dataFrom", on ? form.dataFrom.filter((x) => x !== id) : [...(form.dataFrom || []), id])}
-                    style={on ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>;
-                })}
-              </div>
-            </div>
-            <label style={field} title="Leave out these legal forms, for example Registered Society or Royal Charter Company"><span style={label}>Leave out types</span>
-              <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP, Registered Society" /></label>
-            <div style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
-              <ExclusionBox label="Exclusion list" value={form.excludeItems} onChange={(v) => setField("excludeItems", v)} placeholder="56101, BN9, 01234567, church, Places of Worship" /></div>
-          </FilterGroup>
-          <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")} chips={chipsFor("status")}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <label style={field} title="Only companies that have existed at least this many years"><span style={label}>Trading ≥ years</span>
-                <input className="ui-input" inputMode="numeric" value={form.minAge} onChange={(e) => setField("minAge", e.target.value)} placeholder="e.g. 5" /></label>
-              <label style={field} title="Only companies that are no older than this many years"><span style={label}>Trading ≤ years</span>
-                <input className="ui-input" inputMode="numeric" value={form.maxAge} onChange={(e) => setField("maxAge", e.target.value)} placeholder="e.g. 2" /></label>
-            </div>
-            {check("includeClosed", "Include closed / dissolved")}
-          </FilterGroup>
-          <FilterGroup title="Details we hold" active={activeIn("contact")} open={groups.contact} onToggle={() => setGroup("contact")} onClear={() => clearGroup("contact")} chips={chipsFor("contact")}>
-            {check("hasWebsite", "Has a website")}{check("hasPhone", "Has a phone")}{check("hasEmail", "Has an email")}
-            <label title={CHECK_TIPS.tpsChecked} style={{ ...text, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-              <input type="checkbox" checked={form.tpsChecked} onChange={(e) => setForm((f) => ({ ...f, tpsChecked: e.target.checked, tpsStatus: e.target.checked ? f.tpsStatus : "" }))} /> Phone checked against TPS/CTPS
-            </label>
-            {form.tpsChecked ? (
-              <div role="group" aria-label="TPS result" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {TPS_OPTIONS.map(([id, name]) => (
-                  <button key={name} type="button" className="ui-chip" aria-pressed={form.tpsStatus === id} onClick={() => setField("tpsStatus", id)}
-                    style={form.tpsStatus === id ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
-                ))}
-              </div>
-            ) : null}
-          </FilterGroup>
-          <FilterGroup title="Your lists" active={activeIn("lists")} open={groups.lists} onToggle={() => setGroup("lists")} onClear={() => clearGroup("lists")} chips={chipsFor("lists")}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[["", "Any"], ["exclude", "Not in my lists"], ["only", "In my lists"]].map(([v, name]) => (
-                <button key={name} type="button" className="ui-chip" aria-pressed={form.saved === v} onClick={() => setField("saved", v)}
-                  style={form.saved === v ? { background: "var(--ui-accent-soft)", color: "var(--ui-accent-ink)" } : undefined}>{name}</button>
-              ))}
-            </div>
-          </FilterGroup>
-          <div style={{ position: "sticky", bottom: 0, background: C.surfaceCool, borderTop: "1px solid #C5CBD6", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
-              <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
-            </button>
-            <button type="submit" aria-busy={busy} className="ui-btn ui-btn--primary" style={{ marginLeft: "auto", height: 36 }} title="Search the company register. It costs no credits">
-              {busy ? <Spinner size={15} /> : <Search size={15} />} {busy ? "Searching…" : tab === "people" ? "Find people" : "Find companies"}
-            </button>
-          </div>
-        </form>
-      </aside>
+      <FilterPanel activeIn={activeIn} busy={busy} check={check} chipsFor={chipsFor} clearGroup={clearGroup} field={field} fillFromWords={fillFromWords} filterCount={filterCount} form={form} groups={groups} label={label} lookRadius={lookRadius} resetSearch={resetSearch} search={search} searchPeople={searchPeople} setExcluded={setExcluded} setField={setField} setForm={setForm} setGroup={setGroup} setSicLabels={setSicLabels} setWords={setWords} sicLabels={sicLabels} tab={tab} toggleSize={toggleSize} words={words} wordsBusy={wordsBusy} />
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {firstLoad ? (
@@ -1086,216 +926,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       ) : null}
 
       {(searched || view === "map") && !firstLoad ? (
-        <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
-          <TopBar show={busy} />
-          {draft && !area && tab === "companies" && searched ? (
-            <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "9px 14px", borderBottom: `1px solid ${C.border}`, background: C.cobaltSoft }}>
-              <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>{draftTitle(draft)}</span>
-              <span style={{ ...muted, fontSize: 12.5 }}>
-                {draft.asked && draft.asked < total ? `The ${draft.asked.toLocaleString()} you asked for, best matches first. ${total.toLocaleString()}${capped ? "+" : ""} match in all.` : `${total.toLocaleString()}${capped ? "+" : ""} match.`}
-              </span>
-              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!companies.length || busy} onClick={() => sel.selectAll(companies.map((c) => c.id))}>Select all {companies.length.toLocaleString()}</button>
-                {draft.asked && draft.asked < total ? (
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} onClick={() => { pageRef.current = pageSize; setDraft({ asked: 0 }); search(null, form, 0, null, undefined, undefined, true); }}>Show all matches</button>
-                ) : null}
-                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { pageRef.current = pageSize; setDraft(null); }}>Done</button>
-              </span>
-            </div>
-          ) : null}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: tab === "companies" && searched && !area ? "0 14px" : "10px 14px", minHeight: 46, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
-            <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-              {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
-                <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
-              ) : searched && !area ? (
-                <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} />
-              ) : null}
-            </div>
-            {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
-            <span id="fl-grid-tools" style={{ display: "contents" }} />
-            {!area ? (
-              <ViewMenu busy={busy} sortValue={sort} sortOptions={sortOptions(icp.isSet)}
-                sortLabel={(sortOptions(icp.isSet).find(([v]) => v === sort) || sortOptions(icp.isSet)[0])[1]}
-                onSort={changeSort} pageSize={pageSize} pageSizes={PAGE_SIZES} onPageSize={changePageSize} />
-            ) : null}
-          </div>
-          {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} inset /> : null}
-          {broadenedNote && !busy ? (
-            <div role="status" style={{ ...muted, fontSize: 12.5, padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>{broadenedNote}.</div>
-          ) : null}
-          {understood.length ? (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>
-              <span style={{ ...muted, fontSize: 12.5 }}>Also looking for:</span>
-              {[...new Set(understood.flatMap((u) => u.terms))].map((t) => (
-                <span key={t} className="ui-chip" style={{ cursor: "default", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  {t}
-                  <button type="button" aria-label={`Stop looking for ${t}`} disabled={busy} onClick={() => dropTerm(t)}
-                    style={{ all: "unset", cursor: "pointer", display: "inline-flex", color: C.slate }}><X size={12} /></button>
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {view === "map" ? (
-            <div ref={mapRef} style={{ padding: 12, scrollMarginTop: 8 }}>
-              <LeadsMap onClose={() => setView("list")} companies={companies} points={points} area={area} busy={busy} onArea={drawArea} onClear={clearArea} hint={form.sector} statusOf={statusOf} actions={mapActions} />
-              {area && areaNote ? <div role="status" style={{ ...muted, marginTop: 8 }}>{areaNote}</div> : null}
-              {area && companies.some((c) => c.phone) ? (
-                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <CallButton label={`Call the ${companies.filter((c) => c.phone).length} with a phone number in this area`} lockedLabel="Call these · add Voice" variant="secondary"
-                    title="Saves them to your Unsorted list, then shows who can be called"
-                    onClick={() => callAll(companies)} onLocked={() => call.open({ kind: "selected", ids: [], name: "the companies in your area" }, true)} />
-                </div>
-              ) : null}
-              {areaStep && area ? (
-                <div className="ui-card" role="status" style={{ marginTop: 10, padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  {areaStep.phase === "counting" ? (
-                    <div style={{ width: "100%" }}>
-                      <SearchStatus title="Counting the companies inside your area"
-                        detail={`${[appliedWords(form), "inside the shape you drew"].filter(Boolean).join(" · ")}. This takes a few seconds and costs nothing.`}
-                        paused={countHold.paused} holding onPause={countHold.pause} onResume={countHold.resume} onCancel={clearArea} />
-                    </div>
-                  ) : null}
-                  {areaStep.phase === "choose" ? (
-                    areaStep.candidates ? (
-                      <>
-                        <span style={{ ...text, fontSize: 13, color: C.textInk, marginRight: "auto" }}>
-                          Up to <strong>{areaStep.candidates.toLocaleString()}{areaStep.capped ? "+" : ""}</strong> companies are in this area. How many do you want to see?
-                        </span>
-                        {amountChoices(areaStep.candidates).map((o) => (
-                          <button key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Read this many companies from the area" onClick={() => pickAmount(o.value)}>{o.label}</button>
-                        ))}
-                        <form onSubmit={(e) => { e.preventDefault(); const n = typedAmount(custom, areaStep.candidates); if (n) pickAmount(n); }}
-                          style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <input className="ui-input" inputMode="numeric" aria-label="Type how many to see" placeholder="Or type a number" value={custom}
-                            onChange={(e) => setCustom(e.target.value)} style={{ width: 130, height: 30 }} />
-                          <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm" disabled={!typedAmount(custom, areaStep.candidates)} title="Show this many companies from the area">Show</button>
-                          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={!custom} onClick={() => setCustom("")} title="Clear the number">Reset</button>
-                        </form>
-                      </>
-                    ) : areaStep.inArea ? (
-                      <>
-                        <span style={{ ...muted, marginRight: "auto" }}>{areaStep.inArea.toLocaleString()} {areaStep.inArea === 1 ? "company is" : "companies are"} in this area, but none match your filters.</span>
-                        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => { const next = { ...EMPTY_FORM }; setForm(next); countArea(area, next, []); }}>Show every company in this area</button>
-                      </>
-                    ) : Object.keys(formToFilters(form)).length ? (
-                      <>
-                        <span style={{ ...muted, marginRight: "auto" }}>No company in this area matches your filters.</span>
-                        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" onClick={() => { const next = { ...EMPTY_FORM }; setForm(next); setUnderstood([]); countArea(area, next, []); }}>Show every company in this area</button>
-                      </>
-                    ) : <span style={muted}>Nothing found inside this area. Our data covers the UK, so draw over a UK town or a few postcodes, or use "Redraw area" for a bigger area.</span>
-                  ) : null}
-                  {areaStep.phase === "running" ? (
-                    <div style={{ width: "100%" }}>
-                      <SearchStatus title={`Reading the area: ${(areaStep.found || 0).toLocaleString()} of ${(areaStep.target || 0).toLocaleString()} found`}
-                        detail={`Checked ${(areaStep.scanned || 0).toLocaleString()} of up to ${(areaStep.candidates || 0).toLocaleString()} companies in the shape. Pins appear as they are found.`}
-                        found={areaStep.found} total={areaStep.target} paused={paused}
-                        onPause={() => { pausedRef.current = true; setPaused(true); }} onResume={() => { pausedRef.current = false; setPaused(false); }}
-                        onCancel={() => { stopArea.current = true; pausedRef.current = false; setPaused(false); }} cancelLabel="Stop and keep what's found" />
-                    </div>
-                  ) : null}
-                  {areaStep.phase === "done" ? (
-                    <>
-                      <span style={{ ...text, fontSize: 13, color: C.textInk, marginRight: "auto" }}>
-                        {areaStep.shown
-                          ? `Showing ${areaStep.shown.toLocaleString()}${areaStep.candidates ? ` of up to ${areaStep.candidates.toLocaleString()}` : ""} companies in this area · ${pinCount.toLocaleString()} on the map.`
-                          : "No companies from our data are inside this exact shape."}
-                      </span>
-                      {areaStep.candidates ? amountChoices(areaStep.candidates).filter((o) => o.value > (areaStep.shown || 0)).slice(0, 3).map((o) => (
-                        <button title="Read this many companies from the area" key={String(o.value)} type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => pickAmount(o.value)}>
-                          Show {o.label}
-                        </button>
-                      )) : null}
-                      {areaStep.candidates ? <button title="Pick how many companies to read from the area" type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setAreaStep({ phase: "choose", candidates: areaStep.candidates })}>Choose a number…</button> : null}
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              <div style={{ ...muted, fontSize: 12.5, marginTop: 8 }}>
-                {companies.some((c) => !points[c.id]) && busy === false && asked.current.size
-                  ? "Companies without a usable postcode aren't on the map; they're still in the List view." : "Pins are placed at each company's registered postcode."}
-              </div>
-            </div>
-          ) : null}
-          {tab === "people" ? (
-            <>
-              {filling ? (
-                <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...text, fontSize: 13, color: C.textInk }}>
-                  <Spinner size={14} /> Reading the registry for the people at {filling.done} of {filling.of} companies. Free.
-                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => { fillRun.current += 1; setFilling(null); searchPeople(null, form, 0); }}>Stop and show what is found</button>
-                </div>
-              ) : fillIds.length ? (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.borderLight}`, ...muted, fontSize: 12.5 }}>
-                  Some of these companies have no people on file yet. Reading them from the registry is free.
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy} title="Read the registry for the best-ranked companies that have no people on file yet. Free" onClick={() => fillPeople(fillIds)}>
-                    <Users size={14} /> Find people at the next {fillIds.length} companies
-                  </button>
-                </div>
-              ) : null}
-              {people.length && peopleOf != null && peopleOf > peopleTotal ? (
-                <div style={{ ...muted, fontSize: 12.5, padding: "6px 14px" }}>People are on file for {peopleTotal.toLocaleString()} of {peopleOf.toLocaleString()} matching companies.</div>
-              ) : null}
-              {people.length ? (
-                <PeopleTable rows={people} onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} />
-              ) : searched && !busy && !filling ? (
-                <div style={{ ...muted, padding: 16 }}>
-                  {fillIds.length
-                    ? `No people are on file yet for these companies${form.title ? ` with "${form.title}" in their role` : ""}. Use "Find people" above to read them from the registry.`
-                    : `No current directors or officers are listed for these companies${form.title ? ` with "${form.title}" in their role` : ""}. Try another role word, or widen the search.`}
-                </div>
-              ) : null}
-              {peopleTotal > 0 || people.length ? <Pager page={page} size={pageSize} total={peopleTotal} capped={capped} shown={new Set(people.map((x) => x.company.id)).size} onPage={goPage} busy={busy} unit="Companies" /> : null}
-            </>
-          ) : (
-            <>
-              <SelectionBar count={sel.count} label={selectedWord} onClear={sel.clear}>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Save the ticked companies to your Unsorted list" onClick={() => bulkSave("Unsorted")}><Plus size={14} /> Save {sel.count.toLocaleString()}</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in a list you name" onClick={async () => { const name = await askList({ title: `Add ${pickedRows.length.toLocaleString()} ${pickedRows.length === 1 ? "company" : "companies"} to a list`, confirm: "Add" }); if (name) bulkSave(name); }}><List size={14} /> Add to list</button>
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Put the ticked companies in your Favourites list" onClick={() => bulkSave(FAVOURITES)}><Star size={14} /> Favourite</button>
-                {pickedRows.some(missingDetail) ? (
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={preparing || contactCheck.job?.status === "running"}
-                    title="Look for the website, phone and email these companies are missing. You see the most it can cost, and what you get, before anything is charged"
-                    onClick={() => getContacts(pickedRows.filter(missingDetail))}>
-                    <ShieldCheck size={14} /> {preparing ? "Getting ready…" : `Get contacts (${pickedRows.filter(missingDetail).length.toLocaleString()})`}
-                  </button>
-                ) : null}
-                {pickedRows.some((c) => Object.keys(c.closed || {}).length) ? (
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" title="Show the website, phone and email we hold for the ticked companies. Free." onClick={() => revealMany(pickedRows)}>Reveal {pickedRows.filter((c) => Object.keys(c.closed || {}).length).length.toLocaleString()}</button>
-                ) : null}
-                <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!pickedRows.some((c) => c.phone)} title="Save them and have your AI caller phone the ones with a number" onClick={() => callAll(pickedRows)}>Call</button>
-                <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Hide the ticked companies from this search" onClick={() => { const n = pickedRows.length; pickedRows.forEach(removeCompany); sel.clear(); notice(`Hid ${n.toLocaleString()} ${n === 1 ? "company" : "companies"} from this search.`); }}><X size={14} /> Remove</button>
-              </SelectionBar>
-              <CheckProgress check={contactCheck} pendingCount={0} onRecheck={() => {}} onFilter={() => {}} />
-              {checking ? <CheckDialog ids={checking.ids} mode="contacts" onStart={(...a) => { sel.clear(); return contactCheck.start(...a); }} onClose={() => setChecking(null)} /> : null}
-              {inArea ? (
-                <div role="status" style={{ ...muted, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "8px 14px", borderBottom: `1px solid ${C.border}` }}>
-                  <MapIcon size={14} aria-hidden="true" /> <span>Showing the {companies.length.toLocaleString()} {companies.length === 1 ? "company" : "companies"} the map found.</span>
-                  <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={clearArea}>Show the whole list</button>
-                  <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={() => setView("map")}>Back to the map</button>
-                </div>
-              ) : null}
-              <SelectAllNotice sel={sel} pageIds={companies.map((c) => c.id)} total={inArea ? companies.length : total} capped={!inArea && capped} reach={selectReach} busy={selecting} onSelectAll={selectAllMatching} />
-              {companies.length ? (
-                <CompaniesTable onGetContacts={getContacts} busy={busy} rows={companies} picked={sel.ids} activeId={openCo?.id} grouped={sort === "best" && ranked && !area} tiers={tiers} capped={capped}
-                  showFit={icpSet} fitSorted={sort === "fit"} onSortFit={area ? undefined : () => changeSort("fit")}
-                  onPick={sel.toggle}
-                  onPickAll={() => sel.togglePage(companies.map((c) => c.id))}
-                  onOpen={setOpenCo} isSaved={(c) => isSaved(c) || c.saved} onSave={saveOne} onFindSite={findSite} onReveal={reveal} onRevealRow={revealRow} lookups={lookups} />
-              ) : searched && !inArea && !busy ? (
-                <div style={{ ...muted, padding: 16, display: "grid", gap: 8, justifyItems: "start" }}>
-                  {nameAsKeywordTown(form.name) ? (
-                    <>
-                      <div>No company is named "{form.name.trim()}".</div>
-                      <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" onClick={() => { const g = nameAsKeywordTown(form.name); const next = { ...form, name: "", sector: g.keyword, town: g.town }; setForm(next); search(null, next, 0, null, undefined, undefined, true); }}>
-                        Search {nameAsKeywordTown(form.name).keyword} in {nameAsKeywordTown(form.name).town} instead
-                      </button>
-                    </>
-                  ) : <div>No companies match these filters. Try a wider town, a broader industry word, or tick "Include closed".</div>}
-                </div>
-              ) : null}
-              {companies.length && !area && !(draft?.asked && draft.asked < total) ? <Pager page={page} size={pageSize} total={total} capped={capped} shown={companies.length} onPage={goPage} busy={busy} /> : null}
-            </>
-          )}
-        </div>
+        <ResultsCard area={area} areaNote={areaNote} areaPending={areaPending} areaStep={areaStep} asked={asked} broadenedNote={broadenedNote} bulkSave={bulkSave} busy={busy} call={call} callAll={callAll} capped={capped} changePageSize={changePageSize} changeSort={changeSort} checking={checking} clearArea={clearArea} companies={companies} contactCheck={contactCheck} countArea={countArea} countHold={countHold} custom={custom} draft={draft} drawArea={drawArea} dropTerm={dropTerm} fillIds={fillIds} fillPeople={fillPeople} fillRun={fillRun} filling={filling} findSite={findSite} form={form} getContacts={getContacts} goPage={goPage} icp={icp} icpSet={icpSet} inArea={inArea} isSaved={isSaved} lookups={lookups} mapActions={mapActions} mapRef={mapRef} missingDetail={missingDetail} onSetIcp={onSetIcp} openCo={openCo} page={page} pageRef={pageRef} pageSize={pageSize} paused={paused} pausedRef={pausedRef} people={people} peopleOf={peopleOf} peopleTotal={peopleTotal} pickAmount={pickAmount} pickSaved={pickSaved} pickedRows={pickedRows} pinCount={pinCount} points={points} preparing={preparing} ranked={ranked} removeCompany={removeCompany} reveal={reveal} revealMany={revealMany} revealRow={revealRow} saveOne={saveOne} savedTotal={savedTotal} search={search} searchPeople={searchPeople} searched={searched} sel={sel} selectAllMatching={selectAllMatching} selectReach={selectReach} selectedWord={selectedWord} selecting={selecting} setAreaStep={setAreaStep} setChecking={setChecking} setCustom={setCustom} setDraft={setDraft} setFilling={setFilling} setForm={setForm} setOpenCo={setOpenCo} setPaused={setPaused} setUnderstood={setUnderstood} setView={setView} sort={sort} statusOf={statusOf} stopArea={stopArea} tab={tab} tiers={tiers} total={total} understood={understood} view={view} />
       ) : null}
       </div>
       </div>
