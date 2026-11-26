@@ -9,17 +9,19 @@ is one query:
   web_search     tavily_calls         Tavily credits used x the "tavily" lookup price
   company_data   apollo_calls         the "apollo" lookup price, for a found result (or every search, when its billing says so)
   number_lookup  number_checks        the "telnyx_lookup" lookup price per number checked
+  <capability>   provider_call_log    cost_usd stored at call time by the provider wrapper (providers/gateway.py); model holds the op
 
 Columns: source, ref, at, org_id, provider, model, capability, feature, route, units, cost_usd, priced, hit.
 - Tavily, Apollo and number lookups are costed at today's price; the other two sources keep the price of the day they ran.
 - priced is false when the provider has no price yet, so the cost shown is $0 (see ai_pricing.unpriced_in_use).
-- Call minutes, numbers, WhatsApp, TPS screening and Google Places aren't logged per call. Their cost is estimated from usage
-  in the client report (services/revenue.client_pnl).
+- Call minutes, numbers, WhatsApp and TPS screening aren't logged per call. Their cost is estimated from usage in the client
+  report (services/revenue.client_pnl). Google Places was too, until it moved onto the wrapper: usage from before its first logged
+  call is still estimated (revenue.LOGGED_BY_WRAPPER).
 - The view runs with the rights of whoever reads it (security_invoker), so a company's own session sees only its own rows,
   just as with the tables underneath. Staff reports read it under the system scope.
 
-A later step replaces the logs with one provider_calls table written by the provider wrapper (plan 11, Part A). Readers of this
-view won't need to change.
+Providers moved onto the wrapper write provider_call_log instead of a log of their own (plan 11, Part A), and readers of this view
+don't change. The old logs stay until every provider is moved.
 
 A migration that changes a column type in one of these tables must first run DROP VIEW IF EXISTS provider_calls. The view is
 remade at the next start-up.
@@ -65,6 +67,11 @@ SELECT 'number_lookup', n.id::varchar, n.checked_at, coalesce(n.org_id, '')::var
        1::float, coalesce(p.price_in_usd, 0)::float, (coalesce(p.confirmed, false) OR coalesce(p.price_in_usd, 0) > 0), true
   FROM number_checks n
   LEFT JOIN provider_prices p ON p.provider = 'telnyx_lookup' AND p.kind = 'lookup' AND coalesce(p.model, '') = ''
+UNION ALL
+SELECT coalesce(nullif(g.capability, ''), 'other')::varchar, g.id::varchar, g.at, coalesce(g.for_org, '')::varchar, coalesce(g.provider, '')::varchar,
+       coalesce(g.op, '')::varchar, coalesce(g.capability, '')::varchar, coalesce(g.feature, '')::varchar, coalesce(g.route, '')::varchar,
+       coalesce(g.units, 0)::float, coalesce(g.cost_usd, 0)::float, coalesce(g.priced, false), coalesce(g.outcome, '') = 'found'
+  FROM provider_call_log g
 """
 
 

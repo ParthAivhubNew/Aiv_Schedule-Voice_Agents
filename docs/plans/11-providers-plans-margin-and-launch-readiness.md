@@ -121,13 +121,28 @@ call_provider(capability, request, org, feature)
     the credit item clients pay, and a Test button.
   - Real keys on new.outreach: **Tavily has 0 credits left this month** and **Telnyx has $6.57**. Both are the live accounts.
 - **Still to do in step 4:**
-  - the call sites of Tavily, Google Places, Telnyx lookup and Provero still call those vendors directly; move them behind the
-    provider files,
+  - the call sites of Tavily, Telnyx lookup and Provero still call those vendors directly; move them behind the wrapper (Google Places
+    moved 2026-11-26, below),
   - ~~one generic key pool in place of `apollo_pool` and `tavily_pool`~~ **done (2026-11-25):** `app/providers/keypool.py` (main key,
     backups, set-aside per key or per kind of request, failover, one log row per request with only the key's id and label).
     `apollo_pool` and `tavily_pool` keep their names and status rules on top of it. On new.outreach, Apollo and Tavily each
     have a main key and 3 backups, so Tavily's empty main key fails over to the backups.
-  - the `call_provider()` wrapper (plan and cost-cap check, shared cache, circuit breaker, one `provider_calls` table),
+  - ~~the `call_provider()` wrapper~~ **done (2026-11-26):** `app/providers/gateway.py`. Every call goes through these steps in order:
+    1. **Plan:** a plan that leaves the provider out gets `not_in_plan`.
+    2. **Shared cache:** opt-in with a `cache_key`, for as long as the licence's `cache_days`. One client's answer serves another only
+       when the licence says `share_across_clients`. "Nothing found" is kept a week at most. Table `provider_cache`.
+    3. **Fair-use cost cap:** `cap_reached` once the plan's cap is used up.
+    4. **Circuit breaker:** after 5 failures in a row the provider is left alone for 1 minute, then 2, 4, 8 and up to 15. Staff get a
+       `PRV-01` alert, and the staff Providers API shows it as `breaker`. One success clears it.
+    5. **Key**, then **the call**, with **one log row** in `provider_call_log` holding the cost at that day's Model Pricing price
+       (per-find providers cost nothing when they find nothing).
+    - It never raises. Each result says what happened, so callers treat a refusal like "nothing found".
+    - **Cost ledger:** the `provider_calls` view now includes `provider_call_log`, so reports needed no change.
+    - **Google Places is the first provider on it:** the deep web search and the live Google view. Google was never logged per call
+      before. Its cost was estimated from credits used, so the client report and the cost cap now estimate Google only up to its
+      first logged call (`revenue.LOGGED_BY_WRAPPER`); after that, the real cost counts and nothing is counted twice.
+    - Google's answers are never cached (its terms).
+    - Tests: `tests/test_provider_gateway.py`.
   - config-only providers (`generic_http`),
   - a Providers screen in the admin portal. Today it's the API only; the Connectors screen comes in plan 10, phase 3.
 

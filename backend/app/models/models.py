@@ -2662,6 +2662,46 @@ class PostcodeLookup(Base):
     loaded_from = Column(String, default="")
 
 
+class ProviderCallLog(Base):
+    """One call the provider wrapper (providers/gateway.py) sent to an outside provider: what for, who asked, how it went and what it
+    cost us at that day's price. Platform-level (for_org, not org_id), like TavilyCall: staff read it, and the cost ledger view
+    (services/cost_ledger.py) adds it to provider_calls. Never holds a key."""
+    __tablename__ = "provider_call_log"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    at = Column(DateTime, default=datetime.utcnow, index=True)
+    provider = Column(String, default="", index=True)  # the manifest id, e.g. google_places
+    capability = Column(String, default="")  # the manifest category, e.g. company_data
+    op = Column(String, default="")  # what was asked, e.g. text_search, place_details
+    feature = Column(String, default="")  # the app feature that asked, e.g. deep_search, google_view
+    looked_for = Column(String, default="")
+    for_org = Column(String, default="", index=True)
+    actor = Column(String, default="")
+    route = Column(String, default="")
+    status = Column(Integer, nullable=True)  # HTTP status; None when no answer came back
+    outcome = Column(String, default="")  # found, none, error
+    units = Column(Float, default=1.0)
+    cost_usd = Column(Float, default=0.0)  # at the price of the day; 0 for a per-find provider that found nothing
+    priced = Column(Boolean, default=False)  # False: the provider has no price yet, so the cost shows as $0
+    ms = Column(Integer, default=0)  # how long the call took
+
+
+class ProviderCache(Base):
+    """An answer the provider wrapper may reuse instead of paying again, for as long as the provider's licence allows (cache_days).
+    scope is "*" when the licence lets one client's answer serve another, else the organisation it was bought for. Platform-level:
+    the wrapper itself keeps answers apart by scope."""
+    __tablename__ = "provider_cache"
+
+    id = Column(String, primary_key=True)  # sha256 of provider, op, scope and the caller's cache key
+    provider = Column(String, default="", index=True)
+    op = Column(String, default="")
+    scope = Column(String, default="*")
+    data = Column(JSON, default=dict)
+    found = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, index=True)
+
+
 class TavilyCall(Base):
     """One search we sent to Tavily: which key, what for, who asked, and how it went. Platform-level (no org_id), like ApolloCall:
     staff read it in the admin portal. Never holds a key."""

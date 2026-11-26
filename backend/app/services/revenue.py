@@ -205,6 +205,16 @@ INTERNAL_ORGS = ("org_default", "org_outreach", "*", "")  # the platform's own a
 # Usage whose vendor cost is not logged per call (see services/cost_ledger.py): its cost is estimated from the units used.
 ESTIMATED_ITEMS = ("voice_minute", "voice_minute_premium", "call_transcript", "whatsapp_message", "phone_number_month", "number_setup",
                    "tps_check", "lead_tps_check", "google_view", "google_deep_search")
+# Estimated items whose provider now goes through the provider wrapper (providers/gateway.py), which logs each call's real cost. Usage
+# from before that provider's first logged call is still estimated; after it, the ledger has the cost and estimating it would count it twice.
+LOGGED_BY_WRAPPER = {"google_view": "google_places", "google_deep_search": "google_places"}
+
+
+def _still_estimated() -> str:
+    """SQL: true for a credit_ledger row whose cost isn't in the cost ledger (see LOGGED_BY_WRAPPER). The names are this file's own."""
+    cases = " ".join(f"WHEN '{item}' THEN (SELECT min(at) FROM provider_call_log WHERE provider = '{pid}')"
+                     for item, pid in LOGGED_BY_WRAPPER.items())
+    return f"created_at < coalesce(CASE item {cases} END, 'infinity'::timestamp)"
 
 
 async def _estimate_unit_costs(db) -> Dict[str, Any]:
@@ -275,7 +285,7 @@ async def client_pnl(db, month: str, include_internal: bool = False, floor_pct: 
     unit = await _estimate_unit_costs(db)
     for org_id, item, qty in (await db.execute(text(
             "SELECT org_id, item, sum(quantity) FROM credit_ledger WHERE kind = 'usage' AND created_at >= :s AND created_at < :e "
-            "AND item = ANY(:items) GROUP BY 1, 2"), {**window, "items": list(ESTIMATED_ITEMS)})).all():
+            f"AND item = ANY(:items) AND {_still_estimated()} GROUP BY 1, 2"), {**window, "items": list(ESTIMATED_ITEMS)})).all():
         r, qty = row(org_id), float(qty or 0)
         if item in unit:
             cost = await gbp(qty * unit[item][0], unit[item][1])
@@ -363,7 +373,7 @@ async def org_cost_gbp(db, org_id: str, start: datetime, end: datetime) -> float
     unit = await _estimate_unit_costs(db)
     for item, qty in (await db.execute(text(
             "SELECT item, sum(quantity) FROM credit_ledger WHERE org_id = :o AND kind = 'usage' AND created_at >= :s AND created_at < :e "
-            "AND item = ANY(:items) GROUP BY 1"), {"o": org_id, "s": start, "e": end, "items": list(ESTIMATED_ITEMS)})).all():
+            f"AND item = ANY(:items) AND {_still_estimated()} GROUP BY 1"), {"o": org_id, "s": start, "e": end, "items": list(ESTIMATED_ITEMS)})).all():
         if item in unit:
             total += (await fx.convert(db, float(qty or 0) * unit[item][0], unit[item][1], REPORT_CURRENCY))[0]
     return total

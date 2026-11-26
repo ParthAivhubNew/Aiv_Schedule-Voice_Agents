@@ -58,7 +58,7 @@ def _load() -> Dict[str, Provider]:
 
     found: Dict[str, Provider] = {}
     for info in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
-        if info.ispkg or info.name.rsplit(".", 1)[-1] in ("base", "registry"):
+        if info.ispkg or info.name.rsplit(".", 1)[-1] in ("base", "registry", "gateway", "keypool"):
             continue
         try:
             mod = importlib.import_module(info.name)

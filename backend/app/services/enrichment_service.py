@@ -11,6 +11,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
+from app.providers.gateway import Answer, call_provider
 from app.services.process_logger import log_process_event
 
 logger = logging.getLogger("enrichment_service")
@@ -412,6 +413,12 @@ def _best_place(places: List[Dict[str, Any]], name: str, postcode: str) -> Dict[
     return named[0]
 
 
+def _google_failure(status: int) -> str:
+    """A Google refusal that means the provider is in trouble (a bad key, no quota, Google down) counts towards the circuit breaker;
+    a request Google couldn't use (400 for an odd query, 404 for an old place id) is just nothing found."""
+    return "error" if status in (401, 403, 429) or status >= 500 else "none"
+
+
 async def search_google_places(query: str, *, name: str = "", postcode: str = "") -> Optional[Dict[str, Any]]:
     """The platform's "Deep web search": one Google Places lookup (Text Search then Place
     Details) for the best-matching business. Never shown to the user as "Google" -- callers
@@ -419,12 +426,7 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
     key is configured or nothing matches; never raises."""
     if not await _source_allowed("google"):
         return None  # the organisation's brand policy restricts this source: the same as nothing found
-    from app.services.plan_rules import provider_allowed
-
-    if not await provider_allowed("google_places"):
-        return None  # the company's plan leaves Google out: the same as nothing found
-    key = await google_places_key()
-    if not key or not query.strip():
+    if not query.strip():
         return None
     # The postcode we hold pins the search to the right street; the name is what the answer is checked against.
     if postcode and postcode.replace(" ", "").lower() not in query.replace(" ", "").lower():
@@ -432,21 +434,21 @@ async def search_google_places(query: str, *, name: str = "", postcode: str = ""
     # Places API (New): one request returns the match and its phone, website and status.
     fields = ("places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,"
               "places.websiteUri,places.rating,places.businessStatus")
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://places.googleapis.com/v1/places:searchText",
-                headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields},
-                json={"textQuery": query, "regionCode": "GB", "pageSize": 5},
-            )
-            await _bump_vendor_call("google_places")
-            if resp.status_code != 200:
-                logger.warning(f"[google_places] lookup refused ({resp.status_code}): {resp.text[:200]}")
-                return None
-            found = (resp.json().get("places") or [])
-    except Exception as err:
-        logger.debug(f"[google_places] search failed for '{query}': {err}")
-        return None
+
+    async def ask(client: httpx.AsyncClient, key: str) -> Answer:
+        resp = await client.post("https://places.googleapis.com/v1/places:searchText",
+                                 headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields},
+                                 json={"textQuery": query, "regionCode": "GB", "pageSize": 5})
+        if resp.status_code != 200:
+            logger.warning(f"[google_places] lookup refused ({resp.status_code}): {resp.text[:200]}")
+            return Answer(outcome=_google_failure(resp.status_code), status=resp.status_code)
+        places = resp.json().get("places") or []
+        return Answer(places, outcome="found" if places else "none", status=200)
+
+    # The wrapper checks the plan, the cost cap and the circuit breaker, reads the key and logs the call (providers/gateway.py).
+    # Google's terms don't allow keeping its answers, so nothing is cached.
+    res = await call_provider("google_places", "text_search", ask, feature="deep_search", looked_for=query, timeout=10.0)
+    found = res.data or []
     if not found:
         return None
     place = _best_place(found, name, postcode)
@@ -470,27 +472,22 @@ async def google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
     pid = str(place_id or "").strip()
     if not pid or not re.fullmatch(r"[A-Za-z0-9_\-]{5,300}", pid):
         return None  # the ID goes into the URL path: nothing but what Google issues
-    from app.services.plan_rules import provider_allowed
-
-    if not await provider_allowed("google_places"):
-        return None  # the company's plan leaves Google out
-    key = await google_places_key()
-    if not key:
-        return None
     fields = ("displayName,formattedAddress,internationalPhoneNumber,websiteUri,rating,userRatingCount,"
               "businessStatus,regularOpeningHours.weekdayDescriptions,googleMapsUri")
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0)) as client:
-            resp = await client.get(f"https://places.googleapis.com/v1/places/{pid}",
-                                    headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields})
-            await _bump_vendor_call("google_places")
-            if resp.status_code != 200:
-                logger.warning(f"[google_places] details refused ({resp.status_code})")
-                return None
-            p = resp.json() or {}
-    except Exception as err:
-        logger.debug(f"[google_places] details failed: {type(err).__name__}")
-        return None
+
+    async def ask(client: httpx.AsyncClient, key: str) -> Answer:
+        resp = await client.get(f"https://places.googleapis.com/v1/places/{pid}",
+                                headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": fields})
+        if resp.status_code != 200:
+            logger.warning(f"[google_places] details refused ({resp.status_code})")
+            return Answer(outcome=_google_failure(resp.status_code), status=resp.status_code)
+        body = resp.json() or {}
+        return Answer(body, outcome="found" if body else "none", status=200)
+
+    # Plan, cost cap, circuit breaker, key and the call's log row: providers/gateway.py. Never cached (Google's terms).
+    res = await call_provider("google_places", "place_details", ask, feature="google_view", looked_for=pid,
+                              timeout=httpx.Timeout(8.0, connect=4.0))
+    p = res.data or {}
     name = (p.get("displayName") or {}).get("text") or ""
     if not name:
         return None

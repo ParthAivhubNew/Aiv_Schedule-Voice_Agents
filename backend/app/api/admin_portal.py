@@ -2034,10 +2034,15 @@ async def list_providers(request: Request):
     from app.providers import registry
 
     _who(request)
+    from app.providers.gateway import breakers
+
     out = []
+    paused = breakers()
     for p in registry.all_providers():
         view = registry.manifest_view(p)
         view["keySaved"] = bool(await _saved_provider_key(p.manifest.id))
+        if p.manifest.id in paused:
+            view["breaker"] = paused[p.manifest.id]  # failures in a row, and whether calls to it are paused just now
         out.append(view)
     return {"providers": out, "problems": registry.problems()}
 
