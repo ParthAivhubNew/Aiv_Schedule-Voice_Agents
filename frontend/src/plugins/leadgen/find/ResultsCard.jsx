@@ -17,8 +17,16 @@ import { notice } from "../../../utils/notice";
 import { EMPTY_FORM, FAVOURITES, appliedWords, draftTitle, formToFilters } from "./findLogic";
 import { muted, text } from "./findParts";
 
-// Find Leads' results card: the draft strip, the companies and people tables, the map and the pager. Moved out of FindLeadsSearch unchanged; every value it uses comes in as a prop of the same name.
-export function ResultsCard({ area, areaNote, areaPending, areaStep, asked, broadenedNote, bulkSave, busy, call, callAll, capped, changePageSize, changeSort, checking, clearArea, companies, contactCheck, countArea, countHold, custom, draft, drawArea, dropTerm, fillIds, fillPeople, fillRun, filling, findSite, form, getContacts, goPage, icp, icpSet, inArea, isSaved, lookups, mapActions, mapRef, missingDetail, onSetIcp, openCo, page, pageRef, pageSize, paused, pausedRef, people, peopleOf, peopleTotal, pickAmount, pickSaved, pickedRows, pinCount, points, preparing, ranked, removeCompany, reveal, revealMany, revealRow, saveOne, savedTotal, search, searchPeople, searched, sel, selectAllMatching, selectReach, selectedWord, selecting, setAreaStep, setChecking, setCustom, setDraft, setFilling, setForm, setOpenCo, setPaused, setUnderstood, setView, sort, statusOf, stopArea, tab, tiers, total, understood, view }) {
+// Find Leads' results card: the draft strip, the companies and people tables, the map and the pager. Moved out of FindLeadsSearch unchanged. What it uses comes in five groups (results, searching, mapArea, selection, contacts), unpacked
+// here under the same names, so the body reads as it did inside the screen.
+export function ResultsCard({
+  results: { companies, total, capped, searched, tab, sort, icp, icpSet, page, pageSize, pageRef, ranked, tiers, savedTotal, people, peopleTotal, peopleOf, understood, setUnderstood, broadenedNote, asked, draft, setDraft, busy, form, setForm, custom, setCustom, isSaved, statusOf, dropTerm, missingDetail },
+  searching: { search, searchPeople, goPage, changePageSize, changeSort, pickSaved, fillIds, fillPeople, fillRun, filling, setFilling, paused, pausedRef, setPaused },
+  mapArea: { area, areaNote, areaPending, areaStep, setAreaStep, clearArea, countArea, countHold, drawArea, inArea, pickAmount, pinCount, points, stopArea, mapRef, mapActions, removeCompany, view, setView },
+  selection: { sel, selecting, pickedRows, selectAllMatching, selectReach, selectedWord, bulkSave },
+  contacts: { reveal, revealMany, revealRow, findSite, lookups, getContacts, contactCheck, checking, setChecking, preparing, call, callAll, saveOne, openCo, setOpenCo },
+  onSetIcp,
+}) {
   return (
     <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
       <TopBar show={busy} />
