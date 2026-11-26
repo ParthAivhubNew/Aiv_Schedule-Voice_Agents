@@ -1640,7 +1640,7 @@ function ImportReport({ done, accounts = [], onGo, onClose, onToast }) {
   return (
     <div className="ui-card" role="status" style={{ padding: 18, textAlign: "left", display: "flex", flexDirection: "column", gap: 14, maxWidth: 760, width: "100%", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <span style={{ width: 24, height: 24, borderRadius: 12, background: C.greenSoft || "#E6F4EC", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={14} color={C.green} /></span>
+        <span style={{ width: 24, height: 24, borderRadius: 12, background: C.greenSoft, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={14} color={C.green} /></span>
         <div style={{ marginRight: "auto", minWidth: 0 }}>
           <div style={{ ...text, fontSize: 15, fontWeight: 600, color: C.ink }}>Import finished</div>
           <div style={{ ...muted, fontSize: 12.5, overflowWrap: "anywhere" }}>{done.file ? `${done.file} · ` : ""}saved in the list {done.list?.name || "Unsorted"}</div>

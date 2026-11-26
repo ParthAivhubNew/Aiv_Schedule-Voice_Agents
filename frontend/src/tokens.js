@@ -42,6 +42,7 @@ export const HEX = {
   infoInk: "#1D4ED8",
   info: "#2563EB",
   infoSoft: "#DBEAFE",
+  infoBg: "#EFF6FF",
   neutralInk: "#475569",
   neutralSoft: "#F1F5F9",
   neutralBg: "#F8FAFC",

@@ -4,9 +4,9 @@ import { CONNECTOR_PRICING } from "./connectorPrices";
 import { C } from "../../tokens";
 
 const FONT = "Inter, system-ui, sans-serif";
-const INK = "#0F172A";
+const INK = C.uiInk;
 const SLATE = "#64748B";
-const BORDER = "#E2E8F0";
+const BORDER = C.border;
 const TEAL = "#0C8C7D";
 
 const linkBtn = (primary) => ({

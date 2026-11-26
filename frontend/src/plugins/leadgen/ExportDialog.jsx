@@ -130,8 +130,8 @@ export function PreviewNotes({ preview }) {
   const listed = Number(preview.listed_phones || 0);
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      {popup ? <div role="note" style={{ ...body, background: "#FFF8E6", border: "1px solid #F0D9A0", borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-line" }}>{popup}</div> : null}
-      {screening ? <div role="note" style={{ ...body, background: C.bgSoft || "#F7F8FA", border: `1px solid ${C.borderLight}`, borderRadius: 8, padding: "10px 12px" }}>{screening}</div> : null}
+      {popup ? <div role="note" style={{ ...body, background: C.warningBg, border: "1px solid #F0D9A0", borderRadius: 8, padding: "10px 12px", whiteSpace: "pre-line" }}>{popup}</div> : null}
+      {screening ? <div role="note" style={{ ...body, background: C.paper, border: `1px solid ${C.borderLight}`, borderRadius: 8, padding: "10px 12px" }}>{screening}</div> : null}
       {unscreened || listed ? (
         <div style={small}>
           {unscreened ? `${unscreened.toLocaleString("en-GB")} ${unscreened === 1 ? "phone number has" : "phone numbers have"} not been through the TPS and CTPS check.` : ""}

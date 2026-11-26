@@ -66,9 +66,9 @@ export function ImportMapper({ fileName, sheets, sheetNames, initialSheet, onCan
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "0 22px 8px", fontSize: 13, color: C.ink }}>
           <strong>{headers.length} {headers.length === 1 ? "column" : "columns"} found</strong>
-          <span style={{ background: "#E7F6EC", color: "#136F3A", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{standard.length} matched</span>
+          <span style={{ background: C.greenSoft, color: "#136F3A", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{standard.length} matched</span>
           {own.length ? <span style={{ background: C.cobaltSoft, color: C.cobaltDeep, borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{own.length} kept as your own</span> : null}
-          {left.length ? <span style={{ background: "#FEF3E2", color: "#9A5B00", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{left.length} left out</span> : null}
+          {left.length ? <span style={{ background: C.amberSoft, color: "#9A5B00", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{left.length} left out</span> : null}
           <label style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.slate, cursor: "pointer" }}>
             <input type="checkbox" checked={hideMatched} onChange={(e) => setHideMatched(e.target.checked)} /> Hide matched columns
           </label>

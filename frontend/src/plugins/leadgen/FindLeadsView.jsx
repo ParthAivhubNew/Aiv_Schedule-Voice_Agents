@@ -71,8 +71,8 @@ const TYPE_OPTIONS = [["ltd", "Ltd"], ["plc", "PLC"], ["llp", "LLP"], ["cic", "C
 // Find Leads layout and control styles.
 const CHAT_CSS = `
 .fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
-.fl-filters.ui-card{background:#F1F3F7;border-color:#E1E5EC}
-.fl-filters .fl-pin{background:#F1F3F7;border-bottom-color:#C5CBD6}
+.fl-filters.ui-card{background:${C.surfaceCool};border-color:${C.border}}
+.fl-filters .fl-pin{background:${C.surfaceCool};border-bottom-color:#C5CBD6}
 .fl-main{flex:1 1 560px;min-width:0}
 @media (max-width:820px){.fl-filters{flex-basis:100%;position:static;max-height:none}}
 .fl-bar{position:absolute;top:0;left:0;right:0;height:3px;overflow:hidden;z-index:5;background:var(--ui-accent-soft,#EEF2FE)}
@@ -241,7 +241,7 @@ function ContactsPanel({ company }) {
   };
 
   return (
-    <div style={{ marginTop: 10, padding: 12, background: C.bgSoft || "#F7F8FA", borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ marginTop: 10, padding: 12, background: C.paper, borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
       {error ? <div role="alert" style={{ ...muted, color: C.red }}>{error}</div> : null}
       {!data && busy ? (
         <div role="status" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1269,7 +1269,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
                   onChange={(e) => setField("nearPostcode", e.target.value)} onBlur={() => lookRadius(form.nearPostcode, form.nearMiles)} />
               </div>
               {form.near?.districts?.length ? <span style={muted}>{coversText(form.near)}</span> : null}
-              {form.nearError ? <span role="alert" style={{ ...muted, color: C.red || "#B42318" }}>{form.nearError}</span> : null}
+              {form.nearError ? <span role="alert" style={{ ...muted, color: C.red }}>{form.nearError}</span> : null}
             </div>
           </FilterGroup>
           <FilterGroup title="Reasons to get in touch now" active={activeIn("signals")} open={groups.signals} onToggle={() => setGroup("signals")} onClear={() => clearGroup("signals")} chips={chipsFor("signals")}>
@@ -1360,7 +1360,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
               ))}
             </div>
           </FilterGroup>
-          <div style={{ position: "sticky", bottom: 0, background: "#F1F3F7", borderTop: "1px solid #C5CBD6", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
+          <div style={{ position: "sticky", bottom: 0, background: C.surfaceCool, borderTop: "1px solid #C5CBD6", display: "flex", alignItems: "center", gap: 8, padding: "10px 0 12px", marginTop: "auto" }}>
             <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={resetSearch} title="Clear every filter, the drawn area and the results, and start again">
               <RotateCcw size={14} /> Clear all{filterCount ? ` · ${filterCount}` : ""}
             </button>
@@ -1415,7 +1415,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
         <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
           <TopBar show={busy} />
           {draft && !area && tab === "companies" && searched ? (
-            <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "9px 14px", borderBottom: `1px solid ${C.border}`, background: "#F3F6FF" }}>
+            <div role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "9px 14px", borderBottom: `1px solid ${C.border}`, background: C.cobaltSoft }}>
               <span style={{ ...text, fontSize: 13, fontWeight: 600, color: C.ink }}>Draft from the AI assistant</span>
               <span style={{ ...muted, fontSize: 12.5 }}>
                 {draft.asked && draft.asked < total ? `The ${draft.asked.toLocaleString()} you asked for, best matches first. ${total.toLocaleString()}${capped ? "+" : ""} match in all.` : `${total.toLocaleString()}${capped ? "+" : ""} match.`}

@@ -40,7 +40,7 @@ const label = { fontSize: 12, fontWeight: 600, color: C.slate, display: "grid", 
 const small = { fontSize: 12, color: C.slate };
 
 // The one thing a person needs to know about a mailbox right now, with its colour and any action.
-const TONES = { red: { bg: C.dangerBg, ink: C.dangerInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: "#eff6ff", ink: "#1e40af" }, green: { bg: C.successBg, ink: C.successInk } };
+const TONES = { red: { bg: C.dangerBg, ink: C.dangerInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: C.infoBg, ink: "#1e40af" }, green: { bg: C.successBg, ink: C.successInk } };
 export function readiness(m) {
   if (m.status === "error") return { tone: "red", title: "Connection problem.", body: "The mailbox login is failing, so nothing can send. Check the password in Settings, then use Test connection." };
   if (!m.spf_verified) return { tone: "red", title: "Permission to send is not set up (SPF).", body: "Add the setting below. Without it most inboxes reject your emails, so this mailbox cannot send yet." };

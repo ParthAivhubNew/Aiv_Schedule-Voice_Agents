@@ -213,7 +213,7 @@ const css = `
 .as-box:focus-within{border-color:var(--ui-accent,#3457D5);box-shadow:0 0 0 3px var(--ui-accent-soft,#EEF2FE)}
 .as-box textarea{all:unset;box-sizing:border-box;flex:1;min-width:0;min-height:30px;padding:5px 0;font:13.5px/1.45 Inter,sans-serif;max-height:120px;overflow-y:hidden;scrollbar-width:none;color:var(--ui-ink,#111827);white-space:pre-wrap}
 .as-box textarea::-webkit-scrollbar{display:none}
-.as-send{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;background:#111520;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:transform .12s var(--mo-ease,ease),opacity .15s}
+.as-send{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;background:${C.ink};color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:transform .12s var(--mo-ease,ease),opacity .15s}
 .as-send:not([disabled]):hover{transform:translateY(-1px)}.as-send:not([disabled]):active{transform:scale(.94)}
 .as-send[disabled]{opacity:.35;cursor:default}
 .as-mic{all:unset;cursor:pointer;width:30px;height:30px;border-radius:8px;color:var(--ui-muted,#6B7280);display:inline-flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}
@@ -284,7 +284,7 @@ const css = `
 export function AssistantButton({ open, onClick, label = "AI Assistant" }) {
   return (
     <button type="button" className="ui-btn ui-btn--sm as-open" aria-pressed={open} title={open ? "Close the AI assistant" : "Open the AI assistant"} onClick={onClick}
-      style={{ background: "#111520", color: "#fff", border: "1px solid #111520", display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+      style={{ background: C.ink, color: "#fff", border: `1px solid ${C.ink}`, display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
       <Sparkles size={14} aria-hidden="true" /> <span className="hide-xs">{label}</span>
     </button>
   );

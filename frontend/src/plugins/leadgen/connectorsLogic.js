@@ -16,7 +16,7 @@ export const TONE_COLOURS = {
   good: { bg: C.successSoft, ink: C.successInk, border: "#BBEBDC" },
   warn: { bg: C.warningSoft, ink: C.warningInk, border: "#FDE68A" },
   bad: { bg: "#FEE2E2", ink: "#991B1B", border: "#FECACA" },
-  muted: { bg: C.neutralSoft, ink: C.neutralInk, border: "#E2E8F0" },
+  muted: { bg: C.neutralSoft, ink: C.neutralInk, border: C.border },
   soon: { bg: "#EEF2FF", ink: "#3730A3", border: "#E0E7FF" },
 };
 

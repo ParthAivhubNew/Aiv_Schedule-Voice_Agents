@@ -84,7 +84,7 @@ function DialogBox({ d, done }) {
               {lists !== null && !shown.length ? <div style={{ ...text, fontSize: 13, color: C.slate, padding: 10 }}>{typed ? "No list has that name yet. It will be made." : "You have no lists yet."}</div> : null}
               {shown.map((l) => (
                 <button key={l.id} type="button" role="option" aria-selected={same?.id === l.id} onClick={() => setValue(l.name)}
-                  style={{ ...text, display: "flex", width: "100%", justifyContent: "space-between", gap: 8, textAlign: "left", padding: "8px 10px", border: 0, borderBottom: `1px solid ${C.border}`, cursor: "pointer", fontSize: 13.5, color: C.ink, background: same?.id === l.id ? "#EEF2FF" : "transparent" }}>
+                  style={{ ...text, display: "flex", width: "100%", justifyContent: "space-between", gap: 8, textAlign: "left", padding: "8px 10px", border: 0, borderBottom: `1px solid ${C.border}`, cursor: "pointer", fontSize: 13.5, color: C.ink, background: same?.id === l.id ? C.cobaltSoft : "transparent" }}>
                   <span style={{ overflowWrap: "anywhere" }}>{l.name}</span>
                   <span style={{ color: C.slate, flex: "none" }}>{(l.ids || []).length.toLocaleString()}</span>
                 </button>

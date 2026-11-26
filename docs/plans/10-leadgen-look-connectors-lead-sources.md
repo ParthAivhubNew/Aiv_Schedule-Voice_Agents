@@ -27,7 +27,15 @@ Written 2026-11-24 from a read of the code plus read-only queries on the live da
   - white and black, which need surface / on-accent names before dark mode;
   - a colour that is already a `var(--x, #hex)` fallback;
   - files where a colour is data or leaves the app (e-mail design, web-form embeds, map pins and drawing, the vendor logos).
-- **Still to do:** the near-matches (several greens, blues and greys that are nearly but not exactly a token). Unifying them changes the look slightly, so do it screen by screen with a look in the browser.
+- ✅ **Near-matches, first pass (2026-11-26): 34 more colours onto tokens; 590 → 556 left.**
+  - Each Leads colour was measured against the nearest token (CIEDE2000). Only those under 2.5 were merged, where people can't see a difference: mostly table-header and panel greys, pale greens, the assistant's dark buttons, and the AI-draft and selected-row tints (now the accent's soft shade, so a brand's accent reaches them too).
+  - **New token:** `infoBg` (`#EFF6FF`, the value the blue tone already used), so the info colours have a pale background like the others.
+  - **Dead fallbacks removed:** `C.bgSoft || …` and `C.paperSoft || …` named tokens that don't exist, so the hard-coded colour was always the one shown.
+  - **Left on purpose:**
+    - info blues that would take a brand's colour if moved onto the accent;
+    - the org chart's level palette and the connector status pills, which are sets of colours meant to go together;
+    - colours 2.5 or more away from any token, which would visibly change (for example the org chart's stronger lines, the emerald filter chips and the amber filter cards). These need a design decision, not a merge.
+  - Not looked at in a browser: every change is below the visible threshold. The tests and build pass.
 
 **Phase 4, item 4, first part (2026-11-25): shared building blocks in `app/ui.jsx`.**
 - **`Tooltip`:** one card for every "what is this". It opens on hover, focus or a tap and closes with Escape. It is fixed to the screen, so a table's scroll box never clips it, and it flips above its button when there's no room below. **Both source badges use it** (`SourceBadge` and `SourceMark`; the dark bubble and the native title that showed a second tooltip are gone).

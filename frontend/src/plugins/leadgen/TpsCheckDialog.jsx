@@ -5,8 +5,8 @@ import { TPS_CHUNK, badgeTip, creditsWord, dateWord, estimateTps, previewLine, r
 
 const TONES = {
   bad: { color: "var(--ui-bad)", bg: "var(--ui-bad-soft)" },
-  ok: { color: "#176B3F", bg: "#E3F4EA" },
-  mute: { color: "#5B6573", bg: "#EEF0F3" },
+  ok: { color: "#176B3F", bg: C.greenSoft },
+  mute: { color: "#5B6573", bg: C.neutralSoft },
   warn: { color: "#8A5A00", bg: "#FFF1D2" },
 };
 

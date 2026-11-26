@@ -188,7 +188,7 @@ export function FilterGroup({ title, active = 0, onClear, open, onToggle, childr
   );
 }
 
-const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", padding: "9px 12px", background: "#FAFBFC", borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 3, whiteSpace: "nowrap" };
+const th = { ...text, fontSize: 11.5, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left", padding: "9px 12px", background: C.neutralBg, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 3, whiteSpace: "nowrap" };
 const td = { ...text, fontSize: 13, color: C.textInk, padding: "5px 12px", borderBottom: `1px solid ${C.borderLight}`, verticalAlign: "middle" };
 const pinned = (left, z = 2) => ({ position: "sticky", left, zIndex: z, background: "#fff" });
 // Pinned by default through GridTools, so the person can unpin them and the unpin is remembered.
@@ -369,8 +369,8 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: showFit ? 1200 : 1020 }}>
         <thead>
           <tr>
-            <th style={{ ...th, ...pinned(0, 4), width: 48, padding: 0, background: "#FAFBFC" }}><label className="row-tick" title="Select every company shown"><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></label></th>
-            <th style={{ ...th, background: "#FAFBFC", minWidth: 260, maxWidth: 320 }}>Company</th>
+            <th style={{ ...th, ...pinned(0, 4), width: 48, padding: 0, background: C.neutralBg }}><label className="row-tick" title="Select every company shown"><input type="checkbox" aria-label="Select every company shown" checked={allOn} onChange={(e) => onPickAll(e.target.checked)} /></label></th>
+            <th style={{ ...th, background: C.neutralBg, minWidth: 260, maxWidth: 320 }}>Company</th>
             {showFit ? (
               <th style={th} aria-sort={fitSorted ? "descending" : "none"}>
                 <button type="button" onClick={onSortFit} disabled={busy || fitSorted || !onSortFit} title={fitSorted ? "Sorted by best fit" : "Sort by best fit"}
@@ -490,7 +490,7 @@ export function PeopleTable({ rows, onOpen, isSaved, onSave }) {
       <table style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 960 }}>
         <thead>
           <tr>
-            <th style={{ ...th, background: "#FAFBFC", minWidth: 230 }}>Name</th>
+            <th style={{ ...th, background: C.neutralBg, minWidth: 230 }}>Name</th>
             <th style={th}>Role</th>
             <th style={th}>Company</th>
             <th style={th}>Location</th>

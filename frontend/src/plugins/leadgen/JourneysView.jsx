@@ -34,8 +34,8 @@ const WHEEL_CSS = `
 .jw-scroll[data-up="true"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 34px,#000 calc(100% - 34px),transparent 100%)}
 .jw-scroll[data-up="true"][data-down="false"]{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34px);mask-image:linear-gradient(to bottom,transparent 0,#000 34px)}
 .jw-scroll[data-up="false"][data-down="true"]{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(to bottom,#000 calc(100% - 34px),transparent 100%)}
-.jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #D5D9E0;color:#475467;box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
-.jw-arrow:hover{background:#F4F6FA}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
+.jw-arrow{all:unset;cursor:pointer;position:absolute;left:50%;transform:translateX(-50%);width:30px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #D5D9E0;color:${C.neutralInk};box-shadow:0 2px 8px rgba(20,24,40,.12);z-index:2}
+.jw-arrow:hover{background:${C.surfaceCool}}.jw-arrow:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .jw-arrow[data-dir="down"]{bottom:2px;animation:jw-nudge 1.8s ease-in-out infinite}
 .jw-arrow[data-dir="up"]{top:2px}
 .jw-quiet{scrollbar-width:none;-ms-overflow-style:none}.jw-quiet::-webkit-scrollbar{display:none}
@@ -782,7 +782,7 @@ function JourneyPage({ id, outreach, lists, onGo, onAskAssistant, onChanged, onG
         {!people.length && !adding ? <div style={small}>Nobody yet. Add a list, then start the journey.</div> : null}
       </Fold>
 
-      <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name} avatar={<span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.paperSoft || "#F4F6FA", display: "grid", placeItems: "center", color: C.slate }}><SlidersHorizontal size={18} /></span>}>
+      <Drawer open={rules} onClose={() => setRules(false)} title="Rules" sub={j.name} avatar={<span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.surfaceCool, display: "grid", placeItems: "center", color: C.slate }}><SlidersHorizontal size={18} /></span>}>
         <RulesPanel key={j.id + String(rules)} j={j} mailboxes={outreach.mailboxes} saving={busy} onSave={(body) => run(async () => { await api.journeySettings(j.id, body); setRules(false); }, "Saved.")} />
       </Drawer>
       <Drawer open={looks} onClose={() => setLooks(false)} title="Look of the emails" sub={j.name}>

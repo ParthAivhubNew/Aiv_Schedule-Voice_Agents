@@ -29,7 +29,7 @@ const TAB_TIPS = { overview: "Why now, in plain words, and who to speak to", peo
 const btn = (primary, disabled) => ({ ...baseBtn(primary, disabled), ...(primary ? { background: "var(--ui-accent)" } : {}), minHeight: 36 });
 const small = { fontSize: 12, color: C.slate };
 const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
-const TONE = { green: { bg: C.successBg, ink: C.successInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: "#eff6ff", ink: "#1e40af" }, red: { bg: C.dangerBg, ink: C.dangerInk } };
+const TONE = { green: { bg: C.successBg, ink: C.successInk }, amber: { bg: C.warningBg, ink: C.warningInk }, blue: { bg: C.infoBg, ink: "#1e40af" }, red: { bg: C.dangerBg, ink: C.dangerInk } };
 const SOURCE_TONE = { register: "green", website: "green", web: "amber", licensed: "amber", scrape: "amber", research: "amber", google_places: "slate",
   apollo: "slate", record: "slate", missing: "slate" };
 const ICON = { website: Globe, phone: Phone, email: Mail };

@@ -35,7 +35,7 @@ export const cardsCss = `
 .as-choice-t{display:flex;flex-direction:column;gap:2px;min-width:0}
 .as-choice-l{font:600 13.5px Inter,sans-serif;color:var(--ui-ink,#111827);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .as-choice-n{font:12.5px/1.4 Inter,sans-serif;color:var(--ui-muted,#6B7280)}
-.as-rec{font:600 11px Inter,sans-serif;padding:1px 8px;border-radius:999px;background:#DDEFE3;color:#1F6B3A}
+.as-rec{font:600 11px Inter,sans-serif;padding:1px 8px;border-radius:999px;background:${C.greenSoft};color:${C.successInk}}
 .as-fb{display:flex;gap:2px;align-items:center;margin-top:8px;white-space:normal}
 .as-fb button{all:unset;cursor:pointer;width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:var(--ui-muted,#6B7280);transition:background-color .12s,color .12s}
 .as-fb button:hover,.as-fb button:focus-visible{background:var(--ui-hover,#F1F3F8);color:var(--ui-ink,#111827)}
