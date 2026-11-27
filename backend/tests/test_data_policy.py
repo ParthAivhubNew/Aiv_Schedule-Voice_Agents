@@ -42,6 +42,15 @@ def test_a_value_with_no_source_is_matched_against_what_google_listed():
     assert DP.restricted_fields(acc, rec) == {"phone", "website"}
 
 
+def test_the_boss_google_file_marks_phones_and_websites_as_google_but_not_emails():
+    """Companies loaded from BN_leads_with_contacts.csv keep the whole row under raw_data["import_bn_leads"]; its phones and websites came from Google Places."""
+    rec = _acc(raw_data={"import_bn_leads": {"Phone": "01273 000000", "Website": "https://shop.example", "Email": "hi@shop.example"}})
+    acc = _acc(phone="01273 000000", website="https://www.shop.example", email="hi@shop.example")
+    assert DP.restricted_fields(acc, rec) == {"phone", "website"}
+    assert DP.record_source(rec, "phone", "01273 000000", default="register") == "google_places"
+    assert DP.record_source(rec, "email", "hi@shop.example", default="register") == "register"
+
+
 def test_a_value_the_company_own_site_also_shows_is_not_restricted():
     raw = {"google_places:g1": {"phone": "0113 496 0101"}, "contacts_web": {"phones": ["0113 496 0101"], "source": "web", "guardrail": True}}
     assert DP.restricted_fields(_acc(phone="0113 496 0101"), _acc(raw_data=raw)) == set()

@@ -33,6 +33,13 @@ async def run_step():
         await conn.execute(text("SELECT 1"))  # the startup transaction is still usable afterwards
 
 
+async def run_seed():
+    from app.database import engine
+
+    async with engine.begin() as conn:
+        await M._seed_fsb_rules(conn)
+
+
 async def snapshot(db):
     out = {}
     for name, sql in {"operators": "SELECT id, org_id, username, email, role, hashed_password, is_active FROM operators ORDER BY id",
@@ -61,7 +68,7 @@ async def test_the_brand_carries_the_fsb_policy(db):
     policy = (await db.execute(text("SELECT policy FROM brands WHERE name = 'FSB'"))).scalar()
     assert policy == TP.clean_policy(D.DEMO_POLICY)
     assert policy["geo"]["districts"] == []  # FSB is national: no postcode lock
-    assert policy["exclusions"] == {"fsb": True, "extra": [], "locked": True} and policy["member_suppression"] is True
+    assert "exclusions" not in policy and policy["member_suppression"] is True  # the exclusion list is the organisation's own rows, not the brand
     assert policy["restricted_sources"] == {"google": True, "apollo": True, "search_engines": True}
     assert policy["signin"] == {"password": True, "google": False, "microsoft": True} and policy["screening"] == {"block_unscreened": True}
 
@@ -238,13 +245,14 @@ async def test_the_fsb_policy_applies_to_the_demo_org_end_to_end_and_to_nobody_e
     await db.execute(text("INSERT INTO organizations (id, name, slug, status) VALUES ('org_plain', 'Plain', 'plain', 'active')"))
     await db.commit()
     await run_step()
+    await run_seed()
     TP.invalidate()
     wide = {"postcode_prefixes": ["BN", "LS"], "status": "any"}
     demo = await _names(db, wide, "org_fsb_demo")
     assert demo == ["Acme Plumbing Ltd", "Leeds Plumbing Ltd", "Lewes Roofing Ltd", "Worthing Joinery Ltd"]  # ordinary companies in every postcode; the charity and school are out
     assert await _names(db, {"postcode_prefixes": ["BN1"], "status": "any"}, "org_fsb_demo") == ["Acme Plumbing Ltd"]  # the BN1 charity is not there
     assert await _names(db, {"postcode_prefixes": ["BN3"], "status": "any"}, "org_fsb_demo") == []  # nor the BN3 school
-    assert await _names(db, {**wide, "fsb_exclusions": False}, "org_fsb_demo") == demo  # a client filter cannot switch it off
+    assert await _names(db, {**wide, "legal_form": "sole"}, "org_fsb_demo") == []  # no filter lifts the organisation's rules
     plain = await _names(db, wide, "org_plain")
     assert {"Hope Charity Ltd", "Hove Primary School Ltd", "Leeds Plumbing Ltd", "Gone Ltd"} <= set(plain) and len(plain) == 7
     with org_scope("org_fsb_demo"):

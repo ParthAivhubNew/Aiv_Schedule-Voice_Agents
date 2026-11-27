@@ -24,7 +24,6 @@ from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import BusinessRecord, DataSource
-from app.services import fsb_rules as FR
 from app.services import tenant_policy as TP
 
 logger = logging.getLogger("business_records")
@@ -506,7 +505,7 @@ async def lookup(db: AsyncSession, *, name: str = "", domain: str = "", registra
 FILTER_KEYS = ("keyword", "sector", "sic_codes", "towns", "postcode_prefixes", "status", "company_category", "size_bands",
                "min_age_years", "max_age_years", "name_contains", "has_website", "has_email", "has_phone",
                "not_keyword", "not_towns", "not_company_category", "saved", "include_non_business", "include_secondary_activity",
-               "company_types", "exclude_charities", "fsb_exclusions", "legal_form", "record_sources", "exclude_items", "industry_types",
+               "company_types", "exclude_charities", "legal_form", "record_sources", "exclude_items", "industry_types",
                # Phase 4: radius, register signals; Phase 7d: website signals
                "near", "signals", "site",
                # which source gave the phone, email or website, and whether the number has a TPS/CTPS result
@@ -619,7 +618,7 @@ def normalize_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     if picked:
         out["data_from"] = picked
     for key in ("has_website", "has_email", "has_phone", "tps_checked", "has_google_data", "include_non_business", "include_secondary_activity", "name_whole_word", "complete_commercial", "complete_first",
-                "exclude_charities", "fsb_exclusions"):
+                "exclude_charities"):
         if (filters or {}).get(key):
             out[key] = True
     # Phase 4: "within N miles of a postcode" arrives as the districts inside the radius (see icp._districts_within)
@@ -777,8 +776,6 @@ def _filter_conditions(f: Dict[str, Any], any_activity: bool = False) -> list:
         conds.append(_tps_screened(f.get("tps_status") or ""))
     if f.get("has_google_data") or f.get("data_from"):
         conds.append(_data_from(["google"] if f.get("has_google_data") else [], f.get("data_from") or []))
-    if f.get("fsb_exclusions"):
-        conds += _fsb_exclusions(unregistered_too=f.get("legal_form") == "sole")
     if f.get("exclude_items"):
         conds += _exclusion_items(f["exclude_items"])
     today = datetime.utcnow().date()
@@ -961,8 +958,9 @@ def classify_exclusions(items: List[str]) -> Dict[str, List[str]]:
     return out
 
 
-def _exclusion_items(items: List[str]) -> list:
-    """The conditions that leave out what the person typed in the exclusion box (see classify_exclusions)."""
+def _exclusion_items(items: List[str], keep_rx: Optional[str] = None) -> list:
+    """The conditions that leave out what the person typed in the exclusion box (see classify_exclusions). `keep_rx` is a regex of name phrases
+    that stay in even when a word matches (the organisation's own keep rules, see org_rules); a search typed by hand has none."""
     B = BusinessRecord
     kinds = classify_exclusions(items)
     conds = []
@@ -972,11 +970,11 @@ def _exclusion_items(items: List[str]) -> list:
         conds.append(func.coalesce(B.registration_number, "").notin_(kinds["numbers"]))
     for p in kinds["postcodes"]:
         conds.append(~func.coalesce(_postcode_match(p), False))  # no postcode is "not in this district": NULL would drop the row
-    conds += _leave_out_words(kinds["words"])
+    conds += _leave_out_words(kinds["words"], keep_rx)
     return conds
 
 
-def _leave_out_words(items: List[str]) -> list:
+def _leave_out_words(items: List[str], keep_rx: Optional[str] = None) -> list:
     """Leaves out companies that have any of these words, or a category they stand for ("Places of Worship" is church, chapel, mosque and the
     religious SIC code), in the name or in ANY listed activity (what the company is). Not in its description: that says who it serves ("IT for
     schools"), not what it is. Whole words, a plural accepted (see exclusion_categories)."""
@@ -993,31 +991,11 @@ def _leave_out_words(items: List[str]) -> list:
     conds = [~_charity()] if XC.wants_charities_out(items) else []
     if rxs:
         rx = "(" + "|".join(rxs) + ")"
-        # A driving school or dance school is not the school being left out (FSB keeps them), unless the person typed those words.
-        asked = [r for w in words if re.search(r"driving|dance", w, re.I) and (r := XC.word_regex(w))]
-        general = [r for r in rxs if r not in asked]
-        parts = ([and_(B.name.op("~*")("(" + "|".join(general) + ")"), ~B.name.op("~*")(FSB_NAME_KEEP))] if general else []) \
-            + ([B.name.op("~*")("(" + "|".join(asked) + ")")] if asked else [])
-        in_name = or_(*parts)
+        in_name = and_(B.name.op("~*")(rx), ~B.name.op("~*")(keep_rx)) if keep_rx else B.name.op("~*")(rx)
         conds.append(~or_(in_name, func.coalesce(B.sic_text, "").op("~*")(rx), func.coalesce(B.industry, "").op("~*")(rx)))
     if sics:
         conds.append(~func.coalesce(B.sic_codes, "").op("~")(r"\|(" + "|".join(dict.fromkeys(sics)) + r")\|"))
     return conds
-
-
-# FSB's exclusion list ("FSB exclusion rules - for developers", 17 November 2026). A company stays only when it is a Companies House company and none of
-# these applies: its type is one of the excluded types, it is on the Charity Commission register, ANY of its SIC codes is one of the excluded codes (exact,
-# not only the first), or its name has an excluded word (a driving school or dance school stays in). Status "Active" exactly is the search's own default.
-FSB_TYPES = FR.TYPES  # the rule set lives in services/fsb_rules.py; these names stay for existing callers
-FSB_SIC = FR.SIC
-FSB_NAME_WORDS = FR.NAME_WORDS_RX
-FSB_NAME_KEEP = FR.NAME_KEEP_RX
-
-
-def _fsb_exclusions(unregistered_too: bool = False) -> list:
-    """The conditions that leave out everything on the exclusion list (see services/fsb_rules.py). The Companies-House-only rule is skipped
-    when the person is looking at sole traders, who have no company number."""
-    return FR.conditions(unregistered_too)
 
 
 SORTS = ("best", "newest", "name", "fit")
@@ -1233,11 +1211,13 @@ def _is_set(value: Any) -> bool:
     return not (value is None or value is False or value == "" or value == [])
 
 
-async def closest_match(filters: Dict[str, Any], run, *, seconds: float = 20.0) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+async def closest_match(filters: Dict[str, Any], run, *, seconds: float = 20.0, keep_place: bool = False) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """When a search finds nothing, correct a misspelt town, then give up the least important filters one step at a time, and
     return the first search that finds companies with the names of what was changed so the person is told. (None, []) when even
     the bare trade finds nothing: an empty answer is then the true one. `run(filters)` is the search itself. Nothing is invented:
-    every row is a stored company. Stops after `seconds`, so a slow register never makes the screen wait for every step."""
+    every row is a stored company. Stops after `seconds`, so a slow register never makes the screen wait for every step.
+    `keep_place` (a person with their own area limit): the postcode and town are never given up, so a search for a place outside their areas
+    answers "nothing here" instead of quietly showing companies from their own areas under the wrong place."""
     import time
 
     from app.services import search_towns
@@ -1261,6 +1241,8 @@ async def closest_match(filters: Dict[str, Any], run, *, seconds: float = 20.0) 
             return out, dropped
     for label, keys in RELAX_STEPS:
         if not any(_is_set(f.get(k)) for k in keys):
+            continue
+        if keep_place and label in ("postcode", "town"):
             continue
         if label == "the full company name":
             typed = str(f.get("name_contains") or "").strip()

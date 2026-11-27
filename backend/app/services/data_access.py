@@ -25,6 +25,8 @@ OUTSIDE_NOTICE = ("Some of what you searched for is outside the areas you have a
 EXPORT_OFF = "Export is switched off for your account. Ask your administrator to turn it on."
 GOOGLE_OFF = "Google details are switched off for your account. Ask your administrator to turn them on."
 LOOKUP_FAILED = "Couldn't check your access. Try again."
+WEB_OFF = ("Web search can't be kept inside your areas, so it is switched off on your account. "
+           "Find Leads searches only inside the areas you have access to.")
 OUT_OF_LOCK = "That area is outside the areas this organisation can use."
 BAD_DISTRICT = "Use postcode districts such as BN1 or LS27, or a whole area such as LS."
 MAX_DISTRICTS = 200
@@ -37,6 +39,15 @@ class AccessDenied(Exception):
     def __init__(self, status: int, detail: str, code: str):
         super().__init__(detail)
         self.status, self.detail, self.code = status, detail, code
+
+
+def areas_line(scope: "Scope") -> str:
+    """What the AI assistant is told about a person who has a personal area limit, so it never goes looking elsewhere. "" for everyone else."""
+    if not scope.limited:
+        return ""
+    return ("This person may only see companies in these postcode areas: " + ", ".join(scope.districts) + ". Nothing outside them can be searched, opened or "
+            "described. If they ask for another place or company, say plainly that it is outside the areas they have access to and that their administrator can "
+            "change that. Never suggest searching somewhere else, and never describe a company you were not given by a tool.")
 
 
 def outside() -> AccessDenied:

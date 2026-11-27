@@ -42,16 +42,8 @@ export function parseDistricts(text) {
   return { districts, invalid };
 }
 
-// Extra exclusions are separated by commas or new lines (an item may hold a space: "care home").
-export function parseExtra(text) {
-  const out = [];
-  String(text || "").split(/[,\n;]+/).map((s) => s.trim()).filter(Boolean).forEach((s) => { if (!out.includes(s)) out.push(s); });
-  return out;
-}
-
 export function defaultPolicy() {
   return {
-    exclusions: { fsb: false, extra: [], locked: false },
     member_suppression: false,
     geo: { districts: [] },
     restricted_sources: { google: false, apollo: false, search_engines: false },
@@ -65,7 +57,6 @@ export function withPolicyDefaults(policy) {
   const d = defaultPolicy();
   const p = policy && typeof policy === "object" ? policy : {};
   return {
-    exclusions: { ...d.exclusions, ...(p.exclusions || {}), extra: Array.isArray(p.exclusions?.extra) ? p.exclusions.extra : [] },
     member_suppression: Boolean(p.member_suppression),
     geo: { districts: Array.isArray(p.geo?.districts) ? p.geo.districts : [] },
     restricted_sources: { ...d.restricted_sources, ...(p.restricted_sources || {}) },

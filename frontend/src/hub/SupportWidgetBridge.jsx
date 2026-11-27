@@ -36,7 +36,7 @@ export function SupportWidgetBridge({ operator }) {
   }, []);
 
   return (
-    <div role="status" aria-live="polite" style={notice ? { position: "fixed", right: 16, bottom: 16, zIndex: 3000, maxWidth: 320, padding: "12px 14px", borderRadius: 10, background: "#111520", color: "#fff", fontSize: 13.5, lineHeight: 1.45, boxShadow: "0 8px 24px rgba(0,0,0,.25)" } : { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+    <div role="status" aria-live="polite" style={notice ? { position: "fixed", right: 16, bottom: 16, zIndex: 3000, maxWidth: 320, padding: "12px 14px", borderRadius: 10, background: "#111520", color: "#fff", fontSize: 13.5, lineHeight: 1.45, boxShadow: "0 8px 24px rgba(0,0,0,.25)" } : { position: "fixed", top: 0, left: 0, width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
       {notice}
     </div>
   );

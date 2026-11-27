@@ -1,18 +1,18 @@
-"""The policy an organisation must follow because of the brand it belongs to (white-label customers such as FSB).
+"""The policy an organisation must follow: the brand it belongs to (white-label customers such as FSB) and its own exclusion rules.
 
-organisation -> brand -> Brand.policy. An organisation with no brand (every normal customer) gets an empty Policy: its methods add no
+organisation -> brand -> Brand.policy. An organisation with no brand and no rules (every normal customer) gets an empty Policy: its methods add no
 conditions, its hash is "" and nothing about its searches changes.
 
-Policy shape (Brand.policy, cleaned by clean_policy):
-  {"exclusions": {"fsb": bool, "extra": [exclusion items], "locked": bool},
-   "member_suppression": bool,
+Brand policy shape (Brand.policy, cleaned by clean_policy), set by platform staff:
+  {"member_suppression": bool,
    "geo": {"districts": ["BN1", "BN2"]},
    "restricted_sources": {"google": bool, "apollo": bool, "search_engines": bool},
    "signin": {"password": bool, "google": bool, "microsoft": bool},
    "screening": {"block_unscreened": bool}}
 
-`exclusions.locked` true means the server enforces the exclusions on every search and a client filter cannot switch them off. With locked false
-the exclusions are only a starting point for the screens and the server adds nothing.
+Exclusions are not part of the brand any more: each organisation's admins keep their own rules (org_exclusion_rules, see services/org_rules.py), read
+for every organisation whether or not it has a brand, and enforced by the server on every search. If the rules cannot be read the request fails
+(AccessDenied 503); it never falls back to showing everything.
 """
 from __future__ import annotations
 
@@ -29,12 +29,13 @@ logger = logging.getLogger(__name__)
 
 SOURCES = ("google", "apollo", "search_engines")
 _TTL = 60.0
-_MAX_EXTRA = 300
+_RULES_TTL = 10.0  # an organisation with rules re-reads them this often, so another server sees an edit quickly
+RULES_UNREADABLE = "Couldn't check what your organisation leaves out. Try again."
 _DISTRICT = re.compile(r"[A-Z]{1,2}\d[A-Z\d]?")
 
 
 def default_policy() -> Dict[str, Any]:
-    return {"exclusions": {"fsb": False, "extra": [], "locked": True}, "member_suppression": False, "geo": {"districts": []},
+    return {"member_suppression": False, "geo": {"districts": []},
             "restricted_sources": {s: False for s in SOURCES}, "signin": {"password": True, "google": True, "microsoft": True},
             "screening": {"block_unscreened": False}}
 
@@ -47,11 +48,6 @@ def clean_policy(raw: Any) -> Dict[str, Any]:
     """Fills the defaults and drops every key that is not part of the shape. Items that cannot be used (a postcode district that is not one) are dropped."""
     raw = raw if isinstance(raw, dict) else {}
     out = default_policy()
-    ex = raw.get("exclusions") if isinstance(raw.get("exclusions"), dict) else {}
-    out["exclusions"]["fsb"] = _flag(ex.get("fsb"), False)
-    out["exclusions"]["locked"] = _flag(ex.get("locked"), True)
-    extra = ex.get("extra") if isinstance(ex.get("extra"), list) else []
-    out["exclusions"]["extra"] = [t[:80] for t in dict.fromkeys(re.sub(r"\s+", " ", str(v)).strip() for v in extra) if len(re.sub(r"[^0-9A-Za-z]", "", t)) >= 2][:_MAX_EXTRA]
     out["member_suppression"] = _flag(raw.get("member_suppression"), False)
     geo = raw.get("geo") if isinstance(raw.get("geo"), dict) else {}
     districts = geo.get("districts") if isinstance(geo.get("districts"), list) else []
@@ -78,10 +74,11 @@ _GEN_ALL = [0]
 
 
 class Policy:
-    def __init__(self, org_id: str = "", brand_id: str = "", data: Optional[Dict[str, Any]] = None):
+    def __init__(self, org_id: str = "", brand_id: str = "", data: Optional[Dict[str, Any]] = None, rules: Optional[List[Dict[str, Any]]] = None):
         self.org_id = org_id
         self.brand_id = brand_id
         self.data = clean_policy(data) if brand_id else default_policy()
+        self.org_rules: List[Dict[str, Any]] = list(rules or [])  # the organisation's enabled exclusion rows: {kind, value, mode}
         self.gen = (_GEN_ALL[0], _GEN.get(org_id, 0))
         self.user_districts: List[str] = []  # one person's own area limit (services/data_access.py); only ever set on a per-request copy
 
@@ -98,11 +95,18 @@ class Policy:
             mine.data["geo"]["districts"] = []
         return mine
 
+    def with_rules(self, rules: List[Dict[str, Any]]) -> "Policy":
+        """A copy with these rules instead of the saved ones (a preview of an edit nobody has saved yet). Never cached."""
+        import copy
+
+        mine = copy.copy(self)
+        mine.org_rules = list(rules)
+        return mine
+
     # -- what changes a search --------------------------------------------------
     @property
     def _exclusions_on(self) -> bool:
-        ex = self.data["exclusions"]
-        return bool(ex["locked"] and (ex["fsb"] or ex["extra"]))
+        return bool(self.org_rules)
 
     @property
     def geo_districts(self) -> List[str]:
@@ -120,16 +124,9 @@ class Policy:
     def exclusion_conditions(self) -> list:
         if not self._exclusions_on:
             return []
-        from app.services import business_records as BR
-        from app.services import fsb_rules as FR
+        from app.services import org_rules
 
-        ex = self.data["exclusions"]
-        conds: list = []
-        if ex["fsb"]:
-            conds += [FR.status_condition()] + FR.conditions(False)  # the Companies-House-only rule is never relaxed for a locked policy
-        if ex["extra"]:
-            conds += BR._exclusion_items(ex["extra"])
-        return conds
+        return org_rules.conditions(self.org_rules)
 
     def geo_conditions(self) -> list:
         if not self.geo_districts:
@@ -172,8 +169,9 @@ class Policy:
         """A short stable string of everything that changes a search result; "" when nothing does."""
         if self.is_empty:
             return ""
-        ex = self.data["exclusions"]
-        basis = {"fsb": bool(ex["fsb"]) and self._exclusions_on, "extra": sorted(ex["extra"]) if self._exclusions_on else [], "geo": self.geo_districts,
+        from app.services import org_rules
+
+        basis = {"rules": org_rules.signature(self.org_rules) if self.org_rules else "", "geo": self.geo_districts,
                  "members": self.suppression_on, "gen": list(self.gen), "user": self.user_districts}
         return hashlib.sha1(json.dumps(basis, sort_keys=True).encode()).hexdigest()[:12]
 
@@ -193,9 +191,7 @@ class Policy:
 
     def summary(self) -> Dict[str, Any]:
         """What is on for this account, for its own people to read. No lists of numbers and nothing secret."""
-        return {"brandId": self.brand_id or None, "standingExclusions": self._exclusions_on,
-                "fsbRules": bool(self.data["exclusions"]["fsb"]) and self._exclusions_on,
-                "extraExclusions": len(self.data["exclusions"]["extra"]) if self._exclusions_on else 0, "locked": bool(self.data["exclusions"]["locked"]),
+        return {"brandId": self.brand_id or None, "standingExclusions": self._exclusions_on, "exclusionRules": len(self.org_rules),
                 "memberSuppression": self.suppression_on, "geoDistricts": len(self.geo_districts),
                 "restrictedSources": [s for s in SOURCES if self.restricted(s)], "signin": dict(self.data["signin"])}
 
@@ -214,15 +210,37 @@ def invalidate(org_id: Optional[str] = None) -> None:
         _GEN_ALL[0] += 1
 
 
+async def _read_rules(db, org_id: str) -> List[Dict[str, Any]]:
+    """The organisation's enabled exclusion rules, read with an explicit organisation filter. When the open session already belongs to this
+    organisation it is used; otherwise (a public API call, a job, an admin looking at another account) a session of its own is opened in that
+    organisation's scope, because row-level security would otherwise return no rows and "no rows" must never be read as "no exclusions"."""
+    from app.core.tenancy import current_org, org_scope
+    from app.models.models import OrgExclusionRule
+
+    q = (select(OrgExclusionRule.kind, OrgExclusionRule.value, OrgExclusionRule.mode)
+         .where(OrgExclusionRule.org_id == org_id, OrgExclusionRule.enabled.is_(True)).order_by(OrgExclusionRule.id))
+    if db is not None and current_org() == org_id:
+        async with db.begin_nested():
+            rows = (await db.execute(q)).all()
+    else:
+        from app.database import AsyncSessionLocal
+
+        with org_scope(org_id):
+            async with AsyncSessionLocal() as s:
+                rows = (await s.execute(q)).all()
+    return [{"kind": r[0], "value": r[1] or "", "mode": r[2]} for r in rows]
+
+
 async def _load(db, org_id: str) -> Policy:
     from app.models.models import Brand, Organization
 
-    brand_id = (await db.execute(select(Organization.brand_id).where(Organization.id == org_id))).scalar()
+    brand_id = (await db.execute(select(Organization.brand_id).where(Organization.id == org_id))).scalar() if db is not None else None
+    rules = await _read_rules(db, org_id)
     if not brand_id:
-        return Policy(org_id)
+        return Policy(org_id, rules=rules)
     brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalars().first()
     # A suspended brand keeps its policy: suspending must never relax what an organisation has to follow.
-    return Policy(org_id, brand_id, brand.policy if brand else None) if brand else Policy(org_id)
+    return Policy(org_id, brand_id, brand.policy if brand else None, rules) if brand else Policy(org_id, rules=rules)
 
 
 async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
@@ -244,14 +262,15 @@ async def effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
 
 
 async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy:
-    """The Policy of an organisation (default: the current one), remembered for 60 seconds. If it cannot be read the last known policy is used,
-    else an empty one is returned unremembered and the problem is logged."""
+    """The Policy of an organisation (default: the current one), remembered for 60 seconds (10 when it has exclusion rules). If it cannot be read the
+    last known policy is used; with none known the request fails with AccessDenied 503, because an empty policy would show what the organisation
+    has chosen to leave out."""
     if not org_id:
         from app.core.tenancy import current_org
 
         org_id = current_org()
     hit = _CACHE.get(org_id)
-    if hit and time.monotonic() - hit[0] < _TTL:
+    if hit and time.monotonic() - hit[0] < (_RULES_TTL if hit[1].org_rules else _TTL):
         return hit[1]
     try:
         if db_or_none is not None:
@@ -266,9 +285,9 @@ async def org_effective(db_or_none=None, org_id: Optional[str] = None) -> Policy
         logger.warning(f"[tenant_policy] could not read the policy of {org_id}: {err}")
         if hit:
             return hit[1]
-        pol = Policy(org_id)
-        _CACHE[org_id] = (time.monotonic() - _TTL + 5, pol)  # not asked again for 5 seconds
-        return pol
+        from app.services.data_access import AccessDenied
+
+        raise AccessDenied(503, RULES_UNREADABLE, "exclusion_check_failed")
     if len(_CACHE) > 2000:
         _CACHE.clear()
     _CACHE[org_id] = (time.monotonic(), pol)

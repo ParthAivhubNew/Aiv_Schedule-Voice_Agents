@@ -76,6 +76,9 @@ async def tps_map(db, numbers: Iterable[str]) -> Dict[str, str]:
     return out
 
 
+EXCLUDED_NOTICE = "Some companies are left out of this file because your organisation's exclusion list leaves them out."
+
+
 class Tally:
     """What was left out of a file and why."""
 
@@ -86,6 +89,7 @@ class Tally:
         self.listed = 0  # exportable phones on TPS or CTPS
         self.screening_blocked = 0  # phones left out by the brand's screening rule
         self.outside = 0  # companies left out because they are outside the person's own areas
+        self.excluded = 0  # companies left out because the organisation's own exclusion rules leave them out
 
     @property
     def withheld(self) -> int:
@@ -100,7 +104,8 @@ class Tally:
                 "popup": DP.EXPORT_POPUP if self.restricted_count > 0 else "", "unscreened_phones": self.unscreened, "listed_phones": self.listed,
                 "screening_blocked": self.screening_blocked,
                 "screening_note": ("Phone numbers without a clear TPS/CTPS result are left out of the file." if self.screening_blocked else ""),
-                **({"access_notice": DA.OUTSIDE_NOTICE, "outside_areas": self.outside} if self.outside else {})}
+                **({"access_notice": DA.OUTSIDE_NOTICE, "outside_areas": self.outside} if self.outside else {}),
+                **({"excluded_by_rules": self.excluded, "excluded_notice": EXCLUDED_NOTICE} if self.excluded else {})}
 
 
 def _restricted_source(obj: Any, record: Any, field: str, value: str) -> str:
@@ -191,6 +196,13 @@ async def build(db, kind: str, scope: Dict[str, Any], fields: Optional[List[str]
     accounts = await _accounts(db, scope)
     recs = await _records(db, accounts)
     tally = Tally()
+    from app.services import org_rules
+
+    left = await org_rules.excluded_record_ids(db, list(recs))  # the organisation's exclusion list applies to a file as it does to a search
+    if left:
+        kept = [a for a in accounts if a.business_record_id not in left]
+        tally.excluded = len(accounts) - len(kept)
+        accounts = kept
     if me.limited:
         kept = [a for a in accounts if DA.visible(me, a, *([recs[a.business_record_id]] if a.business_record_id in recs else []))]
         tally.outside = len(accounts) - len(kept)

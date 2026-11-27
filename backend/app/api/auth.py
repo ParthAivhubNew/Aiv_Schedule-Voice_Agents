@@ -1,6 +1,7 @@
 """Sign in, sessions, passwords, users and roles."""
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -761,6 +762,10 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
     username = body.username.strip().lower()
     if not username or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name and username are required.")
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", (body.email or "").strip()):
+        raise HTTPException(status_code=400, detail="An email address is required: it is where their sign-in details are sent.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,31}", username):
+        raise HTTPException(status_code=400, detail="Username: 3 to 32 letters, numbers, dots, dashes or underscores. No spaces.")
     if (await db.execute(select(Operator).where(func.lower(Operator.username) == username))).scalars().first():
         raise HTTPException(status_code=400, detail="This username is taken.")
     roles_by_name = await ensure_system_roles(db, ctx["org_id"])

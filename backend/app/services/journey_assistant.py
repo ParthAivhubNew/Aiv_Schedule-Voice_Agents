@@ -231,18 +231,54 @@ async def _report(db: AsyncSession, t: Any, args: Dict[str, Any], ms) -> None:
                    f"Advice from the numbers: {' '.join(advice)}")
 
 
+async def _area_ids(db: AsyncSession):
+    """Subquery of the journey enrolments of saved companies inside the person's own areas, or None when they have no area limit."""
+    from app.api.lead_assistant import _in_area_enrollments
+
+    return await _in_area_enrollments(db)
+
+
+async def _limited_journeys(db: AsyncSession) -> List[Dict[str, Any]]:
+    """The same few figures the journeys answer gives, counted only over people inside the person's areas."""
+    from sqlalchemy import func
+
+    from app.models.models import EmailEnrollment, EmailMessage, JourneyTask
+    from app.services import data_access as DA
+
+    area = await _area_ids(db)
+    out: List[Dict[str, Any]] = []
+    for c in (await db.execute(select(EmailCampaign).order_by(EmailCampaign.created_at.desc()).limit(10))).scalars().all():
+        status = dict((await db.execute(select(EmailEnrollment.status, func.count()).where(EmailEnrollment.campaign_id == c.id, EmailEnrollment.id.in_(area))
+                                        .group_by(EmailEnrollment.status))).all())
+        sent = (await db.execute(select(func.count()).select_from(EmailMessage).where(
+            EmailMessage.campaign_id == c.id, EmailMessage.is_warmup.is_(False), EmailMessage.sent_at.isnot(None), EmailMessage.enrollment_id.in_(area)))).scalar() or 0
+        lead_ids = [r for (r,) in (await db.execute(select(JourneyTask.lead_id).where(JourneyTask.campaign_id == c.id, JourneyTask.status == "open",
+                                                                                      JourneyTask.lead_id.isnot(None)))).all() if r]
+        tasks = len((await DA.visible_account_ids(db, lead_ids))[0]) if lead_ids else 0
+        out.append({"name": c.name, "status": c.status, "tasks_open": tasks,
+                    "results": {"people": sum(status.values()), "in_progress": status.get("active", 0), "sent": sent, "replied": status.get("replied", 0)}})
+    return out
+
+
 async def my_data(db: AsyncSession, t: Any, topic: str) -> bool:
     """The journeys and tasks topics of my_data. True when the topic was one of these."""
     t0 = time.time()
     if topic == "journeys":
-        rows = await J.list_journeys(db, current_org())
+        rows = await _limited_journeys(db) if (await _area_ids(db)) is not None else await J.list_journeys(db, current_org())
         t.notes.append("Journeys: " + "; ".join(
             f"{r['name']} is {r['status']}, {r['results']['people']} people ({r['results']['in_progress']} in progress), {r['results']['sent']} emails sent, "
             f"{r['results']['replied']} replied, {r['tasks_open']} open tasks" for r in rows[:10]) if rows else "The person has no journeys yet.")
         t.steps.append({"label": "Read your journeys", "detail": f"{len(rows)} found", "ms": int((time.time() - t0) * 1000)})
         return True
     if topic == "tasks":
-        rows = await J.list_tasks(db, limit=15)
+        rows = await J.list_tasks(db, limit=60)
+        ids = [r["lead_id"] for r in rows if r.get("lead_id")]
+        if ids:  # a person with an area limit hears only about tasks for companies inside their areas
+            from app.services import data_access as DA
+
+            ok = set((await DA.visible_account_ids(db, ids))[0])
+            rows = [r for r in rows if not r.get("lead_id") or r["lead_id"] in ok]
+        rows = rows[:15]
         t.notes.append("Open journey tasks: " + "; ".join(f"{r['title']} ({r['contact'] or r['company']}, {r['journey']})" for r in rows) if rows else "There are no open journey tasks.")
         t.steps.append({"label": "Read your tasks", "detail": f"{len(rows)} open", "ms": int((time.time() - t0) * 1000)})
         return True

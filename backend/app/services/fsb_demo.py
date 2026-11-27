@@ -41,7 +41,6 @@ BN_DISTRICTS: List[str] = (["BN1", "BN2", "BN3"] + [f"BN{n}" for n in range(5, 1
                            + [f"BN{n}" for n in range(41, 45)] + ["BN50"])
 
 DEMO_POLICY: Dict[str, Any] = {
-    "exclusions": {"fsb": True, "extra": [], "locked": True},
     "member_suppression": True,
     "geo": {"districts": []},  # FSB is national: no area lock. An admin limits a person to chosen districts in Data access
     "restricted_sources": {"google": True, "apollo": True, "search_engines": True},

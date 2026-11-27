@@ -1,4 +1,4 @@
-import { ENRICHMENT_NOTE, GOOGLE_NOTE, SOURCE_LABELS, hasGoogleData } from "./SourceMark";
+import { ENRICHMENT_NOTE, GOOGLE_NOTE, SOURCE_LABELS, effectiveSources, hasGoogleData } from "./SourceMark";
 import { VERDICTS } from "./CheckCompanies";
 
 // What a saved company can honestly say about where its details came from and what was checked.
@@ -60,7 +60,7 @@ const STEPS = [
 // -> { fields: [{key, field, label}], sources: [{key, label}], checks: [{name, result, when}], notes: [string], checked: boolean, summary: string }
 export function describeSources(account) {
   const a = account || {};
-  const raw = a.field_sources || {};
+  const raw = effectiveSources(a);
   const fields = FIELDS.filter(([f]) => raw[f]).map(([f, field]) => {
     const key = String(raw[f]).split(":")[0];
     return { key, field, label: SOURCE_LABELS[key] || "Other source" };

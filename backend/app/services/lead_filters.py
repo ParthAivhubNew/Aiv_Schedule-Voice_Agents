@@ -80,7 +80,7 @@ _SEARCH_HINT = re.compile(
 
 
 # Filters the model's schema has no field for: the person's own picks are kept when it returns the full set without them.
-_CARRY = ("industry_types", "near", "signals", "saved", "record_sources", "fsb_exclusions", "site",
+_CARRY = ("industry_types", "near", "signals", "saved", "record_sources", "site",
           "tps_checked", "tps_status", "has_google_data", "data_from")
 
 
@@ -147,6 +147,17 @@ def _restricted(biz) -> Dict[str, bool]:
             "web_website": web and bool(cw.get("website")), "web_phone": web and bool(cw.get("phones")), "web_email": web and bool(cw.get("emails"))}
 
 
+def _provenance(biz) -> Dict[str, Any]:
+    from app.services import data_policy as DP
+
+    sources = {}
+    for field in DP.FIELDS:
+        src = DP.record_source(biz, field, default="") if str(getattr(biz, field, "") or "").strip() else ""
+        if src:
+            sources[field] = src
+    return {"field_sources": sources, "restricted_note": DP.payload_flags(biz)["note"]}
+
+
 def card(biz) -> Dict[str, Any]:
     """One company as the Find Leads table shows it. Every field is copied from the stored record
     (nothing computed by a model), and `tier` says how far to trust it."""
@@ -184,6 +195,8 @@ def card(biz) -> Dict[str, Any]:
 
         # View-only values (Google or Apollo): shown here, never exported. The web_* flags follow the lookup's own source.
         "restricted": _restricted(biz),
+        # Where the phone, website and email came from, so the results show the source mark under the name like the lists do.
+        **_provenance(biz),
     }
 
 
@@ -213,8 +226,6 @@ def describe(filters: Dict[str, Any]) -> List[str]:
         chips.append("Type: " + ", ".join(COMPANY_TYPES[t][0] for t in filters["company_types"] if t in COMPANY_TYPES))
     if filters.get("exclude_charities"):
         chips.append("No charities")
-    if filters.get("fsb_exclusions"):
-        chips.append("Standard exclusions")
     if filters.get("exclude_items"):
         chips.append("Leaving out: " + ", ".join(filters["exclude_items"][:8]) + (" ..." if len(filters["exclude_items"]) > 8 else ""))
     if filters.get("legal_form"):

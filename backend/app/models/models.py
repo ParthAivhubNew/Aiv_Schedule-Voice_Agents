@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, FetchedValue
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, DateTime, Date, ForeignKey, Float, UniqueConstraint, CheckConstraint, FetchedValue
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -2720,6 +2720,32 @@ class SuppressedCompany(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("org_id", "company_number", name="uq_suppressed_org_number"),)
+
+
+class OrgExclusionRule(Base):
+    """One rule of an organisation's own exclusion list, kept by its admins (services/org_rules.py turns the enabled rows into search conditions).
+    `value` is '' for the switch kinds. `keep` rows cancel a name_word row of the same organisation."""
+    __tablename__ = "org_exclusion_rules"
+    org_id = Column(String, index=True, server_default=FetchedValue())
+
+    id = Column(String, primary_key=True, default=lambda: f"exr_{uuid.uuid4().hex[:16]}")
+    kind = Column(String, nullable=False)
+    value = Column(String, nullable=False, default="")
+    mode = Column(String, nullable=False, default="exclude")
+    label = Column(String, default="")
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_by = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "kind", "value", "mode", name="uq_org_exclusion_rule"),
+        CheckConstraint("kind IN ('sic','company_type','name_word','category','postcode','company_number','charity_register','status_only','ch_number_only')",
+                        name="ck_org_exclusion_kind"),
+        CheckConstraint("mode IN ('exclude','keep')", name="ck_org_exclusion_mode"),
+        CheckConstraint("mode = 'exclude' OR kind = 'name_word'", name="ck_org_exclusion_keep_kind"),
+        CheckConstraint("value <> '' OR kind IN ('charity_register','status_only','ch_number_only')", name="ck_org_exclusion_value"),
+    )
 
 
 class OperatorDataScope(Base):

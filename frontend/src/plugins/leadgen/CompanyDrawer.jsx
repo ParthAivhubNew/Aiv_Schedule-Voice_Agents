@@ -23,7 +23,7 @@ const TABS = [
 ];
 
 // openCo: the result row. saved: the saved company linked to it, if any. contacts: the contact details panel for it.
-export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveAction, contacts, onOpenPage }) {
+export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveAction, contacts, onOpenPage, onReveal }) {
   const [tab, setTab] = useProfileTab("drawer.v2", TABS.map((t) => t.id), "summary");
   const summary = useCompanyProfile(openCo?.id || "", tab === "summary");
   const notesApi = useNotes({ companyId: openCo?.id || "", accountId: saved?.id || "" });
@@ -41,7 +41,8 @@ export function CompanyDrawer({ openCo, saved, store, onClose, actions, saveActi
           <ProfileTabs idBase={base} label={`${openCo.name} sections`} value={tab} onChange={setTab} style={{ margin: "0 -16px", padding: "0 8px" }}
             tabs={TABS.map((t) => (t.id === "notes" ? { ...t, count: notesApi.notes.length || 0 } : t))} />
           <TabPanel idBase={base} id="summary" value={tab}>
-            <SummaryTab profile={summary.profile} account={saved || null} loading={summary.loading} error={summary.error} denied={summary.denied} onGoTab={setTab} companyId={openCo.id} onPicked={summary.reload} />
+            <SummaryTab profile={summary.profile} account={saved || null} loading={summary.loading} error={summary.error} denied={summary.denied} onGoTab={setTab} companyId={openCo.id} onPicked={summary.reload}
+              closed={openCo.closed} onReveal={onReveal ? async (kind) => { await onReveal(openCo, kind); summary.reload?.(); } : null} />
           </TabPanel>
           <TabPanel idBase={base} id="overview" value={tab}>
             <Collapsible id="drawer:contacts" defaultOpen title="Contact details" summary={filledSummary([openCo.website || openCo.web_website, openCo.phone || openCo.web_phone, openCo.email || openCo.web_email])}>

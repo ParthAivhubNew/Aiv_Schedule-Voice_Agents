@@ -82,12 +82,11 @@ def test_charities_are_left_out_by_the_charity_register_too():
     assert "ds_charity_commission" not in sql
 
 
-def test_driving_and_dance_schools_stay_unless_asked_for():
-    def sql_of(items):
-        return " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
-                        for c in BR._filter_conditions(BR.normalize_filters({"exclude_items": items})))
-    assert "driving school" in sql_of(["Schools (Special)"])
-    assert "driving school" not in sql_of(["driving school"])
+def test_a_typed_leave_out_has_no_built_in_exceptions_but_takes_the_organisations_keep_rules():
+    def sql_of(conds):
+        return " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})) for c in conds)
+    assert "driving school" not in sql_of(BR._filter_conditions(BR.normalize_filters({"exclude_items": ["Schools (Special)"]})))
+    assert "driving school" in sql_of(BR._exclusion_items(["Schools (Special)"], keep_rx="(driving school|dance school)"))  # the org's own keep rows
 
 
 def test_category_labels_become_sic_codes():
@@ -103,5 +102,4 @@ def test_the_whole_list_compiles_in_both_boxes():
         sql = " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})) for c in conds)
         assert "~*" in sql and "church" in sql and "94910" in sql
         assert "business_records.description" not in sql  # a description says who a company serves ("IT for schools"), not what it is
-        assert "driving school" in sql  # FSB keeps driving and dance schools
     assert len(BR.normalize_filters({"exclude_items": ITEMS})["exclude_items"]) == len(ITEMS)  # nothing cut off

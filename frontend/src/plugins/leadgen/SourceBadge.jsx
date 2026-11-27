@@ -2,6 +2,7 @@ import React, { useId, useRef, useState } from "react";
 import { Database, FileUp, Globe, Landmark, MapPin, Phone, Search, ShieldCheck, ShieldQuestion, User } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { describeSources } from "./sourceBadgeLogic";
+import { GoogleG } from "./SourceMark";
 
 const ICONS = { register: Landmark, website: Globe, user: User, import: FileUp, web: Search, check: Phone, google_places: MapPin, apollo: Database };
 
@@ -38,9 +39,12 @@ export function SourceBadge({ account, defaultOpen = false }) {
         onClick={(e) => { e.stopPropagation(); if (open) setOpen(false); else show(); }}
         onFocus={show} onBlur={() => setOpen(false)}
         onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); e.stopPropagation(); } }}
-        style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 44, minHeight: 44, margin: "-12px 0", padding: "0 6px", border: 0, background: "transparent", color: d.checked ? C.green : C.slate, cursor: "help", borderRadius: 8 }}>
-        <Shield size={15} aria-hidden="true" />
+        style={{ display: "inline-flex", alignItems: "center", gap: 3, height: 20, margin: 0, padding: "0 2px", border: 0, background: "transparent", color: d.checked ? C.green : C.slate, cursor: "help", borderRadius: 6, lineHeight: 1, position: "relative" }}>
+        {/* A 44px touch target that takes no room in the row. */}
+        <span aria-hidden="true" data-hit="44" style={{ position: "absolute", left: -8, right: -8, top: -12, bottom: -12 }} />
+        <Shield size={14} aria-hidden="true" />
         {d.sources.map((s) => {
+          if (s.key === "google_places") return <span key={s.label} aria-hidden="true" title="Google" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 5, background: "#fff", border: `1px solid ${C.border}` }}><GoogleG size={12} /></span>;
           const Icon = ICONS[s.key] || Globe;
           return <span key={s.label} aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 5, background: C.paperSoft, color: C.slate }}><Icon size={11} /></span>;
         })}
@@ -50,7 +54,7 @@ export function SourceBadge({ account, defaultOpen = false }) {
         style={open ? { position: "fixed", zIndex: 60, ...pos, boxSizing: "border-box", maxWidth: "calc(100vw - 32px)", maxHeight: "60vh", overflowY: "auto", padding: "10px 12px", borderRadius: 10, background: "#fff", color: C.textInk, border: `1px solid ${C.border}`, boxShadow: "0 8px 24px rgba(15,23,42,.18)", fontFamily: FONT_BODY, fontSize: 12.5, lineHeight: 1.45, fontWeight: 400, whiteSpace: "normal", textAlign: "left" } : hidden}>
         <div style={{ ...head, marginTop: 0 }}>Details from</div>
         {d.fields.length
-          ? d.fields.map((f) => <div key={f.field}><span style={{ color: C.slate }}>{f.field}:</span> {f.label}</div>)
+          ? d.fields.map((f) => <div key={f.field} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ color: C.slate }}>{f.field}:</span> {f.key === "google_places" ? <GoogleG size={12} /> : null}{f.label}</div>)
           : <div style={{ color: C.slate }}>No source is recorded for this company's details yet.</div>}
         <div style={head}>Checked against</div>
         {d.checked

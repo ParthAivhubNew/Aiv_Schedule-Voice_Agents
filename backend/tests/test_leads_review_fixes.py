@@ -47,10 +47,10 @@ def test_sentence_box_keeps_filters_the_model_has_no_field_for(monkeypatch):
         return {"action": "search", "keyword": ["churches"], "town": "Leeds"}
 
     monkeypatch.setattr(LF.llm_gateway, "extract_structured", lambda **kw: fake(**kw))
-    current = {"near": {"postcode": "LS1 4AP", "miles": 5, "districts": ["LS1"]}, "signals": ["new_company"], "fsb_exclusions": True, "status": "any"}
+    current = {"near": {"postcode": "LS1 4AP", "miles": 5, "districts": ["LS1"]}, "signals": ["new_company"], "record_sources": ["food"], "status": "any"}
     out = asyncio.run(LF.interpret(None, "also churches", current))
     f = out["filters"]
-    assert f["near"]["districts"] == ["LS1"] and f["signals"] == ["new_company"] and f["fsb_exclusions"] is True
+    assert f["near"]["districts"] == ["LS1"] and f["signals"] == ["new_company"] and f["record_sources"] == ["food"]
     assert f["status"] == "any"
 
 

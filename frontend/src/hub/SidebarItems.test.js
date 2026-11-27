@@ -78,18 +78,12 @@ describe("Support and Documentation in the sidebars", () => {
     expect(isFsbAccount({})).toBe(false);
   });
 
-  it("SidebarAccountBadge shows the crown only for an admin", () => {
-    const admin = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbadmin", is_admin: true } }));
-    const user = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "fsbuser", is_admin: false } }));
-    expect(admin).toContain("Administrator");
-    expect(user).not.toContain("Administrator");
-  });
-
-  it("SidebarAccountBadge draws FSB logo and company name only for FSB accounts, linking to website", () => {
+  it("SidebarAccountBadge draws only the FSB logo, as a rounded square, for FSB accounts, linking to website", () => {
     const fsbOp = { username: "fsboutreach", org_name: "Federation of Small Businesses" };
     const html = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: fsbOp }));
-    expect(html).toContain("Federation of Small Businesses");
-    expect(html).toContain("FSB Account");
+    expect(html).toContain("Federation of Small Businesses website"); // the name is only the link label, not drawn beside the logo
+    expect(html).not.toContain("FSB Account");
+    expect(html).toContain("border-radius:12px");
     expect(html).toContain("fsb");
     expect(html).toContain("<svg");
     expect(html).toContain('href="https://account.fsb.org.uk/"');

@@ -339,6 +339,10 @@ async def discover_accounts(req: DiscoverAccountsRequest, db: AsyncSession = Dep
     Scours live web and search queries to discover new target accounts.
     """
     await _can_research(db)
+    from app.services import data_access as DA
+
+    if (await DA.current_scope(db)).limited:  # a web result carries no postcode, so it can't be shown to be inside the person's areas: nothing is searched or charged
+        raise DA.AccessDenied(403, DA.WEB_OFF, "web_search_off")
     try:
         leads = await discover_new_target_accounts(
             query_or_domain=req.query,

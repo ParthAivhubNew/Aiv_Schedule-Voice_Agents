@@ -127,7 +127,19 @@ export function FindContactButton({ store, account }) {
 }
 
 // profile: the server's company profile or null; account: the saved company or null; onGoTab switches the tab the next step points at.
-export function SummaryTab({ profile, account, loading, error, denied = false, onGoTab, companyId, onPicked }) {
+// A contact our register holds but has not opened yet. "Held" with a Reveal button, the same as the Find Leads table; opening is free.
+function HeldReveal({ kind, onReveal }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <span style={{ color: C.slateLight }} title="We hold this. Use Reveal to show it">Held</span>
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" disabled={busy} title={`Show the ${kind} we hold for this company. Free.`}
+        onClick={async () => { setBusy(true); try { await onReveal(kind); } finally { setBusy(false); } }}>{busy ? <Spinner size={12} /> : null} Reveal</button>
+    </>
+  );
+}
+
+export function SummaryTab({ profile, account, loading, error, denied = false, onGoTab, companyId, onPicked, closed = null, onReveal = null }) {
   const rows = summaryRows({ profile, account });
   const next = rows.next;
   const target = nextTarget(next);
@@ -154,6 +166,7 @@ export function SummaryTab({ profile, account, loading, error, denied = false, o
         return (
           <Row key={k} label={k === "email" ? "Best email" : "Best phone"}>
             {waiting.length ? <PendingPick companyId={companyId} kind={k} options={waiting} onPicked={onPicked} />
+              : !rows[k] && closed?.[k] && onReveal ? <HeldReveal kind={k} onReveal={onReveal} />
               : <Contact c={rows[k]} none={loading ? "Reading…" : "Not found yet"} />}
           </Row>
         );

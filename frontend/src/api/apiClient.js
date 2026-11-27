@@ -482,8 +482,23 @@ export const api = {
   // Per-person data access (admins only)
   getDataAccess: () => apiRequest('/org/data-access'),
   getPlatformProvided: () => apiRequest('/connections/platform-provided'),
+  getOwnKeys: () => apiRequest('/own-keys'),
+  saveOwnKey: (provider, payload) => apiRequest(`/own-keys/key/${encodeURIComponent(provider)}`, { method: 'POST', body: payload, timeoutMs: 25000 }),
+  testOwnKey: (provider, payload) => apiRequest(`/own-keys/key/${encodeURIComponent(provider)}/test`, { method: 'POST', body: payload, timeoutMs: 25000 }),
+  removeOwnKey: (provider) => apiRequest(`/own-keys/key/${encodeURIComponent(provider)}`, { method: 'DELETE' }),
+  saveOwnByo: (id, payload) => apiRequest(`/own-keys/byo/${encodeURIComponent(id)}`, { method: 'POST', body: payload, timeoutMs: 25000 }),
+  removeOwnByo: (id) => apiRequest(`/own-keys/byo/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  saveDataProvider: (id, payload) => apiRequest(`/own-keys/data/${encodeURIComponent(id)}`, { method: 'POST', body: payload, timeoutMs: 25000 }),
+  removeDataProvider: (id) => apiRequest(`/own-keys/data/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
+  // The organisation's own exclusion list (admins only)
+  getExclusions: () => apiRequest('/org/exclusions'),
+  addExclusions: (body) => apiRequest('/org/exclusions', { method: 'POST', body }),
+  changeExclusion: (id, body) => apiRequest(`/org/exclusions/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  removeExclusion: (id) => apiRequest(`/org/exclusions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  previewExclusions: (body) => apiRequest('/org/exclusions/preview', { method: 'POST', body, timeoutMs: 60000 }),
+  getExclusionHistory: () => apiRequest('/org/exclusions/history'),
   getRecordImport: (id) => apiRequest(`/fsb/imports/${encodeURIComponent(id)}`),
   getRecordImportRows: (id, { status = '', limit = 50, offset = 0 } = {}) =>
     apiRequest(`/fsb/imports/${encodeURIComponent(id)}/rows?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`),

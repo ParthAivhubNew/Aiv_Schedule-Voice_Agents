@@ -222,8 +222,7 @@ async def set_policy(brand_id: str, body: Dict[str, Any], request: Request):
         before = TP.clean_policy(b.policy)
         b.policy = TP.clean_policy(body)
         await _audit(db, staff, "policy.changed", b.id,
-                     {"exclusions_fsb": b.policy["exclusions"]["fsb"], "exclusions_locked": b.policy["exclusions"]["locked"],
-                      "extra_exclusions": len(b.policy["exclusions"]["extra"]), "member_suppression": b.policy["member_suppression"],
+                     {"member_suppression": b.policy["member_suppression"],
                       "geo_districts": len(b.policy["geo"]["districts"]), "restricted": ",".join(s for s, v in b.policy["restricted_sources"].items() if v),
                       "signin": ",".join(k for k, v in b.policy["signin"].items() if v), "changed": before != b.policy}, to_orgs=True)
         await db.commit()

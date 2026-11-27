@@ -14,7 +14,7 @@ import { WORKFLOWS_HEADER, useWorkflowsOpen } from "../workflows/openWorkflows";
 import { openSupport } from "./openSupport";
 import { useBrand } from "../brand/BrandContext";
 import { PoweredBy } from "../brand/PoweredBy";
-import { SidebarAccountBadge } from "./SidebarAccountBadge";
+import { SidebarAccountBadge, isFsbBrandName } from "./SidebarAccountBadge";
 
 // The side menu can shrink to a rail of icons so the page beside it gets the room; the choice is remembered in this browser.
 // It only applies on wide screens (global.css); phones keep their slide-out menu.
@@ -50,15 +50,16 @@ export function SidebarToggle({ collapsed, onToggle }) {
 export function SidebarHead({ icon, accent, name, collapsed, onToggle, onHome }) {
   const embedded = useEmbedded();
   const brand = useBrand();
+  const fsb = brand.active && isFsbBrandName(brand.name);
   const home = brand.active ? `${brand.name}: back to Home` : "Outreach by aivhub: back to Home";
   return (
     <div className="sb-head">
       {onHome && !embedded ? (
         <button type="button" className="sb-home" onClick={onHome} title={home} aria-label={home.replace(":", ",")}>
-          <BrandMark size={32} accentTile />
+          <BrandMark size={32} accentTile outreach={fsb} />
           <span className="sb-home-text" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand.active ? brand.name : "Outreach"}</span>
-            {brand.active ? null : <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>}
+            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ui-side-strong, #fff)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brand.active && !fsb ? brand.name : "Outreach"}</span>
+            {brand.active && !fsb ? null : <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: "0.12em", color: "var(--ui-side-muted, #9BA3B4)" }}>BY AIVHUB</span>}
           </span>
         </button>
       ) : (
@@ -76,7 +77,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
   const [collapsed, toggleCollapsed] = useSidebarCollapse();
   const [logoutTip, logoutNode] = useRailTip();
   const embedded = useEmbedded(); // inside a partner's page: no switching apps, no credits or log out (the partner owns those)
-  const { hideCredits } = useBrand();
+  const { hideCredits, active: brandActive, name: brandName } = useBrand();
   const tabItems = tabs ? tabs.map((id) => groups.flatMap((g) => g.items.filter(Boolean)).find((it) => it.id === id)).filter(Boolean) : [];
   return (
     <>
@@ -103,7 +104,7 @@ export function PluginSidebar({ appId, name, icon: Icon, accent, groups, wallet,
       )}
       {wallet && !embedded && !hideCredits ? <div className="sb-credits"><PluginCredits wallet={wallet} operator={operator} onOpen={onOpenPlan} refreshKey={refreshKey} /></div> : null}
       {!embedded ? <SidebarAccountBadge operator={operator} collapsed={collapsed} /> : null}
-      {!embedded ? <PoweredBy dark style={{ padding: "8px 8px 0" }} /> : null}
+      {!embedded && !(brandActive && isFsbBrandName(brandName)) ? <PoweredBy dark style={{ padding: "8px 8px 0" }} /> : null}
     </div>
     {tabItems.length && nav ? <PhoneTabBar items={tabItems} nav={nav} accent={accent} /> : null}
     </>

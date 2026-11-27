@@ -15,7 +15,8 @@ import { isActiveItem, roleOffBody, toggleLabel } from "./adminLogic";
 import { AccessEditor, ADMIN_SEES_ALL_LINE, useAccessDraft } from "./AccessEditor";
 import { ACCESS_OFF_LINE, announceAccessOff, isAccessOff } from "../../../api/authStore";
 import { AdministrationBody, NOT_ADMIN_LINE } from "./AdministrationView";
-import { EMPTY_USERS, NO_USERS_YET, UserDrawer, UserManagementBody } from "./UserManagement";
+import { EMPTY_USERS, NO_USERS_YET, RoleInfo, UserDrawer, UserManagementBody } from "./UserManagement";
+import { roleCapabilities } from "./adminLogic";
 import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
 
 const src = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
@@ -179,6 +180,8 @@ describe("User management", () => {
     expect(add).toContain("Add user");
     expect(add).toContain("Username");
     expect(add).toContain("Create user");
+    expect(add).toContain("Only these postcodes"); // data access is set when the person is added
+    expect(add).toMatch(/id="adm-role-r\d+"[^>]*checked/); // the starting role is ticked on screen, not chosen out of sight
     const own = html(<UserDrawer user={users[0]} roles={roles} me={users[0]} onClose={noop} onSaved={noop} />);
     expect(own).toContain("You cannot disable your own account.");
     expect(own).toContain(ADMIN_SEES_ALL_LINE);
@@ -418,5 +421,23 @@ describe("Administration page and wiring", () => {
     expect(src("UserManagement.jsx")).toContain("api.deleteUser");
     expect(src("RoleManagement.jsx")).toContain("api.updateRole");
     expect(src("RoleManagement.jsx")).toContain("api.getSections");
+  });
+});
+
+describe("role info in the add-user form", () => {
+  const sec = [{ key: "calling", label: "Calling", group: "Voice" }, { key: "leadgen", label: "Lead generation", group: "Leads" }, { key: "email", label: "Email", group: "Leads" }];
+  it("gives every role an info button", () => {
+    const h = html(<UserDrawer user={null} roles={roles} sections={sec} me={users[0]} onClose={noop} onSaved={noop} />);
+    roles.forEach((r) => expect(h).toContain(`aria-label="What the ${r.name} role can do"`));
+    expect(h).toContain('aria-expanded="false"');
+  });
+  it("lists what a role can change, what it can only view, and that an admin can do everything", () => {
+    expect(roleCapabilities(rOp, sec)).toEqual({ all: false, full: ["Calling"], view: ["Lead generation"] });
+    expect(roleCapabilities(rAdmin, sec).all).toBe(true);
+    const h = html(<RoleInfo role={rOp} sections={sec} id="x" />);
+    expect(h).toContain("Can use and change:");
+    expect(h).toContain("Calling");
+    expect(h).toContain("Can only view:");
+    expect(h).not.toContain("Email");
   });
 });

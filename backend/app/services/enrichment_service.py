@@ -192,9 +192,42 @@ async def _bump_vendor_call(provider: str) -> None:
         logger.debug(f"[vendor_calls] could not count {provider}: {err}")
 
 
+async def own_key(word: str) -> str:
+    """The key this organisation saved itself for a provider ("tavily", "apollo", "deepseek", "openai"), or "".
+    The platform's own organisation has no separate "own" key, so it returns "" and the platform lookups run."""
+    from sqlalchemy.future import select
+
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import current_org
+    from app.database import AsyncSessionLocal
+    from app.models.models import Connection
+    from app.services.secret_box import config_get_secret, open_config
+
+    org = current_org()
+    if not org or org == platform_org_id():
+        return ""
+    try:
+        async with AsyncSessionLocal() as s:
+            rows = (await s.execute(select(Connection))).scalars().all()
+        for c in rows:
+            if (c.org_id or org) != org:
+                continue
+            cfg = open_config(c.config if isinstance(c.config, dict) else {})
+            if word in f"{c.name or ''} {cfg.get('provider') or ''}".lower():
+                key = config_get_secret(cfg, "api_key", "apiKey", "auth_token")
+                if key:
+                    return key.strip()
+    except Exception as err:
+        logger.debug(f"[own_key] {word} not read: {err}")
+    return ""
+
+
 async def tavily_key() -> str:
     """The Tavily key staff saved under Platform Keys -> Leads -> Business Discovery, falling
     back to the TAVILY_API_KEY environment variable (how it was set before that field existed)."""
+    own = await own_key("tavily")
+    if own:
+        return own
     from sqlalchemy.future import select
 
     from app.core.platform import platform_org_id
@@ -235,6 +268,9 @@ async def deepseek_search_enabled() -> bool:
 async def deepseek_key() -> str:
     """The DeepSeek key already saved under Platform Keys (any group, e.g. the Leads writing key),
     falling back to the DEEPSEEK_API_KEY environment variable. Search uses the same key and balance."""
+    own = await own_key("deepseek")
+    if own:
+        return own
     from sqlalchemy.future import select
 
     from app.core.platform import platform_org_id
@@ -498,6 +534,9 @@ async def google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
 async def apollo_key() -> str:
     """The Apollo key staff saved under Platform Keys -> Leads -> Business Discovery (a key named "Apollo.io"),
     falling back to the APOLLO_API_KEY environment variable."""
+    own = await own_key("apollo")
+    if own:
+        return own
     from sqlalchemy.future import select
 
     from app.core.platform import platform_org_id

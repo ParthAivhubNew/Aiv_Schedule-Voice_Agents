@@ -913,7 +913,7 @@ function MainApp({ onSignedOut }) {
           style={{
             display: plugin === p ? "block" : "none",
             height: "100vh",
-            width: "100vw",
+            width: "100%",
             overflow: "hidden",
           }}
         >

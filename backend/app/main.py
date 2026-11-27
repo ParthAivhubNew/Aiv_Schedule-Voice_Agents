@@ -35,6 +35,7 @@ from app.api.schedule import router as schedule_router
 from app.api.meeting_links import router as meeting_links_router
 from app.api.profile import router as profile_router
 from app.api.connections import router as connections_router
+from app.api.own_keys import router as own_keys_router
 from app.api.analytics import router as analytics_router
 from app.api.scheduler import router as scheduler_router
 from app.api.scheduler_insights import router as scheduler_insights_router
@@ -73,6 +74,7 @@ from app.api.numbers import router as numbers_router
 from app.api.number_check import router as number_check_router
 from app.api.tps_check import router as tps_check_router
 from app.api.org_policy import router as org_policy_router
+from app.api.org_exclusions import router as org_exclusions_router
 from app.api.brands import public_router as brand_public_router, staff_router as brand_staff_router
 from app.api.fsb import router as fsb_router
 from app.api.exports import router as exports_router
@@ -1020,6 +1022,8 @@ app.include_router(meeting_links_router, prefix=settings.API_PREFIX)
 app.include_router(profile_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router, prefix=settings.API_PREFIX)
 app.include_router(connections_router)  # Direct /connections compatibility
+app.include_router(own_keys_router, prefix=settings.API_PREFIX)
+app.include_router(own_keys_router)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_router, prefix=settings.API_PREFIX)
 app.include_router(scheduler_insights_router, prefix=settings.API_PREFIX)
@@ -1071,6 +1075,7 @@ app.include_router(numbers_router, prefix=settings.API_PREFIX)
 app.include_router(number_check_router, prefix=settings.API_PREFIX)
 app.include_router(tps_check_router, prefix=settings.API_PREFIX)
 app.include_router(org_policy_router, prefix=settings.API_PREFIX)
+app.include_router(org_exclusions_router, prefix=settings.API_PREFIX)  # the organisation's own exclusion list (admins)
 app.include_router(brand_public_router, prefix=settings.API_PREFIX)
 app.include_router(brand_staff_router, prefix=settings.API_PREFIX)
 app.include_router(fsb_router, prefix=settings.API_PREFIX)  # FSB import, review queue, monthly change report

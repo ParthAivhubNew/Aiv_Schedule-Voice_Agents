@@ -1,6 +1,4 @@
 import React from "react";
-import { FONT_BODY } from "../tokens";
-import { AdminCrown } from "../components/AdminCrown";
 
 export const FSB_WEBSITE_URL = "https://account.fsb.org.uk/";
 
@@ -17,8 +15,11 @@ export function isFsbAccount(operator) {
   );
 }
 
+// The brand is the Federation of Small Businesses (by its name), whoever is signed in.
+export const isFsbBrandName = (name) => /federation of small business/i.test(String(name || ""));
+
 // Crisp inline FSB Logo mark
-export function FsbLogo({ size = 32 }) {
+export function FsbLogo({ size = 32, radius = 6 }) {
   return (
     <svg
       width={size}
@@ -28,9 +29,9 @@ export function FsbLogo({ size = 32 }) {
       xmlns="http://www.w3.org/2000/svg"
       role="img"
       aria-label="FSB Logo"
-      style={{ flexShrink: 0, borderRadius: 6 }}
+      style={{ flexShrink: 0, borderRadius: radius }}
     >
-      <rect width="36" height="36" rx="6" fill="#006972" />
+      <rect width="36" height="36" rx={Math.round((radius * 36) / size)} fill="#006972" />
       <path
         d="M6 25C13 19 23 20 30 25C26 21 16 20 6 25Z"
         fill="#00D2C4"
@@ -86,52 +87,9 @@ export function SidebarAccountBadge({ operator, collapsed = false }) {
       className="sb-fsb-badge"
       title="Open Federation of Small Businesses website (opens in new tab)"
       aria-label="Federation of Small Businesses website (opens in new tab)"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 10px",
-        marginTop: 6,
-        marginBottom: 4,
-        background: "rgba(0, 105, 114, 0.14)",
-        border: "1px solid rgba(0, 210, 196, 0.28)",
-        borderRadius: 8,
-        fontFamily: FONT_BODY,
-        textDecoration: "none",
-        cursor: "pointer",
-        transition: "background 0.15s ease, border-color 0.15s ease",
-      }}
+      style={{ display: "inline-flex", alignSelf: "flex-start", margin: "6px 0 4px 4px", textDecoration: "none", borderRadius: 12 }}
     >
-      <FsbLogo size={32} />
-      <div style={{ display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden", flex: 1 }}>
-        <span
-          style={{
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--ui-side-text, #F0F4F8)",
-            lineHeight: 1.25,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          Federation of Small Businesses
-        </span>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 500,
-            color: "var(--ui-side-muted, #9BA3B4)",
-            lineHeight: 1.3,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          FSB Account<AdminCrown operator={operator} size={11} />
-        </span>
-      </div>
+      <FsbLogo size={48} radius={12} />
     </a>
   );
 }

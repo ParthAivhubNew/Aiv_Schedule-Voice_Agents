@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, Optional, Set
 
 NON_EXPORTABLE = frozenset({"google_places", "apollo"})
+# raw_data keys of files loaded from a Google Places lookup run (the BN leads file): their phones and websites are Google's.
+GOOGLE_FILE_KEYS = frozenset({"import_bn_leads"})
 FIELDS = ("phone", "website", "email")
 
 TOOLTIP = "From Google. You can see and use it in Outreach, but it can't be downloaded."
@@ -103,6 +105,12 @@ def _held_by(raw: Dict[str, Any]) -> Dict[str, Dict[str, Set[str]]]:
             for em in rec.get("emails") or []:
                 vals["email"] |= {_norm("email", em.get("value") if isinstance(em, dict) else em)} - {""}
             target = restricted if _key(rec.get("source")) in NON_EXPORTABLE else open_
+        elif key in GOOGLE_FILE_KEYS:
+            # A file loaded from a Google Places run: its websites and phones came from Google, its emails did not.
+            vals = _entry_values(rec)
+            for kind in FIELDS:
+                (open_ if kind == "email" else restricted)[kind] |= vals[kind]
+            continue
         else:
             vals = _entry_values(rec)
             target = restricted if _key(key) in NON_EXPORTABLE else open_
@@ -124,7 +132,7 @@ def record_source(rec: Any, field: str, value: Any = None, default: str = "regis
     held = _held_by(raw)
     if n in held["open"][field]:
         return "register"
-    google = _held_by({k: v for k, v in raw.items() if _key(k) == "google_places" or k == "lookup_options"})
+    google = _held_by({k: v for k, v in raw.items() if _key(k) == "google_places" or k in GOOGLE_FILE_KEYS or k == "lookup_options"})
     if n in google["restricted"][field]:
         return "google_places"
     return "apollo" if n in held["restricted"][field] else default

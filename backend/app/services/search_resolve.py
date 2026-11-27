@@ -22,6 +22,8 @@ async def resolve(db: AsyncSession, filters: Dict[str, Any], drop_terms: Optiona
                   run: Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]], *, relax: bool = True
                   ) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[str]]:
     """(result, understood, relaxed). `run(filters)` is the search itself and returns a dict with "rows", "total" and "filters"."""
+    from app.services import data_access as DA
+
     out, understood = await phrase_understanding.widen_if_empty(db, filters, drop_terms, run)
     relaxed: List[str] = []
     if relax and not out.get("total"):
@@ -34,7 +36,7 @@ async def resolve(db: AsyncSession, filters: Dict[str, Any], drop_terms: Optiona
                 reading = said
             return got
 
-        near, relaxed = await business_records.closest_match(filters, widened)
+        near, relaxed = await business_records.closest_match(filters, widened, keep_place=(await DA.current_scope(db)).limited)
         if near:
             return near, reading or understood, relaxed
         relaxed = []

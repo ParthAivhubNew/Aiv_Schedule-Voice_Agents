@@ -3,7 +3,6 @@ geography lock, member suppression, locked exclusions, cache keys, the staff and
 Unit tests need no database; the ones marked db run on TEST_DATABASE_URL."""
 import asyncio
 import re
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +14,7 @@ from app.core.tenancy import org_scope
 from app.models.models import BusinessRecord as B
 from app.services import business_records as BR
 from app.services import fsb_rules as FR
+from app.services import org_rules as OR
 from app.services import tenant_policy as TP
 
 
@@ -22,7 +22,7 @@ def sql(conds):
     return str(select(B.id).where(and_(*conds)).compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
 
-FSB = {"exclusions": {"fsb": True, "locked": True}, "member_suppression": True, "geo": {"districts": ["BN1", "bn2"]},
+FSB = {"member_suppression": True, "geo": {"districts": ["BN1", "bn2"]},
        "restricted_sources": {"google": True, "apollo": True, "search_engines": True}}
 
 
@@ -42,10 +42,9 @@ def fake_effective(policy):
 
 # ---- unit: policy shape and the empty policy -------------------------------------------------
 def test_clean_policy_fills_defaults_and_drops_unknown_keys():
-    p = TP.clean_policy({"exclusions": {"fsb": 1, "extra": ["85200", " 85200 ", "x", "church"], "bogus": 1}, "geo": {"districts": ["bn1", "BN 2", "nope", "BN1"]},
+    p = TP.clean_policy({"exclusions": {"fsb": 1, "extra": ["85200"]}, "geo": {"districts": ["bn1", "BN 2", "nope", "BN1"]},
                          "restricted_sources": {"google": True, "yell": True}, "signin": {"google": False}, "evil": {}})
-    assert set(p) == {"exclusions", "member_suppression", "geo", "restricted_sources", "signin", "screening"}
-    assert p["exclusions"] == {"fsb": True, "extra": ["85200", "church"], "locked": True}
+    assert set(p) == {"member_suppression", "geo", "restricted_sources", "signin", "screening"}  # exclusions now live in the organisation's own rows
     assert p["geo"]["districts"] == ["BN1", "BN2"]
     assert p["restricted_sources"] == {"google": True, "apollo": False, "search_engines": False}
     assert p["signin"] == {"password": True, "google": False, "microsoft": True}
@@ -79,29 +78,49 @@ async def test_matching_sql_is_identical_for_an_org_without_a_brand(monkeypatch)
     assert sql([again]) == sql([got])
 
 
-def test_fsb_conditions_are_the_same_as_before_the_move():
-    assert BR.FSB_SIC is FR.SIC and BR.FSB_TYPES is FR.TYPES
-    assert sql(BR._fsb_exclusions()) == sql(FR.conditions())
-    assert sql(BR._fsb_exclusions(True)) == sql(FR.conditions(True))
+# What the hard-coded FSB list said before it became rows ("FSB exclusion rules - for developers"): kept here only as the oracle.
+LEGACY_NAME_WORDS = (r"\m(charit[a-z]*|church|parish|mosque|synagogue|temple|casino[a-z]*|credit union|nhs|hospital|school|college|"
+                     r"university|academy trust|shopping centre|bureau de change|tourist information|weighbridge[a-z]*)\M")
+LEGACY_KEEP = "(driving school|dance school)"
 
 
-def test_rules_as_data_matches_the_counting_script():
-    d = FR.rules_as_data()
-    assert len(d["sic_codes"]) == 53 and len(d["company_types"]) == 5 and d["status"] == "Active"
-    script = Path(__file__).resolve().parents[2] / "scratch" / "fsb_bid_scripts" / "bn_appendix1.sh"
-    if script.exists():
-        txt = script.read_text()
-        assert re.search(r'SIC_LIST="([^"]+)"', txt).group(1).split(",") == d["sic_codes"]
-        assert re.search(r"KW='([^']+)'", txt).group(1) == d["name_words_regex"]
-        assert re.search(r"KEEP='([^']+)'", txt).group(1) == d["name_keep_regex"]
-    assert 'SIC_LIST="84110' in FR.sql_script_vars()
+def _py(rx):
+    return re.compile(rx.replace(r"\m", r"\b").replace(r"\M", r"\b"), re.I)
 
 
-def test_fsb_policy_sql_has_every_rule():
-    s = sql(TP.Policy("org_f", "brd_f", FSB).exclusion_conditions())
+def _seed_conditions():
+    return OR.conditions([{"kind": r["kind"], "value": r["value"], "mode": r["mode"]} for r in FR.seed_rules()])
+
+
+def test_seeded_rows_say_what_the_hard_coded_fsb_list_said():
+    rows = FR.seed_rules()
+    assert len([r for r in rows if r["kind"] == "sic"]) == 53 and len([r for r in rows if r["kind"] == "company_type"]) == 5
+    assert {r["kind"] for r in rows if r["value"] == ""} == {"status_only", "ch_number_only", "charity_register"}
+    words = [r["value"] for r in rows if r["kind"] == "name_word" and r["mode"] == "exclude"]
+    keeps = [r["value"] for r in rows if r["mode"] == "keep"]
+    new_rx, keep_rx = r"\m(" + "|".join(OR._fragment(w) for w in words) + r")\M", "(" + "|".join(OR._fragment(w) for w in keeps) + ")"
+    old, new, old_keep, new_keep = _py(LEGACY_NAME_WORDS), _py(new_rx), _py(LEGACY_KEEP), _py(keep_rx)
+    for name in ("Hope Charity Ltd", "Charitable Trust", "St Mary Church", "Sunny Driving School Ltd", "Hove Dance School", "Schools Ltd", "Casinos Royal",
+                 "Weighbridges Ltd", "Credit Union Ltd", "Acme Plumbing", "Churchill Ltd", "Hospitality Ltd", "Univ Ltd", "Bureau De Change Ltd",
+                 "Shopping Centre Mgmt", "Academy Trust North", "NHS Trust", "Temple Gardens", "Colleges Ltd"):
+        assert bool(old.search(name)) == bool(new.search(name)), name
+        assert bool(old_keep.search(name)) == bool(new_keep.search(name)), name
+
+
+def test_seeded_rules_sql_has_every_fsb_rule():
+    s = sql(_seed_conditions())
     assert "btrim(business_records.status) = 'Active'" in s and "[A-Z0-9]{8}" in s
     assert "'registered society'" in s and "'other company type'" in s and "ds_charity_commission" in s
-    assert "84110" in s and "99000" in s and "charit[a-z]*" in s and "school" in s and "driving school" in s
+    assert "84110" in s and "99000" in s and "charit[a-z]*" in s and "school" in s and "driving" in s
+    assert "53200" not in s and "50200" not in s  # couriers and freight are deliberately not excluded
+
+
+def test_org_rules_are_the_whole_exclusion_policy():
+    p = TP.Policy("org_x", rules=[{"kind": "sic", "value": "85200", "mode": "exclude"}])
+    assert not p.is_empty and p.hash() and p.cache_key().startswith("org_x:") and p.summary()["standingExclusions"] and p.summary()["exclusionRules"] == 1
+    assert "85200" in sql(p.exclusion_conditions())
+    other = TP.Policy("org_x", rules=[{"kind": "sic", "value": "85100", "mode": "exclude"}])
+    assert other.hash() != p.hash() and p.with_rules([]).is_empty
 
 
 def test_geo_and_suppression_conditions():
@@ -112,20 +131,17 @@ def test_geo_and_suppression_conditions():
     assert "NOT IN" in s.upper() and "suppressed_companies" in s and "'org_f'" in s
 
 
-async def test_a_locked_policy_ignores_a_client_attempt_to_switch_it_off(monkeypatch):
-    monkeypatch.setattr(TP, "effective", fake_effective(TP.Policy("org_f", "brd_f", FSB)))
+async def test_organisation_rules_are_added_to_every_search_whatever_the_client_sends(monkeypatch):
+    rules = [{"kind": r["kind"], "value": r["value"], "mode": r["mode"]} for r in FR.seed_rules()]
+    monkeypatch.setattr(TP, "effective", fake_effective(TP.Policy("org_f", "brd_f", FSB, rules)))
 
     async def big(db, where):
         return 999
 
-    for client in ({"postcode_prefixes": ["BN"], "fsb_exclusions": False, "status": "any", "legal_form": "sole"},
-                   {"postcode_prefixes": ["BN"]}):
+    for client in ({"postcode_prefixes": ["BN"], "status": "any", "legal_form": "sole"}, {"postcode_prefixes": ["BN"]}):
         where, _, _ = await BR.matching(None, BR.normalize_filters(client), count=big)
         s = sql([where])
         assert "'registered society'" in s and "btrim(business_records.status) = 'Active'" in s and "BN2" in s and "suppressed_companies" in s
-    # not locked: the exclusions are only a starting point for the screens, the server adds none
-    loose = TP.Policy("org_f", "brd_f", {**FSB, "exclusions": {"fsb": True, "locked": False}})
-    assert loose.exclusion_conditions() == [] and not loose.summary()["standingExclusions"]
 
 
 def test_cache_keys_differ_by_policy_and_organisation():
@@ -245,6 +261,15 @@ async def _brand(db, policy=None, status="active"):
     return b
 
 
+async def _seed(db, org, rows=None):
+    from app.models.models import OrgExclusionRule
+
+    for r in rows if rows is not None else FR.seed_rules():
+        db.add(OrgExclusionRule(org_id=org, kind=r["kind"], value=r["value"], mode=r["mode"], enabled=r.get("enabled", True)))
+    await db.commit()
+    TP.invalidate(org)
+
+
 def _rec(n, name, reg, postcode="BN1 1AA", status="Active", category="Private limited Company", sic="|43220|", sources=None):
     return B(id=f"b{n}", identity_hash=f"h{n}", name=name, registration_number=reg, postcode=postcode, status=status, company_category=category,
              sic_codes=sic, sic_text="x", sources=sources or [], rank_score=0, region="Hove", industry="Plumbing")
@@ -286,11 +311,12 @@ async def test_fsb_org_is_held_to_the_rules(db):
     await _records(db)
     await _brand(db, {**FSB, "geo": {"districts": []}, "member_suppression": False})
     await _org(db, "org_f", "brd_fsb")
+    await _seed(db, "org_f")
     names = await _names(db, WIDE)
     assert names == ["Acme Plumbing Ltd", "Beta Plumbing Ltd", "Leeds Plumbing Ltd", "Sunny Driving School Ltd"]
-    # the client cannot switch any of it off
-    assert await _names(db, {**WIDE, "fsb_exclusions": False, "legal_form": "sole"}) == []  # sole traders have no company number: never under FSB rules
-    assert await _names(db, {**WIDE, "fsb_exclusions": False}) == names
+    # the client has no switch: asking for sole traders finds none while the Companies House rule is on
+    assert await _names(db, {**WIDE, "legal_form": "sole"}) == []
+    assert await _names(db, WIDE) == names
 
 
 @db_only
@@ -300,6 +326,7 @@ async def test_geo_lock_and_member_suppression(db):
     await _records(db)
     await _brand(db)
     await _org(db, "org_f", "brd_fsb")
+    await _seed(db, "org_f")
     assert await _names(db, WIDE) == ["Acme Plumbing Ltd", "Beta Plumbing Ltd", "Sunny Driving School Ltd"]  # BN1 and BN2 only: no Leeds
     req = SimpleNamespace(state=SimpleNamespace(auth={"org_id": "org_f", "is_admin": True, "email": "boss@fsb.example", "operator_id": "op1"}),
                           headers={"content-type": "application/json"})
@@ -324,7 +351,7 @@ async def test_geo_lock_and_member_suppression(db):
 async def test_member_suppression_is_off_unless_the_policy_has_it(db):
     from app.api import org_policy as OP
 
-    await _brand(db, {"exclusions": {"fsb": True}})
+    await _brand(db, {"geo": {"districts": []}})
     await _org(db, "org_f", "brd_fsb")
     await _org(db, "org_plain")
     for org in ("org_f", "org_plain"):
@@ -379,7 +406,7 @@ async def test_staff_api_writes_audit_rows_and_invalidates(db):
     await _org(db, "org_f")
     made = await BA.create_brand(BA.BrandIn(name="FSB", displayName="FSB Outreach", accent="#112233", policy=FSB), staff())
     bid = made["id"]
-    assert bid.startswith("brd_") and made["policy"]["exclusions"]["fsb"] is True and made["orgCount"] == 0
+    assert bid.startswith("brd_") and made["policy"]["member_suppression"] is True and made["orgCount"] == 0
     with pytest.raises(HTTPException):
         await BA.edit_brand(bid, BA.BrandIn(accent="red"), staff())
     dom = await BA.add_domain(bid, BA.DomainIn(host="HTTPS://Outreach.FSB.example:443/x", verified=True), staff())
@@ -444,6 +471,7 @@ async def test_me_brand_reports_flags_without_the_policy(db):
     await _brand(db)
     await _org(db, "org_f", "brd_fsb")
     await _org(db, "org_plain")
+    await _seed(db, "org_f")
     mk = lambda org: SimpleNamespace(state=SimpleNamespace(auth={"org_id": org}), headers={})  # noqa: E731
     got = await BA.my_brand(mk("org_f"))
     assert got["hideCredits"] is False and got["standingExclusions"] is True and got["geoDistricts"] == 2

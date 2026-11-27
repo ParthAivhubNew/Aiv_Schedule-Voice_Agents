@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { C } from "../tokens";
 import { adminApi } from "./adminApi";
 import { btn, card, cell, heading, input, Note, PageTitle, Pill, Table, useLoad } from "./ui";
-import { isHost, normaliseAccent, parseDistricts, parseExtra, withPolicyDefaults } from "../brand/brandLogic";
+import { isHost, normaliseAccent, parseDistricts, withPolicyDefaults } from "../brand/brandLogic";
 
 const DENIED = "Only a staff admin can change this";
 const say = (e) => (e && e.status === 403 ? DENIED : (e && e.message) || "Something went wrong.");
@@ -33,7 +33,6 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
   const isNew = !brand;
   const [look, setLook] = useState(brand ? lookOf(brand) : NEW);
   const [policy, setPolicy] = useState(withPolicyDefaults(brand && brand.policy));
-  const [extra, setExtra] = useState(withPolicyDefaults(brand && brand.policy).exclusions.extra.join("\n"));
   const [districts, setDistricts] = useState(withPolicyDefaults(brand && brand.policy).geo.districts.join(", "));
   const [host, setHost] = useState("");
   const [pick, setPick] = useState("");
@@ -68,7 +67,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
       fail(`Not a postcode district: ${d.invalid.join(", ")}. Use forms like BN1, BN3.`);
       return null;
     }
-    return { ...policy, exclusions: { ...policy.exclusions, extra: parseExtra(extra) }, geo: { districts: d.districts } };
+    return { ...policy, geo: { districts: d.districts } };
   };
   const checkLook = () => {
     if (!look.name.trim()) { fail("A brand needs a name."); return false; }
@@ -143,11 +142,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
 
       <div style={card}>
         {sectionTitle("Rules")}
-        <Toggle label="FSB exclusion rules" help="Leaves out the kinds of company the membership body excludes, in every search." checked={policy.exclusions.fsb} disabled={off} onChange={(v) => setP("exclusions", "fsb", v)} />
-        <Toggle label="Locked: users cannot switch it off" help="Customers see a Standing exclusions note and have no switch." checked={policy.exclusions.locked} disabled={off} onChange={(v) => setP("exclusions", "locked", v)} />
-        <Field label="Extra exclusions" help="Separate with commas or new lines. A SIC code (85200), a word (church), a postcode area (BN45) or a company number (01234567).">
-          <textarea style={{ ...input, width: "100%", minHeight: 70 }} value={extra} disabled={off} onChange={(e) => setExtra(e.target.value)} />
-        </Field>
+        <Note>What a company leaves out of its searches is not set here. Each organisation's admins keep their own exclusion list in Administration, under Exclusions.</Note>
         <Toggle label="Member suppression" help="The brand's administrators upload a member list, and those companies never appear as prospects." checked={policy.member_suppression} disabled={off} onChange={(v) => setP("member_suppression", null, v)} />
         <Field label="Geography: postcode districts" help="Searches stay inside these districts, for example BN1, BN3. Empty means no limit.">
           <input style={{ ...input, width: "100%" }} value={districts} disabled={off} placeholder="BN1, BN3" onChange={(e) => setDistricts(e.target.value)} />

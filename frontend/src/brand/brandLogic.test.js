@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTitle, defaultPolicy, isHost, normaliseAccent, normaliseHost, NO_BRAND, parseDistricts, parseExtra, resolveBrand, withPolicyDefaults } from "./brandLogic";
+import { buildTitle, defaultPolicy, isHost, normaliseAccent, normaliseHost, NO_BRAND, parseDistricts, resolveBrand, withPolicyDefaults } from "./brandLogic";
 
 describe("brandLogic", () => {
   it("normalises a host", () => {
@@ -20,8 +20,9 @@ describe("brandLogic", () => {
     expect(parseDistricts("BN1, bn3, W1A")).toEqual({ districts: ["BN1", "BN3", "W1A"], invalid: [] });
     expect(parseDistricts("BN1, hello").invalid).toEqual(["HELLO"]);
   });
-  it("splits extra exclusions", () => {
-    expect(parseExtra("85200, church\ncare home,85200")).toEqual(["85200", "church", "care home"]);
+  it("keeps no exclusions in the brand policy: the organisation's admins keep them", () => {
+    expect(Object.keys(defaultPolicy())).not.toContain("exclusions");
+    expect(withPolicyDefaults({ exclusions: { fsb: true } })).not.toHaveProperty("exclusions");
   });
   it("fills policy defaults", () => {
     expect(withPolicyDefaults(null)).toEqual(defaultPolicy());

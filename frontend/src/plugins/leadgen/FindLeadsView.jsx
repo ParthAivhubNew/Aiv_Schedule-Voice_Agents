@@ -2,7 +2,7 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "./searc
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "./PickOptions";
 import { Spinner } from "../../app/Loader";
-import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ShieldCheck, Building2, Check, ChevronDown, Globe, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Users, X } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { FieldMark } from "./SourceMark";
@@ -96,9 +96,9 @@ const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined
 
 // The filter panel and the chat are the same search: the panel's fields become this filter object,
 // and a chat reply's filters are written back into the panel -- so neither can drift from the other.
-// Filters the panel has no control for (the standard FSB exclusions, a site filter, a status such as Dissolved) are carried in form.keep,
+// Filters the panel has no control for (a site filter, a status such as Dissolved) are carried in form.keep,
 // so applying the panel again, or filling it from a sentence, does not silently drop them.
-const KEEP_KEYS = ["fsb_exclusions", "site"];
+const KEEP_KEYS = ["site"];
 const keptFrom = (fl) => {
   const keep = Object.fromEntries(KEEP_KEYS.filter((k) => fl[k] && !(Array.isArray(fl[k]) && !fl[k].length)).map((k) => [k, fl[k]]));
   const status = String(fl.status || "");
@@ -387,7 +387,7 @@ function DistrictPicker({ town, includeClosed, postcode, onChange }) {
   );
 }
 
-function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp, onImport }) {
+function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, onOpenCompany, onSetIcp }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [applied, setApplied] = useState({});
   const [chips, setChips] = useState([]);
@@ -1189,26 +1189,6 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
             ))}
           </div>
         ) : null}
-        {onImport ? (
-          <button
-            type="button"
-            className="ui-btn ui-btn--secondary ui-btn--sm"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              fontWeight: 600,
-              background: "#FFFFFF",
-              border: "1px solid var(--ui-line, #E2E8F0)",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-            }}
-            title="Import a spreadsheet of customer records"
-            onClick={onImport}
-          >
-            <Upload size={14} /> Import
-          </button>
-        ) : null}
         <StandingChip />
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
@@ -1624,7 +1604,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       ) : null}
       </div>
       </div>
-      <CompanyDrawer openCo={openCo} store={store} onClose={() => setOpenCo(null)}
+      <CompanyDrawer openCo={openCo} store={store} onClose={() => setOpenCo(null)} onReveal={reveal}
         saved={openCo ? store.accounts.find((a) => a.business_record_id && a.business_record_id === openCo.id) || null : null}
         onOpenPage={openCo && onOpenCompany ? () => { const id = openCo.id; setOpenCo(null); onOpenCompany(id); } : null}
         contacts={openCo ? <ContactsPanel key={openCo.id} company={openCo} /> : null}
@@ -1654,7 +1634,7 @@ export function FindLeadsView({ access, store, listsStore, onGo, incoming, onAsk
           <ArrowLeft size={14} /> Back to Find Leads
         </button>
       ) : null}
-      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch access={access} store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} onImport={() => setSub("import")} /></div>
+      <div style={sub === "search" ? { display: "contents" } : { display: "none" }}><FindLeadsSearch access={access} store={store} listsStore={listsStore} incoming={incoming} onAskAssistant={onAskAssistant} onOpenCompany={onOpenCompany} onSetIcp={onGo ? () => onGo("business") : undefined} /></div>
       {sub === "import" && <ImportView store={store} onGo={onGo} onAskAi={() => setSub("search")} />}
     </div>
   );

@@ -53,6 +53,9 @@ async def keys() -> List[Tuple[str, str, str]]:
     from app.services import enrichment_service as E
     from app.services.secret_box import open_secret
 
+    own = await E.own_key("tavily")
+    if own:
+        return [("own", "Your Tavily key", own)]  # an organisation that saved its own key uses only that one
     out: List[Tuple[str, str, str]] = []
     main = (await E.tavily_key() or "").strip()
     if main:

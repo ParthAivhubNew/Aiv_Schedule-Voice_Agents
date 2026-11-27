@@ -89,6 +89,9 @@ async def keys(lead: str = "") -> List[Tuple[str, str, str]]:
 
     if not await tenant_policy.source_allowed(None, "apollo"):
         return []  # the organisation's brand policy restricts Apollo: no key means every lookup reports nothing found
+    own = await E.own_key("apollo")
+    if own and not lead:
+        return [("own", "Your Apollo key", own)]  # an organisation that saved its own key uses only that one
     out: List[Tuple[str, str, str]] = []
     main = (lead or await E.apollo_key() or "").strip()
     if main:

@@ -1,5 +1,7 @@
 import { openSupport } from "../../hub/openSupport";
 import { ConnectorPricing } from "./ConnectorPricing";
+import { OwnKeyForm } from "./OwnKeyForm";
+import { BYO_AI_IDS, ByoAiForm, DATA_PROVIDER_FORMS, DataProviderForm } from "./ConnectForms";
 import { CONNECTOR_PRICING } from "./connectorPrices";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -89,15 +91,15 @@ function MarketLocationLogo({ size = 24 }) {
 }
 
 // Shown in the connector panel for the two connectors that are not switched on. Nothing here is connected, tested or charged.
-export const NOT_CONNECTED_TEXT = "This connector isn't switched on for your account yet. Ask your administrator or Aivhub to connect it.";
+export const NOT_CONNECTED_TEXT = "This connector isn't switched on for your account yet. Ask your administrator or Outreach support to connect it.";
 export const NOT_CONNECTED_LABEL = "Not connected yet";
 
-export function NotConnectedPanel({ connector }) {
+export function NotConnectedPanel({ connector, form = null, connected = false }) {
   const gives = (CONNECTOR_PROVIDES[connector.id] || []).map((k) => (DATA_KINDS.find((d) => d[0] === k) || [k, k])[1]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, ...text }}>
       <div role="status" style={{ padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#F8FAFC", border: `1px solid ${C.border}`, color: C.textInk }}>
-        Status: {NOT_CONNECTED_LABEL}
+        Status: {connected ? "Connected" : NOT_CONNECTED_LABEL}
       </div>
       <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{connector.desc}</div>
       {gives.length ? (
@@ -108,12 +110,16 @@ export function NotConnectedPanel({ connector }) {
           </div>
         </div>
       ) : null}
-      <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>{NOT_CONNECTED_TEXT}</div>
-      <div>
-        <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ minHeight: 36 }} onClick={() => openSupport()}>
-          Ask to switch this on
-        </button>
-      </div>
+      {form || (
+        <>
+          <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>{NOT_CONNECTED_TEXT}</div>
+          <div>
+            <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ minHeight: 36 }} onClick={() => openSupport()}>
+              Ask to switch this on
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -993,21 +999,39 @@ export function ConnectorsView({ operator, toast }) {
 
   // Where each provider key comes from, read from the server: "own", "platform" or "none". Never the key.
   const [keySources, setKeySources] = useState(null);
-  const [keySourcesError, setKeySourcesError] = useState("");
+  const [ownKeys, setOwnKeys] = useState(null); // what this organisation saved itself: provider keys, its own AI endpoints, Experian and Market Location
+  const dataProviders = ownKeys?.data;
+  const refreshDataProviders = React.useCallback(() => {
+    return api.getOwnKeys().then((res) => {
+      const r = res || {};
+      setOwnKeys(r);
+      setSelectedConnector((cur) => {
+        if (!cur) return cur;
+        if (DATA_PROVIDER_FORMS[cur.id]) return { ...cur, status: r.data?.[cur.id]?.connected ? "connected" : "not_connected" };
+        if (BYO_AI_IDS.has(cur.id)) return { ...cur, status: r.byo?.[cur.id]?.connected ? "connected" : "available" };
+        return cur;
+      });
+    }).catch(() => setOwnKeys({}));
+  }, []);
   useEffect(() => {
-    let alive = true;
-    api
+    refreshDataProviders();
+  }, [refreshDataProviders]);
+  const [keySourcesError, setKeySourcesError] = useState("");
+  const refreshKeySources = React.useCallback(() => {
+    return api
       .getPlatformProvided()
       .then((res) => {
-        if (alive) setKeySources(res || {});
+        setKeySources(res || {});
+        setKeySourcesError("");
+        setSelectedConnector((cur) => (cur && cur.platformKey ? { ...cur, keySource: (res || {})[cur.platformKey] || "none" } : cur));
       })
       .catch(() => {
-        if (alive) setKeySourcesError("Could not check the provider keys. Try again later.");
+        setKeySourcesError("Could not check the provider keys. Try again later.");
       });
-    return () => {
-      alive = false;
-    };
   }, []);
+  useEffect(() => {
+    refreshKeySources();
+  }, [refreshKeySources]);
 
   const toggleConnection = (connId, targetState) => {
     const next = { ...statusOverrides, [connId]: targetState };
@@ -1070,19 +1094,19 @@ export function ConnectorsView({ operator, toast }) {
     const userCustom = customConnectors.filter((c) => c.partition === partition);
 
     const merged = [...userCustom, ...baseList].map((item) => {
-      if (item.notConnected) return { ...item, status: "not_connected", isCustomized: false };
+      if (item.notConnected) return { ...item, status: dataProviders?.[item.id]?.connected ? "connected" : "not_connected", isCustomized: false };
       if (item.platformKey) {
         const source = keySources ? keySources[item.platformKey] || "none" : "checking";
         return { ...item, keySource: source, status: source === "own" || source === "platform" ? "connected" : "key_" + source, isCustomized: false };
       }
-      const liveStatus = statusOverrides[item.id] || item.defaultStatus || "available";
+      const liveStatus = BYO_AI_IDS.has(item.id) && ownKeys ? (ownKeys.byo?.[item.id]?.connected ? "connected" : "available") : statusOverrides[item.id] || item.defaultStatus || "available";
       const userConfig = configOverrides[item.id] || {};
       const isCustomized = Boolean(configOverrides[item.id]);
       return { ...item, ...userConfig, status: liveStatus, isCustomized };
     });
 
     return merged;
-  }, [partition, customConnectors, statusOverrides, configOverrides, keySources]);
+  }, [partition, customConnectors, statusOverrides, configOverrides, keySources, ownKeys]);
 
   // Categories
   const categories = useMemo(() => {
@@ -1222,7 +1246,7 @@ export function ConnectorsView({ operator, toast }) {
                         letterSpacing: ".03em",
                       }}
                     >
-                      {item.notConnected
+                      {item.notConnected && !isConnected
                         ? NOT_CONNECTED_LABEL
                         : item.platformKey
                         ? item.keySource === "checking"
@@ -1699,7 +1723,7 @@ export function ConnectorsView({ operator, toast }) {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {selectedConnector.platformKey || selectedConnector.notConnected ? null : (
+                {selectedConnector.platformKey || selectedConnector.notConnected || DATA_PROVIDER_FORMS[selectedConnector.id] ? null : (
                 <button
                   type="button"
                   className={`ui-btn ui-btn--sm ${isEditing ? "ui-btn--primary" : "ui-btn--secondary"}`}
@@ -1732,7 +1756,20 @@ export function ConnectorsView({ operator, toast }) {
             {/* Body */}
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16, maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>
               {!isEditing && selectedConnector.status !== "connected" ? <ConnectorPricing id={selectedConnector.id} /> : null}
-              {selectedConnector.notConnected ? (
+              {!isEditing && BYO_AI_IDS.has(selectedConnector.id) ? (
+                <ByoAiForm
+                  connector={selectedConnector}
+                  onSaved={refreshDataProviders}
+                  onRemoved={refreshDataProviders}
+                />
+              ) : null}
+              {DATA_PROVIDER_FORMS[selectedConnector.id] ? (
+                <NotConnectedPanel
+                  connector={selectedConnector}
+                  connected={selectedConnector.status === "connected"}
+                  form={<DataProviderForm key={selectedConnector.id + selectedConnector.status} id={selectedConnector.id} status={dataProviders?.[selectedConnector.id]} onChanged={refreshDataProviders} />}
+                />
+              ) : selectedConnector.notConnected ? (
                 <NotConnectedPanel connector={selectedConnector} />
               ) : selectedConnector.platformKey ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, ...text }}>
@@ -1754,11 +1791,14 @@ export function ConnectorsView({ operator, toast }) {
                   <div style={{ fontSize: 13, color: C.textInk, lineHeight: 1.5 }}>{selectedConnector.desc}</div>
                   <div style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
                     {selectedConnector.keySource === "platform"
-                      ? "Provided by the platform. Your searches and writing use the platform's key, so there is nothing for you to paste or pay for here."
+                      ? "Provided by the platform. Nothing to paste or pay for here, unless you want to use your own key."
                       : selectedConnector.keySource === "own"
-                        ? "Your organisation has its own key saved. It is kept sealed and never shown in full. To change or test it, open Connections & AI in settings."
-                        : "No key is available yet. Ask your account manager to switch it on, or add your own under Connections & AI in settings."}
+                        ? "Your organisation's own key is in use."
+                        : "No key is available yet. Add your own below."}
                   </div>
+                  {selectedConnector.keySource === "checking" ? null : (
+                    <OwnKeyForm connector={selectedConnector} source={selectedConnector.keySource} onChanged={() => { refreshKeySources(); refreshDataProviders(); }} />
+                  )}
                 </div>
               ) : isEditing ? (
                 /* Edit Mode */
