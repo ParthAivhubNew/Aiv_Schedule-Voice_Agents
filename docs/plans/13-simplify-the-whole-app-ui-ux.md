@@ -8,7 +8,7 @@ brand logic, staff portal) and the owner's screenshots of Home, Find Leads and t
 test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and looked at by the
 owner (2026-11-27: the Settings menu swap "looks good"). **Step 4 is done on the branch** (below), deployed on the test copy
 and looked at by the owner (2026-11-27: "looks good"). **Step 5 is done on the branch** (below), deployed on the test copy and
-waiting for the owner's look.
+looked at by the owner (2026-11-27: the second pass "looks good"). Next: step 6, busy screens (Find Leads first).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
   - Under the greeting, one "Next step" card: the first unfinished setup step, with Start, See all steps and hide. The full
