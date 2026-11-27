@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { CountTabs } from "../../components/FilterPopover";
 import { notice } from "../../utils/notice";
 import { C } from "../../tokens";
 import { api } from "../../api/apiClient";
@@ -988,28 +989,17 @@ export function JourneysView({ outreach, listsStore, onGo, onAskAssistant, onGui
       ) : (
       <aside aria-label="Your journeys" style={{ flex: "0 0 270px", minWidth: 0, display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
         <button type="button" style={{ ...btn(true), width: "100%", justifyContent: "center", textAlign: "center" }} onClick={() => { setCreating(true); }}><Plus size={14} /> New journey</button>
+        {/* Plan 13, step 6: the same count tabs as Find Leads and Lists; their counts say how many are running, paused and so on. */}
         {journeys.length ? (
-          <div style={{ display: "grid", gap: 2, padding: "2px 4px 0" }}>
-            <strong style={{ fontSize: 13 }}>Your journeys · {journeys.length}</strong>
-            <span style={small}>{[["running", "running"], ["paused", "paused"], ["draft", "in draft"], ["completed", "finished"]].map(([k, w]) => [journeys.filter((j) => j.status === k).length, w]).filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(" · ")}</span>
-          </div>
-        ) : null}
-        {journeys.length ? (
-          <div role="tablist" aria-label="Show journeys" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {FILTERS.map(([k, w]) => {
-              const n = journeys.filter((j) => inFilter(j, k)).length;
-              if (k === "archived" && !n) return null;
-              return <button key={k} type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)}
-                style={{ ...btn(filter === k), padding: "3px 10px", minHeight: 30, fontSize: 12.5 }}>{w} {n}</button>;
-            })}
-          </div>
+          <CountTabs label="Show journeys" wrap value={filter} onChange={setFilter}
+            tabs={FILTERS.map(([k, w]) => ({ id: k, label: w, count: journeys.filter((j) => inFilter(j, k)).length })).filter((t) => t.id !== "archived" || t.count)} />
         ) : null}
         <Wheel label="Your journeys: scroll for more">
         {shownJourneys.map((j) => {
           const on = !creating && j.id === selected;
           return (
             <button key={j.id} type="button" aria-current={on ? "true" : undefined} onClick={() => open(j.id)}
-              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.cobalt : C.borderLight}`, background: on ? C.cobaltSoft : C.surface }}>
+              style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 3, padding: "10px 12px", borderRadius: 12, scrollSnapAlign: "start", border: `1px solid ${on ? C.border : C.borderLight}`, background: on ? "var(--ui-hover)" : C.surface }}>
               <span style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
                 <strong title={j.name} style={{ fontSize: 13.5, flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.35 }}>{j.name}</strong>
                 <span style={{ flex: "none" }}><Pill tone={STATUS_TONES[j.status]}>{STATUS_WORDS[j.status] || j.status}</Pill></span>

@@ -50,9 +50,9 @@ export function FilterChips({ chips, onClearAll }) {
 }
 
 // Tabs with a count, underlined when on, like Find Leads' All · New to you · Saved. tabs: [{ id, label, count, tip, dot }]
-export function CountTabs({ tabs, value, onChange, label }) {
+export function CountTabs({ tabs, value, onChange, label, wrap = false }) {
   return (
-    <div role="tablist" aria-label={label} style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%" }}>
+    <div role="tablist" aria-label={label} style={{ display: "flex", gap: 4, overflowX: wrap ? "visible" : "auto", flexWrap: wrap ? "wrap" : "nowrap", maxWidth: "100%" }}>
       {tabs.map((t) => {
         const on = value === t.id;
         return (

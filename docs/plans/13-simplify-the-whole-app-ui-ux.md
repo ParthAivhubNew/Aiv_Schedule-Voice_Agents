@@ -50,7 +50,11 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
   tab with a soft grey filled pill and dark text, the same as the Companies / List switches: Find Leads' counts, Lists, Settings'
   windows, Workflows, the staff portal, Import & match, API keys, Help, Forms, Voice and Social schedule windows, Social's day
   tabs. A test (components/filterPopover.test.jsx) keeps a coloured underline from coming back.
-  - Next in step 6: Journeys, Voice's Call list, Social's calendar, Journeys, Voice's Call list and Social's calendar.
+  - Owner checked Lists and the new tabs on 2026-11-27 ("looks good").
+- ✅ **Step 6c, Journeys (2026-11-27):** the status buttons over the journey list are the shared count tabs (Running 3 · Paused …),
+  the repeated "3 running · 1 paused" line is gone, and the chosen journey is a soft grey card instead of a blue one.
+  Voice's Call list was looked at and left: it is already a grid of list cards with New list and Import.
+  - Next in step 6: Social's calendar (needs a look on screen first), then step 7 (⌘K search)., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
