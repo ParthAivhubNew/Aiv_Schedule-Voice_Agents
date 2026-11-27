@@ -5,8 +5,8 @@ name sits where Outreach should be, and the staff portal looks complicated. Base
 brand logic, staff portal) and the owner's screenshots of Home, Find Leads and the staff Dashboard. **No code has been changed.**
 
 **Status (2026-11-26):** the owner answered the decisions (section 6). **Steps 1 and 2 are done on the branch**, deployed on the
-test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and waiting for the
-owner's look.
+test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and looked at by the
+owner (2026-11-27: the Settings menu swap "looks good"). Next: step 4, one Settings page for the whole company.
 
 - ✅ **Step 3, one menu layout (2026-11-26):**
   - Leads, Voice and Social now have the same sidebar: Outreach, the app switcher, the everyday work (no group label, since there
