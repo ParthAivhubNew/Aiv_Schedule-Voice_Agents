@@ -67,7 +67,8 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
   AI caller pages are titled AI caller). Social: Post approve → Posts to approve, Accounts → Social accounts, Theme → Brand look, and
   each Results & ideas / Library page is titled by its own name. "Lead Gen" → "Leads" and "plugin" → "app" on customer screens and in
   the server's messages ("This needs the Leads plan"). Search and Help use the same names. hub/glossary.test.js keeps the old names
-  out of menus and titles. Owner checked it on 2026-11-27 ("looks good")., Journeys, Voice's Call list and Social's calendar.
+  out of menus and titles. Owner checked it on 2026-11-27 ("looks good").
+- ⏭️ **Step 9, Dark mode:** skipped by the owner on 2026-11-27., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
