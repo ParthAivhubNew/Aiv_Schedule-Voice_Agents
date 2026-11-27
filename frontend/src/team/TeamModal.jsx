@@ -367,7 +367,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
     <button
       type="button"
       onClick={() => setTab(key)}
-      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "none", borderBottom: `2px solid ${tab === key ? C.ink : "transparent"}`, background: "none", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: tab === key ? C.ink : C.slate, cursor: "pointer" }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "none", borderRadius: 8, margin: "6px 0", background: tab === key ? "var(--ui-hover)" : "transparent", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: tab === key ? C.ink : C.slate, cursor: "pointer" }}
     >
       <Icon size={14} /> {label}
     </button>

@@ -1379,16 +1379,16 @@ function ApprovalsBoard({
                 onClick={() => switchDate(t.date)}
                 style={{
                   border: "none",
-                  background: "transparent",
                   padding: "10px 14px",
                   cursor: "pointer",
                   fontFamily: FONT_BODY,
                   fontSize: 13,
                   fontWeight: active ? 700 : 600,
-                  color: active ? C.teal : C.slate,
-                  borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
+                  color: active ? C.ink : C.slate,
+                  borderRadius: 8,
+                  margin: "6px 0",
+                  background: active ? "var(--ui-hover)" : "transparent",
                   whiteSpace: "nowrap",
-                  marginBottom: -1,
                   flexShrink: 0,
                 }}
               >

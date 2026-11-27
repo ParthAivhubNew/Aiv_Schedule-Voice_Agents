@@ -96,12 +96,12 @@ export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
     ["only", "Saved", known ? saved : null, "", "Already in one of your lists"],
   ];
   return (
-    <div role="group" aria-label="Show" style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+    <div role="group" aria-label="Show" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
       {tiles.map(([id, label, n, extra, tip]) => {
         const on = (filter || "") === id;
         return (
           <button key={label} type="button" title={tip} aria-pressed={on} disabled={busy} onClick={() => onPick(id)}
-            style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", height: 46, display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", borderBottom: `2px solid ${on ? C.cobalt : "transparent"}`, ...text, fontSize: 13.5, opacity: busy ? 0.6 : 1 }}>
+            style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", height: 32, padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", borderRadius: 8, margin: "6px 0", background: on ? "var(--ui-hover)" : "transparent", ...text, fontSize: 13.5, opacity: busy ? 0.6 : 1 }}>
             <span style={{ color: on ? C.ink : C.slate, fontWeight: on ? 600 : 500 }}>{label}</span>
             <span style={{ color: on ? C.ink : C.slate, fontVariantNumeric: "tabular-nums" }}>{n == null ? "…" : `${Number(n).toLocaleString()}${extra}`}</span>
           </button>

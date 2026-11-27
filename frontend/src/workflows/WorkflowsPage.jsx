@@ -24,8 +24,9 @@ const css = `
 .wf-main{width:100%;margin:0;box-sizing:border-box;padding:20px clamp(12px,4vw,32px) 72px;display:grid;gap:16px;align-content:start}
 .wf-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .wf-tabs{display:flex;gap:2px;border-bottom:1px solid var(--ui-line,#E3E6EB);flex:1 1 auto;min-width:0}
-.wf-tab{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;min-height:44px;padding:0 14px;font-size:14px;font-weight:600;color:var(--ui-muted,#6B7280);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
-.wf-tab[aria-selected="true"]{color:var(--ui-ink,#111827);border-bottom-color:var(--ui-accent,#3457D5)}
+.wf-tab{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;min-height:32px;margin:6px 0;padding:0 12px;border-radius:8px;font-size:14px;font-weight:500;color:var(--ui-muted,#6B7280);white-space:nowrap}
+.wf-tab:hover{background:var(--ui-sunken)}
+.wf-tab[aria-selected="true"]{color:var(--ui-ink,#111827);font-weight:600;background:var(--ui-hover)}
 .wf-tab:focus-visible,.wf-link:focus-visible,.wf-pick:focus-visible,.wf-run-toggle:focus-visible{outline:2px solid var(--ui-accent,#3457D5);outline-offset:2px}
 .wf-card{background:var(--ui-surface,#fff);border:1px solid var(--ui-line,#E3E6EB);border-radius:10px;padding:16px 18px;box-shadow:var(--ui-shadow)}
 .wf-link{all:unset;cursor:pointer;color:var(--ui-accent,#3457D5);font-size:13px;font-weight:600;border-radius:4px}

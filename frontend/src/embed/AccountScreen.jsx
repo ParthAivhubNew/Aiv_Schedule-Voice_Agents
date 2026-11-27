@@ -20,7 +20,7 @@ export default function AccountScreen({ operator }) {
   }, []);
   const button = (id, label) => (
     <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-      style={{ padding: "12px 16px", border: 0, borderBottom: `2px solid ${tab === id ? C.cobalt : "transparent"}`, background: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: tab === id ? C.cobalt : C.slate }}>
+      style={{ padding: "12px 16px", border: 0, borderRadius: 8, margin: "6px 0", background: tab === id ? "var(--ui-hover)" : "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: tab === id ? C.ink : C.slate }}>
       {label}
     </button>
   );

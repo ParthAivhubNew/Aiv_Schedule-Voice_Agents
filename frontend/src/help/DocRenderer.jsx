@@ -215,8 +215,10 @@ function TabsBlock({ tabs }) {
               fontSize: 13,
               fontWeight: 600,
               cursor: "pointer",
-              color: activeTab === i ? C.cobalt : C.slate,
-              borderBottom: activeTab === i ? `2px solid ${C.cobalt}` : "2px solid transparent",
+              color: activeTab === i ? C.ink : C.slate,
+              borderRadius: 8,
+              margin: "6px 0",
+              background: activeTab === i ? C.surface : "transparent",
             }}
           >
             {t.label}

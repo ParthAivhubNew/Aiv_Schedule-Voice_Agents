@@ -10,7 +10,8 @@ import { api } from "../../../api/apiClient";
 import { ExportDialog } from "../ExportDialog";
 import { FieldMark, hasGoogleData, SourceList } from "../SourceMark";
 import { SourceBadge } from "../SourceBadge";
-import { OriginSelect, SourceSelect, TpsChip, TpsNote, TpsPill } from "../ListFilterBar";
+import { OriginSelect, SourceSelect, TpsChip, TpsNote } from "../ListFilterBar";
+import { CountTabs, FilterChips, FilterPopover } from "../../../components/FilterPopover";
 import { hasSource, hasTpsCheck, screeningOf, sourceOptions } from "../listFilters";
 import { numbersToCheck } from "../phoneNumbers";
 import { C } from "../../../tokens";
@@ -133,6 +134,15 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const activeSource = sourceChoices.some((o) => o.key === fromSource) ? fromSource : "";
   const originChoices = originOptions(inTab);
   const activeOrigin = originChoices.some((o) => o.key === fromOrigin) ? fromOrigin : "";
+  // The filters that are on, as chips under the tabs (plan 13, step 6).
+  const filtersOn = [
+    googleOnly ? { key: "google", text: "Google data", onRemove: () => setGoogleOnly(false) } : null,
+    tpsOnly ? { key: "tps", text: "TPS checked", onRemove: () => setTpsOnly(false) } : null,
+    activeSource ? { key: "source", text: `Data from: ${(sourceChoices.find((o) => o.key === activeSource) || {}).label || activeSource}`, onRemove: () => setFromSource("") } : null,
+    activeOrigin ? { key: "origin", text: `Came from: ${(originChoices.find((o) => o.key === activeOrigin) || {}).label || activeOrigin}`, onRemove: () => setFromOrigin("") } : null,
+    activeChip ? { key: "more", text: activeChip[1], onRemove: () => setMoreFilter("") } : null,
+  ].filter(Boolean);
+  const clearFilters = () => { setGoogleOnly(false); setTpsOnly(false); setFromSource(""); setFromOrigin(""); setMoreFilter(""); };
   const matching = inTab
     .filter((a) => !activeOrigin || originKey(a.source) === activeOrigin)
     .filter(activeChip ? activeChip[2] : () => true)
@@ -238,45 +248,11 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {!icp.loading && !icp.isSet ? <IcpPrompt onSet={() => onGo("business")} /> : null}
       {heldBack ? (
         <div role="status" style={{ ...text, fontSize: 12.5, color: C.slate }}>
           {heldBack.toLocaleString()} {heldBack === 1 ? "company with an email moved" : "companies with an email moved"} to Needs your choice after the register check. Settle each one to bring {heldBack === 1 ? "it" : "them"} back to Ready to email.
         </div>
       ) : null}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div role="tablist" aria-label="Companies by what to do next" style={{ display: "flex", gap: 4, overflowX: "auto", maxWidth: "100%", flex: "0 1 auto" }}>
-          {tabsShown.map(([k, label, tip]) => {
-            const on = !picks && tab === k;
-            return (
-              <button key={k} type="button" role="tab" aria-selected={on} title={tip} onClick={() => { setTabPref(k); setPicksOnly(false); }}
-                style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${on ? C.ink : C.border}`, background: on ? C.ink : C.surface, color: on ? C.onAccent : C.textInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                {label} {buckets[k].length.toLocaleString()}
-              </button>
-            );
-          })}
-        </div>
-        {pickRows.length ? (
-          <button type="button" aria-pressed={picks} title="We found more than one phone or email for these. Pick the right one" onClick={() => setPicksOnly((v) => !v)}
-            style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${picks ? "#B45309" : "#F59E0B"}`, background: picks ? C.warning : C.warningSoft, color: picks ? C.onAccent : C.warningInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-            Needs your choice {pickRows.length.toLocaleString()}
-          </button>
-        ) : null}
-        <button type="button" aria-pressed={googleOnly} title="Show only companies whose phone, email or website came from Google"
-          onClick={() => setGoogleOnly((v) => !v)}
-          style={{ ...text, minHeight: 36, padding: "0 14px", borderRadius: 999, border: `1px solid ${googleOnly ? C.infoInk : "#93B4F5"}`, background: googleOnly ? C.infoInk : C.infoBg, color: googleOnly ? C.onAccent : C.infoInk, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-          Google data {inTab.filter(hasGoogleData).length.toLocaleString()}
-        </button>
-        <TpsPill count={inTab.filter((a) => hasTpsCheck(a)).length} on={tpsOnly} onClick={() => setTpsOnly((v) => !v)} />
-        <SourceSelect options={sourceChoices} value={activeSource} onChange={setFromSource} />
-        <OriginSelect options={originChoices} value={activeOrigin} onChange={setFromOrigin} />
-        {available.length ? (
-          <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36, width: "auto", maxWidth: "100%" }}>
-            <option value="">More filters</option>
-            {available.map(([id, label]) => <option key={id} value={id}>{label} ({inTab.filter(allChips.find(([cid]) => cid === id)[2]).length.toLocaleString()})</option>)}
-          </select>
-        ) : null}
-      </div>
       {googleOnly ? (
         <div role="status" style={{ ...text, fontSize: 13, color: "#1E3A8A", background: C.infoBg, border: "1px solid #93B4F5", borderRadius: 8, padding: "8px 12px" }}>
           Showing only companies with Google data ({matching.length.toLocaleString()}). You can see and use it here, but it can't be downloaded. Open a company to see its live Google details.
@@ -289,6 +265,24 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
       <div className="ui-card" style={{ overflow: "hidden" }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <SearchField value={filter} onChange={setFilter} placeholder="Filter by name, website, contact or place" label="Filter saved accounts" height={42} style={{ flex: "1 1 320px" }} />
+          {/* Plan 13, step 6: the list's filters in one Filters menu, as on Find Leads, instead of a row of coloured pills and drop-downs. */}
+          <FilterPopover count={filtersOn.length}>
+            <label style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} title="Show only companies whose phone, email or website came from Google">
+              <input type="checkbox" checked={googleOnly} onChange={() => setGoogleOnly((v) => !v)} /> Google data <span style={{ color: C.slate, marginLeft: "auto" }}>{inTab.filter(hasGoogleData).length.toLocaleString()}</span>
+            </label>
+            <label style={{ ...text, fontSize: 13, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} title="Show only contacts with at least one phone number checked against the TPS and CTPS registers">
+              <input type="checkbox" checked={tpsOnly} onChange={() => setTpsOnly((v) => !v)} /> TPS checked <span style={{ color: C.slate, marginLeft: "auto" }}>{inTab.filter((a) => hasTpsCheck(a)).length.toLocaleString()}</span>
+            </label>
+            <SourceSelect options={sourceChoices} value={activeSource} onChange={setFromSource} />
+            <OriginSelect options={originChoices} value={activeOrigin} onChange={setFromOrigin} />
+            {available.length ? (
+              <select className="ui-input" aria-label="Filter" value={activeChip ? activeChip[0] : ""} onChange={(e) => setMoreFilter(e.target.value)} style={{ height: 36 }}>
+                <option value="">More filters</option>
+                {available.map(([id, label]) => <option key={id} value={id}>{label} ({inTab.filter(allChips.find(([cid]) => cid === id)[2]).length.toLocaleString()})</option>)}
+              </select>
+            ) : null}
+          </FilterPopover>
+          {!icp.loading && !icp.isSet ? <IcpPrompt onSet={() => onGo("business")} compact /> : null}
           <span style={{ flex: 1 }} />
           {!moreInHeader && fixIds.length ? (
             <MoreMenu items={[{ label: `Accept all fixes (${fixIds.length.toLocaleString()})`, title: "Apply every suggested fix in this list. The value you had is kept in the company's check details", onClick: () => acceptAllFixes(fixIds) }]} />
@@ -303,6 +297,13 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
               setPicksOnly(false);
             }} />
         </div>
+        <div style={{ padding: "0 12px", borderBottom: `1px solid ${C.border}` }}>
+          <CountTabs label="Companies by what to do next" value={picks ? "__picks" : tab}
+            onChange={(id) => { if (id === "__picks") setPicksOnly(true); else { setTabPref(id); setPicksOnly(false); } }}
+            tabs={[...tabsShown.map(([k, label, tip]) => ({ id: k, label, tip, count: buckets[k].length })),
+              ...(pickRows.length ? [{ id: "__picks", label: "Needs your choice", tip: "We found more than one phone or email for these. Pick the right one", count: pickRows.length, dot: C.warning }] : [])]} />
+        </div>
+        {filtersOn.length ? <div style={{ padding: "8px 12px", borderBottom: `1px solid ${C.borderLight}` }}><FilterChips chips={filtersOn} onClearAll={clearFilters} /></div> : null}
         <SelectionBar count={pickedIds.length} label={pickedWord} onClear={sel.clear}>
           {pickedLacking.length ? <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={check.job?.status === "running"}
             title="Look for the emails and phone numbers these companies are missing. You see the most it can cost first"

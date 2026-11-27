@@ -18,8 +18,8 @@ const text = { fontFamily: FONT_BODY };
 const muted = { ...text, fontSize: 13, color: C.slate, lineHeight: 1.5 };
 const label = { ...text, fontSize: 12, fontWeight: 600, color: C.slate, display: "block", marginBottom: 4 };
 const css = `.imx .ui-input{width:100%;box-sizing:border-box}.imx .ui-table td{white-space:normal;overflow-wrap:anywhere}
-.imx .imx-btn{min-height:44px}.imx .imx-tab{min-height:44px;padding:0 14px;border:0;border-bottom:2px solid transparent;background:none;cursor:pointer;font:600 14px ${FONT_BODY};color:${C.slate}}
-.imx .imx-tab[aria-selected="true"]{color:${C.ink};border-bottom-color:${C.cobalt}}
+.imx .imx-btn{min-height:44px}.imx .imx-tab{min-height:32px;margin:6px 0;padding:0 12px;border:0;border-radius:8px;background:none;cursor:pointer;font:600 14px ${FONT_BODY};color:${C.slate}}
+.imx .imx-tab[aria-selected="true"]{color:${C.ink};background:var(--ui-hover)}
 .imx .imx-tab:focus-visible,.imx .imx-pick:focus-visible,.imx .imx-drop:focus-within{outline:2px solid ${C.cobalt};outline-offset:2px}
 .imx .imx-rq{display:grid;grid-template-columns:minmax(200px,280px) 1fr;gap:14px;align-items:start}
 .imx .imx-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}

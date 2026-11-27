@@ -23,8 +23,8 @@ export function tabsFor(asked) {
 // The three apps size themselves to the whole window; inside the workspace they get the space under the tab bar instead.
 const css = `
 .ws-body .app-shell, .ws-body .app-main, .ws-body .app-sidebar { height: 100% !important; }
-.ws-tab { border: 0; background: none; cursor: pointer; padding: 0 16px; height: ${BAR}px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ui-muted, #64748b); border-bottom: 2px solid transparent; }
-.ws-tab[aria-selected="true"] { color: var(--ui-accent, #2f5be0); border-bottom-color: var(--ui-accent, #2f5be0); }
+.ws-tab { border: 0; background: none; cursor: pointer; padding: 0 16px; height: ${BAR}px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ui-muted, #64748b); border-radius: 8px; }
+.ws-tab[aria-selected="true"] { color: var(--ui-ink, #0f172a); background: var(--ui-hover); }
 .ws-tab:hover { color: var(--ui-ink, #0f172a); }
 .ws-tab:focus-visible { outline: 2px solid var(--ui-ring, #2f5be0); outline-offset: -2px; }
 `;

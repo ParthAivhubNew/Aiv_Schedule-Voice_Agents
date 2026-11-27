@@ -43,7 +43,7 @@ export function ProfileTabs({ tabs, value, onChange, label = "Profile sections",
           <button key={t.id} ref={(el) => { refs.current[t.id] = el; }} type="button" role="tab" id={`${idBase}-tab-${t.id}`} aria-controls={`${idBase}-panel-${t.id}`}
             aria-selected={on} tabIndex={on ? 0 : -1} title={t.tip || `Show ${t.label}`} onClick={() => onChange(t.id)} onKeyDown={(e) => onKey(e, i)}
             style={{ all: "unset", cursor: "pointer", flex: "none", padding: "10px 12px 9px", ...text, fontSize: 13.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap",
-              color: on ? C.ink : C.slate, borderBottom: `2px solid ${on ? "var(--ui-accent)" : "transparent"}`, outlineOffset: -3 }}>
+              color: on ? C.ink : C.slate, borderRadius: 8, margin: "6px 0", background: on ? "var(--ui-hover)" : "transparent", outlineOffset: -3 }}>
             {t.label}{t.count ? <span style={{ marginLeft: 5, fontSize: 11.5, color: C.slate, fontWeight: 500 }}>{t.count}</span> : null}
           </button>
         );

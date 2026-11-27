@@ -38,8 +38,9 @@ export const ADMIN_CSS = `
 .adm-rolecard[data-selected="true"] { background: ${C.cobaltSoft}; box-shadow: inset 3px 0 0 ${C.cobalt}; }
 .adm-icon:focus-visible, .adm-tab:focus-visible, .adm-chip:focus-visible, .adm-roleitem:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: 2px; }
 .adm-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid ${C.border}; }
-.adm-tab { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; background: none; border: 0; border-bottom: 2px solid transparent; font: 500 13px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; white-space: nowrap; }
-.adm-tab[aria-selected="true"] { color: ${C.textInk}; border-bottom-color: ${C.cobalt}; font-weight: 600; }
+.adm-tab { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin: 6px 0; padding: 0 12px; background: none; border: 0; border-radius: 8px; font: 500 13px 'Inter', sans-serif; color: ${C.slate}; cursor: pointer; white-space: nowrap; }
+.adm-tab:hover { background: var(--ui-sunken); }
+.adm-tab[aria-selected="true"] { color: ${C.textInk}; background: var(--ui-hover); font-weight: 600; }
 .adm-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .adm-chip { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid ${C.border}; background: ${C.surface}; font: 500 12.5px 'Inter', sans-serif; color: ${C.textInk}; cursor: pointer; }
 .adm-chip[aria-pressed="true"] { background: ${C.cobaltSoft}; border-color: ${C.cobalt}; color: ${C.cobaltDeep}; font-weight: 600; }

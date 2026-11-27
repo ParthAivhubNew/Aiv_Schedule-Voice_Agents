@@ -41,7 +41,16 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
     backdrop closes it. The results take the whole width. The filters in use show as chips under the search bar: × on a chip
     takes that filter off and searches again; "Edit filters" opens the panel; "Clear all" starts again. Phones keep the
     Search / Results panes as before.
-  - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
+- ✅ **Step 6b, Lists (2026-11-27):** the row of coloured pills and drop-downs above the table (Google data, TPS checked, Data
+  from, Came from, More filters) is one **Filters** menu beside the list's search, with a count; the filters that are on show as
+  chips with × and Clear all. The "what to do next" groups (Ready to email … All, and Needs your choice) are tabs with counts
+  inside the list's card. "Set your ideal customer" is a small button in that header. Shared parts: components/FilterPopover.jsx
+  (FilterPopover, FilterChips, CountTabs).
+- ✅ **Chosen tabs, everywhere (2026-11-27, owner: the blue underline isn't professional):** every tab bar now marks the chosen
+  tab with a soft grey filled pill and dark text, the same as the Companies / List switches: Find Leads' counts, Lists, Settings'
+  windows, Workflows, the staff portal, Import & match, API keys, Help, Forms, Voice and Social schedule windows, Social's day
+  tabs. A test (components/filterPopover.test.jsx) keeps a coloured underline from coming back.
+  - Next in step 6: Journeys, Voice's Call list, Social's calendar, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**

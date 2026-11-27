@@ -280,7 +280,7 @@ export function CallScheduleWindow({ open, onClose, onChanged }) {
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
-                  style={{ height: 36, padding: "0 14px", border: "none", borderBottom: `2px solid ${tab === t.id ? C.cobalt : "transparent"}`, background: "transparent", color: tab === t.id ? C.ink : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                  style={{ height: 36, padding: "0 14px", border: "none", borderRadius: 8, margin: "6px 0", background: tab === t.id ? "var(--ui-hover)" : "transparent", color: tab === t.id ? C.ink : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
                 >
                   {t.label}
                 </button>

@@ -328,7 +328,7 @@ export function PartnerProgram() {
           <div role="tablist" style={{ display: "flex", gap: 4, flexWrap: "wrap", border: `1px solid ${C.border}`, borderTop: 0, background: C.surface, padding: "0 12px", marginBottom: 16, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
             {TABS.map(([id, name]) => (
               <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-                style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer", background: "none", border: 0, borderBottom: `2px solid ${tab === id ? C.cobalt : "transparent"}`, color: tab === id ? C.cobalt : C.slate }}>
+                style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, cursor: "pointer", border: 0, borderRadius: 8, margin: "6px 0", background: tab === id ? "var(--ui-hover)" : "transparent", color: tab === id ? C.ink : C.slate }}>
                 {name}{id === "accounts" && activeLinks ? ` (${activeLinks})` : ""}
               </button>
             ))}

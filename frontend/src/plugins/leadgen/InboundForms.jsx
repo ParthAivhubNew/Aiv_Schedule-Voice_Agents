@@ -120,7 +120,7 @@ function FormEditor({ id, toast, onBack, onOpenLead }) {
 
       <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border || "#e5e7eb"}` }}>
         {[["fields", "Fields"], ["settings", "Settings"], ["share", "Share"], ["answers", `Answers${form.submissions ? ` (${form.submissions})` : ""}`]].map(([k, name]) => (
-          <button key={k} role="tab" aria-selected={tab === k} type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ borderRadius: "8px 8px 0 0", fontWeight: tab === k ? 700 : 500, borderBottom: tab === k ? `2px solid ${C.cobalt}` : "2px solid transparent" }} onClick={() => setTab(k)}>{name}</button>
+          <button key={k} role="tab" aria-selected={tab === k} type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ borderRadius: 8, margin: "6px 0", fontWeight: tab === k ? 600 : 500, background: tab === k ? "var(--ui-hover)" : "transparent" }} onClick={() => setTab(k)}>{name}</button>
         ))}
       </div>
 
