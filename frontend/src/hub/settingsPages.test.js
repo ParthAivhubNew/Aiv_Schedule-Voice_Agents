@@ -10,7 +10,7 @@ describe("the Settings page's sections", () => {
   it("shows the company owner everything, in groups", () => {
     const g = settingsGroups({ is_admin: true, role: "Admin" }, { installable: true });
     expect(g.map((x) => x.label)).toEqual(["Your account", "People", "Company", "Working together", "Developers", "Apps"]);
-    expect(ids(g)).toEqual(["profile", "contact", "notifications", "security", "install", "users", "roles", "rules", "numbers", "credits",
+    expect(ids(g)).toEqual(["profile", "contact", "notifications", "security", "install", "users", "roles", "getting-started", "rules", "numbers", "credits",
       "follow-ups", "your-rules", "do-not-contact", "data", "calendar", "api", "leads", "voice", "social"]);
   });
 

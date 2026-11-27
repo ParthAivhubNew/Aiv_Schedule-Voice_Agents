@@ -18,36 +18,22 @@ function hidden(orgId) {
 // is done come from the server (GET /auth/onboarding), which picks them for the apps the company has.
 // A step's "go" is either an in-app path ("#/voice/hours") or "team:<tab>". A step with a "sample" ({filters, label}) opens Find Leads
 // on that search, already run: the company's own ideal customers, or a sample (GET /auth/onboarding).
+// It now lives in Settings → Company → Getting started (plan 13, step 5), always shown there, done or not; Home shows only the next
+// step (NextStep below).
 export function OnboardingChecklist({ operator, onGo }) {
   const [data, setData] = useState(null);
-  const [closed, setClosed] = useState(() => hidden(operator?.org_id));
 
   useEffect(() => {
-    if (!operator?.is_admin || closed) return;
+    if (!operator?.is_admin) return;
     api.getOnboarding().then(setData).catch(() => setData(null));
-  }, [operator, closed]);
+  }, [operator]);
 
-  if (!operator?.is_admin || closed || !data || data.done >= data.total) return null;
-
-  const hide = () => {
-    try {
-      localStorage.setItem(`${HIDE_KEY}:${operator.org_id}`, "1");
-    } catch (_) {}
-    setClosed(true);
-  };
+  if (!operator?.is_admin || !data) return null;
 
   const pct = Math.round((data.done / data.total) * 100);
   return (
-    <div style={{ width: "100%", maxWidth: 720, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 32, boxShadow: "0 10px 30px rgba(18,20,28,0.05)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.textInk }}>Get started</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate }}>{data.done} of {data.total} done</div>
-        </div>
-        <button aria-label="Hide get started" title="Hide" onClick={hide} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight }}>
-          <X size={16} />
-        </button>
-      </div>
+    <div style={{ width: "100%", maxWidth: 720 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginBottom: 8 }}>{data.done} of {data.total} done</div>
       <div style={{ height: 6, background: C.paperSoft, borderRadius: 3, overflow: "hidden", marginBottom: 12 }}>
         <div style={{ width: `${pct}%`, height: "100%", background: C.teal }} />
       </div>
@@ -77,6 +63,41 @@ export function OnboardingChecklist({ operator, onGo }) {
           {data.creditsHelp ? <a href={data.creditsHelp} target="_blank" rel="noreferrer" style={{ color: C.cobalt }}>How credits work</a> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// Home's one card (plan 13, 3.3): the single most useful unfinished first step, not the whole list. It goes once every step is done or
+// the person hides it; the full list stays in Settings → Getting started.
+export function NextStep({ operator, onGo }) {
+  const [data, setData] = useState(null);
+  const [closed, setClosed] = useState(() => hidden(operator?.org_id));
+  useEffect(() => {
+    if (!operator?.is_admin || closed) return;
+    api.getOnboarding().then(setData).catch(() => setData(null));
+  }, [operator, closed]);
+  const step = data && data.steps.find((s) => !s.done);
+  if (!operator?.is_admin || closed || !step) return null;
+  const hide = () => {
+    try { localStorage.setItem(`${HIDE_KEY}:${operator.org_id}`, "1"); } catch (_) {}
+    setClosed(true);
+  };
+  const go = () => {
+    if (step.sample?.filters) sendDraft({ filters: step.sample.filters, meta: { sample: !step.sample.own, own: Boolean(step.sample.own) } });
+    onGo(step.go);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", marginBottom: 28 }}>
+      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.slate }}>Next step · {data.done} of {data.total} done</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15.5, fontWeight: 600, color: C.textInk, marginTop: 2 }}>{step.label}</div>
+        {step.sample?.label ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.slate, marginTop: 2 }}>{step.sample.label}</div> : null}
+      </div>
+      <button type="button" className="ui-btn ui-btn--ghost" onClick={() => onGo("#/settings/getting-started")}>See all steps</button>
+      <button type="button" className="ui-btn ui-btn--primary" onClick={go}>Start</button>
+      <button type="button" aria-label="Hide the next step" title="Hide" onClick={hide} style={{ background: "none", border: "none", cursor: "pointer", color: C.slateLight, display: "flex" }}>
+        <X size={16} />
+      </button>
     </div>
   );
 }

@@ -12,7 +12,8 @@ import { NavItem } from "./NavItem";
 import { PluginHeader, SidebarHead, useSidebarCollapse } from "./PluginShell";
 import { ProfilePage } from "./ProfilePage";
 import { SidebarAccountBadge } from "./SidebarAccountBadge";
-import { settingsGroups, settingsSection } from "./settingsPages";
+import { OnboardingChecklist } from "./OnboardingChecklist";
+import { settingsGroups, settingsHashForTeam, settingsSection } from "./settingsPages";
 
 const NOOP = () => {};
 
@@ -67,6 +68,7 @@ export function SettingsPage({ operator, setOperator, accountBar, from, onHome }
               <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 600, color: C.textInk }}>{section.label}</h2>
               <p style={{ margin: "0 0 18px", fontSize: 13, color: C.slate }}>{section.title}</p>
               {kind === "team" ? <TeamModal isOpen only={tab} onClose={NOOP} currentUser={operator} /> : null}
+              {kind === "checklist" ? <OnboardingChecklist operator={operator} onGo={(go) => navigateHash(String(go).startsWith("team:") ? settingsHashForTeam(String(go).slice(5)) : go)} /> : null}
               {kind === "install" ? (
                 <button type="button" className="ui-btn ui-btn--primary" onClick={() => setInstallOpen(true)}><Smartphone size={16} /> Show me how</button>
               ) : null}

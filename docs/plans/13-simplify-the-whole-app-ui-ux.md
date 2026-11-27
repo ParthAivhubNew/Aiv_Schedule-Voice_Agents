@@ -7,7 +7,18 @@ brand logic, staff portal) and the owner's screenshots of Home, Find Leads and t
 **Status (2026-11-26):** the owner answered the decisions (section 6). **Steps 1 and 2 are done on the branch**, deployed on the
 test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and looked at by the
 owner (2026-11-27: the Settings menu swap "looks good"). **Step 4 is done on the branch** (below), deployed on the test copy
-and looked at by the owner (2026-11-27: "looks good"). Next: step 5, Home.
+and looked at by the owner (2026-11-27: "looks good"). **Step 5 is done on the branch** (below), deployed on the test copy and
+waiting for the owner's look.
+
+- ✅ **Step 5, a calm Home (2026-11-27):**
+  - Under the greeting, one "Next step" card: the first unfinished setup step, with Start, See all steps and hide. The full
+    checklist moved to Settings → Company → Getting started (shown there done or not).
+  - Your apps first, then "More apps". Each card has one button: Open (or Top up when that app is out of credits).
+  - An app the company hasn't added is a neutral offer: "Add Voice", "From £…/month", See plans, and a quiet "or try it first".
+    It never says "Out of credits"; nothing on Home is red. Running out on an app you have is amber.
+  - The second Support / Documentation row at the bottom is gone (they're in the header and the profile menu).
+  - Not done: activity on the cards ("12 new replies", "3 posts to approve") needs a small count API per app; the cards show
+    credits or the plan until then. Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 4, one Settings page (2026-11-27):**
   - Settings is now a page of its own at /settings, with the same dark sidebar as the apps: "← Back to <app or Home>", then the

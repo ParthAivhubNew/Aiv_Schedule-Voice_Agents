@@ -923,7 +923,6 @@ function MainApp({ onSignedOut }) {
             onLogout={handleLogout}
             commonAi={commonAi}
             onOpenCommonAi={platformOrg ? (tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); } : null}
-            onOpenTeamUsers={openTeamSettings}
             onOpenProfileSettings={openProfileSettings}
             onOpenSettings={openSettings}
           />

@@ -1,11 +1,11 @@
-import { Ban, Bell, CalendarCheck, CalendarDays, Coins, Database, KeyRound, ListChecks, Phone, PhoneCall, Repeat, Search, Shield, ShieldCheck, Smartphone, User, UserCog, Users, Workflow } from "lucide-react";
+import { Ban, Bell, CalendarCheck, CalendarDays, Coins, Database, KeyRound, ListChecks, Phone, PhoneCall, Repeat, Rocket, Search, Shield, ShieldCheck, Smartphone, User, UserCog, Users, Workflow } from "lucide-react";
 
 // The one Settings page for the whole company (plan 13, step 4): everything that used to open from the profile menu, the
 // Users, roles, numbers & credits window and the Connections window, under one left list. Each app's own setup pages stay in
 // that app's Settings menu (step 3); the Apps group here just takes you there.
 //
 // open: what draws the section. profile:<tab> = your profile, team:<tab> = the Users window's tab, links:<tab> = Connections,
-// keys = API keys & webhooks, calendar = the Calendar & meetings window, install = install steps, go:<route> = another page.
+// keys = API keys & webhooks, checklist = the first steps, calendar = the Calendar & meetings window, install = install steps, go:<route> = another page.
 export function settingsGroups(operator, { installable = false } = {}) {
   const o = operator || {};
   const perms = o.permissions || {};
@@ -25,6 +25,7 @@ export function settingsGroups(operator, { installable = false } = {}) {
       { id: "roles", label: "Roles", icon: Shield, title: "What each role can see or change", open: "team:roles" },
     ] : [] },
     { label: "Company", items: [
+      owner ? { id: "getting-started", label: "Getting started", icon: Rocket, title: "The first steps for your company, and which are done", open: "checklist" } : null,
       owner ? { id: "rules", label: "Company rules", icon: ListChecks, title: "The rules every app follows for your company", open: "team:rules" } : null,
       team ? { id: "numbers", label: "Phone numbers", icon: Phone, title: "Your company's phone numbers", open: "team:numbers" } : null,
       owner ? { id: "credits", label: "Plans & credits", icon: Coins, title: "Every app's plan, credits and who used them", open: "team:credits" }

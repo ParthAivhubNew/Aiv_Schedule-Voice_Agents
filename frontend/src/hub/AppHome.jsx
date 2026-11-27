@@ -8,7 +8,8 @@ import { navigateHash } from "../utils/route";
 import { openWorkflows } from "../workflows/openWorkflows";
 import { openSupport } from "./openSupport";
 import { APPS } from "./apps";
-import { OnboardingChecklist } from "./OnboardingChecklist";
+import { NextStep } from "./OnboardingChecklist";
+import { settingsHashForTeam } from "./settingsPages";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
@@ -18,6 +19,8 @@ import { useShowInstallSteps } from "../components/installState";
 import { useBodyClass, usePhone } from "../components/usePhone";
 
 const LIVE_PLAN = ["active", "past_due", "trialing"];
+const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 };
+const sectionHead = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.slate, margin: "0 0 10px" };
 const line = { fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, fontVariantNumeric: "tabular-nums", margin: 0 };
 
 // A person's first visit is a hello, not a welcome back.
@@ -27,51 +30,55 @@ const greeting = (firstName, needsName, firstVisit) => {
   return named ? `Welcome back, ${firstName}` : "Welcome back";
 };
 
-// One app of the suite. `state` (admins only) says whether the organisation has a plan for it,
-// what is left in its wallet and what a plan starts at.
+// What a card or tile says about an app, in plain words (plan 13, 3.3). An app you have: its credits, or its plan. Running out is
+// amber with a way to top up, not red. An app you haven't added is an offer in neutral colours, never "Out of credits".
+export function appStatus(state, unit) {
+  const { wallet, plan, from, vat = "" } = state || {};
+  const left = wallet ? Math.max(wallet.balance, 0) : 0;
+  if (plan) {
+    if (wallet && wallet.empty) return { text: "Out of credits: top up to carry on", tone: "amber" };
+    if (left > 0) return { text: `${fmt(left)} ${unit} left`, tone: wallet.low ? "amber" : "ink" };
+    return { text: planName(plan.name), tone: "ink" };
+  }
+  if (!wallet && !from) return null; // nothing known (not an admin): just the app
+  if (left > 0 && !wallet.empty) return { text: `${fmt(left)} ${unit} left to try it`, tone: "muted" };
+  if (from) return { text: `From ${money(from.priceUsdCents, from.currency)}/month${vat}`, tone: "muted" };
+  return { text: "Not added yet", tone: "muted" };
+}
+const TONE = { ink: C.textInk, amber: C.amber, muted: C.slate };
+
+// One app of the suite. `state` (admins only) says whether the organisation has a plan for it, what is left in its wallet and what a
+// plan starts at. One button each: Open for an app you have (or when plans aren't for you to buy), See plans for one you haven't added,
+// with a quiet "or try it first" beside it.
 function AppCard({ app, state, unit, onOpen, onPlans }) {
   const Icon = app.icon;
-  const { wallet, plan, from, canBuy, vat } = state;
-  const left = wallet ? Math.max(wallet.balance, 0) : 0;
-  const credits = wallet && (wallet.empty || left > 0)
-    ? (wallet.empty ? "Out of credits: paused until you top up" : `${fmt(left)} ${unit} left${plan ? "" : " to try it"}`)
-    : "";
-  const price = !plan && from ? `From ${money(from.priceUsdCents, from.currency)}/month${vat}` : "";
+  const { plan, canBuy } = state;
+  const offer = !plan && canBuy;
+  const status = appStatus(state, unit);
   return (
-    <div className="ui-card app-card" style={{ "--accent": app.accent, padding: 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 6, background: `${app.accent}14`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Icon size={20} color={app.accent} />
+    <div className="ui-card app-card" style={{ "--accent": app.accent, padding: 20, display: "flex", flexDirection: "column", minWidth: 0, background: offer ? C.paperSoft : undefined }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 8, background: offer ? C.surface : `${app.accent}14`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Icon size={20} color={offer ? C.slate : app.accent} />
         </div>
-        {plan ? (
-          <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap", color: C.green, background: C.greenSoft }}>
-            {planName(plan.name)}
-          </span>
-        ) : null}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 16, color: C.ink }}>{offer ? `Add ${app.name}` : app.name}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate }}>{app.role}</div>
+        </div>
       </div>
-      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 16, color: C.ink, marginTop: 14 }}>{app.name}</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.slate, marginTop: 2 }}>{app.role}</div>
       <p style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.slate, margin: "12px 0 0", lineHeight: 1.5, flex: 1 }}>{app.blurb}</p>
-      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 12 }}>
-        {price || credits ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {price ? <p style={{ ...line, color: C.textInk }}>{price}</p> : null}
-            {credits ? <p style={{ ...line, color: wallet.empty ? C.red : wallet.low ? C.amber : plan ? C.textInk : C.slate }}>{credits}</p> : null}
-          </div>
-        ) : null}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {plan || !canBuy ? (
-            <>
-              <button type="button" className="ui-btn ui-btn--primary" onClick={onOpen}>Open <ArrowRight size={15} /></button>
-              {plan && <button type="button" className="ui-btn ui-btn--ghost" onClick={onPlans}>Manage plan</button>}
-            </>
-          ) : (
-            <>
-              <button type="button" className="ui-btn ui-btn--secondary" onClick={onPlans}>See plans</button>
-              <button type="button" className="ui-btn ui-btn--ghost" onClick={onOpen}>Try it</button>
-            </>
-          )}
-        </div>
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {status ? <p style={{ ...line, flex: "1 1 140px", color: TONE[status.tone] }}>{status.text}</p> : <span style={{ flex: 1 }} />}
+        {offer ? (
+          <>
+            <button type="button" className="ui-btn ui-btn--link" onClick={onOpen} style={{ all: "unset", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.slate, textDecoration: "underline" }}>or try it first</button>
+            <button type="button" className="ui-btn ui-btn--secondary" onClick={onPlans}>See plans</button>
+          </>
+        ) : (
+          <button type="button" className="ui-btn ui-btn--primary" onClick={plan && state.wallet?.empty ? onPlans : onOpen}>
+            {plan && state.wallet?.empty ? "Top up" : <>Open <ArrowRight size={15} /></>}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -126,7 +133,7 @@ function PhoneHome({ operator, firstName, needsName, firstVisit, apps, statusOf,
 
 // Home: the apps of the suite side by side. The ones the organisation has a plan for come first;
 // the others can be opened to try and added at any time.
-export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenSettings }) {
+export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenProfileSettings, onOpenSettings }) {
   const phone = usePhone();
   // Plans and credits are for admins; everyone else simply sees the apps.
   const [billing, setBilling] = useState(null);
@@ -156,12 +163,8 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
 
   const menuProps = { onLogout, commonAi, onOpenCommonAi, onOpenProfileSettings, onOpenSettings };
   const statusOf = (app) => {
-    const st = stateOf(app);
-    if (!st.wallet) return null;
-    if (st.wallet.empty) return { text: "Out of credits", tone: C.red };
-    const left = Math.max(st.wallet.balance, 0);
-    if (left > 0) return { text: `${fmt(left)} ${unitOf(app) === "credits" ? "credits" : "minutes"} left`, tone: st.wallet.low ? C.amber : C.slate };
-    return st.plan ? { text: planName(st.plan.name), tone: C.green } : null;
+    const st = appStatus(stateOf(app), unitOf(app) === "credits" ? "credits" : "minutes");
+    return st ? { text: st.text.split(":")[0], tone: TONE[st.tone] } : null; // a tile has room for the first half only
   };
   if (phone) {
     return <PhoneHome operator={operator} firstName={firstName} needsName={needsName} firstVisit={firstVisit} apps={APPS} statusOf={statusOf} onPick={onPick} menuProps={menuProps} />;
@@ -200,13 +203,18 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
             <> <button type="button" onClick={onOpenProfileSettings} style={{ all: "unset", cursor: "pointer", color: C.cobalt, fontWeight: 500 }}>Add your name</button> so we can greet you.</>
           ) : null}
         </p>
-        <OnboardingChecklist operator={operator} onGo={(go) => (String(go).startsWith("team:") ? onOpenTeamUsers?.(String(go).slice(5)) : navigateHash(go))} />
+        <NextStep operator={operator} onGo={(go) => navigateHash(String(go).startsWith("team:") ? settingsHashForTeam(String(go).slice(5)) : go)} />
 
         <BillingReturnBanner />
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
-          {APPS.map(card)}
-        </div>
+        {mine.length && rest.length ? <h2 style={sectionHead}>Your apps</h2> : null}
+        {mine.length ? <div style={grid}>{mine.map(card)}</div> : null}
+        {rest.length ? (
+          <>
+            {mine.length ? <h2 style={{ ...sectionHead, marginTop: 28 }}>More apps</h2> : null}
+            <div style={grid}>{rest.map(card)}</div>
+          </>
+        ) : null}
         <button type="button" onClick={() => openWorkflows({})} className="ui-card" style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, width: "100%", marginTop: 16, padding: "16px 18px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14 }}>
           <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: C.cobaltSoft, color: C.cobalt, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Workflow size={20} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
@@ -214,24 +222,6 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
             <span style={{ display: "block", fontSize: 13, color: C.slate, marginTop: 2 }}>Do things automatically across your apps: when a call ends, someone replies or a meeting is booked.</span>
           </span>
         </button>
-        {billing && rest.length > 0 && (
-          <p style={{ fontSize: 13, color: C.slateLight, margin: "16px 0 0" }}>
-            Each app has its own plan. You can open any app to try it before you buy.
-          </p>
-        )}
-        <div style={{ marginTop: 32, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ fontSize: 13, color: C.slate }}>
-            Need help or looking for product guides?
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" className="ui-btn ui-btn--secondary" onClick={() => openSupport({ plugin: "home" })}>
-              <Headset size={15} /> Support
-            </button>
-            <button type="button" className="ui-btn ui-btn--secondary" onClick={() => window.open("/help", "_blank")}>
-              <BookOpen size={15} /> Documentation <ExternalLink size={12} style={{ color: C.slate }} />
-            </button>
-          </div>
-        </div>
       </main>
     </div>
   );
