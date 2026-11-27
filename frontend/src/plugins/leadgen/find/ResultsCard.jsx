@@ -51,6 +51,7 @@ export function ResultsCard({
           List / Map) with the view tools on the right; then the count, as tabs. */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, flexWrap: "wrap" }}>
         {controls}
+        {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} compact /> : null}
         <span style={{ flex: 1 }} />
         {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
         <span id="fl-grid-tools" style={{ display: "contents" }} />
@@ -70,7 +71,6 @@ export function ResultsCard({
           ) : null}
         </div>
       </div>
-      {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} inset /> : null}
       {broadenedNote && !busy ? (
         <div role="status" style={{ ...muted, fontSize: 12.5, padding: "8px 16px", borderBottom: `1px solid ${C.borderLight}` }}>{broadenedNote}.</div>
       ) : null}

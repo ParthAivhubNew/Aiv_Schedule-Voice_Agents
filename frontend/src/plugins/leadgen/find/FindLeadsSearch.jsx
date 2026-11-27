@@ -25,7 +25,6 @@ import { SavedSearches } from "../SavedSearches";
 import { cleanFilters, nearFromReply } from "../savedSearchLogic";
 import { summaryChips } from "../filterSummary";
 import { filterNarrowed } from "../filterNarrowed";
-import { StandingChip } from "../../../brand/StandingChip";
 import { AccessNotice } from "../AccessNotice";
 import { isOutsideAccess, limitedLine } from "../accessLogic";
 import { appliedWords, asAccount, EMPTY_FORM, FAVOURITES, filtersToForm, FIRST_KEY, formToFilters, GROUP_KEYS, isOn, SELECT_ALL_LIMIT, splitList } from "./findLogic";
@@ -617,11 +616,10 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
         </form>
         {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "industry_types", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
         {showResults || firstLoad ? null : lookFor}
-        <StandingChip canSeeRules={isAdmin} />
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
       {filtersShown ? (
-      <FilterPanel activeIn={activeIn} busy={busy} check={check} chipsFor={chipsFor} clearGroup={clearGroup} field={field} fillFromWords={fillFromWords} filterCount={filterCount} form={form} groups={groups} label={label} lookRadius={lookRadius} resetSearch={resetSearch} search={search} searchPeople={searchPeople} setExcluded={setExcluded} setField={setField} setForm={setForm} setGroup={setGroup} setSicLabels={setSicLabels} setWords={setWords} sicLabels={sicLabels} tab={tab} toggleSize={toggleSize} words={words} wordsBusy={wordsBusy} />
+      <FilterPanel isAdmin={isAdmin} activeIn={activeIn} busy={busy} check={check} chipsFor={chipsFor} clearGroup={clearGroup} field={field} fillFromWords={fillFromWords} filterCount={filterCount} form={form} groups={groups} label={label} lookRadius={lookRadius} resetSearch={resetSearch} search={search} searchPeople={searchPeople} setExcluded={setExcluded} setField={setField} setForm={setForm} setGroup={setGroup} setSicLabels={setSicLabels} setWords={setWords} sicLabels={sicLabels} tab={tab} toggleSize={toggleSize} words={words} wordsBusy={wordsBusy} />
       ) : null}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {firstLoad ? (

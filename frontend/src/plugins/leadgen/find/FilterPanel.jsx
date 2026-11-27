@@ -9,15 +9,17 @@ import { RADIUS_MILES, SIGNAL_OPTIONS, coversText, toggleIn } from "../savedSear
 import { DATA_FROM_OPTIONS, TPS_OPTIONS } from "../filterSummary";
 import { FORM_OPTIONS, SIZE_OPTIONS, SOURCE_OPTIONS, TYPE_OPTIONS, splitList } from "./findLogic";
 import { CHECK_TIPS, DistrictPicker, muted, text } from "./findParts";
+import { StandingChip } from "../../../brand/StandingChip";
 
 // Find Leads' filter panel (the left column): name, trade, place, size, signals and the rest, with Search and Clear. Moved out of FindLeadsSearch unchanged; every value it uses comes in as a prop of the same name.
-export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field, fillFromWords, filterCount, form, groups, label, lookRadius, resetSearch, search, searchPeople, setExcluded, setField, setForm, setGroup, setSicLabels, setWords, sicLabels, tab, toggleSize, words, wordsBusy }) {
+export function FilterPanel({ isAdmin = false, activeIn, busy, check, chipsFor, clearGroup, field, fillFromWords, filterCount, form, groups, label, lookRadius, resetSearch, search, searchPeople, setExcluded, setField, setForm, setGroup, setSicLabels, setWords, sicLabels, tab, toggleSize, words, wordsBusy }) {
   return (
     <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
       <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }}>
         <div className="fl-pin">
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
+            <StandingChip canSeeRules={isAdmin} short />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0 }} value={words} disabled={wordsBusy}

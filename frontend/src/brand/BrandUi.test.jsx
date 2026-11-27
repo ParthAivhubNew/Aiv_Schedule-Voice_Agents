@@ -48,7 +48,7 @@ describe("wiring", () => {
     expect(login).not.toContain("PoweredBy"); // Outreach's own logo is already on the page
     expect(src("../hub/PluginShell.jsx")).toContain("hideCredits");
     expect(src("../plugins/voice/calling/CallingWorkspace.jsx")).toContain("brand.hideCredits");
-    expect(src("../plugins/leadgen/find/FindLeadsSearch.jsx")).toContain("<StandingChip canSeeRules={isAdmin} />");
+    expect(src("../plugins/leadgen/find/FilterPanel.jsx")).toContain("<StandingChip canSeeRules={isAdmin} short />"); // plan 13: it sits in the Filters panel
     expect(src("../main.jsx")).toContain("<BrandProvider>");
     expect(src("../adminPortal/AdminApp.jsx")).toContain('id: "brands"');
   });

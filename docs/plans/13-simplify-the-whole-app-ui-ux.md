@@ -23,6 +23,9 @@ the test copy and waiting for the owner's look.
   - Owner's look: the change was hard to see, and the results header wrapped onto a second line by accident. Now it is two
     deliberate rows: Companies / People and List / Map on the left with Columns, View and ⋯ on the right; then the counts
     (All · New to you · Saved) as tabs underneath.
+  - Then: "Set your ideal customer" is a small button on that first row instead of a full-width banner over the table, and the
+    "Exclusions on" chip moved from the toolbar into the Filters panel's header. The toolbar is now Filters, search and Saved
+    searches only.
   - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 

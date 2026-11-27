@@ -82,9 +82,18 @@ const promptDismissed = () => { try { return localStorage.getItem(ICP_PROMPT_KEY
 // The × hides it for good on this browser; setting the ideal customer removes it anyway.
 // First visit with no ideal customer saved: instead of a list of whatever the register opens on, ask who they sell to. The answer
 // runs a search on it; "Set it from my website" fills the full ideal customer from their site instead.
-export function IcpPrompt({ onSet, inset = false }) {
+// compact: one small button with the reason in its tip, for a busy header (plan 13, step 6: Find Leads' results header).
+export function IcpPrompt({ onSet, inset = false, compact = false }) {
   const [hidden, setHidden] = useState(promptDismissed);
   if (hidden) return null;
+  if (compact) {
+    return onSet ? (
+      <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" onClick={onSet} title="Set your ideal customer to see how well each company fits, and why"
+        style={{ color: C.cobalt }}>
+        <Target size={14} aria-hidden="true" /> Set your ideal customer
+      </button>
+    ) : null;
+  }
   const dismiss = () => { setHidden(true); try { localStorage.setItem(ICP_PROMPT_KEY, "1"); } catch (_) { /* private window: hides for this visit only */ } };
   const card = (
     <div role="note" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 12px", border: `1px dashed ${C.border}`, borderRadius: 10, background: C.surface, ...text, fontSize: 13, color: C.textInk }}>
