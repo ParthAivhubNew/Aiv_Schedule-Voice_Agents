@@ -20,6 +20,9 @@ the test copy and waiting for the owner's look.
     companies end up.
   - Filter help is a small ⓘ beside the field's name (Include, Leave out, Industry, Within, Data from, Exclusion list); the
     paragraph under Include is gone.
+  - Owner's look: the change was hard to see, and the results header wrapped onto a second line by accident. Now it is two
+    deliberate rows: Companies / People and List / Map on the left with Columns, View and ⋯ on the right; then the counts
+    (All · New to you · Saved) as tabs underneath.
   - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 

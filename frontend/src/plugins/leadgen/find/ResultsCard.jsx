@@ -47,15 +47,11 @@ export function ResultsCard({
           </span>
         </div>
       ) : null}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: tab === "companies" && searched && !area ? "0 14px" : "10px 14px", minHeight: 46, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+      {/* Plan 13, step 6: two calm rows instead of one that wraps. First what you're looking at and how (Companies / People,
+          List / Map) with the view tools on the right; then the count, as tabs. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${C.borderLight}`, flexWrap: "wrap" }}>
         {controls}
-        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
-          {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
-            <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
-          ) : searched && !area ? (
-            <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} />
-          ) : null}
-        </div>
+        <span style={{ flex: 1 }} />
         {sort === "best" && !ranked && !area ? <span style={{ ...muted, fontSize: 12 }} title="Best match puts the companies with the most details first. It needs the register to be ranked once on the server (scripts/rank_business_records.py). Until then the newest companies come first. The Details we hold filter still works.">Newest first · ranking not run yet</span> : null}
         <span id="fl-grid-tools" style={{ display: "contents" }} />
         {!area ? (
@@ -64,6 +60,15 @@ export function ResultsCard({
             onSort={changeSort} pageSize={pageSize} pageSizes={PAGE_SIZES} onPageSize={changePageSize} />
         ) : null}
         <MoreMenu items={more} label="More: import, start again" />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: tab === "companies" && searched && !area ? "0 14px" : "10px 14px", minHeight: 44, borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
+          {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
+            <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
+          ) : searched && !area ? (
+            <CountTiles total={total} capped={capped} saved={savedTotal} filter={form.saved} onPick={(v) => pickSaved(form.saved === v ? "" : v)} busy={busy} />
+          ) : null}
+        </div>
       </div>
       {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} inset /> : null}
       {broadenedNote && !busy ? (
