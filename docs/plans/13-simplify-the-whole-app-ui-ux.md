@@ -17,8 +17,15 @@ waiting for the owner's look.
   - An app the company hasn't added is a neutral offer: "Add Voice", "From £…/month", See plans, and a quiet "or try it first".
     It never says "Out of credits"; nothing on Home is red. Running out on an app you have is amber.
   - The second Support / Documentation row at the bottom is gone (they're in the header and the profile menu).
-  - Not done: activity on the cards ("12 new replies", "3 posts to approve") needs a small count API per app; the cards show
-    credits or the plan until then. Not browser-checked by me (Claude in Chrome wasn't connected).
+  - Owner's first look: "better but not very impressive". Second pass (same day):
+    - A hero band at the top: today's date, a time-of-day greeting, one line on how the day looks ("4 things need you today" /
+      "You're all caught up"), and up to four live number tiles (replies waiting, posts to approve, tasks due, meetings this
+      week, calls in the last 7 days, posts lined up). What needs a person comes first; each tile opens that page.
+    - Each app card has a strip of its colour on top and shows its own two live numbers; credits and one button below.
+    - Apps the company hasn't added sit under "Add to Outreach" as slim dashed offer rows (See plans, Try it first).
+    - The numbers come from GET /together/today, which now also sends posts_to_approve, posts_scheduled and calls_7d for the apps
+      the company has (tests/test_today_strip.py). Nothing is shown that the server didn't send.
+    - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 4, one Settings page (2026-11-27):**
   - Settings is now a page of its own at /settings, with the same dark sidebar as the apps: "← Back to <app or Home>", then the

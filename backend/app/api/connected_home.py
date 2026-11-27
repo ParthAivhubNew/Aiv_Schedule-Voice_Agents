@@ -218,6 +218,13 @@ async def today(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
         monday = datetime(now.year, now.month, now.day) - timedelta(days=now.weekday())
         out["meetings_this_week"] = int((await db.execute(select(func.count(Meeting.id)).where(Meeting.created_at >= monday, Meeting.created_at < monday + timedelta(days=7)))).scalar() or 0)
         out["links"]["meetings"] = TODAY_LINKS["meetings"]
+        out["calls_7d"] = int((await db.execute(select(func.count(CallLog.id)).where(CallLog.created_at >= now - timedelta(days=7)))).scalar() or 0)
+        out["links"]["calls"] = "#/voice/logs"
+    if ent.get("social"):
+        # Home's Social card (plan 13): what waits for a yes, and what is lined up to go out.
+        out["posts_to_approve"] = int((await db.execute(select(func.count(SocialPost.id)).where(SocialPost.status == "awaiting_approval"))).scalar() or 0)
+        out["posts_scheduled"] = int((await db.execute(select(func.count(SocialPost.id)).where(SocialPost.status.in_(("approved", "scheduled"))))).scalar() or 0)
+        out["links"].update(posts_to_approve="#/scheduler/plan", posts_scheduled="#/scheduler/plan")
     used = (await db.execute(select(func.coalesce(func.sum(CreditEntry.amount), 0)).where(CreditEntry.amount < 0, CreditEntry.created_at >= now - timedelta(days=7)))).scalar() or 0
     out["credits_used_7d"] = abs(int(used))
     out["credits_left"] = int(await CR.balance(db))

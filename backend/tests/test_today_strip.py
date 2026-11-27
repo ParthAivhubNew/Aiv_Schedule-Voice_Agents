@@ -57,7 +57,22 @@ async def test_today_hides_unentitled(client, db, monkeypatch):
     monkeypatch.setattr("app.services.connections.availability", availability)
     res = (await client.get("/api/together/today")).json()
     assert "replies_waiting" not in res and "approvals_waiting" not in res and "bounce_rate_7d" not in res and "meetings_this_week" not in res
-    assert "credits_used_7d" in res and set(res["links"]) == {"credits"}
+    assert "credits_used_7d" in res and set(res["links"]) == {"credits", "posts_to_approve", "posts_scheduled"}
+    assert res["posts_to_approve"] == 0 and "calls_7d" not in res
+
+
+async def test_today_counts_posts_and_calls(client, db):
+    """Plan 13: Home's Social and Voice cards say what is waiting and what happened this week."""
+    from app.models.models import CallLog, SocialPost
+
+    post = lambda i, st: SocialPost(id=i, title="T", copy="C", status=st)
+    db.add_all([post("p1", "awaiting_approval"), post("p2", "awaiting_approval"), post("p3", "scheduled"), post("p4", "approved"), post("p5", "published"), post("p6", "draft")])
+    call = lambda i, ago: CallLog(id=i, canonical_name="A", listed_as="A", started_at="x", ended_at="x", created_at=NOW - timedelta(days=ago))
+    db.add_all([call("c1", 1), call("c2", 3), call("c3", 10)])
+    await db.commit()
+    res = (await client.get("/api/together/today")).json()
+    assert (res["posts_to_approve"], res["posts_scheduled"], res["calls_7d"]) == (2, 2, 2)
+    assert res["links"]["calls"] == "#/voice/logs"
 
 
 async def test_mail_rows_carry_the_reply_category(db):
