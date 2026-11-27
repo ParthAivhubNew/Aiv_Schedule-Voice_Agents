@@ -376,7 +376,7 @@ export default function LeadGenerationPlugin({
       {/* ----------------- RIGHT WORKSPACE AREA ----------------- */}
       <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh" }}>
         
-        <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
+        <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={view === "find_leads" ? "" : viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
           {!isLocked && !embedViews && view !== "assistant" ? <AssistantButton open={assistantOpen} onClick={() => setAssistantOpen((v) => !v)} /> : null}
           {(view === "lists" || view === "saved_companies" || view === "saved_people") && (

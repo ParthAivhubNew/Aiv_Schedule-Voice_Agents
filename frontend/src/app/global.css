@@ -1492,3 +1492,12 @@ th:hover > .gt-handle::after { background: var(--ui-line-strong, #CBD1D9); }
 /* The shared Pill's pulsing status dot (app/ui.jsx). Still for people who ask for less motion. */
 @keyframes ui-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { [style*="ui-pulse"] { animation: none !important; } }
+
+/* Find Leads' table, calmer (plan 13, step 6): a row's small extras (Ltd / PLC, an empty notes button, the open-in-new-tab mark)
+   show while the pointer is on that row or it has focus; notes that exist always show. Links read as text until hovered. */
+.fl-quiet-link { color: var(--ui-ink, #0F172A); text-decoration: none; }
+.fl-quiet-link:hover, .fl-quiet-link:focus-visible { color: var(--ui-accent, #3457D5); text-decoration: underline; }
+@media (hover: hover) {
+  .fl-row .fl-row-extra, .fl-row .notes-btn:not(.has-notes) { opacity: 0; transition: opacity 0.12s ease; }
+  .fl-row:hover .fl-row-extra, .fl-row:hover .notes-btn, .fl-row:focus-within .fl-row-extra, .fl-row:focus-within .notes-btn { opacity: 1; }
+}

@@ -39,7 +39,7 @@ import { useContactActions } from "./useContactActions";
 
 // Find Leads layout and control styles.
 const CHAT_CSS = `
-.fl-filters{flex:0 0 296px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
+.fl-filters{flex:0 0 272px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
 .fl-filters.ui-card{background:${C.surfaceCool};border-color:${C.border}}
 .fl-filters .fl-pin{background:${C.surfaceCool};border-bottom-color:${C.lineStrong}}
 .fl-main{flex:1 1 560px;min-width:0}

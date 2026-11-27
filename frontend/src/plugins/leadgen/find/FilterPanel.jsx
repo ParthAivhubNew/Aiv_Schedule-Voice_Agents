@@ -21,14 +21,18 @@ export function FilterPanel({ isAdmin = false, activeIn, busy, check, chipsFor, 
             <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
             <StandingChip canSeeRules={isAdmin} short />
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0 }} value={words} disabled={wordsBusy}
-              title="Type it as a sentence. The filters below are filled in for you, including what to leave out"
+          {/* One row: describe it in words; Fill appears once there is something to read (plan 13, step 6). */}
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <Sparkles size={14} aria-hidden="true" color={C.cobalt} style={{ position: "absolute", left: 10, pointerEvents: "none" }} />
+            <input className="ui-input" aria-label="Describe what you want in words" style={{ flex: 1, minWidth: 0, paddingLeft: 30, paddingRight: words.trim() ? 64 : undefined }} value={words} disabled={wordsBusy}
+              title="Type it as a sentence and press Enter. The filters below are filled in for you, including what to leave out"
               onChange={(e) => setWords(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") fillFromWords(e); }}
-              placeholder="Describe it: accountants in Leeds, leave out charities" />
-            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={!words.trim() || wordsBusy} aria-busy={wordsBusy} title="Fill the filters from your sentence. It does not run the search" onClick={fillFromWords}>
-              <Sparkles size={14} /> {wordsBusy ? "Reading…" : "Fill"}
-            </button>
+              placeholder="Describe who you're after" />
+            {words.trim() || wordsBusy ? (
+              <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ position: "absolute", right: 4, height: 28 }} disabled={wordsBusy} aria-busy={wordsBusy} title="Fill the filters from your sentence. It does not run the search" onClick={fillFromWords}>
+                {wordsBusy ? "Reading…" : "Fill"}
+              </button>
+            ) : null}
           </div>
         </div>
         {tab === "people" ? (

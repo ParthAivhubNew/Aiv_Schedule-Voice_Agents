@@ -272,7 +272,7 @@ export function NotesButton({ companyId, person = "", name = "" }) {
   const tip = count ? `${countWords(count)} on ${who}. Latest: ${oneLine(info.latest?.text || "", 90)}. Open the notes` : `Add a note on ${who}`;
   return (
     <>
-      <button ref={btn} type="button" title={tip} aria-label={count ? `${countWords(count)} on ${who}. Open the notes` : `Add a note on ${who}`} aria-expanded={open} aria-haspopup="dialog"
+      <button ref={btn} type="button" className={count ? "notes-btn has-notes" : "notes-btn"} title={tip} aria-label={count ? `${countWords(count)} on ${who}. Open the notes` : `Add a note on ${who}`} aria-expanded={open} aria-haspopup="dialog"
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} onMouseDown={(e) => e.stopPropagation()}
         style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 5px", borderRadius: 6, verticalAlign: "middle", flex: "none",
           color: count ? C.cobalt : C.slateLight, background: count ? C.cobaltSoft : "transparent", ...text, fontSize: 11.5, fontWeight: 600, minHeight: 20 }}>

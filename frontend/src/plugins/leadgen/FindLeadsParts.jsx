@@ -208,7 +208,7 @@ export function FilterGroup({ title, active = 0, onClear, open, onToggle, childr
     <section style={{ borderBottom: `1px solid ${C.lineStrong}` }}>{/* darker than the panel's own grey so the groups read as separate */}
       {/* One whole-row button, like Apollo's: the name, how many filters are on, and the arrow all open and close the group. */}
       <button type="button" aria-expanded={open} aria-label={open ? `Hide ${title}` : `Show ${title}`} onClick={onToggle}
-        style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "12px 4px 12px 2px", ...text, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
+        style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 4px 11px 2px", ...text, fontSize: 13, fontWeight: 500, color: C.ink }}>
         {active ? <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 3, background: C.cobalt, flex: "none" }} /> : null}
         <span style={{ flex: 1, minWidth: 0 }}>{title}</span>
         {active ? (
@@ -251,7 +251,7 @@ function Cell({ children, style, title, onClick }) {
 function link(url) {
   const d = domainOf(url);
   if (!d) return null;
-  return <a href={String(url).startsWith("http") ? url : `https://${url}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: C.cobalt, display: "inline-flex", alignItems: "center", gap: 3 }}>{d} <ExternalLink size={11} /></a>;
+  return <a className="fl-quiet-link" href={String(url).startsWith("http") ? url : `https://${url}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>{d} <ExternalLink size={11} className="fl-row-extra" /></a>;
 }
 
 // Where the contact is on file: shown as-is when we hold it, otherwise a button that opens the profile to look for it.
@@ -451,7 +451,7 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
             return (
               <React.Fragment key={c.id}>
                 {head ? <Divider profile={head} count={tier} cols={cols} /> : null}
-                <tr onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
+                <tr className="fl-row" onClick={() => onOpen(c)} style={{ cursor: "pointer", background: bg }} data-company-row={c.id}>
                   <Cell style={{ ...pinned(0), width: 48, padding: 0, background: bg }} onClick={(e) => e.stopPropagation()}>
                     <label className="row-tick" title="Select this company"><input type="checkbox" aria-label={`Select ${c.name}`} checked={on} onChange={() => onPick(c.id)} /></label>
                   </Cell>
@@ -463,7 +463,7 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                           <span title={c.name} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayName(c.name)}</span>
                           {c.favourite || c.pinned ? <span title="Pinned favourite" style={{ color: C.warningBright, marginLeft: 4 }}>★</span> : null}
                           {c.registration_number ? <span title="Verified registration" style={{ color: C.success, marginLeft: 4, fontWeight: 700 }}>✓</span> : null}
-                          {legalTag(c.company_category, c.registration_number) ? <span style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(c.company_category, c.registration_number)}</span> : null}
+                          {legalTag(c.company_category, c.registration_number) ? <span className="fl-row-extra" style={{ ...text, fontSize: 10.5, fontWeight: 600, color: C.slate, background: C.paperSoft, borderRadius: 4, padding: "1px 5px" }}>{legalTag(c.company_category, c.registration_number)}</span> : null}
                           <NotesButton companyId={c.id} name={c.name} />
                           {c.tier === "premises_listing" ? <span title="Listed as a premises (for example a food register), not matched to a company number" style={{ ...text, fontSize: 11, color: C.slate }}>Premises listing</span> : c.tier !== "verified_registry" ? <span title="Found on the web, not read from the official registry" style={{ ...text, fontSize: 11, color: C.slate }}>Web</span> : null}
                           {grouped ? null : <ProfileBadge profile={c.profile} />}

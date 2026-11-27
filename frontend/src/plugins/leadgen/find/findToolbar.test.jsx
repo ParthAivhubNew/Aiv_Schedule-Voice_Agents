@@ -52,3 +52,20 @@ describe("the collapsed menu", () => {
     expect(css).not.toContain("body.sidebar-collapsed .app-sidebar .sb-head { flex-direction: column");
   });
 });
+
+describe("Find Leads polish", () => {
+  it("keeps a row's small extras for hover, but never hides notes that exist", () => {
+    const css = readFileSync(new URL("../../../app/global.css", import.meta.url), "utf8");
+    expect(css).toContain(".fl-row .fl-row-extra, .fl-row .notes-btn:not(.has-notes) { opacity: 0;");
+    expect(css).toMatch(/@media \(hover: hover\) \{\s*\.fl-row \.fl-row-extra/); // touch screens keep everything showing
+    expect(read("../Notes.jsx")).toContain('className={count ? "notes-btn has-notes" : "notes-btn"}');
+  });
+
+  it("has one describe row, no long line in the page header, and a narrower filter column", () => {
+    const panel = read("./FilterPanel.jsx");
+    expect(panel).toContain('placeholder="Describe who you\'re after"');
+    expect(panel).toContain("{words.trim() || wordsBusy ? (");
+    expect(read("../LeadGenerationPlugin.jsx")).toContain('sub={view === "find_leads" ? "" : viewTitles[view]?.desc || ""}');
+    expect(read("./FindLeadsSearch.jsx")).toContain(".fl-filters{flex:0 0 272px;");
+  });
+});

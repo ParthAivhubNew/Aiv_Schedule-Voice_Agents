@@ -30,6 +30,12 @@ the test copy and waiting for the owner's look.
     instead of taking its own row under the logo. The "Full profiles" group header in the table is a quiet grey row with a coloured
     dot instead of a bright green band, and the "Type, then comma or Enter · Expand" line under an empty Leave out box is gone
     (it comes back once there is a list).
+  - Polish pass (owner: "yes, polish it"): the Filters column is narrower (272px) with lighter group names; "Describe it… / Fill"
+    is one row with a sparkle, and Fill appears once something is typed; the long line beside "Find Leads" in the page header is
+    gone; in the table, Ltd / PLC, an empty notes button and the open-in-new-tab mark show on the row under the pointer (notes
+    that exist always show; touch screens show everything); website links read as plain text until hovered.
+    Not changed: the black AI Assistant button (it is the same in every app; any change there belongs to the dark-mode / colour
+    step 9).
   - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
