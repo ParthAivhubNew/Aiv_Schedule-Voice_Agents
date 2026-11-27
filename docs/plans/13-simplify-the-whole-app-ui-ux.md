@@ -9,7 +9,7 @@ test copy and looked at by the owner. **Step 3 is done on the branch** (below), 
 owner (2026-11-27: the Settings menu swap "looks good"). **Step 4 is done on the branch** (below), deployed on the test copy
 and looked at by the owner (2026-11-27: "looks good"). **Step 5 is done on the branch** (below), deployed on the test copy and
 looked at by the owner (2026-11-27: the second pass "looks good"). **Step 6 has started with Find Leads** (below), deployed on
-the test copy and waiting for the owner's look.
+the test copy; the owner checked the full-width layout on 2026-11-27 ("looks good"). Lists is next.
 
 - ✅ **Step 6a, Find Leads (2026-11-27):**
   - The toolbar is Filters, the company-name search and Saved searches (plus the company-rules chip).
