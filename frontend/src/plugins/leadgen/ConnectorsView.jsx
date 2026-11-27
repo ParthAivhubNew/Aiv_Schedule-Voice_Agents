@@ -201,7 +201,7 @@ export function ConnectorsView({ initialData = null }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: "100%", ...text }}>
       <div className="ui-card" style={{ padding: "20px 24px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
-          <h1 style={{ ...head, fontSize: 22, fontWeight: 700, color: C.ink, margin: 0 }}>Connectors</h1>
+          <h1 style={{ ...head, fontSize: 22, fontWeight: 700, color: C.ink, margin: 0 }}>Data sources</h1>
           <p style={{ fontSize: 13, color: C.slate, margin: "4px 0 0" }}>Where your leads' data comes from, and what's switched on for your account.</p>
         </div>
         {data ? (

@@ -6,7 +6,7 @@ import { navigateHash } from "../utils/route";
 // Which plugins this organisation has, and which links between them it can use. One answer for the whole
 // app, from the server (the same rule the server uses), looked at again after a payment.
 
-export const PLUGIN_NAME = { leads: "Lead Gen", voice: "Voice", social: "Social" };
+export const PLUGIN_NAME = { leads: "Leads", voice: "Voice", social: "Social" };
 const PLANS_PAGE = { leads: "#/leadgen/subscription", voice: "#/voice/subscription", social: "#/scheduler/subscription" };
 
 let cache = null;

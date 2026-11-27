@@ -41,7 +41,7 @@ class BookIn(BaseModel):
     phone: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=2000)
     format: Literal["video", "phone", "in_person"] = "video"
-    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Lead Gen: the meeting is saved against it.")
+    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Leads: the meeting is saved against it.")
 
 
 class ChangeIn(BaseModel):

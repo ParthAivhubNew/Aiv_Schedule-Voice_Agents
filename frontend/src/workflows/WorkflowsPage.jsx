@@ -306,7 +306,7 @@ export function WorkflowsPage({ context, onClose, canEdit = true }) {
               {top && canEdit && meta.workflows.length ? newButton : null}
               {tab === "workflows" && meta.workflows.length ? (
                 <Select label="Show workflows from" value={plugin} onChange={setPlugin}>
-                  <option value="">All plugins</option>{["voice", "leads", "social"].map((p) => <option key={p} value={p}>{PLUGIN_NAME[p]}</option>)}
+                  <option value="">All apps</option>{["voice", "leads", "social"].map((p) => <option key={p} value={p}>{PLUGIN_NAME[p]}</option>)}
                 </Select>
               ) : null}
             </div>

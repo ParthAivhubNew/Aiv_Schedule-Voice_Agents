@@ -95,7 +95,7 @@ const SAMPLE_ERROR = {
 
 const SERVICE_BADGES = {
   voice: { label: "Voice AI", bg: "#ECFDF5", color: "#059669", border: "#A7F3D0", icon: Phone },
-  leads: { label: "Lead Gen", bg: C.infoBg, color: C.info, border: "#BFDBFE", icon: Users },
+  leads: { label: "Leads", bg: C.infoBg, color: C.info, border: "#BFDBFE", icon: Users },
   social: { label: "Social", bg: "#F5F3FF", color: "#7C3AED", border: "#DDD6FE", icon: Megaphone },
   account: { label: "Account", bg: C.warningBg, color: "#D97706", border: "#FDE68A", icon: Wallet },
 };
@@ -256,7 +256,7 @@ export function DeveloperDocs({ apiKey = "sk_test_YOUR_KEY", events = [], webhoo
     },
     {
       id: "leads",
-      title: "Lead Generation & Email Campaigns",
+      title: "Leads & email journeys",
       badge: SERVICE_BADGES.leads,
       events: [
         { id: "leads.ready", label: "Lead search finished", desc: "B2B search criteria and enrichment checks have completed." },
@@ -724,7 +724,7 @@ print("Call Dispatched:", res.json())`,
               {[
                 { id: "all", label: "All Actions" },
                 { id: "voice", label: "Voice AI", badge: SERVICE_BADGES.voice },
-                { id: "leads", label: "Lead Gen", badge: SERVICE_BADGES.leads },
+                { id: "leads", label: "Leads", badge: SERVICE_BADGES.leads },
                 { id: "social", label: "Social", badge: SERVICE_BADGES.social },
                 { id: "account", label: "Account", badge: SERVICE_BADGES.account },
               ].map((cat) => {

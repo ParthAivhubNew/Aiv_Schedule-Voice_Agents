@@ -240,8 +240,8 @@ export function ConnectedHome({ operator, cards, plainCards, greeting }) {
         </div>
         <div className="home-col">
           {showPipe ? (
-            <Panel title="Pipeline" right={<span style={muted}>across your plugins</span>}>
-              {pipe.stages[0].count ? <Funnel data={pipe} /> : <Empty>Save companies in Lead Gen and your pipeline builds here.</Empty>}
+            <Panel title="Pipeline" right={<span style={muted}>across your apps</span>}>
+              {pipe.stages[0].count ? <Funnel data={pipe} /> : <Empty>Save companies in Leads and your pipeline builds here.</Empty>}
             </Panel>
           ) : null}
           {weekLines.length ? (

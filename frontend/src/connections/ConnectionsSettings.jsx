@@ -215,11 +215,11 @@ function DataTab({ toast, plugins }) {
             ))}
           </section>
         </>
-      ) : <div style={muted}>Duplicates are part of Lead Gen.</div>}
+      ) : <div style={muted}>Duplicates are part of Leads.</div>}
       <FailedEvents toast={toast} />
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={heading}>Link older calls to your companies</div>
-        <div style={muted}>If you made calls before the plugins were connected, this matches them to your saved companies by phone number or name so their history shows up. It only fills in links that are missing, and never changes anything else. Check first, then apply.</div>
+        <div style={muted}>If you made calls before the apps were connected, this matches them to your saved companies by phone number or name so their history shows up. It only fills in links that are missing, and never changes anything else. Check first, then apply.</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm" disabled={busy === "bf"} onClick={async () => { setBusy("bf"); try { setBackfill(await api.backfillConnections(true)); } catch (e) { toast(e.message || "Couldn't check."); } finally { setBusy(""); } }}>Check what it would link</button>
           {backfill ? <span style={muted}>{backfill.prospects_linked} call targets, {backfill.calls_linked} past calls, {backfill.leads_matched_to_contacts} companies to contact records.</span> : null}
@@ -235,7 +235,7 @@ function DataTab({ toast, plugins }) {
 const TABS = [
   ["follow", "Follow-ups", Repeat, "What happens by itself after calls, meetings and replies"],
   ["rules", "Your rules", Workflow, "“When this happens, do that”"],
-  ["block", "Do not contact", Ban, "People every plugin must leave alone"],
+  ["block", "Do not contact", Ban, "People every app must leave alone"],
   ["data", "Data", Database, "Duplicates, export and older calls"],
 ];
 
@@ -296,7 +296,7 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "", inl
         {inline ? null : <aside className="cx-side">
           <div style={{ padding: "0 6px" }}>
             <div style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, color: C.ink }}>Connections</div>
-            <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>How Lead Gen, Voice and Social work together.</div>
+            <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>How Leads, Voice and Social work together.</div>
           </div>
           <div className="cx-tabs" role="tablist">
             {TABS.map(([k, label, Icon]) => (
@@ -304,7 +304,7 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "", inl
             ))}
           </div>
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }} className="hide-mobile">
-            <div style={{ ...text, fontSize: 10.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 6px" }}>Your plugins</div>
+            <div style={{ ...text, fontSize: 10.5, fontWeight: 700, color: C.slate, textTransform: "uppercase", letterSpacing: "0.06em", padding: "0 6px" }}>Your apps</div>
             {["leads", "voice", "social"].map((p) => (
               <div key={p} style={{ ...text, fontSize: 12.5, color: plugins[p] ? C.ink : C.slate, display: "flex", alignItems: "center", gap: 8, padding: "0 6px" }}>
                 <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: plugins[p] ? "#16A34A" : C.border }} />

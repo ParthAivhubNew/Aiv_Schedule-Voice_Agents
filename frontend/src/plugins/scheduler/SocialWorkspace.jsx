@@ -3995,8 +3995,8 @@ export function SocialWorkspace({
   const navGroups = [
     { label: "Posts", items: [
       { id: "plan", label: "Post calendar", short: "Calendar", icon: CalendarDays, active: (page === "plan" || page === "overview") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("plan") },
-      { id: "approvals", label: "Post approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
-      { id: "insights", label: "Results & Ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights"),
+      { id: "approvals", label: "Posts to approve", icon: Check, active: approvalOpen, locked: pluginLocked, count: drafts.length || null, onClick: () => openApprovals() },
+      { id: "insights", label: "Results & ideas", short: "Results", icon: BarChart3, active: (page === "insights" || page === "reports" || page === "audience" || page === "listening") && !approvalOpen, locked: pluginLocked, onClick: () => goPage("insights"),
         children: [
           { id: "insights", label: "Post results", icon: BarChart3, title: "How your published posts did, and reports to share", active: (page === "insights" || page === "reports") && !approvalOpen, onClick: () => goPage("insights") },
           { id: "audience", label: "Audience & ideas", icon: Users, title: "Who you are talking to, and what to post about", active: page === "audience" && !approvalOpen, onClick: () => goPage("audience") },
@@ -4011,25 +4011,25 @@ export function SocialWorkspace({
   ];
   // Plan 13: the setup pages sit under one Settings entry at the bottom of the menu; the AI Assistant is the header's button.
   const settingsItems = [
-    { id: "accounts", label: "Accounts", icon: Plug, title: "The social accounts your posts go out on", active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
-    { id: "theme", label: "Theme", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
+    { id: "accounts", label: "Social accounts", icon: Plug, title: "The social accounts your posts go out on", active: page === "accounts" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("accounts") },
+    { id: "theme", label: "Brand look", icon: Palette, title: "Your logo, colours and what your business does, used in every post", active: page === "theme" && !approvalOpen, locked: pluginLocked, onClick: () => goPage("theme") },
     { id: "workflows", label: "Workflows", icon: Workflow, title: "When a post goes live or something else happens, do something automatically", locked: pluginLocked,
       onClick: () => { if (pluginLocked) { showToast("Choose a plan or buy a top-up to unlock Social."); return; } openWorkflows({ from: "social", event: "post.published" }); } },
     { id: "subscription", label: "Plan & credits", icon: Wallet, title: "Your Social plan and credits", active: page === "subscription" && !approvalOpen, onClick: () => { setApprovalOpen(false); setPage("subscription"); } },
   ];
   const topTitles = {
     overview: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    insights: ["Results & Ideas", "How your published posts did, and reports to share with clients or your manager."],
-    reports: ["Results & Ideas", "How your published posts did, and reports to share with clients or your manager."],
-    listening: ["Results & Ideas", "Public posts that mention your brand, products or competitors."],
-    media: ["Library", "Pictures and videos to reuse in posts."],
-    import: ["Library", "Add many posts at once from a CSV or Excel file."],
+    insights: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
+    reports: ["Post results", "How your published posts did, and reports to share with clients or your manager."],
+    listening: ["Mentions", "Public posts that mention your brand, products or competitors."],
+    media: ["Pictures & videos", "Pictures and videos to reuse in posts."],
+    import: ["Import posts", "Add many posts at once from a CSV or Excel file."],
     assistant: ["AI Assistant", "Ask in plain words. It reads your posts, results and accounts, and plans, rewrites and moves posts for you to confirm, and nothing is added until you press the button."],
     plan: ["Post calendar", "Plan posts with the AI, see what needs you and what goes out next, and publish."],
-    approvals: ["Post approve", "Posts waiting for your yes before they go out."],
-    accounts: ["Accounts", "The social accounts your posts go to."],
-    theme: ["Theme", "Your logo, colours and what your business does, used in every post."],
-    audience: ["Results & Ideas", "Who you are talking to, and what to post about."],
+    approvals: ["Posts to approve", "Posts waiting for your yes before they go out."],
+    accounts: ["Social accounts", "The social accounts your posts go to."],
+    theme: ["Brand look", "Your logo, colours and what your business does, used in every post."],
+    audience: ["Audience & ideas", "Who you are talking to, and what to post about."],
     subscription: ["Plan & credits", "Your Social plan, credits and top-ups."],
   };
   const topTitle = topTitles[approvalOpen ? "approvals" : page] || ["Social", ""];

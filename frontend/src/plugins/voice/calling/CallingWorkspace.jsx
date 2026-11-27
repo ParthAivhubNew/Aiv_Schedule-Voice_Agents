@@ -127,7 +127,7 @@ const PAGES = [
   { id: "analytics", label: "Call stats", icon: BarChart3, section: "analytics", hint: "How many calls were made, answered and turned into meetings" },
   { id: "templates", label: "AI caller", icon: Sparkles, section: "calling" },  // call scripts, and how the caller sounds and behaves ("studio" is its second tab)
   { id: "ai", label: "AI config", icon: Plug, section: "connections", hint: "Keys for the AI services (staff only)" },
-  { id: "company", label: "Business Setup", icon: Users, section: "company", hint: "Your company details, working hours and the AI caller" },  // company profile, working hours and the AI caller (scripts, voice & rules)
+  { id: "company", label: "Company profile", icon: Users, section: "company", hint: "Your company details, working hours and the AI caller" },  // company profile, working hours and the AI caller (scripts, voice & rules)
 ];
 
 // The sidebar shows the pages in two groups: day-to-day calling, then setting the app up.
@@ -2281,7 +2281,7 @@ export function CallingWorkspace({
     const adopt = () => {
       const staged = takeCallList();
       if (!staged) return;
-      setFileName(staged.name || "Lead Gen list");
+      setFileName(staged.name || "Leads list");
       setWorkbookSheets(null);
       setAvailableSheets([]);
       setActiveSheet("");
@@ -2290,7 +2290,7 @@ export function CallingWorkspace({
       setSelectedIds(new Set());
       setPage("list");
       const skip = staged.skipped ? ` ${staged.skipped.toLocaleString()} left out.` : "";
-      showToast(`${staged.records.length.toLocaleString()} companies from Lead Gen are ready to call.${skip}`);
+      showToast(`${staged.records.length.toLocaleString()} companies from Leads are ready to call.${skip}`);
     };
     adopt();
     window.addEventListener(CALL_LIST_STAGED, adopt);
@@ -2842,12 +2842,12 @@ export function CallingWorkspace({
     list: ["Call list", "Call one number, or upload a spreadsheet and tick the people to call. Two calls run at a time."],
     logs: ["Conversations", "Past calls on the left, calls happening now on the right. WhatsApp chats open from the tab above."],
     schedule: ["Meetings & callbacks", "Park a call on the left. Calendar for slots · List view for bookings."],
-    templates: ["Business Setup", "What your AI caller says: the greeting, the pitch, answers to objections and how it books a meeting."],
-    studio: ["Business Setup", "How your AI caller sounds and behaves: its voice, your company rules, and which script each campaign uses."],
+    templates: ["AI caller", "What your AI caller says: the greeting, the pitch, answers to objections and how it books a meeting."],
+    studio: ["AI caller", "How your AI caller sounds and behaves: its voice, your company rules, and which script each campaign uses."],
     ai: ["AI config", "Keys and secrets stay encrypted in the database."],
-    company: ["Business Setup", "Your company profile, working hours and AI caller."],
+    company: ["Company profile", "Your company details, working hours and AI caller."],
     analytics: ["Call stats", "Calls, connect rate, meetings booked and the best times to call."],
-    hours: ["Business Setup", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
+    hours: ["Company profile", "Which days and hours calls go out and meetings can be booked. Weekends too, if you want."],
     numbers: ["Plan & credits", "Verify your business, buy UK numbers and turn on WhatsApp."],
     subscription: ["Plan & credits", "Your calling plan, credits, and phone numbers."],
     whatsapp: ["Conversations", "WhatsApp chats on your own numbers. You reply; you are emailed when something new arrives."],
@@ -3001,7 +3001,7 @@ export function CallingWorkspace({
           {page === "assistant" && !pluginLocked ? <AssistantPanel page plugin="voice" open onClose={() => goPage("list")} /> : null}
           {pluginLocked && peekCallList() ? (
             <div role="status" style={{ maxWidth: 1240, marginBottom: 14, padding: "12px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
-              Your list of {peekCallList().count.toLocaleString()} {peekCallList().count === 1 ? "company" : "companies"} from Lead Gen is saved. Choose a plan below and it will be ready to call straight after.
+              Your list of {peekCallList().count.toLocaleString()} {peekCallList().count === 1 ? "company" : "companies"} from Leads is saved. Choose a plan below and it will be ready to call straight after.
             </div>
           ) : null}
           {pluginLocked && page !== "subscription" ? (
@@ -4225,7 +4225,7 @@ export function CallingWorkspace({
                           onWrite={() => api.summarizeLoggedCall(l.id)}
                           onEmail={() => api.emailLoggedCallSummary(l.id)}
                         />
-                        {l.leadId ? <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(l.leadId)}>Open this company in Lead Gen</button> : null}
+                        {l.leadId ? <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(l.leadId)}>Open this company in Leads</button> : null}
                       </div>
                     ) : null}
                     <div style={{

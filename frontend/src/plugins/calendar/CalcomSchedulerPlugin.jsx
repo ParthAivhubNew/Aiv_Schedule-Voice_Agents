@@ -426,7 +426,7 @@ export function CalcomSchedulerPlugin({ operator, accountBar, onBackToHub, onLog
                 <CalendarCheck size={40} color={C.slateLight} style={{ margin: "0 auto 12px" }} />
                 <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: C.ink }}>No scheduled meetings found</div>
                 <div style={{ fontSize: 13, color: C.slate, marginTop: 4 }}>
-                  Use the 1-Click Direct Booking tab or book from the Lead Gen and Voice plugins.
+                  Use the 1-Click Direct Booking tab or book from the Leads and Voice apps.
                 </div>
                 <button
                   onClick={() => setActiveTab("directBook")}

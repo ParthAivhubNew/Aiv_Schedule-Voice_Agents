@@ -122,7 +122,7 @@ function Step({ block, onChange, onRemove, onMove, first, last, meta, depth, ind
         <input className="ui-input" aria-label="List name" placeholder="List name (made if it is new)" value={block.value} onChange={(e) => set({ value: e.target.value })} />
       ) : a === "webhook" ? (
         <input className="ui-input" aria-label="Web address" placeholder="https://your-system.example.com/hook" value={block.value} onChange={(e) => set({ value: e.target.value })} />
-      ) : a === "add_dnc" ? <div style={muted}>Stops every plugin from contacting this company again.</div> : (
+      ) : a === "add_dnc" ? <div style={muted}>Stops every app from contacting this company again.</div> : (
         <>
           {a === "send_email" ? <input className="ui-input" aria-label="Subject" placeholder="Subject" value={block.subject || ""} onChange={(e) => set({ subject: e.target.value })} /> : null}
           <textarea className="ui-input" rows={2} aria-label={a === "send_email" ? "Message" : "Text"} style={{ height: "auto", padding: 8, resize: "vertical" }}

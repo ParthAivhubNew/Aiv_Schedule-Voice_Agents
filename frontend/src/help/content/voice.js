@@ -25,7 +25,7 @@ export const voiceDoc = {
             ["Conversations", "Read past calls on the left. Watch calls happening now on the right. WhatsApp chats open from the same screen."],
             ["Meetings & callbacks", "See booked meetings, calls to try again later, and schedule a list to be called at set times."],
             ["Call stats", "See how many calls were made, answered and turned into meetings."],
-            ["Business Setup", "Set your company details, working hours, what the AI says, and how it sounds."],
+            ["Company profile", "Set your company details, working hours, what the AI says, and how it sounds."],
             ["Plan & credits", "Check your credits, buy phone numbers and turn on WhatsApp. Admins only."],
           ],
         },
@@ -354,7 +354,7 @@ export const voiceDoc = {
     },
     {
       id: "business-setup",
-      heading: "Business Setup",
+      heading: "Company profile",
       blocks: [
         {
           type: "paragraph",

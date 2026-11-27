@@ -211,7 +211,7 @@ export const accountDoc = {
           headers: ["Email", "On by default for"],
           rows: [
             ["A meeting is booked", "Admins"],
-            ["Your week across Lead Gen, Voice and Social (Mondays)", "Admins"],
+            ["Your week across Leads, Voice and Social (Mondays)", "Admins"],
             ["A call needs a person to follow up", "Admins"],
             ["Posts are waiting for approval", "Admins"],
             ["AI writing I started has finished (when it took a while and I'd left)", "Everyone"],

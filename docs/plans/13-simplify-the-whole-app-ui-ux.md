@@ -61,7 +61,13 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
   calls, meetings and posts from GET /together/search. Arrow keys move, Enter opens, Escape closes. Home's header now has the
   Search box in place of its own Support and Documentation buttons (both are in the profile menu and in search).
   Files: hub/commandItems.js, hub/CommandPalette.jsx. Social now opens its other pages from the address too (plan, insights…).
-  Owner checked it on 2026-11-27 ("looks good")., Journeys, Voice's Call list and Social's calendar.
+  Owner checked it on 2026-11-27 ("looks good").
+- ✅ **Step 8, Words (2026-11-27):** one glossary, docs/GLOSSARY.md, and the screens renamed to it. Leads: Connectors → Data sources,
+  About your business → Company profile, the Mail page's title "Inbox and sent" → Mail. Voice: Business Setup → Company profile (its
+  AI caller pages are titled AI caller). Social: Post approve → Posts to approve, Accounts → Social accounts, Theme → Brand look, and
+  each Results & ideas / Library page is titled by its own name. "Lead Gen" → "Leads" and "plugin" → "app" on customer screens and in
+  the server's messages ("This needs the Leads plan"). Search and Help use the same names. hub/glossary.test.js keeps the old names
+  out of menus and titles., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**

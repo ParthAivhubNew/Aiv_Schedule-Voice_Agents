@@ -1416,7 +1416,7 @@ export function CallingSchedule({
                     <Icon size={14} color={meta.color || C.slate} /> {meta.label}{open.platform ? ` · ${shownPlatform(open.platform)}` : ""}
                   </div>
                   {open.leadId ? (
-                    <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(open.leadId)}>Open this company in Lead Gen</button>
+                    <button type="button" className="ui-link" style={{ marginTop: 6, fontSize: 12.5 }} onClick={() => openLead(open.leadId)}>Open this company in Leads</button>
                   ) : null}
                   {open.callSummary ? (
                     <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: C.paperSoft, fontSize: 12.5, color: C.textInk, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>

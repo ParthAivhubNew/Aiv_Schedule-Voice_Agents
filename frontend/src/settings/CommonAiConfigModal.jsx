@@ -1236,7 +1236,7 @@ export function CommonAiConfigModal({ isOpen, onClose, commonAi, setCommonAi, in
                       <Search size={15} color="#8B5CF6" />
                       <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>Prospects & Missions</span>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED" }}>Lead Gen</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED" }}>Leads</span>
                   </div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
                     {usageStats?.summary?.prospects ?? 0} <span style={{ fontSize: 13, fontWeight: 500, color: C.slate }}>prospects</span>

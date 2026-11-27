@@ -134,7 +134,7 @@ export function ListeningPage({ showToast }) {
     setBusy(m.id);
     try {
       const res = await api.mentionsToLeads([m.id]);
-      showToast(res.added ? `Added to the “${res.list.name}” list in Lead Gen.` : "Already a lead.");
+      showToast(res.added ? `Added to the “${res.list.name}” list in Leads.` : "Already a lead.");
       loadMentions();
     } catch (e) {
       showToast(e.message || "Could not add the lead.");
@@ -208,7 +208,7 @@ export function ListeningPage({ showToast }) {
           ))}
           {!topics.length && !editing ? (
             <div style={{ ...card, ...muted }}>
-              Add your brand, products or competitors. New public posts that mention them appear here, and you can add the people behind them to Lead Gen.
+              Add your brand, products or competitors. New public posts that mention them appear here, and you can add the people behind them to Leads.
             </div>
           ) : null}
         </div>
@@ -253,7 +253,7 @@ export function ListeningPage({ showToast }) {
                   : <button type="button" style={btn} onClick={() => mark([m.id], "new")}>Restore</button>}
                 {m.author ? (
                   <button type="button" style={btn} disabled={!!m.leadId || busy === m.id} onClick={() => toLeads(m)}>
-                    <UserPlus size={13} /> {m.leadId ? "In Lead Gen" : busy === m.id ? "Adding…" : "Add to leads"}
+                    <UserPlus size={13} /> {m.leadId ? "In Leads" : busy === m.id ? "Adding…" : "Add to leads"}
                   </button>
                 ) : null}
               </div>

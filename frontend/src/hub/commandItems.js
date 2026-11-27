@@ -13,7 +13,7 @@ const APP_PAGES = [
     ["import_match", "Import & match", "Match a spreadsheet to the register"],
     ["connectors", "Data sources", "Leads settings: where company details come from"],
     ["mailboxes", "Email accounts", "Leads settings: the mailboxes you send from"],
-    ["business", "About your business", "Leads settings: your ideal customer"],
+    ["business", "Company profile", "Leads settings: what the AI may say about you, and your ideal customer"],
     ["subscription", "Leads plan & credits", "Leads settings: plan, credits and top-ups"],
   ].map(([id, label, hint]) => ({ id: `leadgen:${id}`, label, hint, go: `#/leadgen/${id}` }))],
   ["Voice", [
@@ -21,7 +21,7 @@ const APP_PAGES = [
     ["logs", "Conversations", "Past calls and their summaries"],
     ["schedule", "Meetings & callbacks", "Meetings booked and calls to try again"],
     ["analytics", "Call stats", "Calls made, answered and turned into meetings"],
-    ["company", "Business setup", "Voice settings: company details and working hours"],
+    ["company", "Company profile", "Voice settings: company details and working hours"],
     ["templates", "AI caller", "Voice settings: call scripts and how the caller sounds"],
     ["subscription", "Voice plan & credits", "Voice settings: plan, minutes and top-ups"],
   ].map(([id, label, hint]) => ({ id: `voice:${id}`, label, hint, go: `#/voice/${id}` }))],

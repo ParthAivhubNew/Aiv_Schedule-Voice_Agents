@@ -1,7 +1,7 @@
 export const leadsBusinessDoc = {
   id: "leads-business",
   path: "/help/leads/business",
-  title: "About your business",
+  title: "Company profile",
   summary: "Tell Outreach what you sell, who you sell to and who is sending, so the assistant and the email writer say only true things.",
   sections: [
     {

@@ -23,7 +23,7 @@ from app.services.identity import normalize_phone_digits
 logger = logging.getLogger("connections")
 
 PLUGINS = ("leads", "voice", "social")
-PLUGIN_LABEL = {"leads": "Lead Gen", "voice": "Voice", "social": "Social"}
+PLUGIN_LABEL = {"leads": "Leads", "voice": "Voice", "social": "Social"}
 
 # ── Settings -> Connections ─────────────────────────────────────────────────
 DEFAULT_RULES: Dict[str, Any] = {

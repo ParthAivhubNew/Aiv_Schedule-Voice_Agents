@@ -58,7 +58,7 @@ class CallIn(BaseModel):
     variables: Optional[Dict[str, str]] = Field(None, description="Facts about this person or company the AI may use")
     from_number: Optional[str] = Field(None, description="Which of your numbers to call from")
     accept_short_call: bool = Field(False, description="Call even if your credits only cover a short call")
-    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Lead Gen. The call, its result and any meeting are then saved against it, and the same id comes back in call.completed and meeting.booked.")
+    lead_id: Optional[str] = Field(None, max_length=80, description="A company you saved in Leads. The call, its result and any meeting are then saved against it, and the same id comes back in call.completed and meeting.booked.")
 
 
 class ControlIn(BaseModel):

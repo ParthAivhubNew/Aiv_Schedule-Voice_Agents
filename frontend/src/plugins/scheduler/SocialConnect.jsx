@@ -111,7 +111,7 @@ function PostRow({ post, toast, lists, meetings }) {
   });
   const doShare = () => run("share", async () => {
     const r = await api.sharePostToList(post.id, share.listId, share.note, share.chosen ? [...share.chosen] : []);
-    toast(`Draft campaign made for ${r.people} ${r.people === 1 ? "person" : "people"}${r.skipped ? ` (${r.skipped} skipped)` : ""}. Check it under Campaigns in Lead Gen, then start it.`);
+    toast(`Draft campaign made for ${r.people} ${r.people === 1 ? "person" : "people"}${r.skipped ? ` (${r.skipped} skipped)` : ""}. Check it under Campaigns in Leads, then start it.`);
     setShare(null);
   });
 
@@ -153,7 +153,7 @@ function PostRow({ post, toast, lists, meetings }) {
 
       {share ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderTop: `1px solid ${C.border}`, background: HUB_PAPER }}>
-          {!lists.length ? <span style={muted}>No lists yet. Make one in Lead Gen first.</span> : (
+          {!lists.length ? <span style={muted}>No lists yet. Make one in Leads first.</span> : (
             <>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={{ ...muted, color: C.ink, fontWeight: 600 }}>Email this post to</span>
@@ -343,7 +343,7 @@ function Ideas({ toast, onDrafted, onOpenApprovals }) {
       <IdeaCard icon={Lightbulb} title="From the companies you target" about="Fresh each day, from how your posts did, what people said under them, and the industries and towns of your saved companies. Topics you posted lately are left out."
         lockLink="social_audience" lockWhat="Ideas from your leads">
         {topics.available ? (!ideas ? <Loader compact label="Loading" /> : !ideas.length ? (
-          <div style={muted}>Save companies in Lead Gen with an industry and a town, and ideas appear here.</div>
+          <div style={muted}>Save companies in Leads with an industry and a town, and ideas appear here.</div>
         ) : (
           <div>
             {ideas.map((i) => (

@@ -177,7 +177,7 @@ export const leadsMailDoc = {
     },
     {
       id: "inbox-and-sent",
-      heading: "Inbox and sent",
+      heading: "Mail",
       blocks: [
         {
           type: "paragraph",

@@ -870,7 +870,7 @@ function NewJourney({ lists, onCreated, onCancel, onGuided, initialListId }) {
         <textarea aria-label="What the journey is for" style={{ ...input, minHeight: 74, resize: "vertical" }} value={goal} onChange={(e) => setGoal(e.target.value)}
           placeholder="Introduce us to dental practices in Leeds, then ring them if they have not replied" maxLength={600} />
         <div style={row}>
-          <label title={callOk ? "Tick to add a step where the AI phones the person if they have not replied to your emails. Calls use your calling credits, and you review the journey before anything starts." : "Needs the Voice plugin and a plan. It would add a step where the AI phones people who have not replied to your emails."}
+          <label title={callOk ? "Tick to add a step where the AI phones the person if they have not replied to your emails. Calls use your calling credits, and you review the journey before anything starts." : "Needs the Voice app and a plan. It would add a step where the AI phones people who have not replied to your emails."}
             style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, opacity: callOk ? 1 : 0.6, cursor: callOk ? "pointer" : "not-allowed" }}>
             <input type="checkbox" disabled={!callOk} checked={calls && callOk} onChange={(e) => setCalls(e.target.checked)} /> Add a call{callOk ? "" : " (needs Voice)"}
           </label>

@@ -151,7 +151,7 @@ export function LiveCallCard({
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
             <StatePill state={state} />
             {call.leadId ? (
-              <button type="button" className="ui-link" style={{ fontSize: 12 }} title="Open this company in Lead Gen" onClick={() => openLead(call.leadId)}>From Lead Gen</button>
+              <button type="button" className="ui-link" style={{ fontSize: 12 }} title="Open this company in Leads" onClick={() => openLead(call.leadId)}>From Leads</button>
             ) : null}
             {call.booked ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 800, color: C.green }}>

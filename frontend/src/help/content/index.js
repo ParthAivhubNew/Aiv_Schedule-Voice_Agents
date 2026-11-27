@@ -46,7 +46,7 @@ export const DOCS_TREE = [
       { id: "leads-mail", label: "Mail", doc: leadsMailDoc },
       { id: "leads-forms", label: "Forms", doc: leadsFormsDoc },
       { id: "leads-assistant", label: "AI Assistant", doc: leadsAssistantDoc },
-      { id: "leads-business", label: "About your business", doc: leadsBusinessDoc },
+      { id: "leads-business", label: "Company profile", doc: leadsBusinessDoc },
       { id: "leads-connectors", label: "Connectors & data sources", doc: leadsConnectorsDoc },
     ],
   },
@@ -69,7 +69,7 @@ export const DOCS_TREE = [
     doc: socialDoc,
     children: [
       { id: "social-calendar", label: "Post calendar", doc: socialCalendarDoc },
-      { id: "social-approve", label: "Post approve", doc: socialApproveDoc },
+      { id: "social-approve", label: "Posts to approve", doc: socialApproveDoc },
       { id: "social-composer", label: "AI post writer & themes", doc: socialComposerDoc },
       { id: "social-media", label: "Pictures & library", doc: socialMediaDoc },
       { id: "social-connect", label: "Social accounts", doc: socialConnectDoc },

@@ -79,4 +79,4 @@ async def test_calling_needs_the_voice_plan_and_names_what_is_missing(db):
         links = (await c.get("/api/together/availability")).json()
         assert links["plugins"] == {"voice": False, "leads": False, "social": False}
         assert links["links"]["call_leads"]["available"] is False
-        assert "Lead Gen" in links["links"]["call_leads"]["reason"]
+        assert "Leads" in links["links"]["call_leads"]["reason"]

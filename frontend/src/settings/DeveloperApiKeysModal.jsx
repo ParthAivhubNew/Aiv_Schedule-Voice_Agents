@@ -48,7 +48,7 @@ import { useFlash } from "../components/useFlash";
 const PLAYGROUND_CATEGORIES = [
   { id: "all", label: "All Services", icon: Layers },
   { id: "voice", label: "Voice AI", icon: Phone },
-  { id: "leads", label: "Lead Gen & Email", icon: Users },
+  { id: "leads", label: "Leads & email", icon: Users },
   { id: "social", label: "Social Media", icon: Megaphone },
   { id: "account", label: "Account & Wallets", icon: Wallet },
 ];
@@ -487,7 +487,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                 Admin APIs & Webhooks
               </h2>
               <p style={{ margin: "2px 0 0", fontSize: 12.5, color: C.slate }}>
-                Headless Voice AI, Lead Gen, and Social APIs for external CRMs & tender applications
+                Voice, Leads and Social APIs for external CRMs & tender applications
               </p>
             </div>
           </div>
@@ -681,7 +681,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                       </h4>
                       <p style={{ margin: 0, fontSize: 12.5, color: C.warning, lineHeight: 1.5 }}>
                         OutReach operates on a <strong>Pay-First</strong> model. To generate and use production API keys,
-                        you must subscribe to at least one service (Voice AI, Lead Gen, or Social Media Scheduler).
+                        you must subscribe to at least one service (Voice, Leads or Social).
                       </p>
                       <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
                         <button
@@ -724,7 +724,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                             gap: 4,
                           }}
                         >
-                          Lead Gen Plans <ExternalLink size={12} />
+                          Leads plans <ExternalLink size={12} />
                         </button>
                         <button
                           onClick={() => {
@@ -1986,7 +1986,7 @@ export function DeveloperApiKeysModal({ open, onClose, inline = false }) {
                   >
                     {[
                       { id: "voice", label: "Voice AI & Calendar Bookings", icon: Phone },
-                      { id: "leads", label: "Lead Gen & Email Campaigns", icon: Users },
+                      { id: "leads", label: "Leads & email journeys", icon: Users },
                       { id: "social", label: "Social Media Automation", icon: Megaphone },
                     ].map((cat) => {
                       const catEvents = supportedEvents.filter((ev) => getEventService(ev.id) === cat.id);

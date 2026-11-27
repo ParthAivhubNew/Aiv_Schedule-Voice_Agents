@@ -360,7 +360,7 @@ export function MailView({ operator, outreach, start, composeTo = "", onComposeU
   const editDraft = (m) => setCompose({ mailbox_id: m.mailbox_id, to: m.to.map((p) => p.email).join(", "), cc: (m.cc || []).map((p) => p.email).join(", "), subject: m.subject, html: m.body_html || esc(m.body_text).replace(/\n/g, "<br>"), draft_id: m.id, in_reply_to_id: "" });
 
   const markLost = async () => {
-    if (!openMeta.lead_id) { flash("Save this company in Lead Gen first, then you can mark it lost."); return; }
+    if (!openMeta.lead_id) { flash("Save this company in Leads first, then you can mark it lost."); return; }
     try { await api.setLeadStage(openMeta.lead_id, "lost", "Not interested, from Mail"); flash("Marked as lost."); }
     catch (e) { flash(e.message || "Couldn't mark it lost."); }
   };
