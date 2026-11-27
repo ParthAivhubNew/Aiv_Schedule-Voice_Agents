@@ -1,6 +1,6 @@
 import React from "react";
 import { Spinner } from "../../../app/Loader";
-import { RotateCcw, Search, Sparkles } from "lucide-react";
+import { RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { C } from "../../../tokens";
 import { FilterGroup, LabelTip } from "../FindLeadsParts";
 import ExclusionBox from "../ExclusionBox";
@@ -12,14 +12,17 @@ import { CHECK_TIPS, DistrictPicker, muted, text } from "./findParts";
 import { StandingChip } from "../../../brand/StandingChip";
 
 // Find Leads' filter panel (the left column): name, trade, place, size, signals and the rest, with Search and Clear. Moved out of FindLeadsSearch unchanged; every value it uses comes in as a prop of the same name.
-export function FilterPanel({ isAdmin = false, activeIn, busy, check, chipsFor, clearGroup, field, fillFromWords, filterCount, form, groups, label, lookRadius, resetSearch, search, searchPeople, setExcluded, setField, setForm, setGroup, setSicLabels, setWords, sicLabels, tab, toggleSize, words, wordsBusy }) {
+// On a wide screen it is a panel that slides over the page from the left (plan 13, step 6): open, onClose. On a phone it is the
+// Search pane, as before.
+export function FilterPanel({ open = false, onClose, isAdmin = false, activeIn, busy, check, chipsFor, clearGroup, field, fillFromWords, filterCount, form, groups, label, lookRadius, resetSearch, search, searchPeople, setExcluded, setField, setForm, setGroup, setSicLabels, setWords, sicLabels, tab, toggleSize, words, wordsBusy }) {
   return (
-    <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
-      <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }}>
+    <aside data-pane="chat" aria-label="Filters" className="ui-card fl-filters" data-open={open} style={{ padding: "4px 14px 0", display: "flex", flexDirection: "column" }}>
+      <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); onClose?.(); }}>
         <div className="fl-pin">
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...text, fontSize: 12, fontWeight: 600, color: C.slate, textTransform: "uppercase", letterSpacing: ".04em", marginRight: "auto" }}>Filters</span>
             <StandingChip canSeeRules={isAdmin} short />
+            {onClose ? <button type="button" className="fl-collapse hide-mobile" aria-label="Close the filters" title="Close the filters" onClick={onClose}><X size={16} /></button> : null}
           </div>
           {/* One row: describe it in words; Fill appears once there is something to read (plan 13, step 6). */}
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>

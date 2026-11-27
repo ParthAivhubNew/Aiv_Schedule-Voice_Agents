@@ -2,7 +2,7 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "../sear
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "../PickOptions";
 import { Spinner, TableSkeleton, TopBar } from "../../../app/Loader";
-import { Building2, Check, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
+import { Building2, Check, List, Map as MapIcon, SlidersHorizontal, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { domainOf } from "../accounts/accountsLogic";
@@ -40,6 +40,21 @@ import { useContactActions } from "./useContactActions";
 // Find Leads layout and control styles.
 const CHAT_CSS = `
 .fl-filters{flex:0 0 272px;max-width:100%;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow-y:auto}
+@media (min-width:821px){
+  .fl-filters{position:fixed !important;top:0;left:0;bottom:0;width:380px;max-width:92vw;max-height:none !important;z-index:300;border-radius:0 !important;border-width:0 1px 0 0 !important;
+    transform:translateX(-104%);visibility:hidden;transition:transform .2s ease,visibility .2s;box-shadow:0 24px 70px rgba(15,23,42,.22);padding:4px 20px 0 !important}
+  .fl-filters[data-open="true"]{transform:none;visibility:visible}
+  .fl-scrim{position:fixed;inset:0;z-index:299;background:rgba(15,23,42,.3);opacity:0;pointer-events:none;transition:opacity .2s}
+  .fl-scrim[data-open="true"]{opacity:1;pointer-events:auto}
+}
+@media (max-width:820px){.fl-scrim{display:none}}
+.fl-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:2px;border-radius:999px;background:var(--ui-accent);color:${C.onAccent};font-size:11px;font-weight:600}
+.fl-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:-2px}
+.fl-chip{display:inline-flex;align-items:center;gap:4px;max-width:280px;height:28px;padding:0 4px 0 10px;border-radius:999px;background:var(--ui-accent-soft);color:var(--ui-accent-ink);font:500 12.5px Inter,sans-serif}
+.fl-chip button{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px}
+.fl-chip button:hover,.fl-chip button:focus-visible{background:rgba(52,87,213,.14)}
+.fl-chips-edit{all:unset;cursor:pointer;font:500 12.5px Inter,sans-serif;color:var(--ui-muted);padding:0 6px;height:28px;display:inline-flex;align-items:center}
+.fl-chips-edit:hover,.fl-chips-edit:focus-visible{color:var(--ui-ink);text-decoration:underline}
 .fl-filters.ui-card{background:${C.surfaceCool};border-color:${C.border}}
 .fl-filters .fl-pin{background:${C.surfaceCool};border-bottom-color:${C.lineStrong}}
 .fl-main{flex:1 1 560px;min-width:0}
@@ -88,7 +103,14 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
   const [selecting, setSelecting] = useState(false);
   const [openCo, setOpenCo] = useState(null); // the company whose profile is open in the side drawer
   const [draft, setDraft] = useState(null); // { asked }: the list the AI assistant opened here, until the person is done with it
-  const [filtersShown, setFiltersShown] = useState(() => { try { return localStorage.getItem("aivhub_find_filters") !== "hidden"; } catch { return true; } });
+  // Plan 13, step 6: the filters are a panel that slides over the page when asked for, so the results get the whole width.
+  const [filtersShown, setFiltersShown] = useState(false);
+  useEffect(() => {
+    if (!filtersShown) return undefined;
+    const esc = (e) => { if (e.key === "Escape") setFiltersShown(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [filtersShown]);
   const [groups, setGroups] = useState({ industry: true });
   const [people, setPeople] = useState([]);
   const [peopleTotal, setPeopleTotal] = useState(0); // companies that have people on file
@@ -540,7 +562,15 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
   // Like Apollo: opening a group closes the others, so only one is open at a time.
   const setGroup = (k) => setGroups((g) => (g[k] ? { ...g, [k]: false } : { [k]: true }));
   const firstLoad = busy && !companies.length && !people.length && view !== "map";
-  const toggleFilters = () => setFiltersShown((v) => { const n = !v; try { localStorage.setItem("aivhub_find_filters", n ? "shown" : "hidden"); } catch { /* the choice just isn't remembered */ } return n; });
+  const toggleFilters = () => setFiltersShown((v) => !v);
+  // The filters in use, as chips under the search: × takes one off and searches again.
+  const activeChips = Object.keys(GROUP_KEYS).filter((k) => k !== "name").flatMap((k) => summaryChips(k, form, sicLabels).map((c) => ({ ...c, key: `${k}:${c.id}` })));
+  const dropChip = (c) => {
+    const next = { ...form, ...c.patch(form) };
+    setForm(next);
+    setExcluded([]);
+    if (tab === "people") searchPeople(null, next, 0); else search(null, next, 0, null, undefined, undefined, true);
+  };
   const activeIn = (k) => GROUP_KEYS[k].filter((key) => isOn(form, key)).length;
   const clearGroup = (k) => setForm((f) => ({ ...f, ...Object.fromEntries(GROUP_KEYS[k].map((key) => [key, EMPTY_FORM[key]])) }));
   // What a closed group shows under its name: its values as chips, each removing just that value.
@@ -608,8 +638,8 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       <style>{CHAT_CSS}</style>
       <>
       <div className="fl-toolbar" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button type="button" className="ui-btn ui-btn--secondary hide-mobile" style={{ height: 40 }} aria-pressed={filtersShown} title={filtersShown ? "Hide the filters" : "Show the filters"} onClick={toggleFilters}>
-          {filtersShown ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />} Filters{filterCount ? ` · ${filterCount}` : ""}
+        <button type="button" className="ui-btn ui-btn--secondary hide-mobile" style={{ height: 40 }} aria-expanded={filtersShown} title="Filter by trade, place, size and more" onClick={toggleFilters}>
+          <SlidersHorizontal size={15} /> Filters{filterCount ? <span className="fl-count">{filterCount}</span> : null}
         </button>
         <form onSubmit={(e) => { setExcluded([]); if (tab === "people") searchPeople(e); else search(e); }} style={{ flex: "999 1 320px", minWidth: 0, display: "flex" }}>
           <SearchField label="Company name" title="Find a company by its name. Searches every registered company" value={form.name} onChange={(v) => setField("name", v)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" />
@@ -617,10 +647,23 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
         {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "industry_types", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
         {showResults || firstLoad ? null : lookFor}
       </div>
-      <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
-      {filtersShown ? (
-      <FilterPanel isAdmin={isAdmin} activeIn={activeIn} busy={busy} check={check} chipsFor={chipsFor} clearGroup={clearGroup} field={field} fillFromWords={fillFromWords} filterCount={filterCount} form={form} groups={groups} label={label} lookRadius={lookRadius} resetSearch={resetSearch} search={search} searchPeople={searchPeople} setExcluded={setExcluded} setField={setField} setForm={setForm} setGroup={setGroup} setSicLabels={setSicLabels} setWords={setWords} sicLabels={sicLabels} tab={tab} toggleSize={toggleSize} words={words} wordsBusy={wordsBusy} />
+      {activeChips.length ? (
+        <div className="fl-chips hide-mobile" aria-label="Filters in use">
+          {activeChips.map((c) => (
+            <span key={c.key} className="fl-chip">
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.text}</span>
+              <button type="button" aria-label={`Remove ${c.text}`} title={`Remove ${c.text}`} disabled={busy} onClick={() => dropChip(c)}><X size={12} /></button>
+            </span>
+          ))}
+          <button type="button" className="fl-chips-edit" onClick={() => setFiltersShown(true)}>Edit filters</button>
+          <button type="button" className="fl-chips-edit" onClick={resetSearch}>Clear all</button>
+        </div>
       ) : null}
+      <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      <div className="fl-scrim" data-open={filtersShown} aria-hidden="true" onClick={() => setFiltersShown(false)} />
+      {(
+      <FilterPanel open={filtersShown} onClose={() => setFiltersShown(false)} isAdmin={isAdmin} activeIn={activeIn} busy={busy} check={check} chipsFor={chipsFor} clearGroup={clearGroup} field={field} fillFromWords={fillFromWords} filterCount={filterCount} form={form} groups={groups} label={label} lookRadius={lookRadius} resetSearch={resetSearch} search={search} searchPeople={searchPeople} setExcluded={setExcluded} setField={setField} setForm={setForm} setGroup={setGroup} setSicLabels={setSicLabels} setWords={setWords} sicLabels={sicLabels} tab={tab} toggleSize={toggleSize} words={words} wordsBusy={wordsBusy} />
+      )}
       <div data-pane="results" className="fl-main" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {firstLoad ? (
         <div className="ui-card fl-card" style={{ overflow: "hidden", position: "relative" }}>

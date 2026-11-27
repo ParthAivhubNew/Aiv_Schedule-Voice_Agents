@@ -69,3 +69,20 @@ describe("Find Leads polish", () => {
     expect(read("./FindLeadsSearch.jsx")).toContain(".fl-filters{flex:0 0 272px;");
   });
 });
+
+describe("filters as a slide-over", () => {
+  const search = read("./FindLeadsSearch.jsx");
+  it("starts closed so the results get the whole width, and Escape or the backdrop closes it", () => {
+    expect(search).toContain("const [filtersShown, setFiltersShown] = useState(false);");
+    expect(search).toContain('<div className="fl-scrim" data-open={filtersShown}');
+    expect(search).toContain('if (e.key === "Escape") setFiltersShown(false);');
+    expect(search).toMatch(/\.fl-filters\{position:fixed !important;/);
+    expect(read("./FilterPanel.jsx")).toContain("else search(e); onClose?.(); }}>");
+  });
+
+  it("shows the filters in use as chips that each take one off and search again", () => {
+    expect(search).toContain('className="fl-chips hide-mobile" aria-label="Filters in use"');
+    expect(search).toContain("const next = { ...form, ...c.patch(form) };");
+    expect(search).toContain(">Edit filters</button>");
+  });
+});

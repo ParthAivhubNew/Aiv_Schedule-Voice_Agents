@@ -36,6 +36,11 @@ the test copy and waiting for the owner's look.
     that exist always show; touch screens show everything); website links read as plain text until hovered.
     Not changed: the black AI Assistant button (it is the same in every app; any change there belongs to the dark-mode / colour
     step 9).
+  - Layout change (owner: "you decide, give me the best UI and UX"): the filter column is gone from the page. Filters is a button
+    (with a count) that opens a panel sliding over the page from the left; Find companies, Escape, the × or a click on the
+    backdrop closes it. The results take the whole width. The filters in use show as chips under the search bar: × on a chip
+    takes that filter off and searches again; "Edit filters" opens the panel; "Clear all" starts again. Phones keep the
+    Search / Results panes as before.
   - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
