@@ -31,6 +31,8 @@ class Tavily(Provider):
         if limit is None or used is None:
             return TestResult(True, "Key works.")
         left = float(limit) - float(used)
+        if left <= 0 and acct.get("paygo_limit") is None:
+            return TestResult(False, "Key works, but it has used all its credits this month, so searches fail until it renews or is topped up.", 0.0, "credits")
         return TestResult(True, f"Key works. {left:,.0f} credits left this month.", left, "credits")
 
 

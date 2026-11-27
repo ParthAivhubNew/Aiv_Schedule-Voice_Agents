@@ -416,3 +416,69 @@ async def test_credits_are_counted_by_where_the_companies_came_from(db, client):
     credits = {o["key"]: o["credits"] for o in body["origins"]}
     assert credits == {"import": 10, "scout": 10, "manual": 1}  # the check run is split over the two companies it checked
     assert body["credits"] == {"searches": 20, "removed": 3, "total": 44}
+
+
+# -- statuses that tell the truth (2026-11-27) ------------------------------------------------------------------------------------
+async def test_an_old_load_is_out_of_date_and_a_paused_people_job_says_so(db, client, keys):
+    await _registers_and_records(db)
+    now = datetime.utcnow()
+    from app.models.models import DataSource
+
+    db.add(DataSource(id="ds_charity_commission", name="Charity Commission", kind="api", run_state="idle"))
+    await db.flush()
+    await db.execute(text("INSERT INTO data_source_runs (id, source_id, status, error_message, started_at, finished_at, cursor) VALUES "
+                          "('r4', 'ds_charity_commission', 'done', '', :old, :old, NULL), "
+                          "('r5', 'ds_companies_house', 'paused', '', :n, NULL, CAST(:c AS JSON))"),
+                     {"old": now - timedelta(days=50), "n": now, "c": json.dumps({"job": "people"})})
+    await db.commit()
+    by = {c["id"]: c for c in (await client.get("/api/leadgen/connectors")).json()["connectors"]}
+    cc = by["ds_charity_commission"]
+    assert cc["status"] == "stale" and cc["statusLabel"] == "Out of date" and "last updated on" in cc["statusText"]
+    assert by["ds_food_hygiene"]["status"] == "connected"  # loaded 3 days ago
+    assert by["ds_companies_house"]["status"] == "paused" and "directors" in by["ds_companies_house"]["statusText"]
+
+
+async def test_a_provider_with_no_credit_left_is_out_of_credit(db, client, keys):
+    from app.models.models import AppSetting
+
+    keys["others"]["telnyx_lookup"] = "k"
+    now = datetime.utcnow().isoformat() + "+00:00"
+    db.add_all([AppSetting(id="balance_history:tavily", data={"points": [{"t": now, "remaining": 0.0}]}),
+                AppSetting(id="balance_history:telnyx", data={"points": [{"t": "2026-01-01T00:00:00+00:00", "remaining": 0.0}]})])
+    await db.commit()
+    by = {c["id"]: c for c in (await client.get("/api/leadgen/connectors")).json()["connectors"]}
+    assert by["key_tavily"]["status"] == "no_credit" and by["key_tavily"]["statusLabel"] == "Out of credit"
+    assert by["key_tavily"]["testable"] is True
+    assert by["telnyx_lookup"]["status"] == "connected"  # an old zero reading doesn't count
+
+
+async def test_the_ai_keys_can_be_checked_for_free(db, client, keys, monkeypatch):
+    seen = []
+
+    async def ai_key(word, org_id):
+        return "k" if word == "openai" else ""
+
+    async def ai_check(word, key):
+        seen.append(word)
+        return {"ok": False, "detail": "The key was rejected (401)."}
+
+    monkeypatch.setattr(CC, "_ai_key", ai_key)
+    monkeypatch.setattr(CC, "_ai_check", ai_check)
+    by = {c["id"]: c for c in (await client.get("/api/leadgen/connectors")).json()["connectors"]}
+    assert by["key_openai"]["testable"] is True
+    res = (await client.post("/api/leadgen/connectors/key_openai/test")).json()
+    assert res["ok"] is False and "isn't working" in res["detail"] and "401" not in res["detail"] and seen == ["openai"]
+    assert (await client.post("/api/leadgen/connectors/key_deepseek/test")).json()["detail"] == "There's no key to check."
+
+
+async def test_tavily_with_no_credits_left_fails_its_check():
+    import httpx
+
+    from app.providers.search.tavily import PROVIDER
+
+    def handler(req):
+        return httpx.Response(200, json={"account": {"plan_limit": 1000, "plan_usage": 1000, "paygo_limit": None}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        r = await PROVIDER.test(c, "k")
+    assert r.ok is False and "used all its credits" in r.detail

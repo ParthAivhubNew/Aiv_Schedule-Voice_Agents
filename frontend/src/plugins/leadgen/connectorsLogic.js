@@ -5,7 +5,9 @@ import { C } from "../../tokens";
 export const STATUS_TONE = {
   connected: "good",
   paused: "warn",
+  stale: "warn",
   error: "bad",
+  no_credit: "bad",
   off: "muted",
   not_in_plan: "muted",
   not_connected: "muted",
@@ -57,7 +59,7 @@ export function summary(list) {
   const out = { connected: 0, attention: 0, soon: 0, other: 0 };
   (list || []).forEach((c) => {
     if (c.status === "connected") out.connected += 1;
-    else if (c.status === "paused" || c.status === "error") out.attention += 1;
+    else if (["paused", "stale", "error", "no_credit"].includes(c.status)) out.attention += 1;
     else if (c.status === "coming_soon") out.soon += 1;
     else out.other += 1;
   });

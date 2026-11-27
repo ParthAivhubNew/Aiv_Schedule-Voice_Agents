@@ -62,6 +62,13 @@ REGISTER_TEXT: Dict[str, Dict[str, Any]] = {
                           "provides": ["company", "address"], "logo": "gpg"},
 }
 
+# How often each register publishes a new copy, in days, plus a margin: a register whose last full load is older than this shows as
+# "Out of date". Registers not listed use STALE_DEFAULT_DAYS.
+STALE_AFTER_DAYS = {"ds_companies_house": 45, "ds_charity_commission": 45, "ds_food_hygiene": 45, "ds_cqc": 45, "ds_gender_pay_gap": 400}
+STALE_DEFAULT_DAYS = 60
+# A stored platform balance this old or newer counts when deciding "Out of credit" (platform_balances polls every few hours).
+BALANCE_FRESH = timedelta(days=3)
+
 COMING_SOON: List[Dict[str, Any]] = [
     {"id": "experian", "name": "Experian", "group": "data", "logo": "experian", "pricing": "experian",
      "desc": "Company credit and business data.", "provides": ["credit", "company", "sole", "people", "address"]},
@@ -100,7 +107,9 @@ KEYS: List[Dict[str, Any]] = [
 STATUS_TEXT = {
     "connected": "Connected",
     "paused": "Updates paused",
+    "stale": "Out of date",
     "error": "Last update failed",
+    "no_credit": "Out of credit",
     "off": "Switched off",
     "not_in_plan": "Not in your plan",
     "not_connected": "Not connected",
@@ -118,6 +127,31 @@ def _entry(id_: str, name: str, group: str, status: str, desc: str, **kw: Any) -
 
 def _iso(d: Optional[datetime]) -> Optional[str]:
     return d.isoformat() if d else None
+
+
+def _when(d: datetime) -> str:
+    return f"{d.day} {d:%b %Y}"
+
+
+async def _empty_balances(db) -> set:
+    """The platform providers whose last stored balance (platform_balances) is zero or less and recent: their look-ups fail until topped up."""
+    out = set()
+    try:
+        async with db.begin_nested():
+            rows = (await db.execute(text("SELECT id, data FROM app_settings WHERE id LIKE 'balance_history:%'"))).all()
+    except Exception as err:
+        logger.info(f"[connectors] no balances: {err}")
+        return out
+    now = datetime.utcnow()
+    for id_, data in rows:
+        try:
+            last = ((data or {}).get("points") or [])[-1]
+            at = datetime.fromisoformat(last["t"]).replace(tzinfo=None)
+            if float(last["remaining"]) <= 0 and now - at <= BALANCE_FRESH:
+                out.add(id_.split(":", 1)[1])
+        except (IndexError, KeyError, TypeError, ValueError, AttributeError):
+            continue
+    return out
 
 
 # -- counts ---------------------------------------------------------------------------------------------------------------------
@@ -205,7 +239,8 @@ async def _registers(db, records: Dict[str, int], leads: Dict[str, int], staff: 
     from app.models.models import DataSource
 
     runs: Dict[str, List[Any]] = {}
-    for r in (await db.execute(text("SELECT source_id, status, error_message, started_at, finished_at FROM data_source_runs ORDER BY started_at DESC"))).all():
+    for r in (await db.execute(text("SELECT source_id, status, error_message, started_at, finished_at, cursor FROM data_source_runs "
+                                    "ORDER BY started_at DESC"))).all():
         runs.setdefault(r[0], []).append(r)
     out = []
     for ds in (await db.execute(select(DataSource).order_by(DataSource.name))).scalars().all():
@@ -217,9 +252,16 @@ async def _registers(db, records: Dict[str, int], leads: Dict[str, int], staff: 
         if ds.status == "disabled":
             status, why = "off", "Switched off by Aivhub. Its records already loaded stay searchable."
         elif ds.run_state == "paused":
-            status, why = "paused", "Its records are searchable. New updates are paused."
+            cur = latest[5] if latest is not None and isinstance(latest[5], dict) else {}
+            if cur.get("job") == "people":
+                status, why = "paused", "Its company records are searchable. Updates of directors and owners are paused."
+            else:
+                status, why = "paused", "Its records are searchable. New updates are paused."
         elif failed:
             status, why = "error", "Its records are searchable. The last update didn't finish, so recent changes may be missing."
+        elif synced and datetime.utcnow() - synced > timedelta(days=STALE_AFTER_DAYS.get(ds.id, STALE_DEFAULT_DAYS)):
+            status, why = "stale", (f"Its records are searchable, but they were last updated on {_when(synced)}. "
+                                    "The register has published newer data since.")
         else:
             status, why = "connected", "Its records are searchable."
         info = REGISTER_TEXT.get(ds.id, {})
@@ -255,7 +297,8 @@ def _datasets(records: Dict[str, int], leads: Dict[str, int], staff: bool) -> Li
     return out
 
 
-async def _services(org_id: str, records: Dict[str, int], stats: Dict[str, Any], uses: Dict[str, int], staff: bool) -> List[Dict[str, Any]]:
+async def _services(org_id: str, records: Dict[str, int], stats: Dict[str, Any], uses: Dict[str, int], staff: bool,
+                    empty: Optional[set] = None) -> List[Dict[str, Any]]:
     from app.providers import registry
     from app.services import plan_rules
 
@@ -266,10 +309,12 @@ async def _services(org_id: str, records: Dict[str, int], stats: Dict[str, Any],
             continue  # Apollo is under Provider keys
         has_key = bool(await p.saved_key())
         allowed = await plan_rules.provider_allowed(p.manifest.id, org_id)
-        parts.append({"id": p.manifest.id, "name": p.label(), "connected": has_key, "inPlan": allowed})
-    live = [x for x in parts if x["connected"] and x["inPlan"]]
+        parts.append({"id": p.manifest.id, "name": p.label(), "connected": has_key, "inPlan": allowed, "outOfCredit": p.manifest.id in (empty or ())})
+    live = [x for x in parts if x["connected"] and x["inPlan"] and not x["outOfCredit"]]
     if live:
         status, why = "connected", f"{len(live)} verified e-mail finder{'s' if len(live) != 1 else ''} ready. Each is asked in turn until one finds the address."
+    elif any(x["connected"] and x["inPlan"] for x in parts):
+        status, why = "no_credit", "Every e-mail finder has used up its credit, so no e-mails can be found until Aivhub tops them up."
     elif any(x["connected"] for x in parts):
         status, why = "not_in_plan", "Your plan doesn't include the e-mail finders."
     else:
@@ -291,7 +336,10 @@ async def _services(org_id: str, records: Dict[str, int], stats: Dict[str, Any],
         has_key = bool(await p.saved_key())
         allowed = await plan_rules.provider_allowed(pid, org_id)
         status = "connected" if has_key and allowed else ("not_in_plan" if has_key else "not_connected")
-        why = {"connected": "Ready.", "not_in_plan": "Your plan doesn't include it.", "not_connected": "Not set up yet."}[status]
+        if status == "connected" and pid.split("_")[0] in (empty or ()):
+            status = "no_credit"
+        why = {"connected": "Ready.", "not_in_plan": "Your plan doesn't include it.", "not_connected": "Not set up yet.",
+               "no_credit": "It has used up its credit, so checks fail until Aivhub tops it up."}[status]
         out.append(_entry(pid, (f"{name} ({p.label()})" if staff else name), "services", status, desc, statusText=why, provides=[kind], logo=logo,
                           pricing=pricing, uses30d=uses.get(pid, 0) if pid == "telnyx_lookup" else None,  # TPS checks aren't in the cost ledger yet
                           testable=has_key and allowed and (staff or not p.manifest.test_spends)))
@@ -306,7 +354,7 @@ async def _services(org_id: str, records: Dict[str, int], stats: Dict[str, Any],
     return out
 
 
-async def _keys(org_id: str, uses: Dict[str, int], staff: bool) -> List[Dict[str, Any]]:
+async def _keys(org_id: str, uses: Dict[str, int], staff: bool, empty: Optional[set] = None) -> List[Dict[str, Any]]:
     from app.api.connections import platform_provided
     from app.services import plan_rules
     from app.services import tenant_policy as TP
@@ -332,11 +380,13 @@ async def _keys(org_id: str, uses: Dict[str, int], staff: bool) -> List[Dict[str
             status, why = "not_connected", "No key yet."
         elif k.get("provider") and not await plan_rules.provider_allowed(k["provider"], org_id):
             status, why = "not_in_plan", "Your plan doesn't include it."
+        elif source == "platform" and k["word"] in (empty or ()):
+            status, why = "no_credit", "Aivhub's key has used up its credit for now, so look-ups with it fail until it's topped up."
         else:
             status, why = "connected", "Your own key." if source == "own" else "Provided by Aivhub."
         out.append(_entry(k["id"], k["name"], "keys", status, k["desc"], statusText=why, provides=list(k["provides"]), logo=k["logo"],
                           pricing=k["id"], keySource=source, uses30d=uses.get(k["provider"]) if k.get("provider") else None,
-                          testable=status == "connected" and bool(k.get("provider"))))
+                          testable=status in ("connected", "no_credit") and (bool(k.get("provider")) or k["word"] in AI_CHECKS)))
     return out
 
 
@@ -360,17 +410,61 @@ async def catalogue(db, org_id: str, staff: bool = False) -> Dict[str, Any]:
     leads = await _leads_by_raw_key(db)
     by_origin = await _leads_by_origin(db)
     uses = await _uses_30d(db, org_id)
+    empty = await _empty_balances(db)
     items: List[Dict[str, Any]] = []
     items += await _registers(db, records, leads, staff)
     items += _datasets(records, leads, staff)
-    items += await _services(org_id, records, stats, uses, staff)
-    items += await _keys(org_id, uses, staff)
+    items += await _services(org_id, records, stats, uses, staff, empty)
+    items += await _keys(org_id, uses, staff, empty)
     items += await _yours(by_origin)
     for c in COMING_SOON:
         items.append(_entry(c["id"], c["name"], c["group"], "coming_soon", c["desc"], statusText="Not built yet. Ask for it and we'll let you know.",
                             provides=list(c["provides"]), logo=c["logo"], pricing=c.get("pricing") or ""))
     return {"connectors": items, "groups": [{"id": g, "label": l} for g, l in GROUPS], "kinds": [{"id": k, "label": l} for k, l in KINDS],
             "countsAt": stats.get("at"), "staff": staff}
+
+
+# The AI keys have no provider in app/providers: their check lists the models, which is free.
+AI_CHECKS = {"openai": "https://api.openai.com/v1/models", "deepseek": "https://api.deepseek.com/models"}
+
+
+async def _ai_key(word: str, org_id: str) -> str:
+    """The key the company's AI calls use: its own, else the platform's. "" when none."""
+    import os
+
+    from app.api.connections import provider_key
+    from app.config import settings
+    from app.core.platform import platform_org_id
+    from app.core.tenancy import org_scope
+    from app.services import enrichment_service as E
+
+    with org_scope(org_id):
+        key = await provider_key(word)
+    if not key:
+        with org_scope(platform_org_id()):
+            key = await provider_key(word)
+    if not key and word == "openai":
+        key = getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY") or ""
+    if not key and word == "deepseek":
+        key = await E.deepseek_key()
+    return key or ""
+
+
+async def _ai_check(word: str, key: str) -> Dict[str, Any]:
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=6.0)) as client:
+            res = await client.get(AI_CHECKS[word], headers={"Authorization": f"Bearer {key}"})
+    except Exception as err:
+        return {"ok": False, "detail": f"It could not be reached: {type(err).__name__}."}
+    if res.status_code == 200:
+        return {"ok": True, "detail": "Key works."}
+    if res.status_code in (401, 403):
+        return {"ok": False, "detail": f"The key was rejected ({res.status_code})."}
+    if res.status_code == 402:
+        return {"ok": False, "detail": "The account has no credit left (402)."}
+    return {"ok": False, "detail": f"It answered {res.status_code}."}
 
 
 # -- the test button ---------------------------------------------------------------------------------------------------------------
@@ -410,6 +504,20 @@ async def test(org_id: str, connector_id: str, staff: bool = False) -> Dict[str,
         return out
 
     key_entry = next((k for k in KEYS if k["id"] == connector_id), None)
+    if key_entry and key_entry["word"] in AI_CHECKS:
+        key = await _ai_key(key_entry["word"], org_id)
+        if not key:
+            return {"ok": False, "detail": "There's no key to check.", "checkedAt": at}
+        _LAST_TEST[gate] = now
+        r = await _ai_check(key_entry["word"], key)
+        if not r["ok"] and not staff:
+            from app.services.ai_errors import alert_staff
+
+            await alert_staff("CON-01", f"{connector_id} failed its check for {org_id}: {r['detail']}", org_id=org_id)
+            r["detail"] = "It didn't answer properly, so it isn't working right now. Aivhub has been told."
+        elif not staff:
+            r["detail"] = "It answered: it's working."
+        return {**r, "checkedAt": at}
     pid = key_entry.get("provider") if key_entry else connector_id
     p = registry.get(pid or "")
     if p is None:

@@ -29,6 +29,9 @@ describe("connectors", () => {
   it("counts what works, what needs a look and what isn't built", () => {
     expect(summary(LIST)).toEqual({ connected: 1, attention: 2, soon: 1, other: 0 });
     expect([toneOf("connected"), toneOf("paused"), toneOf("error"), toneOf("coming_soon"), toneOf("anything")]).toEqual(["good", "warn", "bad", "soon", "muted"]);
+    const more = [...LIST, { id: "ds_food_hygiene", status: "stale" }, { id: "key_tavily", status: "no_credit" }];
+    expect(summary(more)).toEqual({ connected: 1, attention: 4, soon: 1, other: 0 });
+    expect([toneOf("stale"), toneOf("no_credit")]).toEqual(["warn", "bad"]);
     expect(kindLabels(LIST[0], [{ id: "company", label: "Company details" }])).toEqual(["Company details", "people"]);
   });
 });
