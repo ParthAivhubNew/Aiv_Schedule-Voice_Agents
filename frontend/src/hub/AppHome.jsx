@@ -126,7 +126,7 @@ function PhoneHome({ operator, firstName, needsName, firstVisit, apps, statusOf,
 
 // Home: the apps of the suite side by side. The ones the organisation has a plan for come first;
 // the others can be opened to try and added at any time.
-export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections }) {
+export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenSettings }) {
   const phone = usePhone();
   // Plans and credits are for admins; everyone else simply sees the apps.
   const [billing, setBilling] = useState(null);
@@ -154,7 +154,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
 
   const firstVisit = Boolean(operator?.first_visit);
 
-  const menuProps = { onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections };
+  const menuProps = { onLogout, commonAi, onOpenCommonAi, onOpenProfileSettings, onOpenSettings };
   const statusOf = (app) => {
     const st = stateOf(app);
     if (!st.wallet) return null;
@@ -184,11 +184,8 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
             onLogout={onLogout}
             commonAi={commonAi}
             onOpenCommonAi={onOpenCommonAi}
-            onOpenTeamUsers={onOpenTeamUsers}
             onOpenProfileSettings={onOpenProfileSettings}
-            onOpenCalcomAdmin={onOpenCalcomAdmin}
-            onOpenDeveloperKeys={onOpenDeveloperKeys}
-            onOpenConnections={onOpenConnections}
+            onOpenSettings={onOpenSettings}
           />
         </div>
       </header>

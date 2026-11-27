@@ -247,6 +247,7 @@ const CSS = `
 .cx-tab:hover{background:#fff}
 .cx-tab.on{background:#fff;color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
 .cx-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.cx-modal.cx-inline{width:100%;height:100%;border-radius:0;box-shadow:none;border:none}
 .cx-head{display:flex;align-items:center;gap:8px;padding:16px 22px 12px;border-bottom:1px solid ${C.border}}
 .cx-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:18px 22px 24px}
 @media (max-width:700px){
@@ -258,7 +259,8 @@ const CSS = `
 }
 `;
 
-export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
+// inline + page: one tab drawn inside the Settings page (plan 13), whose left list picks it; no window, no close.
+export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "", inline = false, page }) {
   const [tab, setTab] = useState("follow");
   const [rules, setRules] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -266,18 +268,19 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
   const { plugins } = useConnections();
   const toast = useCallback((m) => { setMessage(m); window.setTimeout(() => setMessage(""), 3500); }, []);
   useEffect(() => { if (isOpen && TABS.some(([k]) => k === initialTab)) setTab(initialTab); }, [isOpen, initialTab]);
+  useEffect(() => { if (page && TABS.some(([k]) => k === page)) setTab(page); }, [page]);
   useEffect(() => {
     if (!isOpen) return;
     api.getConnectionRules().then((r) => setRules(r.rules)).catch((e) => toast(e.message || "Couldn't load your settings."));
   }, [isOpen, toast]);
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || inline) return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => { document.body.style.overflow = prev; document.removeEventListener("keydown", onKey); };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, inline]);
   if (!isOpen) return null;
   const change = async (patch) => {
     const next = { ...rules, ...patch };
@@ -287,10 +290,10 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
   };
   const current = TABS.find(([k]) => k === tab) || TABS[0];
   return (
-    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: "fixed", inset: 0, overscrollBehavior: "contain", background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div onMouseDown={inline ? undefined : (e) => { if (e.target === e.currentTarget) onClose(); }} style={inline ? { height: "100%" } : { position: "fixed", inset: 0, overscrollBehavior: "contain", background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <style>{CSS}</style>
-      <div role="dialog" aria-label="Connections" className="cx-modal">
-        <aside className="cx-side">
+      <div role={inline ? undefined : "dialog"} aria-label="Connections" className={inline ? "cx-modal cx-inline" : "cx-modal"}>
+        {inline ? null : <aside className="cx-side">
           <div style={{ padding: "0 6px" }}>
             <div style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, color: C.ink }}>Connections</div>
             <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>How Lead Gen, Voice and Social work together.</div>
@@ -309,14 +312,14 @@ export function ConnectionsSettingsModal({ isOpen, onClose, initialTab = "" }) {
               </div>
             ))}
           </div>
-        </aside>
+        </aside>}
         <div className="cx-main">
           <div className="cx-head">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 style={{ ...text, fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: C.ink, margin: 0 }}>{current[1]}</h1>
               <div style={{ ...muted, fontSize: 12.5 }}>{current[3]}</div>
             </div>
-            <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={onClose}><X size={16} /></button>
+            {inline ? null : <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" aria-label="Close" onClick={onClose}><X size={16} /></button>}
           </div>
           <div className="cx-body ui-scroll">
             {tab === "follow" ? (rules ? <Switches rules={rules} plugins={plugins} onChange={change} busy={busy} /> : <Loader compact label="Loading" />) : null}

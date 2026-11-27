@@ -2904,7 +2904,9 @@ export function SocialWorkspace({
   const [selectedId, setSelectedId] = useState(null);
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
-  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") || routeHash().includes("/scheduler/subscription") ? "subscription" : "plan"));
+  // Settings → Social settings opens /scheduler/accounts, so the setup pages can be named in the address too.
+  const routePage = () => { const m = routeHash().match(/^#\/scheduler\/(subscription|accounts|theme)\b/); return m ? m[1] : ""; };
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") ? "subscription" : routePage() || "plan"));
   const nav = useMobileNav(page);
   // Phones: a tap shows that day's posts under the month (no pinning, no double-tap).
   const phone = usePhone();
@@ -2913,7 +2915,8 @@ export function SocialWorkspace({
   const pluginLocked = !schedulerPlanLoading && !schedulerHasPlan;
   const socialBar = accountBar ? cloneElement(accountBar, { wallet: pluginLocked ? null : "scheduler", app: "Social", onOpenPlan: () => { setApprovalOpen(false); setPage("subscription"); } }) : null;
   useEffect(() => onRouteChange(() => {
-    if (routeHash().includes("/scheduler/subscription")) setPage("subscription");
+    const next = routePage();
+    if (next) setPage(next);
   }), []);
   const [accounts, setAccounts] = useState([]);
   const [connecting, setConnecting] = useState("");

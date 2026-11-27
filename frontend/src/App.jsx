@@ -19,17 +19,15 @@ import { ChangePasswordScreen } from "./hub/ChangePasswordScreen";
 import { LoginScreen } from "./hub/LoginScreen";
 import { AppHome } from "./hub/AppHome";
 import { UniversalCallNotificationBanner } from "./hub/PluginHub";
-import { ProfilePage } from "./hub/ProfilePage";
+import { SettingsPage } from "./hub/SettingsPage";
+import { settingsHashForConnections, settingsHashForTeam } from "./hub/settingsPages";
 import { AccountBar } from "./hub/AccountBar";
 import { ListHandoffPrompt } from "./hub/ListHandoffPrompt";
 import { DuplicatesNotice } from "./hub/DuplicatesNotice";
 import { OrgSettingsProvider } from "./org/orgSettings";
 import { CalcomAdminModal } from "./plugins/calendar/CalcomAdminModal";
 import { CommonAiConfigModal } from "./settings/CommonAiConfigModal";
-import { DeveloperApiKeysModal } from "./settings/DeveloperApiKeysModal";
-import { ConnectionsSettingsModal } from "./connections/ConnectionsSettings";
 import { InstallPrompt } from "./components/InstallPrompt";
-import { TeamModal } from "./team/TeamModal";
 import { navigateHash, onRouteChange, replaceHash, routeHash } from "./utils/route";
 
 // Each app's code loads the first time it is opened, so sign-in and Home come up fast on a phone.
@@ -316,7 +314,7 @@ function MainApp({ onSignedOut }) {
         subView = emailSub === "subscription" ? "subscription" : emailSub;
         replaceHash(`#/leadgen/${subView}`);
       }
-      const valid = ["voice", "scheduler", "leadgen", "calcom"];
+      const valid = ["voice", "scheduler", "leadgen", "calcom", "settings"];
       if (valid.includes(p)) {
         return { plugin: p, subView };
       }
@@ -333,7 +331,7 @@ function MainApp({ onSignedOut }) {
 
   const [visitedPlugins, setVisitedPlugins] = useState(() => {
     const init = parseRoute().plugin;
-    return init ? [init] : [];
+    return init && init !== "settings" ? [init] : [];
   });
 
   const [returnPlugin, setReturnPlugin] = useState(() => {
@@ -354,10 +352,13 @@ function MainApp({ onSignedOut }) {
 
   // Track visited plugins so DOM and state are preserved across switches
   useEffect(() => {
-    if (plugin && !visitedPlugins.includes(plugin)) {
+    if (plugin && plugin !== "settings" && !visitedPlugins.includes(plugin)) {
       setVisitedPlugins((prev) => [...prev, plugin]);
     }
   }, [plugin, visitedPlugins]);
+  // Settings is a page of its own (plan 13): its Back row returns to the app, or Home, you opened it from.
+  const [settingsFrom, setSettingsFrom] = useState(null);
+  useEffect(() => { if (plugin !== "settings") setSettingsFrom(plugin); }, [plugin]);
 
   // Each app is its own download. Once the person is signed in and the page is quiet, fetch the others in the background
   // so switching apps does not stop on "Opening…". A failed fetch is ignored here; opening the app retries it.
@@ -678,8 +679,6 @@ function MainApp({ onSignedOut }) {
     }
   });
   const [showCommonAiModal, setShowCommonAiModal] = useState(false);
-  const [showTeamModal, setShowTeamModal] = useState(false);
-  const [teamInitialTab, setTeamInitialTab] = useState("users");
   const [showCalcomAdminModal, setShowCalcomAdminModal] = useState(false);
   const [calcomInitialTab, setCalcomInitialTab] = useState("accounts");
   // Lets screens such as Calling -> Schedule open the Calendar & meetings window on a given tab.
@@ -688,19 +687,15 @@ function MainApp({ onSignedOut }) {
     window.addEventListener("aivhub:open-calendar-settings", open);
     return () => window.removeEventListener("aivhub:open-calendar-settings", open);
   }, []);
-  // Lets any screen open Users, roles, numbers & credits on a tab, e.g. Find Leads' "See rules" opens Company rules.
+  // Lets any screen open a Settings section by its old Users-window tab, e.g. Find Leads' "See rules" opens Company rules.
   useEffect(() => {
-    const open = (ev) => { setTeamInitialTab((ev && ev.detail) || "users"); setShowTeamModal(true); };
+    const open = (ev) => navigateHash(settingsHashForTeam((ev && ev.detail) || "users"));
     window.addEventListener("aivhub:open-team-settings", open);
     return () => window.removeEventListener("aivhub:open-team-settings", open);
   }, []);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showDeveloperKeysModal, setShowDeveloperKeysModal] = useState(false);
   // "Connections" (how Leads, Voice and Social work together) opens from the menu and from any screen that links to it.
-  const [showConnections, setShowConnections] = useState(false);
-  const [connectionsTab, setConnectionsTab] = useState("");
   useEffect(() => {
-    const open = (ev) => { setConnectionsTab((ev && ev.detail) || ""); setShowConnections(true); };
+    const open = (ev) => navigateHash(settingsHashForConnections((ev && ev.detail) || ""));
     window.addEventListener("aivhub:open-connections", open);
     return () => window.removeEventListener("aivhub:open-connections", open);
   }, []);
@@ -873,6 +868,14 @@ function MainApp({ onSignedOut }) {
 
   if (!operator) return null;
 
+  const openSettings = () => navigateHash("#/settings");
+  const openProfileSettings = () => navigateHash("#/settings/profile");
+  const openTeamSettings = (tab) => navigateHash(settingsHashForTeam(typeof tab === "string" ? tab : "users"));
+  const APP_NAMES = { leadgen: "Leads", voice: "Voice", scheduler: "Social", calcom: "Calendar" };
+  const settingsBack = settingsFrom
+    ? { name: APP_NAMES[settingsFrom] || "the app", onClick: () => setPlugin(settingsFrom) }
+    : { name: "Home", onClick: handleBackToHub };
+
   const accountBar = (
     <AccountBar
       operator={operator}
@@ -883,11 +886,9 @@ function MainApp({ onSignedOut }) {
         onLogout: handleLogout,
         commonAi,
         onOpenCommonAi: platformOrg ? (tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); } : null,
-        onOpenTeamUsers: (tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); },
-        onOpenProfileSettings: () => setShowProfileModal(true),
-        onOpenCalcomAdmin: (tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); },
-        onOpenDeveloperKeys: () => setShowDeveloperKeysModal(true),
-        onOpenConnections: () => { setConnectionsTab(""); setShowConnections(true); },
+        onOpenTeamUsers: openTeamSettings,
+        onOpenProfileSettings: openProfileSettings,
+        onOpenSettings: openSettings,
       }}
     />
   );
@@ -909,6 +910,11 @@ function MainApp({ onSignedOut }) {
           </div>
         </div>
       ) : null}
+      {plugin === "settings" && (
+        <SafeErrorBoundary label="Settings" onReset={handleBackToHub}>
+          <SettingsPage operator={operator} setOperator={handleUpdateOperator} accountBar={accountBar} from={settingsBack} onHome={handleBackToHub} />
+        </SafeErrorBoundary>
+      )}
       {!plugin && (
         <SafeErrorBoundary label="Plugin Hub" onReset={handleBackToHub}>
           <AppHome
@@ -917,11 +923,9 @@ function MainApp({ onSignedOut }) {
             onLogout={handleLogout}
             commonAi={commonAi}
             onOpenCommonAi={platformOrg ? (tab) => { if (tab) setCommonAiTab(tab); setCommonAiScope(null); setShowCommonAiModal(true); } : null}
-            onOpenTeamUsers={(tab) => { setTeamInitialTab(typeof tab === "string" ? tab : "users"); setShowTeamModal(true); }}
-            onOpenProfileSettings={() => setShowProfileModal(true)}
-            onOpenCalcomAdmin={(tab) => { setCalcomInitialTab(tab || "accounts"); setShowCalcomAdminModal(true); }}
-            onOpenDeveloperKeys={() => setShowDeveloperKeysModal(true)}
-            onOpenConnections={() => { setConnectionsTab(""); setShowConnections(true); }}
+            onOpenTeamUsers={openTeamSettings}
+            onOpenProfileSettings={openProfileSettings}
+            onOpenSettings={openSettings}
           />
         </SafeErrorBoundary>
       )}
@@ -1065,28 +1069,6 @@ function MainApp({ onSignedOut }) {
         operator={operator}
         initialTab={calcomInitialTab}
       />
-
-      <TeamModal
-        isOpen={showTeamModal}
-        onClose={() => setShowTeamModal(false)}
-        currentUser={operator}
-        initialTab={teamInitialTab}
-      />
-
-      <ProfilePage
-        orgName={operator?.org_name}
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        operator={operator}
-        setOperator={handleUpdateOperator}
-      />
-
-      <DeveloperApiKeysModal
-        open={showDeveloperKeysModal}
-        onClose={() => setShowDeveloperKeysModal(false)}
-      />
-
-      <ConnectionsSettingsModal isOpen={showConnections} onClose={() => setShowConnections(false)} initialTab={connectionsTab} />
 
       <InstallPrompt />
       <SupportWidgetBridge operator={operator} />

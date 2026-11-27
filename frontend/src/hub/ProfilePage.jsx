@@ -30,6 +30,7 @@ const MODAL_CSS = `
 .pf-tab:hover{background:${C.surface}}
 .pf-tab.on{background:${C.surface};color:${C.cobalt};box-shadow:0 1px 3px rgba(18,20,28,.08)}
 .pf-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.pf-modal.pf-inline{max-width:none;height:100%;border-radius:0;box-shadow:none;border:none}
 .pf-head{display:flex;align-items:center;gap:8px;padding:16px 22px;border-bottom:1px solid ${C.border}}
 .pf-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 22px;display:flex;flex-direction:column;gap:18px}
 .pf-foot{display:flex;align-items:center;gap:8px;padding:12px 22px;border-top:1px solid ${C.border}}
@@ -83,7 +84,8 @@ function deviceName(ua) {
 }
 
 // Your own profile: photo, details, email notifications and security. Only you can change it.
-export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName }) {
+// inline + page: one section of it drawn inside the Settings page (plan 13), whose own left list picks the section.
+export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName, inline = false, page }) {
   const [tab, setTab] = useState("profile");
   const [form, setForm] = useState(() => seed(operator));
   const [base, setBase] = useState(() => seed(operator));
@@ -106,19 +108,21 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
     setForm(s);
     setBase(s);
     setCustomGender(isCustom(s.gender));
-    setTab("profile");
+    setTab(page || "profile");
     setStatus({ kind: "", text: "" });
     setNotif(null);
     api.getMyNotifications().then((n) => { setNotif(n); setNotifBase(JSON.stringify(n.events?.map((e) => e.on) || [])); }).catch(() => setNotif({ events: [], mailboxReady: false, failed: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, operator?.id]);
 
+  useEffect(() => { if (page) { setTab(page); setStatus({ kind: "", text: "" }); } }, [page]);
+
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || inline) return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
-  }, [isOpen]);
+  }, [isOpen, inline]);
 
   useEffect(() => {
     if (isOpen && tab === "security") {
@@ -241,11 +245,11 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
   const discard = () => { setForm(base); setCustomGender(isCustom(base.gender)); if (notif && !notif.failed) api.getMyNotifications().then(setNotif).catch(() => {}); };
 
   return (
-    <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+    <div role="presentation" onMouseDown={inline ? undefined : (e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={inline ? { height: "100%" } : { position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
       <style>{MODAL_CSS}</style>
-      <div role="dialog" aria-label="Your profile" className="pf-modal">
-        <aside className="pf-side">
+      <div role={inline ? undefined : "dialog"} aria-label="Your profile" className={inline ? "pf-modal pf-inline" : "pf-modal"}>
+        {inline ? null : <aside className="pf-side">
           <div className="pf-who">
             <Avatar user={operator} size={44} />
             <div style={{ minWidth: 0 }}>
@@ -258,12 +262,12 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
               <button key={k} type="button" role="tab" aria-selected={tab === k} className={`pf-tab${tab === k ? " on" : ""}`} onClick={() => { setTab(k); setStatus({ kind: "", text: "" }); }}>{name}</button>
             ))}
           </div>
-        </aside>
+        </aside>}
 
         <div className="pf-main">
           <div className="pf-head">
             <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: C.textInk, margin: 0, flex: 1 }}>{TABS.find(([k]) => k === tab)[1]}</h1>
-            <button type="button" aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate, display: "flex" }}><X size={20} /></button>
+            {inline ? null : <button type="button" aria-label="Close" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate, display: "flex" }}><X size={20} /></button>}
           </div>
 
           <div className="pf-body">
@@ -438,7 +442,7 @@ export function ProfilePage({ isOpen, onClose, operator, setOperator, orgName })
                 <button type="button" style={btn} onClick={discard}>Discard</button>
                 <button type="button" style={btnDark} disabled={saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</button>
               </>
-            ) : <button type="button" style={btn} onClick={onClose}>Close</button>}
+            ) : inline ? null : <button type="button" style={btn} onClick={onClose}>Close</button>}
           </div>
         </div>
       </div>

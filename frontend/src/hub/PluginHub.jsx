@@ -1,15 +1,11 @@
 import {
   BookOpen,
-  CalendarCheck,
   ChevronDown,
   Headset,
-  KeyRound,
-  Link2,
   LogOut,
+  Settings,
   Settings2,
-  Smartphone,
   User,
-  Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { openSupport } from "./openSupport";
@@ -27,13 +23,11 @@ export function helpForHere(hash = routeHash()) {
 }
 import { Avatar } from "./Avatar";
 import { AdminCrown } from "../components/AdminCrown";
-import { InstallStepsSheet } from "../components/InstallSteps";
-import { useShowInstallSteps } from "../components/installState";
 
-export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenTeamUsers, onOpenProfileSettings, onOpenCalcomAdmin, onOpenDeveloperKeys, onOpenConnections, compact }) {
+// Plan 13: the menu is short. Your profile and Settings (everything else you set up, for you and the company, on one page),
+// help for the app you are in, and Sign out. Outreach staff also get AI Configuration.
+export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, onOpenProfileSettings, onOpenSettings, compact }) {
   const [open, setOpen] = useState(false);
-  const [installOpen, setInstallOpen] = useState(false);
-  const installable = useShowInstallSteps();
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -125,48 +119,23 @@ export function UserProfileMenu({ operator, onLogout, commonAi, onOpenCommonAi, 
             </div>
           </div>
 
-          {/* Everyone: the same row, the same icon tile, the same spacing */}
           <MenuItem icon={User} title="Your profile" sub="Photo, details and security" onClick={() => { setOpen(false); onOpenProfileSettings(); }} />
-          {onOpenConnections ? (
-            <MenuItem icon={Link2} title="Connections" sub="How Leads, Voice & Social work together" onClick={() => { setOpen(false); onOpenConnections(); }} />
+          {onOpenSettings ? (
+            <MenuItem icon={Settings} title="Settings" sub="People, plans, rules and everything you set up" onClick={() => { setOpen(false); onOpenSettings(); }} />
           ) : null}
           <MenuItem icon={Headset} title="Support" sub="Report an issue or ask a question" onClick={() => { setOpen(false); openSupport({ plugin: helpForHere().plugin }); }} />
           <MenuItem icon={BookOpen} title="Documentation" sub="Open documentation in a new tab" onClick={() => { setOpen(false); window.open(helpForHere().docs, "_blank"); }} />
 
-          {installable ? (
-            <MenuItem icon={Smartphone} title="Install the app" sub="Add Outreach to your home screen" onClick={() => { setOpen(false); setInstallOpen(true); }} />
+          {/* AI Configuration (Outreach's own organisation only) */}
+          {isAdmin && onOpenCommonAi ? (
+            <MenuItem icon={Settings2} title="AI Configuration" sub="App models & API keys" badge={isFullyConnected ? "All active" : isPartiallyConnected ? `${configuredCount} / ${totalProvidersCount} connected` : "Not configured"}
+              onClick={() => { setOpen(false); onOpenCommonAi(); }} />
           ) : null}
-
-          {/* Admin Controls */}
-          {isAdmin && (
-            <>
-              <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
-              <div style={{ padding: "4px 10px", fontFamily: FONT_BODY, fontSize: 10, fontWeight: 700, color: C.slateLight, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Admin Controls
-              </div>
-              {(operator?.is_admin || (operator?.permissions && operator.permissions.team && operator.permissions.team !== "none")) ? (
-                <MenuItem icon={Users} title="Users & roles" sub="Add people and choose what they can see" onClick={() => { setOpen(false); onOpenTeamUsers(); }} />
-              ) : null}
-              <MenuItem icon={CalendarCheck} title="Calendar & meetings" sub="Invite mail, embeds & host sync" badge="Admin"
-                onClick={() => { setOpen(false); if (onOpenCalcomAdmin) onOpenCalcomAdmin("accounts"); }} />
-              {onOpenDeveloperKeys ? (
-                <MenuItem icon={KeyRound} title="Admin APIs & Webhooks" sub="Voice, Leads & Social APIs" badge="API"
-                  onClick={() => { setOpen(false); onOpenDeveloperKeys(); }} />
-              ) : null}
-              {/* AI Configuration (Outreach's own organisation only) */}
-              {onOpenCommonAi ? (
-                <MenuItem icon={Settings2} title="AI Configuration" sub="App models & API keys"
-                  badge={isFullyConnected ? "All active" : isPartiallyConnected ? `${configuredCount} / ${totalProvidersCount} connected` : "Not configured"}
-                  onClick={() => { setOpen(false); onOpenCommonAi(); }} />
-              ) : null}
-            </>
-          )}
 
           <div style={{ height: 1, background: C.borderLight, margin: "6px 8px" }} />
           <MenuItem icon={LogOut} title="Sign out" danger onClick={() => { setOpen(false); onLogout(); }} />
         </div>
       )}
-      <InstallStepsSheet open={installOpen} onClose={() => setInstallOpen(false)} />
     </div>
   );
 }

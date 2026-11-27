@@ -336,8 +336,9 @@ function RolesTab({ roles, sections, reload, isAdmin, flash }) {
 
 // Users & roles: add people, give roles, set No access / View / Full per section.
 // inline: drawn in the page instead of over it (the embedded Account screen), with no close button.
-export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", inline = false }) {
-  const [tab, setTab] = useState(initialTab);
+// only: one tab and nothing around it, for the Settings page (plan 13), whose own left list picks the tab and shows its title.
+export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", inline = false, only }) {
+  const [tab, setTab] = useState(only || initialTab);
   const [roles, setRoles] = useState([]);
   const [sections, setSections] = useState([]);
   const [error, setError] = useState("");
@@ -354,8 +355,8 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
   }, []);
 
   useEffect(() => {
-    if (isOpen) setTab(initialTab || "users");
-  }, [isOpen, initialTab]);
+    if (isOpen) setTab(only || initialTab || "users");
+  }, [isOpen, initialTab, only]);
 
   useEffect(() => {
     if (isOpen) reload();
@@ -371,6 +372,19 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
       <Icon size={14} /> {label}
     </button>
   );
+
+  const body = (
+    <>
+      {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
+      {tab === "users" && <UsersTab me={currentUser} roles={roles} sections={sections} flash={flash} />}
+      {tab === "roles" && <RolesTab roles={roles} sections={sections} reload={reload} isAdmin={Boolean(currentUser?.is_admin)} flash={flash} />}
+      {tab === "numbers" && <NumbersTab flash={flash} />}
+      {tab === "rules" && currentUser?.is_admin && <RulesTab flash={flash} />}
+      {tab === "credits" && <CreditsTab />}
+      {tab === "myusage" && <PeopleUsage load={loadPeople} title="Your credit use" />}
+    </>
+  );
+  if (only) return <div style={{ fontFamily: FONT_BODY }}>{body}{toast}</div>;
 
   return (
     <div style={inline ? { height: "100%" } : { position: "fixed", inset: 0, background: "rgba(18,20,28,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
@@ -395,15 +409,7 @@ export function TeamModal({ isOpen, onClose, currentUser, initialTab = "users", 
           {currentUser?.is_admin ? tabBtn("credits", "Plans & credits", Coins) : tabBtn("myusage", "My credit use", Coins)}
           {currentUser?.is_admin ? tabBtn("rules", "Company rules", ListChecks) : null}
         </div>
-        <div style={{ padding: 20, overflowY: "auto" }}>
-          {error && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
-          {tab === "users" && <UsersTab me={currentUser} roles={roles} sections={sections} flash={flash} />}
-          {tab === "roles" && <RolesTab roles={roles} sections={sections} reload={reload} isAdmin={Boolean(currentUser?.is_admin)} flash={flash} />}
-          {tab === "numbers" && <NumbersTab flash={flash} />}
-          {tab === "rules" && currentUser?.is_admin && <RulesTab flash={flash} />}
-          {tab === "credits" && <CreditsTab />}
-          {tab === "myusage" && <PeopleUsage load={loadPeople} title="Your credit use" />}
-        </div>
+        <div style={{ padding: 20, overflowY: "auto" }}>{body}</div>
       </div>
       {toast}
     </div>
