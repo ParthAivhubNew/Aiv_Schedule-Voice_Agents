@@ -75,7 +75,9 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
     Dashboard. Everything else still alerts; on the test copy that is now only "STRIPE_WEBHOOK_SECRET is not set" (real: test
     payments can't update plans until a test webhook secret is added).
   - The Dashboard opens with its numbers; the alerts box and a "Set-up to fix before launch" list come under them. Other pages keep
-    the alerts box at the top., Journeys, Voice's Call list and Social's calendar.
+    the alerts box at the top.
+- ✅ **Full test suite (2026-11-27), after every step above:** backend 2,289 passed in four parallel parts (20 skipped; the known
+  failures left out), frontend 791 passed, no lint errors, build clean., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
