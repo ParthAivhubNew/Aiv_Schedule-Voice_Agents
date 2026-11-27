@@ -2905,7 +2905,7 @@ export function SocialWorkspace({
   // Stripe returns here with ?billing=... after a payment started on the Subscription page, and
   // Home links straight to /scheduler/subscription.
   // Settings → Social settings opens /scheduler/accounts, so the setup pages can be named in the address too.
-  const routePage = () => { const m = routeHash().match(/^#\/scheduler\/(subscription|accounts|theme)\b/); return m ? m[1] : ""; };
+  const routePage = () => { const m = routeHash().match(/^#\/scheduler\/(subscription|accounts|theme|plan|insights|audience|listening|library|media)\b/); return m ? m[1] : ""; };
   const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).has("billing") ? "subscription" : routePage() || "plan"));
   const nav = useMobileNav(page);
   // Phones: a tap shows that day's posts under the month (no pinning, no double-tap).

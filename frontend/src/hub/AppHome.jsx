@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, ExternalLink, Headset, Smartphone, Workflow } from "lucide-react";
+import { ArrowRight, Smartphone, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { C, FONT_BODY } from "../app/constants";
 import { AppChrome } from "../app/ui";
@@ -6,7 +6,6 @@ import { api } from "../api/apiClient";
 import { fmt, money } from "../team/CreditsTab";
 import { navigateHash } from "../utils/route";
 import { openWorkflows } from "../workflows/openWorkflows";
-import { openSupport } from "./openSupport";
 import { APPS } from "./apps";
 import { NextStep } from "./OnboardingChecklist";
 import { homeActivity, homeSummary } from "./homeActivity";
@@ -14,6 +13,7 @@ import { settingsHashForTeam } from "./settingsPages";
 import { BillingReturnBanner } from "./BillingReturnBanner";
 import { BrandLockup } from "./BrandMark";
 import { UserProfileMenu } from "./PluginHub";
+import { SearchButton } from "./CommandPalette";
 import { planName } from "./planName";
 import { InstallStepsSheet } from "../components/InstallSteps";
 import { useShowInstallSteps } from "../components/installState";
@@ -211,12 +211,7 @@ export function AppHome({ operator, onPick, onLogout, commonAi, onOpenCommonAi, 
       <header style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 clamp(16px, 4vw, 32px)", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
         <BrandLockup size={30} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button type="button" className="ui-btn ui-btn--ghost hide-mobile" onClick={() => openSupport({ plugin: "home" })} title="Support">
-            <Headset size={16} /> Support
-          </button>
-          <button type="button" className="ui-btn ui-btn--ghost hide-mobile" onClick={() => window.open("/help", "_blank")} title="Documentation">
-            <BookOpen size={16} /> Documentation <ExternalLink size={12} style={{ color: C.slate }} />
-          </button>
+          <SearchButton />
           <UserProfileMenu operator={operator} {...menuProps} />
         </div>
       </header>

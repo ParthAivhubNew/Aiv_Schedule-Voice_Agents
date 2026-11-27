@@ -54,7 +54,14 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
 - ✅ **Step 6c, Journeys (2026-11-27):** the status buttons over the journey list are the shared count tabs (Running 3 · Paused …),
   the repeated "3 running · 1 paused" line is gone, and the chosen journey is a soft grey card instead of a blue one.
   Voice's Call list was looked at and left: it is already a grid of list cards with New list and Import.
-  - Next in step 6: Social's calendar (needs a look on screen first), then step 7 (⌘K search)., Journeys, Voice's Call list and Social's calendar.
+  - Social's calendar is left for a look on screen (owner chose to skip to step 7).
+- ✅ **Step 7, Search (⌘K) (2026-11-27):** ⌘K (Ctrl K on Windows) or the Search box in every header opens one search over the page.
+  Before typing it offers a few places to start; as you type it lists matching pages of every app (Leads, Voice, Social), Settings
+  sections this person may open (by the same rules as the Settings page), Workflows, Help and Support, then companies, people,
+  calls, meetings and posts from GET /together/search. Arrow keys move, Enter opens, Escape closes. Home's header now has the
+  Search box in place of its own Support and Documentation buttons (both are in the profile menu and in search).
+  Files: hub/commandItems.js, hub/CommandPalette.jsx. Social now opens its other pages from the address too (plan, insights…).
+  Not browser-checked by me., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**

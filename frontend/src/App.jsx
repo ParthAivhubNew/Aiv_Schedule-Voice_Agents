@@ -20,6 +20,7 @@ import { LoginScreen } from "./hub/LoginScreen";
 import { AppHome } from "./hub/AppHome";
 import { UniversalCallNotificationBanner } from "./hub/PluginHub";
 import { SettingsPage } from "./hub/SettingsPage";
+import { CommandPalette } from "./hub/CommandPalette";
 import { settingsHashForConnections, settingsHashForTeam } from "./hub/settingsPages";
 import { AccountBar } from "./hub/AccountBar";
 import { ListHandoffPrompt } from "./hub/ListHandoffPrompt";
@@ -1022,6 +1023,7 @@ function MainApp({ onSignedOut }) {
         </div>
       ))}
       {operator ? <JobDock /> : null}
+      {operator ? <CommandPalette operator={operator} /> : null}
       {operator ? <HumanCallHost /> : null}
 
       {/* Universal Floating Incoming Call Banner across ALL Plugins */}
