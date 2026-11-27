@@ -378,31 +378,17 @@ export default function LeadGenerationPlugin({
         
         <PluginHeader assistant={false} nav={nav} title={viewTitles[view]?.title || "Leads"} sub={viewTitles[view]?.desc || ""}
           accountBar={accountBar ? cloneElement(accountBar, { wallet: !isLocked || view === "subscription" ? "leadgen" : null, app: "Leads", onOpenPlan: () => setView("subscription") }) : null}>
-          {view === "find_leads" && !isLocked && !embedViews ? (
-            <button
-              type="button"
-              className="ui-btn ui-btn--secondary ui-btn--sm phone-gone"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontWeight: 600,
-                background: C.surface,
-                border: "1px solid var(--ui-line, #E2E8F0)",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-              }}
-              title="Import spreadsheet of companies"
-              onClick={goImport}
-            >
-              <Upload size={14} /> Import
-            </button>
-          ) : null}
           {!isLocked && !embedViews && view !== "assistant" ? <AssistantButton open={assistantOpen} onClick={() => setAssistantOpen((v) => !v)} /> : null}
           {(view === "lists" || view === "saved_companies" || view === "saved_people") && (
             <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Type in one company yourself" onClick={() => setShowAddModal(true)}>
               <Plus size={14} /> Add one company
             </button>
           )}
+          {(view === "lists" || view === "saved_companies") && !isLocked && !embedViews ? (
+            <button type="button" className="ui-btn ui-btn--secondary ui-btn--sm phone-gone" title="Import a spreadsheet of companies into your lists" onClick={goImport}>
+              <Upload size={14} /> Import
+            </button>
+          ) : null}
         </PluginHeader>
 
         {/* Main Content Area */}

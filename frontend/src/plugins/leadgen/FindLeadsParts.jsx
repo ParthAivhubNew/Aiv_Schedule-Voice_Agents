@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { GridTools } from "../../components/GridTools";
 import { openPhone } from "../../utils/humanCall";
-import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Link2, Mail, Phone, PhoneCall, Plus, Search, SlidersHorizontal, X, XCircle } from "lucide-react";
+import { BadgeCheck, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Globe, Info, Link2, Mail, MoreHorizontal, Phone, PhoneCall, Plus, Search, SlidersHorizontal, X, XCircle } from "lucide-react";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
 import { domainOf } from "./AccountsViews";
@@ -108,6 +108,55 @@ export function CountTiles({ total, capped, saved, filter, onPick, busy }) {
         );
       })}
     </div>
+  );
+}
+
+// The results' "⋯" menu (plan 13, step 6): the things you do now and then, such as Import, kept out of the toolbar.
+// items: [{ id, label, icon, onClick, title }]
+export function MoreMenu({ items, label = "More" }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const shown = (items || []).filter(Boolean);
+  if (!shown.length) return null;
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <button type="button" aria-haspopup="true" aria-expanded={open} aria-label={label} title={label} onClick={() => setOpen((v) => !v)}
+        style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, color: C.ink }}>
+        <MoreHorizontal size={16} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div role="menu" style={{ position: "absolute", right: 0, top: 40, zIndex: 20, minWidth: 220, padding: 6, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}>
+          {shown.map((it) => {
+            const Icon = it.icon;
+            return (
+              <button key={it.id} type="button" role="menuitem" title={it.title} onClick={() => { setOpen(false); it.onClick(); }}
+                style={{ all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 6, ...text, fontSize: 13, color: C.ink }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = C.paperSoft; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                {Icon ? <Icon size={14} aria-hidden="true" color={C.slate} /> : null}{it.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// A field's help as a small ⓘ beside its name (plan 13, step 6), instead of a paragraph under the field. Hover or focus shows it.
+export function LabelTip({ children, tip, style }) {
+  return (
+    <span style={{ ...style, display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {children}
+      <span tabIndex={0} role="img" aria-label={tip} title={tip} style={{ display: "inline-flex", color: C.slateLight, cursor: "help" }}><Info size={12} aria-hidden="true" /></span>
+    </span>
   );
 }
 

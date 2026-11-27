@@ -9,7 +9,7 @@ import { PAGE_SIZES, amountChoices, typedAmount } from "../drawShape";
 import { SearchStatus } from "../SearchStatus";
 import { askList } from "../Dialogs";
 import { CallButton } from "../CallFlow";
-import { CompaniesTable, CountTiles, Pager, PeopleTable, SelectionBar, ViewMenu } from "../FindLeadsParts";
+import { CompaniesTable, CountTiles, Pager, PeopleTable, MoreMenu, SelectionBar, ViewMenu } from "../FindLeadsParts";
 import { IcpPrompt } from "../FitParts";
 import { sortOptions } from "../fitLogic";
 import { SelectAllNotice } from "../../../components/SelectAllNotice";
@@ -26,6 +26,8 @@ export function ResultsCard({
   selection: { sel, selecting, pickedRows, selectAllMatching, selectReach, selectedWord, bulkSave },
   contacts: { reveal, revealMany, revealRow, findSite, lookups, getContacts, contactCheck, checking, setChecking, preparing, call, callAll, saveOne, openCo, setOpenCo },
   onSetIcp,
+  controls,
+  more,
 }) {
   return (
     <div className="ui-card fl-card" data-map={view === "map" ? "true" : undefined} style={{ overflow: "hidden", position: "relative" }}>
@@ -46,6 +48,7 @@ export function ResultsCard({
         </div>
       ) : null}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: tab === "companies" && searched && !area ? "0 14px" : "10px 14px", minHeight: 46, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        {controls}
         <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>
           {areaPending ? (areaStep.phase === "counting" ? "Looking at your area…" : "Your area is ready") : tab === "people" ? (
             <>{people.length.toLocaleString()} {people.length === 1 ? "person" : "people"} <span style={{ fontWeight: 400, color: C.slate }}>· at {peopleTotal.toLocaleString()}{capped ? "+" : ""} {peopleTotal === 1 ? "company" : "companies"}</span></>
@@ -60,6 +63,7 @@ export function ResultsCard({
             sortLabel={(sortOptions(icp.isSet).find(([v]) => v === sort) || sortOptions(icp.isSet)[0])[1]}
             onSort={changeSort} pageSize={pageSize} pageSizes={PAGE_SIZES} onPageSize={changePageSize} />
         ) : null}
+        <MoreMenu items={more} label="More: import, start again" />
       </div>
       {tab === "companies" && !icp.loading && !icp.isSet && onSetIcp ? <IcpPrompt onSet={onSetIcp} inset /> : null}
       {broadenedNote && !busy ? (

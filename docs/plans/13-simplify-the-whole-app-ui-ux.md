@@ -8,7 +8,20 @@ brand logic, staff portal) and the owner's screenshots of Home, Find Leads and t
 test copy and looked at by the owner. **Step 3 is done on the branch** (below), deployed on the test copy and looked at by the
 owner (2026-11-27: the Settings menu swap "looks good"). **Step 4 is done on the branch** (below), deployed on the test copy
 and looked at by the owner (2026-11-27: "looks good"). **Step 5 is done on the branch** (below), deployed on the test copy and
-looked at by the owner (2026-11-27: the second pass "looks good"). Next: step 6, busy screens (Find Leads first).
+looked at by the owner (2026-11-27: the second pass "looks good"). **Step 6 has started with Find Leads** (below), deployed on
+the test copy and waiting for the owner's look.
+
+- ✅ **Step 6a, Find Leads (2026-11-27):**
+  - The toolbar is Filters, the company-name search and Saved searches (plus the company-rules chip).
+  - Companies / People and List / Map moved onto the results' own header, beside the count, once there are results (before
+    that they stay in the toolbar so they're always in reach). The header ends with a "⋯" menu: Import a spreadsheet, and
+    Clear and start again.
+  - Import appears once on Find Leads (the ⋯ menu); the page-header Import is gone there and now sits on Lists, where imported
+    companies end up.
+  - Filter help is a small ⓘ beside the field's name (Include, Leave out, Industry, Within, Data from, Exclusion list); the
+    paragraph under Include is gone.
+  - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
+  - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
   - Under the greeting, one "Next step" card: the first unfinished setup step, with Start, See all steps and hide. The full

@@ -2,7 +2,7 @@ import React from "react";
 import { Spinner } from "../../../app/Loader";
 import { RotateCcw, Search, Sparkles } from "lucide-react";
 import { C } from "../../../tokens";
-import { FilterGroup } from "../FindLeadsParts";
+import { FilterGroup, LabelTip } from "../FindLeadsParts";
 import ExclusionBox from "../ExclusionBox";
 import IndustryPicker from "../IndustryPicker";
 import { RADIUS_MILES, SIGNAL_OPTIONS, coversText, toggleIn } from "../savedSearchLogic";
@@ -36,12 +36,11 @@ export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field
           </FilterGroup>
         ) : null}
         <FilterGroup title="Industry & keywords" active={activeIn("industry")} open={groups.industry} onToggle={() => setGroup("industry")} onClear={() => clearGroup("industry")} chips={chipsFor("industry")}>
-          <label style={field} title="Words are matched against what each company does and its name. Related words are included, like dental for dentist"><span style={label}>Include</span>
-            <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" />
-            <span style={{ ...muted, fontSize: 12 }}>A common word on its own can be slow across the whole register. Add a town to speed it up.</span></label>
-          <div style={field} title="Leave out companies whose name or sector has any of these words, or that are in one of these categories"><span style={label}>Leave out</span>
+          <label style={field}><LabelTip style={label} tip="Words are matched against what each company does and its name. Related words are included, like dental for dentist. A common word on its own can be slow across the whole register: add a town to speed it up.">Include</LabelTip>
+            <input className="ui-input" value={form.sector} onChange={(e) => setField("sector", e.target.value)} placeholder="accountancy, software, a company name, or a company number" /></label>
+          <div style={field}><LabelTip style={label} tip="Leave out companies whose name or sector has any of these words, or that are in one of these categories">Leave out</LabelTip>
             <ExclusionBox label="Leave out" value={form.notSector} onChange={(v) => setField("notSector", v)} placeholder="franchise, holdings, Hospitals" /></div>
-          <div style={field} title="Pick from the industries on the register, with how many companies each has. A short SIC code takes every code that starts with it"><span style={label}>Industry</span>
+          <div style={field}><LabelTip style={label} tip="Pick from the industries on the register, with how many companies each has. A short SIC code takes every code that starts with it">Industry</LabelTip>
             <IndustryPicker codes={splitList(form.sic)} labels={sicLabels} types={form.industryTypes || []}
               onChange={({ codes, labels, types }) => { setForm((f) => ({ ...f, sic: codes.join(", "), industryTypes: types })); setSicLabels(labels); }} /></div>
           {check("includeSecondary", "Include side activities")}
@@ -57,8 +56,8 @@ export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field
             <input className="ui-input" value={form.postcode} onChange={(e) => setField("postcode", e.target.value)} placeholder="EC1, M1" /></label>
           <label style={field} title="Leave out companies in these towns"><span style={label}>Leave out towns</span>
             <input className="ui-input" value={form.notTown} onChange={(e) => setField("notTown", e.target.value)} placeholder="Bradford" /></label>
-          <div style={field} title="Companies whose registered office is in the postcode districts inside this distance">
-            <span style={label}>Within</span>
+          <div style={field}>
+            <LabelTip style={label} tip="Companies whose registered office is in the postcode districts inside this distance">Within</LabelTip>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <select className="ui-input" aria-label="Miles" style={{ width: 96, flex: "0 0 auto" }} value={form.nearMiles}
                 onChange={(e) => { setField("nearMiles", e.target.value); if (form.nearPostcode.trim()) lookRadius(form.nearPostcode, e.target.value); }}>
@@ -113,8 +112,8 @@ export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field
           ) : null}
           {form.legalForm !== "sole" ? check("noCharities", "Leave out charities") : null}
           {check("googleData", "Includes Google data")}
-          <div style={field} title="Only companies with a phone, email or website that came from any of the sources ticked">
-            <span style={label}>Data from</span>
+          <div style={field}>
+            <LabelTip style={label} tip="Only companies with a phone, email or website that came from any of the sources ticked">Data from</LabelTip>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {DATA_FROM_OPTIONS.map(([id, name]) => {
                 const on = (form.dataFrom || []).includes(id);
@@ -125,7 +124,7 @@ export function FilterPanel({ activeIn, busy, check, chipsFor, clearGroup, field
           </div>
           <label style={field} title="Leave out these legal forms, for example Registered Society or Royal Charter Company"><span style={label}>Leave out types</span>
             <input className="ui-input" value={form.notCategory} onChange={(e) => setField("notCategory", e.target.value)} placeholder="LLP, Registered Society" /></label>
-          <div style={field} title={CHECK_TIPS.excludeItems}><span style={label}>Exclusion list</span>
+          <div style={field}><LabelTip style={label} tip={CHECK_TIPS.excludeItems}>Exclusion list</LabelTip>
             <ExclusionBox label="Exclusion list" value={form.excludeItems} onChange={(v) => setField("excludeItems", v)} placeholder="56101, BN9, 01234567, church, Places of Worship" /></div>
         </FilterGroup>
         <FilterGroup title="Status & age" active={activeIn("status")} open={groups.status} onToggle={() => setGroup("status")} onClear={() => clearGroup("status")} chips={chipsFor("status")}>

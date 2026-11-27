@@ -2,7 +2,7 @@ import { detailMissing, hiddenNow, isLate, searchKey, skipRepeat } from "../sear
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PickOptions, SOCIAL } from "../PickOptions";
 import { Spinner, TableSkeleton, TopBar } from "../../../app/Loader";
-import { Building2, Check, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
+import { Building2, Check, List, Map as MapIcon, ChevronsLeft, ChevronsRight, Plus, RefreshCw, RotateCcw, Search, Sparkles, Star, Upload, Users, X, ArrowLeft } from "lucide-react";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
 import { domainOf } from "../accounts/accountsLogic";
@@ -556,6 +556,36 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
     </label>
   );
 
+  // Plan 13, step 6: the toolbar keeps search, Filters and Saved searches. What to look for (Companies / People) and how to see it
+  // (List / Map) sit on the results' own header, with a "⋯" menu for Import; before there are results they stay in the toolbar.
+  const showResults = (searched || view === "map") && !firstLoad;
+  const lookFor = (
+    <>
+        <div role="tablist" aria-label="What to look for" className="fl-seg">
+        {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
+            <Icon size={15} /> {name}
+          </button>
+        ))}
+      </div>
+      {tab === "companies" ? (
+        <div role="tablist" aria-label="Results view" className="fl-seg">
+          {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
+            <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
+              title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
+              onClick={() => setView(id)}>
+              <Icon size={15} /> {name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+  const more = [
+    onImport ? { id: "import", label: "Import a spreadsheet", icon: Upload, title: "Import a spreadsheet of customer records", onClick: onImport } : null,
+    { id: "reset", label: "Clear and start again", icon: RotateCcw, title: "Clear every filter, the drawn area and the results", onClick: resetSearch },
+  ];
+
   return (
     <div className="pane-root fl-root" data-active={pane} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {call.dialog}
@@ -586,44 +616,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
           <SearchField label="Company name" title="Find a company by its name. Searches every registered company" value={form.name} onChange={(v) => setField("name", v)} placeholder="Search a company by name, e.g. Tesco, Greggs, Smith & Sons" />
         </form>
         {tab === "companies" ? <SavedSearches filters={formToFilters(form)} hasFilters={Object.keys(formToFilters(form)).some((k) => ["keyword", "sector", "sic_codes", "industry_types", "towns", "postcode_prefixes", "name_contains", "near", "signals"].includes(k))} onApply={applySaved} /> : null}
-        <div role="tablist" aria-label="What to look for" className="fl-seg">
-          {[["companies", "Companies", Building2], ["people", "People", Users]].map(([id, name, Icon]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} data-on={tab === id} className="fl-seg-btn" onClick={() => changeTab(id)}>
-              <Icon size={15} /> {name}
-            </button>
-          ))}
-        </div>
-        {tab === "companies" ? (
-          <div role="tablist" aria-label="Results view" className="fl-seg">
-            {[["list", "List", List], ["map", "Map", MapIcon]].map(([id, name, Icon]) => (
-              <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} className="fl-seg-btn"
-                title={id === "map" ? "Search on a map: see the companies as pins and draw an area to search inside it" : "See the results as a list"}
-                onClick={() => setView(id)}>
-                <Icon size={15} /> {name}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {onImport ? (
-          <button
-            type="button"
-            className="ui-btn ui-btn--secondary ui-btn--sm"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              fontWeight: 600,
-              background: C.surface,
-              border: "1px solid var(--ui-line, #E2E8F0)",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-            }}
-            title="Import a spreadsheet of customer records"
-            onClick={onImport}
-          >
-            <Upload size={14} /> Import
-          </button>
-        ) : null}
+        {showResults || firstLoad ? null : lookFor}
         <StandingChip canSeeRules={isAdmin} />
       </div>
       <div className="pane-root fl-body" data-active={pane} style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
@@ -635,6 +628,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
         <div className="ui-card fl-card" style={{ overflow: "hidden", position: "relative" }}>
           <TopBar />
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>
+            {lookFor}
             <Spinner size={16} />
             <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.ink, marginRight: "auto" }}>{tab === "people" ? "Finding the people at matching companies" : searched ? "Searching" : "Opening the register"}{appliedWords(form) ? <span style={{ fontWeight: 400, color: C.slate }}> · {appliedWords(form)}</span> : null}</div>
             {searched ? <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" title="Stop this search" onClick={cancelSearch}><X size={13} /> Cancel</button> : null}
@@ -670,8 +664,8 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
         </div>
       ) : null}
 
-      {(searched || view === "map") && !firstLoad ? (
-        <ResultsCard results={{ companies, total, capped, searched, tab, sort, icp, icpSet, page, pageSize, pageRef, ranked, tiers, savedTotal, people, peopleTotal, peopleOf, understood, setUnderstood, broadenedNote, asked, draft, setDraft, busy, form, setForm, custom, setCustom, isSaved, statusOf, dropTerm, missingDetail }} searching={{ search, searchPeople, goPage, changePageSize, changeSort, pickSaved, fillIds, fillPeople, fillRun, filling, setFilling, paused, pausedRef, setPaused }} mapArea={{ area, areaNote, areaPending, areaStep, setAreaStep, clearArea, countArea, countHold, drawArea, inArea, pickAmount, pinCount, points, stopArea, mapRef, mapActions, removeCompany, view, setView }} selection={{ sel, selecting, pickedRows, selectAllMatching, selectReach, selectedWord, bulkSave }} contacts={{ reveal, revealMany, revealRow, findSite, lookups, getContacts, contactCheck, checking, setChecking, preparing, call, callAll, saveOne, openCo, setOpenCo }} onSetIcp={onSetIcp} />
+      {showResults ? (
+        <ResultsCard controls={lookFor} more={more} results={{ companies, total, capped, searched, tab, sort, icp, icpSet, page, pageSize, pageRef, ranked, tiers, savedTotal, people, peopleTotal, peopleOf, understood, setUnderstood, broadenedNote, asked, draft, setDraft, busy, form, setForm, custom, setCustom, isSaved, statusOf, dropTerm, missingDetail }} searching={{ search, searchPeople, goPage, changePageSize, changeSort, pickSaved, fillIds, fillPeople, fillRun, filling, setFilling, paused, pausedRef, setPaused }} mapArea={{ area, areaNote, areaPending, areaStep, setAreaStep, clearArea, countArea, countHold, drawArea, inArea, pickAmount, pinCount, points, stopArea, mapRef, mapActions, removeCompany, view, setView }} selection={{ sel, selecting, pickedRows, selectAllMatching, selectReach, selectedWord, bulkSave }} contacts={{ reveal, revealMany, revealRow, findSite, lookups, getContacts, contactCheck, checking, setChecking, preparing, call, callAll, saveOne, openCo, setOpenCo }} onSetIcp={onSetIcp} />
       ) : null}
       </div>
       </div>
