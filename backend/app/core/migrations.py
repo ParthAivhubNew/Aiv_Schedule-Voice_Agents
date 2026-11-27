@@ -918,6 +918,98 @@ async def _open_data_notes_and_pay_gap(conn: AsyncConnection) -> None:
         await conn.execute(text("UPDATE data_sources SET config = CAST(:c AS JSON) WHERE id = :i"), {"c": json.dumps(config), "i": source_id})
 
 
+_ODS_COLUMNS = ["Organisation Code", "Name", "National Grouping", "High Level Health Geography", "Address Line 1", "Address Line 2",
+                "Address Line 3", "Address Line 4", "Address Line 5", "Postcode", "Open Date", "Close Date", "Status Code",
+                "Organisation Sub-Type Code", "Parent Organisation Code", "Join Parent Date", "Left Parent Date", "Contact Telephone Number",
+                "Null 19", "Null 20", "Null 21", "Amended Record Indicator", "Null 23", "Current Care Organisation", "Null 25",
+                "Prescribing Setting", "Null 27"]
+
+
+async def _more_open_registers(conn: AsyncConnection) -> None:
+    """Three more free UK registers (plan 14), ready to start from the staff portal's Data Sources (nothing runs until staff press Start).
+    Each mapping was checked against the publisher's real file on 2026-11-27:
+
+      * ICO register of fee payers: every organisation and sole trader that pays the data protection fee (about 1.47 million rows),
+        one ZIP of CSV published daily, its dated link found fresh on the ICO's page. The data protection officer's name, e-mail,
+        phone and address are named people's details and are never kept.
+      * Scottish Charity Regulator (OSCR): every Scottish charity (about 25,000), one ZIP behind a fixed link.
+      * NHS organisation data (ODS): GP practices, dental practices and pharmacies in England, three CSVs with no header row. Only
+        active ones are kept, and from the GP file only GP practices (prescribing setting RO76), not clinics or out-of-hours services.
+
+    Each fills gaps on a company another source already described, matched by name and postcode (see bulk_upsert)."""
+    import json
+
+    sources = {
+        "ds_ico": ("ICO register of fee payers", "https://ico.org.uk", {
+            "trust_tier": "verified_registry",
+            "bulk_index_url": "https://ico.org.uk/about-the-ico/what-we-do/register-of-fee-payers/download-the-register/",
+            "bulk_link_pattern": r"/media2/[A-Za-z0-9]+/register-of-data-controllers-\d{4}-\d{2}-\d{2}\.zip",
+            "bulk_field_map": {
+                "name": ["Organisation_name"], "ico_number": ["Registration_number"],
+                "address": ["Organisation_address_line_1", "Organisation_address_line_2", "Organisation_address_line_3",
+                            "Organisation_address_line_4", "Organisation_address_line_5", "Organisation_postcode"],
+                "postcode": ["Organisation_postcode"], "trading_names": ["Trading_names"],
+            },
+            "bulk_registration": [{"field": "ico_number", "prefix": "ICO-"}],
+            "bulk_defaults": {"status": "Active"},
+            "bulk_drop_fields": ["DPO_or_Person_responsible_for_DP_Title", "DPO_or_Person_responsible_for_DP_First_name",
+                                 "DPO_or_Person_responsible_for_DP_Last_name", "DPO_or_Person_responsible_for_DP_Email",
+                                 "DPO_or_Person_responsible_for_DP_Phone", "DPO_or_Person_responsible_for_DP_Address_line_1",
+                                 "DPO_or_Person_responsible_for_DP_Address_line_2", "DPO_or_Person_responsible_for_DP_Address_line_3",
+                                 "DPO_or_Person_responsible_for_DP_Address_line_4", "DPO_or_Person_responsible_for_DP_Address_line_5",
+                                 "DPO_or_Person_responsible_for_DP_Postcode"],
+            "licence": _OGL, "attribution": "Information Commissioner's Office register of fee payers.", "personal_data": True,
+        }),
+        "ds_oscr": ("Scottish Charity Register (OSCR)", "https://www.oscr.org.uk", {
+            "trust_tier": "verified_registry",
+            "bulk_file_urls": ["https://www.oscr.org.uk/download/charity-register"],
+            "bulk_field_map": {
+                "name": ["Charity Name"], "charity_number": ["Charity Number"], "status": ["Charity Status"],
+                "incorporation_date": ["Registered Date"], "address": ["Principal Office/Trustees Address", "Postcode"],
+                "postcode": ["Postcode"], "website": ["Website"], "region": ["Main Operating Location"],
+                "description": ["What the charity is set up to do and how it does this"],
+            },
+            "bulk_registration": [{"field": "charity_number"}],  # already unique: SC000001
+            "bulk_value_map": {"status": {"Not Submitted": "Active", "Not Monitored": "Active"}},  # late accounts, still registered
+            "bulk_defaults": {"industry": "Charity", "company_category": "Registered charity (Scotland)"},
+            "licence": _OGL, "attribution": "Scottish Charity Regulator, Scottish Charity Register.", "personal_data": True,
+        }),
+        "ds_nhs_ods": ("NHS GP practices, dentists and pharmacies (England)", "https://www.odsdatasearchandexport.nhs.uk", {
+            "trust_tier": "verified_registry",
+            "bulk_file_urls": ["https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=epraccur",
+                               "https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=egdpprac",
+                               "https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=edispensary"],
+            "bulk_column_names": _ODS_COLUMNS,
+            "bulk_field_map": {
+                "name": ["Name"], "ods_code": ["Organisation Code"],
+                "address": ["Address Line 1", "Address Line 2", "Address Line 3", "Address Line 4", "Address Line 5", "Postcode"],
+                "postcode": ["Postcode"], "phone": ["Contact Telephone Number"],
+            },
+            "bulk_registration": [{"field": "ods_code", "prefix": "NHS-"}],
+            "bulk_only": {"Status Code": ["ACTIVE"]},
+            "bulk_defaults": {"status": "Active"},
+            "bulk_per_file": {
+                "epraccur": {"bulk_only": {"Status Code": ["ACTIVE"], "Prescribing Setting": ["RO76"]},
+                             "bulk_defaults": {"status": "Active", "industry": "GP practice"}},
+                "egdpprac": {"bulk_defaults": {"status": "Active", "industry": "Dental practice"}},
+                "edispensary": {"bulk_defaults": {"status": "Active", "industry": "Pharmacy"}},
+            },
+            "licence": _OGL, "attribution": "Contains NHS organisation data (ODS), NHS England.", "personal_data": True,
+        }),
+    }
+    for source_id, (name, base_url, config) in sources.items():
+        if (await conn.execute(text("SELECT 1 FROM data_sources WHERE id = :i"), {"i": source_id})).first():
+            continue
+        await conn.execute(text(
+            "INSERT INTO data_sources (id, name, kind, base_url, auth_type, api_key, config, provides_fields, "
+            "max_concurrent_requests, min_delay_ms, run_state, status, created_at, updated_at, updated_by) "
+            "VALUES (:id, :name, 'api', :base, 'none', '', CAST(:config AS JSON), CAST(:fields AS JSON), 1, 500, "
+            "'idle', 'active', now(), now(), 'migration')"
+        ), {"id": source_id, "name": name, "base": base_url, "config": json.dumps(config),
+            "fields": json.dumps(["name", "address", "postcode"] + (["phone"] if source_id == "ds_nhs_ods" else [])
+                                 + (["website"] if source_id == "ds_oscr" else []))})
+
+
 async def _social_account_expiry(conn: AsyncConnection) -> None:
     await conn.execute(text("ALTER TABLE social_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP"))
 
@@ -1205,6 +1297,7 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_10_billing_plan_rules", _billing_plan_rules),
     ("2026_12_11_fsb_brand_account_link", _fsb_brand_account_link),
     ("2026_12_12_session_method", _session_method),
+    ("2026_12_13_more_open_registers", _more_open_registers),
 ]
 
 

@@ -37,6 +37,9 @@ REGISTERS: Dict[str, Dict[str, str]] = {
     "ds_food_hygiene": {"key": "register:fsa", "label": "Food Hygiene Rating Scheme"},
     "ds_cqc": {"key": "register:cqc", "label": "Care Quality Commission"},
     "ds_gender_pay_gap": {"key": "register:gpg", "label": "Gender Pay Gap Service"},
+    "ds_ico": {"key": "register:ico", "label": "ICO register of fee payers"},
+    "ds_oscr": {"key": "register:oscr", "label": "Scottish Charity Regulator"},
+    "ds_nhs_ods": {"key": "register:nhs", "label": "NHS organisation data"},
 }
 
 # Bulk datasets loaded into the shared company records (raw_data key -> what it is). "supplier" is for staff only.

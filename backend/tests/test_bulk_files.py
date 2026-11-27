@@ -127,3 +127,58 @@ def test_no_key_api_sources_are_allowed_but_keyed_ones_still_need_a_key():
     with pytest.raises(C.ConnectorError, match="No API key"):
         import asyncio
         asyncio.run(C._raw_search(keyed, "q"))
+
+
+# -- plan 14: the ICO, OSCR and NHS registers ---------------------------------------------------------------------------------------
+def test_a_headerless_file_takes_its_column_names_from_the_config_and_keeps_only_matching_rows(tmp_path):
+    f = tmp_path / "epraccur.csv"
+    f.write_text('"A81001","THE DENSHAM SURGERY","ACTIVE","RO76"\n"A81009","CLOSED SURGERY","INACTIVE","RO76"\n'
+                 '"Y01234","OUT OF HOURS","ACTIVE","RO80"\n', encoding="utf-8")
+    cfg = {"bulk_column_names": ["Code", "Name", "Status", "Setting"], "bulk_field_map": {"name": ["Name"], "code": ["Code"]},
+           "bulk_registration": [{"field": "code", "prefix": "NHS-"}], "bulk_only": {"Status": ["ACTIVE"], "Setting": ["RO76"]}}
+    rows = _rows(f, cfg)
+    assert [(r["registration_number"], r["name"]) for r in rows] == [("NHS-A81001", "THE DENSHAM SURGERY")]  # the first row is data, not a header
+
+
+def test_a_zip_behind_a_link_with_no_extension_is_still_opened(tmp_path):
+    z = tmp_path / "charity-register.dat"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("CharityExport.csv", "Charity Number,Charity Name\nSC000001,Stoneyburn Centre\n")
+    cfg = {"bulk_field_map": {"name": ["Charity Name"]}}
+    assert _rows(z, cfg)[0]["name"] == "Stoneyburn Centre"
+
+
+async def test_root_relative_links_on_an_index_page_become_full_links(monkeypatch):
+    import httpx
+
+    page = '<a href="/media2/abc123/register-of-data-controllers-2026-11-27.zip">Download</a>'
+    real = httpx.AsyncClient
+
+    def client(*a, **kw):
+        kw["transport"] = httpx.MockTransport(lambda req: httpx.Response(200, text=page))
+        return real(*a, **kw)
+
+    monkeypatch.setattr(C.httpx, "AsyncClient", client)
+    src = SimpleNamespace(config={"bulk_index_url": "https://ico.org.uk/about-the-ico/download-the-register/",
+                                  "bulk_link_pattern": r"/media2/[A-Za-z0-9]+/register-of-data-controllers-\d{4}-\d{2}-\d{2}\.zip"})
+    assert await C.discover_bulk_files(src) == ["https://ico.org.uk/media2/abc123/register-of-data-controllers-2026-11-27.zip"]
+
+
+async def test_each_file_of_a_source_can_have_its_own_defaults_and_filter(tmp_path, monkeypatch):
+    files = {"gp": '"A1","GP ONE","ACTIVE","RO76"\n"A2","CLINIC","ACTIVE","RO80"\n', "dent": '"V1","DENTIST ONE","ACTIVE",""\n'}
+
+    async def download(url, headers=None, limit_bytes=0):
+        f = open(tmp_path / url.rsplit("=", 1)[1], "w+b")
+        f.write(files[url.rsplit("=", 1)[1]].encode())
+        f.flush()
+        return f
+
+    monkeypatch.setattr(C, "_download", download)
+    src = SimpleNamespace(id="ds_x", name="X", config={
+        "bulk_file_urls": ["https://x/getReport?report=gp", "https://x/getReport?report=dent"],
+        "bulk_column_names": ["Code", "Name", "Status", "Setting"], "bulk_field_map": {"name": ["Name"]},
+        "bulk_only": {"Status": ["ACTIVE"]},
+        "bulk_per_file": {"report=gp": {"bulk_only": {"Status": ["ACTIVE"], "Setting": ["RO76"]}, "bulk_defaults": {"industry": "GP practice"}},
+                          "report=dent": {"bulk_defaults": {"industry": "Dental practice"}}}})
+    got = [(r["name"], r["industry"]) async for r in C.stream_bulk_rows(src)]
+    assert got == [("GP ONE", "GP practice"), ("DENTIST ONE", "Dental practice")]

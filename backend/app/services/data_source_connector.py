@@ -266,9 +266,10 @@ async def discover_bulk_files(source) -> List[str]:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(index_url)
         resp.raise_for_status()
+    from urllib.parse import urljoin
+
     names = sorted(set(re.findall(pattern, resp.text)))
-    base = index_url.rsplit("/", 1)[0] + "/"
-    return [n if n.startswith("http") else base + n for n in names]
+    return [urljoin(index_url, n) for n in names]  # a bare file name, a root-relative /path or a full link
 
 
 def _normalize_header(h: str) -> str:
@@ -332,6 +333,9 @@ def _finish_row(mapped: Dict[str, Any], raw: Any, cfg: Dict[str, Any]) -> Option
             mapped[field] = table[mapped[field]]
     for key, value in (cfg.get("bulk_defaults") or {}).items():
         mapped.setdefault(key, value)
+    for column, allowed in (cfg.get("bulk_only") or {}).items():  # keep only rows whose raw column holds one of these values
+        if not isinstance(raw, dict) or str(raw.get(column) or "").strip() not in allowed:
+            return None
     if not (mapped.get("name") or mapped.get("registration_number")):
         return None
     drop = set(cfg.get("bulk_drop_fields") or [])  # columns we never keep, not even in the stored copy of the row (named individuals)
@@ -355,7 +359,9 @@ def _iter_delimited(stream, name: str, cfg: Dict[str, Any], alias_map: Dict[str,
     (the CQC directory does), so the header is the first of the opening rows that contains the
     columns we map -- not blindly row 0."""
     head = stream.readline()
-    reader = csv.reader(chain([head], stream), delimiter=_delimiter(name, head))
+    delimiter = _delimiter(name, head)
+    named = cfg.get("bulk_column_names")  # a file with no header row (the NHS ODS files): its column names, in order
+    reader = chain(([list(named)] if named else []), csv.reader(chain([head], stream), delimiter=delimiter))
     headers: List[str] = []
     columns: Dict[str, List[str]] = {}
     for position, row in enumerate(reader):
@@ -467,7 +473,7 @@ def _iter_one(binary, name: str, cfg: Dict[str, Any], alias_map: Dict[str, Any])
 def iter_file_rows(path: Path, cfg: Dict[str, Any], alias_map: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
     """Mapped rows from one local file (a ZIP is read member by member, straight from the archive,
     so nothing is ever unpacked to disk or held whole in memory)."""
-    if path.suffix.lower() == ".zip":
+    if path.suffix.lower() == ".zip" or zipfile.is_zipfile(path):  # some downloads are ZIPs behind a link with no extension
         with zipfile.ZipFile(path) as zf:
             for member in zf.namelist():
                 if member.lower().endswith(_ROW_EXTENSIONS) and not member.endswith("/"):
@@ -579,8 +585,15 @@ async def stream_bulk_rows(source, *, preview_rows: int = 0) -> AsyncIterator[Di
                 if preview_rows and url.lower().split("?")[0].endswith(".zip"):
                     raise ConnectorError("Preview can't open a remote ZIP without downloading all of it. Upload a small sample file to preview the mapping, or just start the import.")
             targets = [(None, u) for u in urls]
+    base_cfg = cfg
     for path, url in targets:
         tmp = None
+        # bulk_per_file: {"part of the link or file name": {config for that file only}}, e.g. its own defaults and filter
+        where = str(url or path or "")
+        cfg = dict(base_cfg)
+        for part, extra in (base_cfg.get("bulk_per_file") or {}).items():
+            if part in where:
+                cfg.update(extra)
         try:
             if url:
                 logger.info(f"[data_source_connector] {source.name}: downloading {url}")
@@ -611,7 +624,7 @@ async def stream_bulk_rows(source, *, preview_rows: int = 0) -> AsyncIterator[Di
 def file_columns(path: Path) -> List[str]:
     """The column names / top-level keys a file really has -- shown in Preview so the mapping can be
     written against what is actually there."""
-    if path.suffix.lower() == ".zip":
+    if path.suffix.lower() == ".zip" or zipfile.is_zipfile(path):  # some downloads are ZIPs behind a link with no extension
         with zipfile.ZipFile(path) as zf:
             member = next((m for m in zf.namelist() if m.lower().endswith(_ROW_EXTENSIONS)), None)
             if not member:

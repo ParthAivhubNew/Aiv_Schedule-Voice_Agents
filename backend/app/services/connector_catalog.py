@@ -60,11 +60,19 @@ REGISTER_TEXT: Dict[str, Dict[str, Any]] = {
                "provides": ["company", "sole", "address", "phone", "people"], "logo": "cqc"},
     "ds_gender_pay_gap": {"desc": "Employers with 250 or more staff, from their gender pay gap reports: a sign of size.",
                           "provides": ["company", "address"], "logo": "gpg"},
+    "ds_ico": {"desc": "Every organisation and sole trader that pays the data protection fee: names, trading names and addresses. "
+                       "Over a million small firms the company register doesn't list.",
+               "provides": ["company", "sole", "address"], "logo": "ico"},
+    "ds_oscr": {"desc": "Registered charities in Scotland, with their address, website and what they do.",
+                "provides": ["company", "address", "website"], "logo": "oscr"},
+    "ds_nhs_ods": {"desc": "GP practices, dental practices and pharmacies in England, with their addresses and phone numbers.",
+                   "provides": ["company", "sole", "address", "phone"], "logo": "nhs"},
 }
 
 # How often each register publishes a new copy, in days, plus a margin: a register whose last full load is older than this shows as
 # "Out of date". Registers not listed use STALE_DEFAULT_DAYS.
-STALE_AFTER_DAYS = {"ds_companies_house": 45, "ds_charity_commission": 45, "ds_food_hygiene": 45, "ds_cqc": 45, "ds_gender_pay_gap": 400}
+STALE_AFTER_DAYS = {"ds_companies_house": 45, "ds_charity_commission": 45, "ds_food_hygiene": 45, "ds_cqc": 45, "ds_gender_pay_gap": 400,
+                   "ds_ico": 45, "ds_oscr": 45, "ds_nhs_ods": 45}
 STALE_DEFAULT_DAYS = 60
 # A stored platform balance this old or newer counts when deciding "Out of credit" (platform_balances polls every few hours).
 BALANCE_FRESH = timedelta(days=3)
@@ -259,6 +267,8 @@ async def _registers(db, records: Dict[str, int], leads: Dict[str, int], staff: 
                 status, why = "paused", "Its records are searchable. New updates are paused."
         elif failed:
             status, why = "error", "Its records are searchable. The last update didn't finish, so recent changes may be missing."
+        elif not synced and not records.get(ds.id):
+            status, why = "not_connected", "Not loaded yet. Aivhub loads it; its records show here once they're in."
         elif synced and datetime.utcnow() - synced > timedelta(days=STALE_AFTER_DAYS.get(ds.id, STALE_DEFAULT_DAYS)):
             status, why = "stale", (f"Its records are searchable, but they were last updated on {_when(synced)}. "
                                     "The register has published newer data since.")

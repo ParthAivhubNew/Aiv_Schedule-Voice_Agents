@@ -482,3 +482,18 @@ async def test_tavily_with_no_credits_left_fails_its_check():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
         r = await PROVIDER.test(c, "k")
     assert r.ok is False and "used all its credits" in r.detail
+
+
+async def test_the_new_registers_have_labels_words_and_a_freshness_limit():
+    for ds in ("ds_ico", "ds_oscr", "ds_nhs_ods"):
+        assert ds in SC.REGISTERS and ds in CC.REGISTER_TEXT and ds in CC.STALE_AFTER_DAYS
+    assert "sole" in CC.REGISTER_TEXT["ds_ico"]["provides"]
+
+
+async def test_a_register_never_loaded_isnt_shown_as_connected(db, client, keys):
+    from app.models.models import DataSource
+
+    db.add(DataSource(id="ds_ico", name="ICO register of fee payers", kind="api", run_state="idle"))
+    await db.commit()
+    by = {c["id"]: c for c in (await client.get("/api/leadgen/connectors")).json()["connectors"]}
+    assert by["ds_ico"]["status"] == "not_connected" and "Not loaded yet" in by["ds_ico"]["statusText"]

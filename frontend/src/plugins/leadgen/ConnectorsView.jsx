@@ -20,7 +20,7 @@ const head = { fontFamily: FONT_DISPLAY };
 
 const LOGOS = {
   companies_house: CompaniesHouseLogo, fsa: FsaLogo, cqc: CqcLogo, tps: TpsLogo, postcode: OrdnanceSurveyLogo, charity: letterLogo("CC"),
-  gpg: letterLogo("GP"), register: letterLogo("R"), experian: ExperianLogo, market_location: MarketLocationLogo, licensed: letterLogo("BD"),
+  gpg: letterLogo("GP"), ico: letterLogo("ICO"), oscr: letterLogo("SC"), nhs: letterLogo("NHS"), register: letterLogo("R"), experian: ExperianLogo, market_location: MarketLocationLogo, licensed: letterLogo("BD"),
   scrape: WebCrawlerLogo, research: DossierAiLogo, email: letterLogo("@"), phone: letterLogo("#"), web: WebCrawlerLogo, custom_ai: CustomLlmLogo,
   people: DirectorMatchLogo, google: GoogleCloudLogo, csv: CsvLogo, form: InboundIntentLogo, salesforce: SalesforceLogo, hubspot: HubspotLogo,
   dynamics365: DynamicsLogo, zoho_crm: ZohoLogo, pipedrive: PipedriveLogo, bigquery: BigQueryLogo, postgres: PostgresLogo, snowflake: SnowflakeLogo,
