@@ -68,7 +68,14 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
   each Results & ideas / Library page is titled by its own name. "Lead Gen" → "Leads" and "plugin" → "app" on customer screens and in
   the server's messages ("This needs the Leads plan"). Search and Help use the same names. hub/glossary.test.js keeps the old names
   out of menus and titles. Owner checked it on 2026-11-27 ("looks good").
-- ⏭️ **Step 9, Dark mode:** skipped by the owner on 2026-11-27., Journeys, Voice's Call list and Social's calendar.
+- ⏭️ **Step 9, Dark mode:** skipped by the owner on 2026-11-27.
+- ✅ **Step 2 leftovers, staff portal (2026-11-27):**
+  - The config check marks findings that are how the test copy is meant to run (Stripe test mode, public API docs, no staff e-mail)
+    as "expected" when TEST_COPY is on and APP_ENV isn't production. They raise no CFG-01 alert and show as one quiet line on the
+    Dashboard. Everything else still alerts; on the test copy that is now only "STRIPE_WEBHOOK_SECRET is not set" (real: test
+    payments can't update plans until a test webhook secret is added).
+  - The Dashboard opens with its numbers; the alerts box and a "Set-up to fix before launch" list come under them. Other pages keep
+    the alerts box at the top., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**

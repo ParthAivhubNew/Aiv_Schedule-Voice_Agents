@@ -35,6 +35,12 @@ def _stripe_kind(v: str) -> str:
     return "test" if "_test_" in v else "live" if "_live_" in v else "other"
 
 
+# On the test copy (TEST_COPY=true) these are how it is meant to run, not something to fix: Stripe in test mode, public API docs for
+# testing, and no staff e-mail (the test copy must not mail anyone). They are marked "expected": staff see them as a note on the
+# Dashboard, and they raise no alert (plan 13).
+EXPECTED_ON_TEST_COPY = {"stripe_test", "api_docs", "staff_email"}
+
+
 def problems(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, Any]]:
     from app.core.security import PUBLIC_DEFAULT_KEYS
 
@@ -67,6 +73,9 @@ def problems(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, Any]]:
         url = str(env.get(name) or "").strip()
         if url and (not url.startswith("https://") or "localhost" in url or "127.0.0.1" in url):
             add(f"{name.lower()}_plain", "warn", f"{name} is not a public https address.")
+    test_copy = _on(env.get("TEST_COPY")) and not production(env)
+    for p in out:
+        p["expected"] = bool(test_copy and p["code"] in EXPECTED_ON_TEST_COPY)
     return out
 
 
@@ -82,8 +91,9 @@ async def at_startup(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, 
     blocks = [p for p in found if p["level"] == "block"]
     if blocks and production(env):
         raise ConfigRefused("Refusing to start in production: " + " ".join(p["text"] for p in blocks))
-    if found:
+    to_fix = [p for p in found if not p.get("expected")]
+    if to_fix:
         from app.services.ai_errors import alert_staff
 
-        await alert_staff("CFG-01", "; ".join(f"{p['level']}: {p['code']}" for p in found), org_id="platform")
+        await alert_staff("CFG-01", "; ".join(f"{p['level']}: {p['code']}" for p in to_fix), org_id="platform")
     return found

@@ -1,6 +1,7 @@
 import React from "react";
 import { C, FONT_DISPLAY } from "../tokens";
 import { adminApi } from "./adminApi";
+import { AlertsBanner } from "./Alerts";
 import { AivhubToggle, Note, PageTitle, Pill, card, fmt, heading, useLoad } from "./ui";
 
 const TILES = [
@@ -33,6 +34,9 @@ export function Dashboard({ go }) {
   const loadDashboard = React.useCallback(() => adminApi.dashboard(includeAivhub), [includeAivhub]);
   const [d, err] = useLoad(loadDashboard, [loadDashboard]);
   const [p] = useLoad(adminApi.platform);
+  const [cfg] = useLoad(adminApi.configCheck);
+  const toFix = (cfg?.problems || []).filter((x) => !x.expected);
+  const expected = (cfg?.problems || []).filter((x) => x.expected);
 
   return (
     <>
@@ -52,11 +56,30 @@ export function Dashboard({ go }) {
           ))}
         </div>
       )}
+      {/* Plan 13: the numbers first, then what needs a look. */}
+      <div style={{ marginTop: 16 }}><AlertsBanner go={go} /></div>
       {d && (d.pendingVerifications > 0 || d.whatsappRequests > 0) && (
         <button type="button" onClick={() => go("queue")} style={{ ...card, marginTop: 12, width: "100%", textAlign: "left", cursor: "pointer", borderColor: C.amber, background: C.amberSoft }}>
           <b>Waiting on us:</b> {d.pendingVerifications} business verification{d.pendingVerifications === 1 ? "" : "s"}, {d.whatsappRequests} WhatsApp request{d.whatsappRequests === 1 ? "" : "s"}. Open the queue →
         </button>
       )}
+      {toFix.length ? (
+        <>
+          <div style={heading}>Set-up to fix before launch</div>
+          <div style={{ ...card, display: "grid", gap: 6 }}>
+            {toFix.map((x) => (
+              <div key={x.code} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5 }}>
+                <Pill tone={x.level === "block" ? "red" : "amber"}>{x.level === "block" ? "Fix" : "Check"}</Pill><span>{x.text}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+      {expected.length ? (
+        <div role="note" style={{ marginTop: 12, fontSize: 12.5, color: C.slate }}>
+          Expected on the test copy, no alert: {expected.map((x) => ({ stripe_test: "Stripe in test mode", api_docs: "public API docs", staff_email: "no staff e-mail" })[x.code] || x.code).join(", ")}.
+        </div>
+      ) : null}
       <div style={heading}>Platform services</div>
       {p && (
         <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: 10 }}>

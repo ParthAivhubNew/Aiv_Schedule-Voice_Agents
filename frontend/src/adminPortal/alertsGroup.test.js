@@ -18,3 +18,19 @@ describe("staff alerts are grouped by kind", () => {
     expect(g.map((a) => a.ids[0])).toEqual(["x", "y", "a"]);
   });
 });
+
+import { readFileSync } from "node:fs";
+
+// Plan 13: the Dashboard opens with its numbers; alerts and set-up checks come after them, and what the test copy is meant to be
+// (Stripe in test mode and so on) is a note, not an alert.
+describe("the staff Dashboard", () => {
+  const dash = readFileSync(new URL("./Dashboard.jsx", import.meta.url), "utf8");
+  it("puts the numbers before the alerts", () => {
+    expect(dash.indexOf("TILES.map")).toBeLessThan(dash.indexOf("<AlertsBanner go={go} />"));
+    expect(readFileSync(new URL("./AdminApp.jsx", import.meta.url), "utf8")).toContain('{page === "dashboard" ? null : <AlertsBanner go={go} />}');
+  });
+  it("shows expected test-copy findings as a note and the rest as things to fix", () => {
+    expect(dash).toContain("Expected on the test copy, no alert:");
+    expect(dash).toContain("Set-up to fix before launch");
+  });
+});

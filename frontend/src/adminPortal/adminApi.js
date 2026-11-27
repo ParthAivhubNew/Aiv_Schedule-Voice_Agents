@@ -63,6 +63,7 @@ export const adminApi = {
   me: () => request("/me"),
   dashboard: (includeAivhub = true) => request(`/dashboard?include_aivhub=${includeAivhub}`),
   platform: () => request("/platform"),
+  configCheck: () => request("/config-check"),
   clients: (includeAivhub = true, includeArchived = false) => request(`/clients?include_aivhub=${includeAivhub}&include_archived=${includeArchived}`),
   client: (id) => request(`/clients/${q(id)}`),
   setClientStatus: (id, status) => request(`/clients/${q(id)}/status`, { method: "POST", body: { status } }),

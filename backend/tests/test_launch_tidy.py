@@ -43,7 +43,28 @@ async def test_only_a_production_server_refuses_to_start(db):
 
 async def test_staff_see_the_config_check(staff):
     body = (await staff.get("/api/admin-api/config-check")).json()
-    assert set(body) == {"production", "problems"} and all(set(p) == {"code", "level", "text"} for p in body["problems"])
+    assert set(body) == {"production", "problems"} and all(set(p) == {"code", "level", "text", "expected"} for p in body["problems"])
+
+
+async def test_what_the_test_copy_is_meant_to_be_raises_no_alert(db, monkeypatch):
+    """Plan 13: on the test copy, Stripe test mode, public API docs and no staff e-mail are how it runs. They are marked expected
+    (a note on the Dashboard) and raise no CFG-01 alert; anything else still does."""
+    from app.services import ai_errors
+
+    sent = []
+
+    async def fake_alert(code, detail, **k):
+        sent.append(detail)
+
+    monkeypatch.setattr(ai_errors, "alert_staff", fake_alert)
+    test_copy = {**GOOD, "TEST_COPY": "true", "STRIPE_SECRET_KEY": "sk_test_1", "STRIPE_PUBLISHABLE_KEY": "pk_test_1", "EXPOSE_API_DOCS": "true", "STAFF_ADMIN_EMAIL": ""}
+    found = await CFG.at_startup(test_copy)
+    assert {p["code"]: p["expected"] for p in found} == {"stripe_test": True, "api_docs": True, "staff_email": True}
+    assert sent == []
+    await CFG.at_startup({**test_copy, "SECRET_KEY": "changeme"})
+    assert sent == ["block: secret_key"]
+    # Off the test copy the same findings are real ones.
+    assert not any(p["expected"] for p in CFG.problems({**GOOD, "STRIPE_SECRET_KEY": "sk_test_1", "STRIPE_PUBLISHABLE_KEY": "pk_test_1"}))
 
 
 async def test_the_record_matching_routes_are_also_at_records(client):

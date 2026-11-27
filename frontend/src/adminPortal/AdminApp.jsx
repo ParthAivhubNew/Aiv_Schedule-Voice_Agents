@@ -131,7 +131,7 @@ export function AdminApp() {
         </div>
       </nav>
       <main style={{ padding: "24px 16px 48px", minWidth: 0, maxWidth: 1240, width: "100%", boxSizing: "border-box", margin: "0 auto" }}>
-        <AlertsBanner go={go} />
+        {page === "dashboard" ? null : <AlertsBanner go={go} />}{/* the Dashboard shows it under its numbers (plan 13) */}
         {page === "dashboard" && <Dashboard go={go} />}
         {page === "clients" && <Clients canEdit={canEdit} openId={id} open={(cid) => go("clients", cid)} />}
         {page === "queue" && <Queue canEdit={canEdit} openClient={(cid) => go("clients", cid)} />}
