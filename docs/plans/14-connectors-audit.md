@@ -3,7 +3,13 @@
 ## Status
 
 - **Done 2026-11-27 (commit 428c1a6):** every card on Settings → Data sources checked against the database and the real services. Four status fixes, tested and deployed to the test app (below).
-- **Waiting on the owner:** which new connectors to build (section 3).
+- **Done 2026-11-27 (commit c31067e), the owner chose "free registers first":** the ICO register of fee payers, the Scottish Charity Register (OSCR) and NHS GP practices, dentists and pharmacies are data sources. OSCR (25,025) and NHS (27,623) were loaded into the test copy. The ICO file (1,470,567 rows) was read end to end through the real loader but not written to the test copy (it is 18 times the test database). **On live, staff press Start on each** (staff portal → Data Sources) once the branch goes live.
+- A register that has never been loaded now shows "Not loaded yet", not "Connected".
+- **Not added, and why:**
+  - Charity Commission NI publishes no download.
+  - Ofsted childcare publishes only a spreadsheet (.xlsx/.ods), which the loader doesn't read.
+  - Get Information About Schools now builds its file through a three-step form, and its last step failed with a server error. It could come in as an uploaded file, as CQC does.
+- **ICO caution:** most of its 1.47 million rows are sole traders, often at a home address. They are personal data, so their use in outreach needs the same legitimate-interest care as the Food Hygiene sole traders. The source is marked `personal_data`.
 
 ## 1. What each card shows, checked
 
