@@ -224,12 +224,15 @@ export default function ExclusionBox({ value, onChange, placeholder, label, titl
   return (
     <>
       <ChipInput value={value} onChange={onChange} placeholder={placeholder} label={label} list={sug.list} cats={sug.cats} />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-        <span style={{ fontSize: 12, color: "var(--ui-muted)" }}>{counted}</span>
-        <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title={title || "Open a large box to read and edit the whole list"} onClick={() => setBig(true)}>
-          <Maximize2 size={13} /> Expand
-        </button>
-      </div>
+      {/* Only once there is a list: its size and a way to see all of it (plan 13: no helper line under an empty box). */}
+      {count ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+          <span style={{ fontSize: 12, color: "var(--ui-muted)" }}>{counted}</span>
+          <button type="button" className="ui-btn ui-btn--ghost ui-btn--sm" style={{ marginLeft: "auto" }} title={title || "Open a large box to read and edit the whole list"} onClick={() => setBig(true)}>
+            <Maximize2 size={13} /> Expand
+          </button>
+        </div>
+      ) : null}
       {big ? (
         <div role="dialog" aria-modal="true" aria-label={label} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,20,30,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) setBig(false); }}>

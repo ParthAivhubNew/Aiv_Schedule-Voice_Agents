@@ -1311,7 +1311,16 @@ button, input, select, textarea {
 @media (min-width: 821px) {
   .app-sidebar { transition: width 0.18s ease, min-width 0.18s ease; }
   body.sidebar-collapsed .app-sidebar { width: 64px !important; min-width: 64px !important; padding-left: 8px !important; padding-right: 8px !important; }
-  body.sidebar-collapsed .app-sidebar .sb-head { flex-direction: column; gap: 8px; padding: 2px 0 14px; }
+  /* In the rail the expand button sits on the logo and shows only while the pointer is over it (or it has keyboard focus),
+     the way Linear and ChatGPT do it, instead of taking a row of its own under the logo. */
+  body.sidebar-collapsed .app-sidebar .sb-head { position: relative; justify-content: center; gap: 0; padding: 2px 0 14px; }
+  body.sidebar-collapsed .app-sidebar .sb-head .sidebar-toggle { position: absolute; top: 2px; left: 50%; transform: translateX(-50%); width: 36px; height: 36px;
+    opacity: 0; pointer-events: none; background: var(--ui-side-hover); color: var(--ui-side-strong); border-radius: 8px; transition: opacity 0.12s ease; }
+  body.sidebar-collapsed .app-sidebar .sb-head:hover .sidebar-toggle,
+  body.sidebar-collapsed .app-sidebar .sb-head .sidebar-toggle:focus-visible { opacity: 1; pointer-events: auto; }
+  body.sidebar-collapsed .app-sidebar .sb-head > :not(.sidebar-toggle) { transition: opacity 0.12s ease; }
+  body.sidebar-collapsed .app-sidebar .sb-head:hover > :not(.sidebar-toggle),
+  body.sidebar-collapsed .app-sidebar .sb-head:has(.sidebar-toggle:focus-visible) > :not(.sidebar-toggle) { opacity: 0; }
   body.sidebar-collapsed .app-sidebar .sb-brand-name,
   body.sidebar-collapsed .app-sidebar .sb-home-text,
   body.sidebar-collapsed .app-sidebar .ui-switcher-name,

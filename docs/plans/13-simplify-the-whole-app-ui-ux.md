@@ -26,6 +26,10 @@ the test copy and waiting for the owner's look.
   - Then: "Set your ideal customer" is a small button on that first row instead of a full-width banner over the table, and the
     "Exclusions on" chip moved from the toolbar into the Filters panel's header. The toolbar is now Filters, search and Saved
     searches only.
+  - Then (owner's screenshots): in the collapsed icon menu the expand button now sits on the Outreach logo and appears on hover,
+    instead of taking its own row under the logo. The "Full profiles" group header in the table is a quiet grey row with a coloured
+    dot instead of a bright green band, and the "Type, then comma or Enter · Expand" line under an empty Leave out box is gone
+    (it comes back once there is a list).
   - Next in step 6: the same pattern on Lists, Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 

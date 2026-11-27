@@ -348,8 +348,10 @@ function Divider({ profile, count, cols }) {
   const p = PROFILE[profile] || PROFILE.basic;
   return (
     <tr>
-      <td colSpan={cols} style={{ ...text, padding: "10px 12px", background: p.bg, color: p.fg, fontSize: 12.5, fontWeight: 600, borderBottom: `1px solid ${C.border}`, borderTop: `1px solid ${C.border}` }}>
-        {p.label}{count != null ? ` · ${Number(count.n).toLocaleString()}${count.plus}` : ""} <span style={{ fontWeight: 400 }}>· {p.note}</span>
+      {/* A quiet group header (plan 13): grey like the table's own header, with the group's colour only in its dot. */}
+      <td colSpan={cols} style={{ ...text, padding: "8px 12px", background: C.paperSoft, color: C.textInk, fontSize: 12.5, fontWeight: 600, borderBottom: `1px solid ${C.border}`, borderTop: `1px solid ${C.border}` }}>
+        <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: 999, background: p.fg, marginRight: 8, verticalAlign: "middle" }} />
+        {p.label}{count != null ? <span style={{ color: C.slate, fontWeight: 500 }}> · {Number(count.n).toLocaleString()}{count.plus}</span> : ""} <span style={{ fontWeight: 400, color: C.slate }}>· {p.note}</span>
       </td>
     </tr>
   );

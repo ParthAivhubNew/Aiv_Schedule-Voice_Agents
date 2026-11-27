@@ -44,3 +44,11 @@ describe("a calmer Find Leads", () => {
     expect(renderToStaticMarkup(<MoreMenu items={[null]} />)).toBe("");
   });
 });
+
+describe("the collapsed menu", () => {
+  it("shows its expand button over the logo on hover, not on a row of its own", () => {
+    const css = readFileSync(new URL("../../../app/global.css", import.meta.url), "utf8");
+    expect(css).toContain("body.sidebar-collapsed .app-sidebar .sb-head:hover .sidebar-toggle");
+    expect(css).not.toContain("body.sidebar-collapsed .app-sidebar .sb-head { flex-direction: column");
+  });
+});
