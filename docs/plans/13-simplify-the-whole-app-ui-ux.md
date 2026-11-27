@@ -61,7 +61,7 @@ the test copy; the owner checked the full-width layout on 2026-11-27 ("looks goo
   calls, meetings and posts from GET /together/search. Arrow keys move, Enter opens, Escape closes. Home's header now has the
   Search box in place of its own Support and Documentation buttons (both are in the profile menu and in search).
   Files: hub/commandItems.js, hub/CommandPalette.jsx. Social now opens its other pages from the address too (plan, insights…).
-  Not browser-checked by me., Journeys, Voice's Call list and Social's calendar.
+  Owner checked it on 2026-11-27 ("looks good")., Journeys, Voice's Call list and Social's calendar.
   - Not browser-checked by me (Claude in Chrome wasn't connected).
 
 - ✅ **Step 5, a calm Home (2026-11-27):**
