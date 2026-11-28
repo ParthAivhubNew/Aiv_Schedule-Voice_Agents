@@ -8,7 +8,7 @@ import { openPhone } from "../../../utils/humanCall";
 import { Building2, Download, Megaphone, Mail, PhoneCall, Plus, Search, ShieldCheck } from "lucide-react";
 import { api } from "../../../api/apiClient";
 import { ExportDialog } from "../ExportDialog";
-import { FieldMark, hasGoogleData, SourceList } from "../SourceMark";
+import { FieldMark, hasGoogleData } from "../SourceMark";
 import { SourceBadge } from "../SourceBadge";
 import { OriginSelect, SourceSelect, TpsChip, TpsNote } from "../ListFilterBar";
 import { CountTabs, FilterChips, FilterPopover } from "../../../components/FilterPopover";
@@ -58,7 +58,7 @@ const COMPANY_PIN = ["Company"];
 export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaign, scopeIds = null, listId = "", moreInHeader = false, canExport = false }) {
   const narrow = useNarrow();
   const [filter, setFilter] = useState("");
-  const [tabPref, setTabPref] = useState(""); // "" = the first tab that has companies
+  const [tabPref, setTabPref] = useState(""); // "" = All
   const [moreFilter, setMoreFilter] = useState("");
   const [googleOnly, setGoogleOnly] = useState(false); // the "Google data" pill: only companies whose details came from Google
   const [tpsOnly, setTpsOnly] = useState(false); // the "TPS checked" pill: only companies whose phone has a TPS/CTPS result
@@ -107,14 +107,14 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
   const shownOwn = own.filter((n) => showing(`c:${n}`));
   const fitShown = icp.isSet && showing("fit");
   const order = sortBy || (icp.isSet ? "fit" : "complete");
-  const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "datasource", "source"].filter(showing).length + shownOwn.length + 1;
+  const columnCount = 2 + (fitShown ? 1 : 0) + ["phone", "email", "contact", "stage", "quality", "check", "website", "source"].filter(showing).length + shownOwn.length + 1;
   const q = filter.trim().toLowerCase();
   const buckets = { all: [], ready: [], needs: [], other: [], contacted: [] };
   base.forEach((a) => { buckets[bucket(a)].push(a); buckets.all.push(a); });
   const tabsShown = TABS; // every tab stays, even at 0, so nothing seems to have gone missing
   // Companies that would have been ready to email but are held until their register match or consent is settled
   const heldBack = buckets.needs.filter((a) => a.email && (a.email_route || {}).email === false && (a.email_route || {}).group === "quick_choice").length;
-  const tab = tabPref && buckets[tabPref] ? tabPref : TABS.find(([k]) => k !== "all" && buckets[k].length)?.[0] || "all"; // opens on the first group with companies; All is one click away
+  const tab = tabPref && buckets[tabPref] ? tabPref : "all"; // a list always opens on All; the person picks any other group
   const pickRows = base.filter((a) => openPicks(a).length);
   const picks = picksOnly && pickRows.length > 0; // "Needs your choice" looks across every tab
   const inTab = picks ? pickRows : buckets[tab];
@@ -407,7 +407,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                   <label className="row-tick" title="Select every company on this page"><input type="checkbox" checked={allShownPicked} onChange={() => sel.togglePage(pageIds)} aria-label="Select all companies on this page" /></label>
                 </th>
                 <th>Company</th>
-                {showing("datasource") ? <th title="Where the phone, email and website came from: your file, the official register, the company's own website and so on">Data from</th> : null}
                 {showing("source") ? <th title="How and when this company was first saved">First seen via</th> : null}
                 {fitShown ? (
                   <th aria-sort={order === "fit" ? "descending" : "none"} style={{ whiteSpace: "nowrap" }}>
@@ -447,7 +446,6 @@ export function AccountsView({ store, listsStore, onOpen, onAdd, onGo, onCampaig
                       </div>
                     ) : null}
                   </td>
-                  {showing("datasource") ? <td><SourceList sources={a.field_sources} /></td> : null}
                   {showing("source") ? <td style={{ color: C.slate, whiteSpace: "nowrap" }}>{firstSeen(a)}</td> : null}
                   {fitShown ? <td style={{ maxWidth: 260 }}><FitBadge fit={a.fit} /></td> : null}
                   {showing("phone") ? (

@@ -100,6 +100,14 @@ export const roleGranted = (role, sections) => (role && role.is_admin ? (section
 export const grantedLine = (n) => `${plural(n, "permission")} granted`;
 export const roleListLine = (role, sections) => `${roleGranted(role, sections)} granted · ${plural(Number(role.users) || 0, "user")}`;
 
+// What a role lets someone do: the sections it opens fully, the ones it opens read-only. An admin role has everything.
+export function roleCapabilities(role, sections) {
+  if (!role) return { all: false, full: [], view: [] };
+  if (role.is_admin) return { all: true, full: [], view: [] };
+  const pick = (lvl) => (sections || []).filter((s) => levelOf(role.levels, s.key) === lvl).map((s) => s.label);
+  return { all: false, full: pick("full"), view: pick("view") };
+}
+
 export function groupSections(sections) {
   const out = [];
   (sections || []).forEach((s) => {

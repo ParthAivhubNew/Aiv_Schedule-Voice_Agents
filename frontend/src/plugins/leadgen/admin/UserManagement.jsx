@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Plus, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Info, Plus, Search, X } from "lucide-react";
 import { CardsSkeleton } from "../../../app/Loader";
 import { C } from "../../../tokens";
 import { api } from "../../../api/apiClient";
@@ -7,8 +7,8 @@ import { Avatar } from "../../../hub/Avatar";
 import { AdminCrown } from "../../../components/AdminCrown";
 import { confirmTwice, deleteUserChanges, isAskingTwice, newUserChanges, switchUserChanges, userChanges, accessChanges } from "./confirmChange";
 import { AccessEditor, ADMIN_SEES_ALL_HELP, ADMIN_SEES_ALL_LINE, NEED_AREAS_LINE, useAccessDraft } from "./AccessEditor";
-import { PAGE_SIZES, filterUsers, formatDate, formatLastLogin, isActiveItem, isAdminUser, nextSort, paginate, plural, roleChips, showingLine, sortUsers, userRoles, userStatus } from "./adminLogic";
-import { ADMIN_CSS, ItemActions, Live, PageHead, RoleChip, StatusChip, card, field, muted, text } from "./adminUi";
+import { PAGE_SIZES, filterUsers, formatDate, formatLastLogin, isActiveItem, isAdminUser, nextSort, paginate, plural, roleCapabilities, roleChips, showingLine, sortUsers, userRoles, userStatus } from "./adminLogic";
+import { ADMIN_CSS, DrawerShell, ItemActions, Live, PageHead, RoleChip, Section, StatusChip, card, field, muted, text } from "./adminUi";
 
 export const USERS_TITLE = "User management";
 export const USERS_SUB = "Manage users, roles and areas across your organisation.";
@@ -137,27 +137,77 @@ export function UserManagementBody({ users, roles = [], me, error = "", notice =
   );
 }
 
-function RoleChecks({ roles, ids, onToggle, idBase }) {
+// What one role lets a person do, in plain words: the description, then what they can change and what they can only see.
+export function RoleInfo({ role, sections, id }) {
+  const cap = roleCapabilities(role, sections);
+  const list = (label, items) => (items.length ? <div><strong style={{ color: C.textInk }}>{label}</strong> {items.join(", ")}</div> : null);
   return (
-    <fieldset style={{ border: "none", margin: 0, padding: 0, display: "grid", gap: 6, minWidth: 0 }}>
-      <legend style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk, padding: 0, marginBottom: 6 }}>Roles</legend>
-      {roles.map((r) => (
-        <label key={r.id} htmlFor={`${idBase}-${r.id}`} style={{ ...text, display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 14, cursor: "pointer" }}>
-          <input id={`${idBase}-${r.id}`} type="checkbox" checked={ids.includes(r.id)} onChange={() => onToggle(r.id)} style={{ width: 20, height: 20 }} />
-          <span>{r.name}{r.is_admin ? " (admin)" : ""}</span>
-        </label>
-      ))}
+    <div id={id} style={{ ...muted, fontSize: 12.5, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px", display: "grid", gap: 6, margin: "0 0 4px 30px" }}>
+      {role.description ? <div>{role.description}</div> : null}
+      {cap.all ? <div><strong style={{ color: C.textInk }}>Can do everything</strong>, including managing users, roles and settings. Sees every postcode.</div> : (
+        <>
+          {list("Can use and change:", cap.full)}
+          {list("Can only view:", cap.view)}
+          {!cap.full.length && !cap.view.length ? <div>This role opens nothing yet. Add permissions on the Roles screen.</div> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function RoleChecks({ roles, ids, onToggle, idBase, sections = [] }) {
+  const [open, setOpen] = useState("");
+  return (
+    <fieldset style={{ border: "none", margin: 0, padding: 0, display: "grid", gap: 8, minWidth: 0 }}>
+      <legend style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Roles</legend>
+      {roles.map((r) => {
+        const on = open === r.id;
+        const picked = ids.includes(r.id);
+        return (
+          <div key={r.id} className="adm-opt" data-on={picked ? "true" : "false"}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <label htmlFor={`${idBase}-${r.id}`} style={{ ...text, display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0 10px 12px", fontSize: 14, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                <input id={`${idBase}-${r.id}`} type="checkbox" checked={picked} onChange={() => onToggle(r.id)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+                <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, color: C.textInk }}>{r.name}{r.is_admin && !/^admin$/i.test(r.name) ? " (admin)" : ""}</span>
+                  {r.description ? <span style={{ ...muted, fontSize: 12.5 }}>{r.description}</span> : null}
+                </span>
+              </label>
+              <button type="button" className="adm-icon" aria-label={`What the ${r.name} role can do`} aria-expanded={on} aria-controls={`${idBase}-${r.id}-info`}
+                title={`What the ${r.name} role can do`} onClick={() => setOpen(on ? "" : r.id)} onKeyDown={(e) => { if (e.key === "Escape" && on) { e.stopPropagation(); setOpen(""); } }}
+                style={{ minWidth: 44, minHeight: 44, border: "none", background: "transparent", color: on ? C.cobalt : C.slate }}><Info size={17} aria-hidden="true" /></button>
+            </div>
+            {on ? <div style={{ padding: "0 12px 12px" }}><RoleInfo role={r} sections={sections} id={`${idBase}-${r.id}-info`} /></div> : null}
+          </div>
+        );
+      })}
     </fieldset>
   );
 }
 
 export const PROFILE_ACCESS_ERROR = "Couldn't load this person's data access.";
+export const USERNAME_HELP = "3 to 32 letters, numbers, dots, dashes or underscores. No spaces.";
+export const USERNAME_ERROR = `Username: ${USERNAME_HELP}`;
+export const NEW_ACCESS_FAILED = "The account was created, but its data access was not saved. Open their profile and set it before they sign in.";
+
+export const cleanUsername = (v) => String(v || "").trim().toLowerCase();
+export const usernameOk = (v) => /^[a-z0-9][a-z0-9._-]{2,31}$/.test(cleanUsername(v));
+// A starting username from the email (before the @), or from the name, so the admin only edits it when they want to.
+export const suggestUsername = ({ email = "", name = "" }) => {
+  const base = (email.includes("@") ? email.split("@")[0] : name).toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "").slice(0, 32);
+  return base;
+};
+// The role a new person starts with, ticked on screen so nothing is chosen for them out of sight.
+export const defaultRoleIds = (roles) => { const r = (roles || []).find((x) => x.name === "Operator"); return r ? [r.id] : []; };
 
 // Add a user, or open a profile: details, roles, active or not, and data access, saved together.
-export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = null, initialAccess = null, initialAllowed = [] }) {
+export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, initialTemp = null, initialAccess = null, initialAllowed = [] }) {
   const adding = !user;
   const [form, setForm] = useState({ name: user ? user.name : "", username: "", email: user ? user.email || "" : "" });
-  const [ids, setIds] = useState(user ? userRoles(user).map((r) => r.id) : []);
+  const [ids, setIds] = useState(user ? userRoles(user).map((r) => r.id) : defaultRoleIds(roles));
+  const [nameTouched, setNameTouched] = useState(false); // once the admin types a username, we stop suggesting one
+  const [newAllowed, setNewAllowed] = useState([]);
+  const [newWarning, setNewWarning] = useState("");
   const [active, setActive] = useState(user ? user.is_active !== false : true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -170,12 +220,13 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
   const [accessState, setAccessState] = useState(initialAccess ? "ready" : "loading"); // loading | ready | failed
   const first = useRef(null);
   const isMe = !!user && !!me && user.id === me.id;
-  const seesAll = !adding && isAdminUser(user);
-  const showAccess = !adding && !seesAll;
+  const newIsAdmin = adding && roles.some((r) => r.is_admin && ids.includes(r.id));
+  const seesAll = adding ? newIsAdmin : isAdminUser(user);
+  const showAccess = !seesAll;
   const clear = () => { setStatus(""); setError(""); setParts({ user: "", access: "" }); };
   const draft = useAccessDraft(access, user ? user.id : "", { onTouch: clear });
   const detailChanges = adding ? [] : userChanges(user, { name: form.name, email: form.email, roleIds: ids, active: isMe ? undefined : active }, roles);
-  const accessLines = showAccess && accessState === "ready" ? accessChanges(access, draft) : [];
+  const accessLines = showAccess && (adding || accessState === "ready") ? accessChanges(access, draft) : [];
   const profileChanges = [...detailChanges, ...accessLines];
   const profileDanger = !isMe && !active && user && user.is_active !== false;
   const toggle = (id) => { clear(); setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])); };
@@ -195,7 +246,14 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
       setAccessState("failed");
     }
   }, [user]);
-  useEffect(() => { if (showAccess && !initialAccess) loadAccess(); }, [showAccess, initialAccess, loadAccess]);
+  useEffect(() => { if (!adding && showAccess && !initialAccess) loadAccess(); }, [adding, showAccess, initialAccess, loadAccess]);
+  // A new person has no saved limits yet; only the suggested areas are read, so the admin can pick from them.
+  useEffect(() => {
+    if (!adding) return;
+    let live = true;
+    api.getDataAccess().then((d) => { if (live) setNewAllowed(d.districts_allowed || []); }).catch(() => {});
+    return () => { live = false; };
+  }, [adding]);
 
   useEffect(() => {
     const prev = typeof document !== "undefined" ? document.activeElement : null;
@@ -209,13 +267,22 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
     e.preventDefault();
     clear();
     if (adding) {
-      const operator = roles.find((r) => r.name === "Operator");
-      const role_ids = ids.length ? ids : [operator && operator.id].filter(Boolean);
-      const sure = await confirmTwice({ title: `Add the user ${form.name.trim()}?`, changes: newUserChanges(form, role_ids, roles), subject: form.name.trim() });
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) { setError("Enter their email address. Their sign-in details are sent there."); return; }
+      if (!ids.length) { setError("Pick at least one role."); return; }
+      if (!usernameOk(form.username)) { setError(USERNAME_ERROR); return; }
+      if (showAccess && draft.needsAreas) { setError(NEED_AREAS_LINE); return; }
+      const role_ids = ids;
+      const newLines = [...newUserChanges(form, role_ids, roles), ...(showAccess ? accessLines : [])];
+      const sure = await confirmTwice({ title: `Add the user ${form.name.trim()}?`, changes: newLines, subject: form.name.trim() });
       if (!sure) return;
       setBusy(true);
       try {
-        const res = await api.createUser({ name: form.name.trim(), username: form.username.trim().toLowerCase(), email: form.email.trim() || null, role_ids });
+        const res = await api.createUser({ name: form.name.trim(), username: cleanUsername(form.username), email: form.email.trim() || null, role_ids });
+        let warn = "";
+        if (showAccess && accessLines.length) {
+          try { await api.setDataAccess(res.id, draft.body()); } catch { warn = NEW_ACCESS_FAILED; }
+        }
+        setNewWarning(warn);
         setTemp({ value: res.temporary_password, who: res.name, emailed: !!res.emailed });
         onSaved(`${res.name} added.`);
       } catch (err) {
@@ -265,64 +332,76 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
   };
 
   return (
-    <div className="adm-drawer-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="adm-drawer" role="dialog" aria-modal="true" aria-labelledby="adm-drawer-title">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 id="adm-drawer-title" style={{ ...text, margin: 0, fontSize: 17, color: C.textInk, overflowWrap: "anywhere" }}>{adding ? "Add user" : `${user.name}'s profile`}</h3>
-          <button type="button" className="adm-icon" aria-label="Close" onClick={onClose}><X size={18} aria-hidden="true" /></button>
-        </div>
+    <DrawerShell title={adding ? "Add user" : `${user.name}'s profile`} subtitle={adding ? "They get a temporary password by email and choose their own when they first sign in." : (user.email || `@${user.username}`)} onClose={onClose}
+      footer={temp ? null : (
+        <>
+          <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onClose}>Cancel</button>
+          <button type="submit" form="adm-user-form" className="ui-btn ui-btn--primary" style={{ minHeight: 44, minWidth: 120 }} disabled={busy || (!adding && profileChanges.length === 0)}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
+        </>
+      )}>
         {temp ? (
           <div style={{ border: `1px solid ${C.amber}`, background: C.amberSoft, borderRadius: 12, padding: 14, display: "grid", gap: 8 }}>
             <div style={{ ...text, fontSize: 14, fontWeight: 700, color: C.textInk }}>Temporary password for {temp.who}</div>
-            <div style={muted}>{temp.emailed ? "Also emailed to them. " : "Send it to them privately. "}Shown only now. They choose their own at first sign-in.</div>
+            <div style={muted}>{temp.emailed ? "Emailed to them with their username and a sign-in link. " : "The email could not be sent. Send them the username and this password privately. "}Shown only now. They choose their own at first sign-in.</div>
             <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, background: C.surface, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, overflowWrap: "anywhere" }}>{temp.value}</code>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={copy}><Copy size={14} aria-hidden="true" /> Copy</button>
               <button type="button" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} onClick={onClose}>Done</button>
             </div>
             <div role="status" aria-live="polite" style={muted}>{copied}</div>
+            {newWarning ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{newWarning}</div> : null}
           </div>
         ) : (
-          <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Full name</label>
-              <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => { clear(); setForm({ ...form, name: e.target.value }); }} />
+          <form id="adm-user-form" onSubmit={submit} style={{ display: "grid", gap: 24 }}>
+            <Section title="Details" hint={adding ? "Who they are and where their sign-in details go." : ""}>
+            <div className="adm-field">
+              <label htmlFor="adm-f-name">Full name<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
+              <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, name: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: f.email, name: v }) } : {}) })); }} />
             </div>
             {adding ? (
-              <div style={{ display: "grid", gap: 4 }}>
-                <label htmlFor="adm-f-username" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Username</label>
-                <input id="adm-f-username" required autoCapitalize="none" style={field} value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+              <div className="adm-field">
+                <label htmlFor="adm-f-username">Username<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
+                <input id="adm-f-username" required autoCapitalize="none" autoComplete="off" spellCheck={false} aria-describedby="adm-f-username-help" aria-invalid={!!form.username && !usernameOk(form.username)} style={field} value={form.username} onChange={(e) => { clear(); setNameTouched(true); setForm({ ...form, username: e.target.value }); }} />
+                <span id="adm-f-username-help" style={{ ...muted, fontSize: 12.5, color: form.username && !usernameOk(form.username) ? C.red : C.slate }}>{USERNAME_HELP}</span>
               </div>
             ) : null}
-            <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-email" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Email{adding ? " (optional)" : ""}</label>
-              <input id="adm-f-email" type="email" style={field} value={form.email} onChange={(e) => { clear(); setForm({ ...form, email: e.target.value }); }} />
+            <div className="adm-field">
+              <label htmlFor="adm-f-email">Email{adding ? <span aria-hidden="true" style={{ color: C.red }}> *</span> : null}</label>
+              <input id="adm-f-email" type="email" required={adding} style={field} value={form.email} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, email: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: v, name: f.name }) } : {}) })); }} />
+              {adding ? <span style={{ ...muted, fontSize: 12.5 }}>Their username and a temporary password are emailed here, with a sign-in link. You also see the password once.</span> : null}
             </div>
-            <RoleChecks roles={roles} ids={ids} onToggle={toggle} idBase="adm-role" />
+            </Section>
+            <Section title="Role" hint="What they can open and change. A person can have more than one role.">
+              <RoleChecks roles={roles} ids={ids} onToggle={toggle} idBase="adm-role" sections={sections} />
+            </Section>
             {!adding ? (
-              <label htmlFor="adm-f-active" style={{ ...text, display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 14, cursor: isMe ? "not-allowed" : "pointer" }}>
-                <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => { clear(); setActive(e.target.checked); }} style={{ width: 20, height: 20 }} />
-                <span>Active ({active ? "On" : "Off"}){isMe ? <span style={muted}> You cannot disable your own account.</span> : null}</span>
-              </label>
+              <Section title="Status">
+                <label htmlFor="adm-f-active" className="adm-opt" data-on={active ? "true" : "false"} style={{ ...text, display: "flex", alignItems: "center", gap: 12, minHeight: 44, padding: "6px 12px", fontSize: 14, cursor: isMe ? "not-allowed" : "pointer" }}>
+                  <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => { clear(); setActive(e.target.checked); }} style={{ width: 20, height: 20 }} />
+                  <span>Active ({active ? "On" : "Off"}){isMe ? <span style={muted}> You cannot disable your own account.</span> : null}</span>
+                </label>
+              </Section>
             ) : null}
             {seesAll ? (
-              <section style={{ ...card, padding: 12, display: "grid", gap: 4 }} aria-label="Data access">
-                <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>{ADMIN_SEES_ALL_LINE}</div>
-                <div style={muted}>{ADMIN_SEES_ALL_HELP}</div>
-              </section>
+              <Section title="Data access">
+                <div className="adm-opt" style={{ padding: 12, display: "grid", gap: 4 }}>
+                  <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>{ADMIN_SEES_ALL_LINE}</div>
+                  <div style={muted}>{ADMIN_SEES_ALL_HELP}</div>
+                </div>
+              </Section>
             ) : null}
             {showAccess ? (
-              <section style={{ ...card, padding: 12, display: "grid", gap: 10 }} aria-label="Data access">
-                <h4 style={{ ...text, margin: 0, fontSize: 14, color: C.textInk }}>Data access</h4>
-                {accessState === "ready" ? <AccessEditor draft={draft} allowed={allowed} idBase={`adm-da-${user.id}`} disabled={busy} /> : null}
-                {accessState === "loading" ? <div role="status" aria-live="polite" style={muted}>Loading data access…</div> : null}
-                {accessState === "failed" ? (
+              <Section title="Data access" hint="Which postcodes they can search, and what they can do with the data.">
+                {adding ? <AccessEditor draft={draft} allowed={newAllowed} idBase="adm-da-new" disabled={busy} /> : null}
+                {!adding && accessState === "ready" ? <AccessEditor draft={draft} allowed={allowed} idBase={`adm-da-${user.id}`} disabled={busy} /> : null}
+                {!adding && accessState === "loading" ? <div role="status" aria-live="polite" style={muted}>Loading data access…</div> : null}
+                {!adding && accessState === "failed" ? (
                   <div style={{ display: "grid", gap: 8, justifyItems: "start" }}>
                     <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div>
                     <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={loadAccess}>Try again</button>
                   </div>
                 ) : null}
-              </section>
+              </Section>
             ) : null}
             <div role="status" aria-live="polite" style={{ display: "grid", gap: 4 }}>
               {status ? <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{status}</div> : null}
@@ -330,21 +409,17 @@ export function UserDrawer({ user, roles, me, onClose, onSaved, initialTemp = nu
             </div>
             {error ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{error}</div> : null}
             {parts.user ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Details: {parts.user}</div> : null}
-            {parts.access && accessState !== "failed" ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div> : null}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onClose}>Cancel</button>
-              <button type="submit" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={busy || (!adding && profileChanges.length === 0)}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
-            </div>
+            {!adding && parts.access && accessState !== "failed" ?<div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div> : null}
           </form>
         )}
-      </div>
-    </div>
+    </DrawerShell>
   );
 }
 
 export function UserManagement({ operator }) {
   const [users, setUsers] = useState(null);
   const [roles, setRoles] = useState([]);
+  const [sections, setSections] = useState([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [drawer, setDrawer] = useState(null); // null | "add" | user
@@ -353,6 +428,7 @@ export function UserManagement({ operator }) {
     try {
       const [u, r] = await Promise.all([api.getUsers(), api.getRoles()]);
       setUsers(u); setRoles(r); setError("");
+      api.getSections().then(setSections).catch(() => {}); // only used to describe roles, so a failure just leaves the lists empty
     } catch (e) {
       setError(e.message || "Couldn't load users. Try again.");
     }
@@ -389,7 +465,7 @@ export function UserManagement({ operator }) {
   return (
     <>
       <UserManagementBody users={users} roles={roles} me={operator} error={error} notice={notice} onRetry={load} onAdd={() => setDrawer("add")} onEdit={setDrawer} onDelete={remove} onToggle={toggle} />
-      {drawer ? <UserDrawer user={drawer === "add" ? null : drawer} roles={roles} me={operator} onClose={closeDrawer} onSaved={(m) => { setNotice(m); load(); }} /> : null}
+      {drawer ? <UserDrawer user={drawer === "add" ? null : drawer} roles={roles} sections={sections} me={operator} onClose={closeDrawer} onSaved={(m) => { setNotice(m); load(); }} /> : null}
     </>
   );
 }

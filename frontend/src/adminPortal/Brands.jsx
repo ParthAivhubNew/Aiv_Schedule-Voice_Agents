@@ -59,7 +59,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
   const accent = normaliseAccent(look.accent);
   const lookBody = () => ({ name: look.name.trim(), displayName: look.displayName.trim(), logoUrl: look.logoUrl.trim(), accent: accent || "", poweredBy: look.poweredBy, hideCredits: look.hideCredits, status: look.status });
   const policyBody = () => {
-    const { payload, problems } = toPayload(draft);
+    const { payload, problems } = toPayload(draft, "brand");
     if (problems.length) {
       fail(problems.join(" "));
       return null;
@@ -139,6 +139,7 @@ function Editor({ brand, orgs, canEdit, onChanged, onClosed }) {
       <div style={card}>
         {sectionTitle("Rules")}
         <RulesForm draft={draft} set={(patch) => setDraft((d) => ({ ...d, ...patch }))} sets={ruleSets?.sets || []} level="brand" disabled={off} />
+        <Note>On top of these, each organisation's admins keep their own exclusion list in Administration, under Exclusions.</Note>
         {isNew ? null : <button type="button" style={{ ...btn(true, off), marginTop: 8 }} disabled={off} onClick={savePolicy}>Save the rules</button>}
       </div>
 

@@ -46,12 +46,18 @@ export function RulesForm({ draft, set, brand = fromBrand(null), by = "", sets =
           <Check key={s.id} label={s.label} checked={draft.sets.includes(s.id)} onChange={(on) => toggleSet(s.id, on)}
             lockedBy={brand.sets.includes(s.id) ? by : ""} note={s.desc} />
         ))}
-        <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-          Also leave out
-          <textarea className="ui-input" rows={4} value={draft.extraText} onChange={(e) => set({ extraText: e.target.value })}
-            placeholder={"One per line: a SIC code (84110), a company number (01234567), a postcode district (BN1) or a word (care home)"} style={{ fontFamily: FONT_BODY, fontSize: 13 }} />
-          {brand.extra ? <span style={hint}>{by} also leaves out {brand.extra} more.</span> : null}
-        </label>
+        {brandLevel ? (
+          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+            Also leave out
+            <textarea className="ui-input" rows={4} value={draft.extraText} onChange={(e) => set({ extraText: e.target.value })}
+              placeholder={"One per line: a SIC code (84110), a company number (01234567), a postcode district (BN1) or a word (care home)"} style={{ fontFamily: FONT_BODY, fontSize: 13 }} />
+          </label>
+        ) : (
+          <span style={hint}>
+            {brand.extra ? `${by} also leaves out ${brand.extra} more. ` : ""}
+            Your own list of SIC codes, company numbers, postcodes and words is in Administration, under Exclusions.
+          </span>
+        )}
         <div role="radiogroup" aria-label="How the exclusions apply" style={{ display: "grid", gap: 6, fontSize: 13 }}>
           <label style={{ display: "flex", gap: 8 }}><input type="radio" checked={draft.locked} onChange={() => set({ locked: true })} /> Enforced: every search leaves them out</label>
           <label style={{ display: "flex", gap: 8 }}><input type="radio" checked={!draft.locked} onChange={() => set({ locked: false })} /> A starting filter: people can switch it off in Find Leads</label>

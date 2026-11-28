@@ -115,8 +115,9 @@ def _rules_admin(request: Request) -> Dict[str, Any]:
 async def _rules_view(db: AsyncSession, org_id: str) -> Dict[str, Any]:
     lv = await TP.levels(db, org_id)
     combined = TP.merge_policy(lv["brand"] or TP.default_policy(), lv["company"])
+    rules = await TP._read_rules(db, org_id)  # the organisation's own list (Administration > Exclusions) applies on top
     return {"brand": lv["brand"], "brandName": lv["brandName"], "company": lv["company"], "combined": combined,
-            "summary": TP.Policy(org_id, lv["brandId"], merged=combined).summary()}
+            "summary": TP.Policy(org_id, lv["brandId"], merged=combined, rules=rules).summary()}
 
 
 @router.get("/rules")
@@ -141,7 +142,7 @@ async def preview_rules(body: Dict[str, Any], request: Request, db: AsyncSession
     lv = await TP.levels(db, org_id)
     combined = TP.merge_policy(lv["brand"] or TP.default_policy(), TP.clean_policy(body))
     combined["exclusions"]["locked"] = True  # count what the rules hide when they apply
-    pol = TP.Policy(org_id, lv["brandId"], merged=combined)
+    pol = TP.Policy(org_id, lv["brandId"], merged=combined, rules=await TP._read_rules(db, org_id))
     area = pol.geo_conditions()
     hide = pol.exclusion_conditions()
     sup = pol.suppression_condition(org_id)
@@ -176,6 +177,8 @@ async def put_rules(body: Dict[str, Any], request: Request, db: AsyncSession = D
     org_id = ctx["org_id"]
     lv = await TP.levels(db, org_id)
     company = TP.clean_policy(body)
+    # The company's own extra exclusions are rows of its list now (Administration > Exclusions, startup step 2026_12_14_company_extra_to_rules).
+    company["exclusions"]["extra"] = []
     problems = TP.company_policy_problems(lv["brand"] or TP.default_policy(), company)
     if problems:
         raise HTTPException(status_code=400, detail={"message": " ".join(problems), "problems": problems, "code": "rules_conflict"})

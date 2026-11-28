@@ -9,6 +9,7 @@ import { useLookupPrice, useRatePrice } from "./CreditsChip";
 import { NotesButton } from "./Notes";
 import { FitBadge, SignalTags } from "./FitParts";
 import { FieldMark } from "./SourceMark";
+import { SourceBadge } from "./SourceBadge";
 import { displayName, legalTag } from "./companyLogic";
 import { CARDS_CSS, useNarrow } from "./cardsLayout";
 
@@ -386,6 +387,7 @@ function CompanyCards({ rows, picked, onPick, onOpen, isSaved, onSave, tiers, gr
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <button type="button" className="fl-co-name" onClick={(e) => { e.stopPropagation(); onOpen(c); }}>{displayName(c.name)}</button>
                     {c.registration_number || legalTag(c.company_category, c.registration_number) ? <div className="fl-co-sub">{[legalTag(c.company_category, c.registration_number), c.registration_number ? `No. ${c.registration_number}` : ""].filter(Boolean).join(" · ")}</div> : null}
+                    <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 1 }}><SourceBadge account={c} /></div>
                   </div>
                   <SaveCell saved={isSaved(c)} onSave={() => onSave(c)} />
                 </div>
@@ -469,6 +471,7 @@ export function CompaniesTable({ onGetContacts, rows, picked, onPick, onPickAll,
                           {grouped ? null : <ProfileBadge profile={c.profile} />}
                         </div>
                         {c.registration_number ? <div style={{ ...muted, fontSize: 11, lineHeight: 1.25, whiteSpace: "nowrap" }}>No. {c.registration_number}</div> : null}
+                        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 1 }}><SourceBadge account={c} /></div>
                         {c.signals?.length ? <div style={{ marginTop: 3 }}><SignalTags signals={c.signals} /></div> : null}
                       </div>
                     </div>

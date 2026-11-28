@@ -16,7 +16,8 @@ describe("company rules", () => {
     const d = { ...draftFrom({}), sets: ["standard_b2b"], extraText: "84110\ncare home, 84110", districtsText: "bn1, BN3", sources: { google: true } };
     const { payload, problems } = toPayload(d);
     expect(problems).toEqual([]);
-    expect(payload.exclusions).toEqual({ sets: ["standard_b2b"], fsb: true, extra: ["84110", "care home"], locked: true });
+    expect(payload.exclusions).toEqual({ sets: ["standard_b2b"], fsb: true, extra: [], locked: true }); // a company's own items are its Exclusions list now
+    expect(toPayload(d, "brand").payload.exclusions.extra).toEqual(["84110", "care home"]);
     expect(payload.geo.districts).toEqual(["BN1", "BN3"]);
     expect(toPayload({ ...d, districtsText: "nowhere" }).problems[0]).toContain("NOWHERE");
     expect(toPayload({ ...d, signin: { password: false, google: false, microsoft: false } }).problems[0]).toContain("at least one sign-in");

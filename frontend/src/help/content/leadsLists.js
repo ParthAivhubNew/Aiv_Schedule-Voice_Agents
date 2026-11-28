@@ -99,7 +99,7 @@ export const leadsListsDoc = {
             ["Needs your choice", "We found more than one phone or email and you need to pick the right one. Appears only when there are some."],
           ],
         },
-        p("Each tab shows a count. The list opens on the first tab that has companies. A “More filters” menu adds filters that appear only when something matches: “New data found”, “Fixes to review”, “Due for deletion” (not contacted for 12 months), “Import warnings”, and the results of checks."),
+        p("Each tab shows a count. The list always opens on All; pick any other tab from there. A “More filters” menu adds filters that appear only when something matches: “New data found”, “Fixes to review”, “Due for deletion” (not contacted for 12 months), “Import warnings”, and the results of checks."),
         p("The table can show these columns: Company, Fit, Phone, Email, Contact, Stage, Complete, Check, Website and “First seen via”. “Complete” shows how much of the website, phone, email, address, industry, people and size we hold. Hover a row to see what is missing. “Check” says whether the company, its website and its email look real. “Columns” and the layout switch let you hide what you do not need, and “Save this view” remembers a set of columns, tab and filter under a name."),
       ],
     },

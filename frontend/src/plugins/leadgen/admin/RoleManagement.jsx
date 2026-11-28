@@ -9,12 +9,13 @@ import {
   LEVELS, LEVEL_NAMES, grantedCount, grantedLine, groupSections, groupState, isActiveItem, levelOf, peopleIn, peopleLine, peopleNotIn,
   plural, roleIdsAfterAdd, roleIdsAfterMove, roleListLine, sameLevels, searchGroups, setGroupLevel, setLevel, userRoles,
 } from "./adminLogic";
-import { ADMIN_CSS, InactiveChip, ItemActions, Live, PageHead, card, field, muted, text } from "./adminUi";
+import { ADMIN_CSS, DrawerShell, InactiveChip, ItemActions, Live, PageHead, Section, card, field, muted, text } from "./adminUi";
 
 export const ROLES_TITLE = "Role management";
 export const ROLES_SUB = "Who each role is, what it can do, and who is in it.";
 export const ADMIN_ROLE_LINE = "Admin roles have full access to everything, so their permissions cannot be changed.";
-export const SYSTEM_ROLE_LINE = "This is a starter role. You can change its access and description, but not its name, and it cannot be deleted.";
+export const SYSTEM_ROLE_LINE = "This is a starter role. You can change its access and description, but not its name.";
+export const ADMIN_NO_DELETE_LINE = "The Admin role cannot be deleted: every account keeps one.";
 export const NO_ROLES = "There are no roles yet. Add the first one.";
 
 export function LevelControl({ label, value, onChange, disabled }) {
@@ -140,33 +141,62 @@ export function PeoplePanel({ role, roles, users, busy, onAdd, onMove, initialAd
   );
 }
 
-function MetaForm({ role, onSave, onCancel, busy }) {
+// Add a role, or change one's name, description and admin switch. The same side drawer a new user opens in, so the two screens feel alike.
+// A new role can start from the permissions of one that exists; they are set properly on the role's own page afterwards.
+export function RoleDrawer({ role, roles = [], onSave, onCancel, busy }) {
   const adding = !role;
   const [name, setName] = useState(role ? role.name : "");
   const [description, setDescription] = useState(role ? role.description || "" : "");
   const [isAdmin, setIsAdmin] = useState(role ? !!role.is_admin : false);
+  const [from, setFrom] = useState("");
+  const locked = !!role && !!role.is_system;
+  const copyable = roles.filter((r) => !r.is_admin);
   return (
-    <form style={{ ...card, padding: 14, display: "grid", gap: 10 }} onSubmit={(e) => { e.preventDefault(); onSave({ name, description, is_admin: isAdmin }); }}>
-      <div style={{ display: "grid", gap: 4 }}>
-        <label htmlFor="adm-role-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Role name</label>
-        <input id="adm-role-name" required style={field} value={name} disabled={!!role && !!role.is_system} onChange={(e) => setName(e.target.value)} />
-        {role && role.is_system ? <span style={muted}>{SYSTEM_ROLE_LINE}</span> : null}
-      </div>
-      <div style={{ display: "grid", gap: 4 }}>
-        <label htmlFor="adm-role-desc" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>What this role is for</label>
-        <input id="adm-role-desc" style={field} value={description} onChange={(e) => setDescription(e.target.value)} />
-      </div>
-      {adding || (role && !role.is_system) ? (
-        <label htmlFor="adm-role-admin" style={{ ...text, display: "flex", gap: 10, alignItems: "center", minHeight: 44, fontSize: 14, cursor: "pointer" }}>
-          <input id="adm-role-admin" type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} style={{ width: 20, height: 20 }} />
-          <span>Admin role: full access to everything, including users, roles and keys</span>
-        </label>
-      ) : null}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onCancel}>Cancel</button>
-        <button type="submit" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={busy || !name.trim()}>{adding ? "Create role" : "Save"}</button>
-      </div>
-    </form>
+    <DrawerShell title={adding ? "Add role" : `Edit ${role.name}`} labelId="adm-role-drawer-title" onClose={onCancel}
+      subtitle={adding ? "A role says what a person can open and change. You set its permissions on the next screen." : "Its name, what it is for, and whether it is an admin role."}
+      footer={(
+        <>
+          <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onCancel}>Cancel</button>
+          <button type="submit" form="adm-role-form" className="ui-btn ui-btn--primary" style={{ minHeight: 44, minWidth: 120 }} disabled={busy || !name.trim()}>{adding ? "Create role" : "Save"}</button>
+        </>
+      )}>
+      <form id="adm-role-form" style={{ display: "grid", gap: 24 }}
+        onSubmit={(e) => { e.preventDefault(); onSave({ name, description, is_admin: isAdmin, ...(adding && from && !isAdmin ? { from, fromName: (roles.find((r) => r.id === from) || {}).name } : {}) }); }}>
+        <Section title="Details">
+          <div className="adm-field">
+            <label htmlFor="adm-role-name">Role name<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
+            <input id="adm-role-name" required autoFocus={adding} style={field} value={name} disabled={locked} placeholder="For example Sales team" onChange={(e) => setName(e.target.value)} />
+            {locked ? <span style={{ ...muted, fontSize: 12.5 }}>{SYSTEM_ROLE_LINE}</span> : null}
+          </div>
+          <div className="adm-field">
+            <label htmlFor="adm-role-desc">What this role is for</label>
+            <input id="adm-role-desc" style={field} value={description} placeholder="Shown to you when you give someone this role" onChange={(e) => setDescription(e.target.value)} />
+          </div>
+        </Section>
+        {adding || (role && !role.is_system) ? (
+          <Section title="Access level">
+            <label htmlFor="adm-role-admin" className="adm-opt" data-on={isAdmin ? "true" : "false"} style={{ ...text, display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 12px", fontSize: 14, cursor: "pointer" }}>
+              <input id="adm-role-admin" type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+              <span style={{ display: "grid", gap: 2 }}>
+                <span style={{ fontWeight: 600, color: C.textInk }}>Admin role</span>
+                <span style={{ ...muted, fontSize: 12.5 }}>Full access to everything, including users, roles and keys.</span>
+              </span>
+            </label>
+          </Section>
+        ) : null}
+        {adding && !isAdmin && copyable.length ? (
+          <Section title="Permissions" hint="Start with none, or copy what another role can do and change it afterwards.">
+            <div className="adm-field">
+              <label htmlFor="adm-role-from">Start from</label>
+              <select id="adm-role-from" style={field} value={from} onChange={(e) => setFrom(e.target.value)}>
+                <option value="">No permissions yet</option>
+                {copyable.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          </Section>
+        ) : null}
+      </form>
+    </DrawerShell>
   );
 }
 
@@ -188,7 +218,7 @@ export function RolePanel({ role, roles, sections, users, busy, onSaveLevels, on
         </div>
       </div>
       {role.is_system ? <div style={muted}>{SYSTEM_ROLE_LINE}</div> : null}
-      {editing ? <MetaForm role={role} busy={busy} onCancel={() => onEditing(false)} onSave={async (m) => { const done = await onSaveMeta(role, m); if (done !== false) onEditing(false); }} /> : null}
+      {editing ? <RoleDrawer role={role} roles={roles} busy={busy} onCancel={() => onEditing(false)} onSave={async (m) => { const done = await onSaveMeta(role, m); if (done !== false) onEditing(false); }} /> : null}
       <div className="adm-tabs" role="tablist" aria-label="Role sections">
         <button type="button" role="tab" id="adm-rt-people" aria-selected={tab === "people"} aria-controls="adm-rp-people" className="adm-tab" onClick={() => setTab("people")}><Users size={14} aria-hidden="true" /> People</button>
         <button type="button" role="tab" id="adm-rt-perm" aria-selected={tab === "permissions"} aria-controls="adm-rp-perm" className="adm-tab" onClick={() => setTab("permissions")}><ShieldCheck size={14} aria-hidden="true" /> Permissions</button>
@@ -215,7 +245,7 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
       <Live message={notice} error={error} />
       {error && loading && onRetry ? <div><button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onRetry}>Try again</button></div> : null}
       {loading && !error ? <CardsSkeleton count={3} label="Loading roles" /> : null}
-      {creating ? <MetaForm role={null} busy={busy} onCancel={onCancelCreate} onSave={onCreate} /> : null}
+      {creating ? <RoleDrawer role={null} roles={list} busy={busy} onCancel={onCancelCreate} onSave={onCreate} /> : null}
       {!loading ? (
         list.length === 0 ? <div style={muted}>{NO_ROLES}</div> : (
           <div className="adm-split">
@@ -237,7 +267,7 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
                       onToggle={() => onToggle(r)}
                       onEdit={() => { onSelect(r.id); setEditId(r.id); }}
                       onDelete={() => onDelete(r)}
-                      deleteOff={r.is_system ? SYSTEM_ROLE_LINE : ""} />
+                      deleteOff={r.is_system && r.is_admin ? ADMIN_NO_DELETE_LINE : ""} />
                   </div>
                 );
               })}
@@ -285,7 +315,10 @@ export function RoleManagement() {
         const sure = await confirmTwice({ title: `Create the role ${m.name.trim()}?`, changes: newRoleChanges(m), subject: m.name.trim(), summary: `Create the role ${m.name.trim()}` });
         if (!sure) return false;
         return run(async () => {
-        const res = await api.createRole({ ...m, levels: Object.fromEntries(sections.map((s) => [s.key, "none"])) });
+        const source = m.from ? (roles || []).find((r) => r.id === m.from) : null;
+        const levels = Object.fromEntries(sections.map((x) => [x.key, source ? levelOf(source.levels, x.key) : "none"]));
+        const { from, fromName, ...fields } = m;
+        const res = await api.createRole({ ...fields, levels });
         setCreating(false); if (res && res.id) setSelectedId(res.id);
       }, `Role ${m.name.trim()} created.`);
       }}

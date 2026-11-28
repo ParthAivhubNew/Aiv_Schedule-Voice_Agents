@@ -710,7 +710,7 @@ function FindLeadsSearch({ access, store, listsStore, incoming, onAskAssistant, 
       ) : null}
       </div>
       </div>
-      <CompanyDrawer openCo={openCo} store={store} onClose={() => setOpenCo(null)}
+      <CompanyDrawer openCo={openCo} store={store} onClose={() => setOpenCo(null)} onReveal={reveal}
         saved={openCo ? store.accounts.find((a) => a.business_record_id && a.business_record_id === openCo.id) || null : null}
         onOpenPage={openCo && onOpenCompany ? () => { const id = openCo.id; setOpenCo(null); onOpenCompany(id); } : null}
         contacts={openCo ? <ContactsPanel key={openCo.id} company={openCo} /> : null}

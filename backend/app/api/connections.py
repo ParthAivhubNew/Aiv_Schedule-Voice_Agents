@@ -606,7 +606,7 @@ async def platform_provided():
     out: Dict[str, str] = {}
     platform = platform_org_id()
     for name, word in _PLATFORM_PROVIDER_WORDS.items():
-        if current_org() != platform and await _provider_key_present(word):
+        if current_org() != platform and await E.own_key(word):  # the key the pools and the AI actually use (Connectors > own key)
             out[name] = "own"
             continue
         with org_scope(platform):

@@ -107,6 +107,14 @@ async def resolve_llm_credentials(
             "model": mod
         }
 
+    # A key the organisation saved itself for the provider it asked for is used first. Credit charges are unchanged.
+    if prov in ("openai", "deepseek"):
+        from app.services import enrichment_service as E
+
+        own = await E.own_key(prov)
+        if own:
+            return {"provider": prov, "api_key": own, "base_url": burl, "model": mod}
+
     # Otherwise Outreach's saved keys (the platform record only), restricted to the LLM group -
     # a Telephony/Calendar/etc. connection's key must never be sent to a chat LLM API.
     if db is not None:

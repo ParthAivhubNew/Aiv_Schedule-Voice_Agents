@@ -19,12 +19,17 @@ def org_of(op: Operator) -> str:
 
 
 async def ensure_system_roles(db: AsyncSession, org_id: str = DEFAULT_ORG) -> Dict[str, Role]:
-    """Create any missing starter role for this organisation. Returns name -> Role."""
+    """The starter roles of an organisation. A new organisation (no roles yet) gets all of them. After that only the Admin role is kept
+    in place: an admin may delete any other starter role (Manager, Operator, Viewer), and a deleted one must stay deleted instead of
+    coming back the next time the roles are read. Returns name -> Role."""
     rows = (await db.execute(select(Role).where(Role.org_id == org_id))).scalars().all()
     by_name = {r.name: r for r in rows}
+    fresh = not rows
     changed = False
     for name, spec in SYSTEM_ROLES.items():
         if name in by_name:
+            continue
+        if not fresh and not spec["is_admin"]:
             continue
         suffix = "default" if org_id == DEFAULT_ORG else org_id
         role = Role(
@@ -66,8 +71,12 @@ async def ensure_role_for(db: AsyncSession, operator: Operator) -> None:
     if await roles_of(db, operator.id):
         return
     roles = await ensure_system_roles(db, org_of(operator))
-    name = (operator.role or "").strip().title()
-    role = roles.get(name) or roles["Operator"]
+    want = (operator.role or "").strip().lower()
+    # The role the person's label names (any of the organisation's roles, ignoring capitals), else the Operator starter role if it still exists,
+    # else any role that is not an admin one. A custom role is never replaced by "Operator" just because its name is not a starter name.
+    role = next((r for r in roles.values() if r.name.lower() == want), None) or roles.get("Operator")         or next((r for r in roles.values() if not r.is_admin and r.is_active is not False), None)
+    if role is None:
+        return
     db.add(OperatorRole(operator_id=operator.id, role_id=role.id))
     await db.flush()
 

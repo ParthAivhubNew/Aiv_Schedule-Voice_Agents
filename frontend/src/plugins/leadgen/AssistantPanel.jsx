@@ -385,7 +385,7 @@ function ProfileSetup({ onSaved, editable = false }) {
   );
 }
 
-export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onOpenCompany, seed, onExpand, onImport, page = false, plugin = "leads", workspace, onPlanOutline }) {
+export function AssistantPanel({ open, onClose, store, lists, onShowResults, onGo, onCampaign, onOpenList, onOpenJourney, onOpenCompany, seed, onExpand, onImport, page = false, webOff = false, plugin = "leads", workspace, onPlanOutline }) {
   const cfg = PLUGINS[plugin] || PLUGINS.leads;
   const sh = storeFor(cfg.id);
   const [render, setRender] = useState(open);
@@ -416,8 +416,9 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
   const [slashIx, setSlashIx] = useState(0);
   const [preset, setPreset] = useState(""); // which preset group is open on the start screen
   const [newMemory, setNewMemory] = useState(""); // highlighted slash command
-  const [web, setWebOn] = useState(readWeb); // the Web search switch: only when it is on does the assistant get its web search
+  const [webSaved, setWebOn] = useState(readWeb); // the Web search switch: only when it is on does the assistant get its web search
   const webRate = useLeadCredits()?.rates?.lead_lookup?.credits;
+  const web = webSaved && !webOff; // a person with an area limit has no web search: its results cannot be kept inside their areas
   const setWeb = (v) => { setWebOn(v); try { localStorage.setItem(WEB_KEY, v ? "on" : "off"); } catch { /* the choice just is not remembered */ } };
   const filters = sharedRef(sh, "filters");
   const chatId = sharedRef(sh, "chatId");
@@ -935,7 +936,7 @@ export function AssistantPanel({ open, onClose, store, lists, onShowResults, onG
             </div>
             {mic.error ? <div role="alert" style={{ ...muted, color: C.red, marginTop: 6 }}>{mic.error}</div> : mic.listening ? <div role="status" style={{ ...muted, marginTop: 6 }}>Listening… speak, then press the mic again or Send.</div> : null}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              {cfg.leads ? <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
+              {cfg.leads && !webOff ? <button type="button" role="switch" aria-checked={web} className="as-web" data-on={web} onClick={() => setWeb(!web)}
                 title={web ? "Web search is on: the assistant can offer to search public web pages. Results come from public web pages and cost credits per company found, nothing if none" : `Turn on to let the assistant search public web pages for businesses that are not in the register. ${webRate == null ? "" : `${creditWord(webRate)} per company found, nothing if none.`}`}>
                 <Globe size={13} aria-hidden="true" /> Web search <span className="as-web-state">{web ? "On" : "Off"}</span>
               </button> : null}

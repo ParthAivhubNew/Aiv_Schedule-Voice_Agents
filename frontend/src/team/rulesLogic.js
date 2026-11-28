@@ -29,14 +29,15 @@ export function draftFrom(company) {
 }
 
 // The policy the server takes, and what in the form can't be sent ({ payload, problems }).
-export function toPayload(draft) {
+// A company's own extra items are rows of its list now (Administration > Exclusions); only a brand still sends them here.
+export function toPayload(draft, level = "company") {
   const geo = parseDistricts(draft.districtsText);
   const problems = geo.invalid.length ? [`These aren't postcode districts: ${geo.invalid.join(", ")}.`] : [];
   if (!Object.values(draft.signin).some(Boolean)) problems.push("Keep at least one sign-in method on, or nobody can sign in.");
   return {
     problems,
     payload: {
-      exclusions: { sets: [...draft.sets], fsb: draft.sets.includes("standard_b2b"), extra: parseExtra(draft.extraText), locked: Boolean(draft.locked) },
+      exclusions: { sets: [...draft.sets], fsb: draft.sets.includes("standard_b2b"), extra: level === "brand" ? parseExtra(draft.extraText) : [], locked: Boolean(draft.locked) },
       member_suppression: Boolean(draft.memberList),
       geo: { districts: geo.districts },
       restricted_sources: { ...draft.sources },

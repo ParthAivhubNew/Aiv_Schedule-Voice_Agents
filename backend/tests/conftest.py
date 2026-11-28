@@ -237,3 +237,17 @@ def _no_real_apollo_key(monkeypatch):
         return ""
 
     monkeypatch.setattr(enrichment_service, "apollo_key", none)
+
+
+@pytest.fixture(autouse=True)
+def _no_database_policy_for_unit_tests(request, monkeypatch):
+    """A unit test has no database, and reading an organisation's exclusion rules now fails closed (AccessDenied 503) instead of quietly
+    showing everything. So a unit test gets an empty policy unless it says it is about the real read (`real_policy`) or runs on the database."""
+    if "db" in request.keywords or "db" in request.fixturenames or "real_policy" in request.keywords:
+        return
+    from app.services import tenant_policy as TP
+
+    async def empty(db, org_id):
+        return TP.Policy(org_id)
+
+    monkeypatch.setattr(TP, "_load", empty)

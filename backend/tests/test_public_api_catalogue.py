@@ -50,7 +50,9 @@ def test_every_documented_call_exists_and_every_call_is_documented():
 def test_the_surface_is_small():
     # The first plan was about two dozen calls. Partners then needed to connect accounts, read results and manage lists, scripts,
     # WhatsApp and company knowledge themselves, so the surface grew on purpose: grow it again only with the same reason.
-    assert 25 <= len(_v1_routes()) <= 95
+    # Again on purpose: an organisation's admins keep its exclusion list and each person's areas in the app, and a partner who runs the account
+    # from its own software needs the same eight calls (see public_api/rules.py).
+    assert 25 <= len(_v1_routes()) <= 105
 
 
 def test_the_public_api_never_names_a_supplier_in_its_own_text():

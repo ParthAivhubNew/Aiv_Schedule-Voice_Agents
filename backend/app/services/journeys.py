@@ -536,6 +536,22 @@ async def email_decision(db: AsyncSession, enr: EmailEnrollment) -> Dict[str, An
     return SR.pasted_person(enr.company)
 
 
+async def _left_out_by_organisation(db: AsyncSession, enr: EmailEnrollment) -> bool:
+    """True when the organisation's exclusion rules (Administration > Exclusions) leave out this person's saved company. False for a person with
+    no saved company, and for an organisation with no rules (no query is made then)."""
+    if not enr.lead_id:
+        return False
+    from app.services import org_rules
+    from app.services import tenant_policy as TP
+
+    if not (await TP.org_effective(db)).org_rules:
+        return False
+    accounts, records = await _eligibility_inputs(db, [{"lead_id": enr.lead_id}])
+    acc = accounts.get(enr.lead_id)
+    rid = getattr(acc, "business_record_id", "") if acc is not None else ""
+    return bool(rid) and rid in await org_rules.excluded_record_ids(db, [rid])
+
+
 def other_channel(lead: Optional[LeadAccount]) -> str:
     """How to reach someone who may not be emailed: by phone when there is a number, else by post, else LinkedIn, else a task to find a way."""
     from app.services.identity import lead_phone
@@ -741,6 +757,10 @@ async def before_step(db: AsyncSession, camp: EmailCampaign, enr: EmailEnrollmen
     lead = await _lead(db, enr) if rules["skip_stages"] else None
     if lead is not None and (lead.stage or "new") in rules["skip_stages"]:
         await exit_enrollment(db, enr, "stage", now=now)
+        return True
+    if await _left_out_by_organisation(db, enr):  # the organisation's own exclusion list, set after they joined or before: nothing more goes to them
+        note_timeline(enr, "Left out by your organisation's exclusion list: the journey ended.", now)
+        await exit_enrollment(db, enr, "not_eligible", now=now)
         return True
     if ch == "email" and (enr.current_step or 1) > 1 and not (step.subject or "").strip() and not enr.last_message_id:
         # A reply in the same thread, but nothing was ever sent to this person, so there is no thread to reply in.

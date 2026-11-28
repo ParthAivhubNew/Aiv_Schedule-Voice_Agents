@@ -211,9 +211,9 @@ async def test_a_user_over_the_plan_s_seats_is_refused(db):
     _op, token = await make_user(db, "boss", role="Admin", org_id="org_p")
     await _org_on_plan(db, rules={"limits": {"users": 2}})
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as c:
-        first = await c.post("/api/auth/users", json={"username": "second", "name": "Second Person"})
+        first = await c.post("/api/auth/users", json={"username": "second", "name": "Second Person", "email": "second@example.com"})
         assert first.status_code == 200, first.text
-        over = await c.post("/api/auth/users", json={"username": "third", "name": "Third Person"})
+        over = await c.post("/api/auth/users", json={"username": "third", "name": "Third Person", "email": "third@example.com"})
         assert over.status_code == 403 and over.json()["detail"].startswith("USR-09: Your plan allows 2 users")
 
 

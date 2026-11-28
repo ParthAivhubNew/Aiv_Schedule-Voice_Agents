@@ -15,8 +15,9 @@ import { isActiveItem, roleOffBody, toggleLabel } from "./adminLogic";
 import { AccessEditor, ADMIN_SEES_ALL_LINE, useAccessDraft } from "./AccessEditor";
 import { ACCESS_OFF_LINE, announceAccessOff, isAccessOff } from "../../../api/authStore";
 import { AdministrationBody, NOT_ADMIN_LINE } from "./AdministrationView";
-import { EMPTY_USERS, NO_USERS_YET, UserDrawer, UserManagementBody } from "./UserManagement";
-import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
+import { EMPTY_USERS, NO_USERS_YET, RoleInfo, UserDrawer, UserManagementBody } from "./UserManagement";
+import { roleCapabilities } from "./adminLogic";
+import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_NO_DELETE_LINE, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
 
 const src = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
 const plugin = readFileSync(new URL("../LeadGenerationPlugin.jsx", import.meta.url), "utf8");
@@ -179,6 +180,8 @@ describe("User management", () => {
     expect(add).toContain("Add user");
     expect(add).toContain("Username");
     expect(add).toContain("Create user");
+    expect(add).toContain("Only these postcodes"); // data access is set when the person is added
+    expect(add).toMatch(/id="adm-role-r\d+"[^>]*checked/); // the starting role is ticked on screen, not chosen out of sight
     const own = html(<UserDrawer user={users[0]} roles={roles} me={users[0]} onClose={noop} onSaved={noop} />);
     expect(own).toContain("You cannot disable your own account.");
     expect(own).toContain(ADMIN_SEES_ALL_LINE);
@@ -231,6 +234,14 @@ describe("switching off and on", () => {
     expect(h).toContain("adm-roleitem-off");
     expect(h.match(/class="adm-rolecard adm-roleitem-off"/g)).toHaveLength(1);
     expect(h.match(/aria-label="Delete Operator"/g)).toHaveLength(1); // one set of buttons, not two
+  });
+  it("lets every role be deleted except the Admin role", () => {
+    const list = [rAdmin, rOp, rCustom, { ...rOp, id: "r9", name: "Viewer", is_system: true }];
+    const h = html(<RoleManagementBody roles={list} sections={sections} users={users} selectedId="r2" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMovePerson={noop} />);
+    expect(h).toMatch(/aria-label="Delete Admin"[^>]*disabled/);
+    expect(h).toContain(ADMIN_NO_DELETE_LINE);
+    for (const name of ["Operator", "Analyst", "Viewer"]) expect(h).not.toMatch(new RegExp(`aria-label="Delete ${name}"[^>]*disabled`));
+    expect(SYSTEM_ROLE_LINE).not.toMatch(/cannot be deleted/);
   });
   it("lets an inactive role still be edited", () => {
     const h = html(<RoleManagementBody roles={[{ ...rCustom, is_active: false }]} sections={sections} users={users} selectedId="r3" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMove={noop} />);
@@ -418,5 +429,69 @@ describe("Administration page and wiring", () => {
     expect(src("UserManagement.jsx")).toContain("api.deleteUser");
     expect(src("RoleManagement.jsx")).toContain("api.updateRole");
     expect(src("RoleManagement.jsx")).toContain("api.getSections");
+  });
+});
+
+describe("role info in the add-user form", () => {
+  const sec = [{ key: "calling", label: "Calling", group: "Voice" }, { key: "leadgen", label: "Lead generation", group: "Leads" }, { key: "email", label: "Email", group: "Leads" }];
+  it("gives every role an info button", () => {
+    const h = html(<UserDrawer user={null} roles={roles} sections={sec} me={users[0]} onClose={noop} onSaved={noop} />);
+    roles.forEach((r) => expect(h).toContain(`aria-label="What the ${r.name} role can do"`));
+    expect(h).toContain('aria-expanded="false"');
+  });
+  it("lists what a role can change, what it can only view, and that an admin can do everything", () => {
+    expect(roleCapabilities(rOp, sec)).toEqual({ all: false, full: ["Calling"], view: ["Lead generation"] });
+    expect(roleCapabilities(rAdmin, sec).all).toBe(true);
+    const h = html(<RoleInfo role={rOp} sections={sec} id="x" />);
+    expect(h).toContain("Can use and change:");
+    expect(h).toContain("Calling");
+    expect(h).toContain("Can only view:");
+    expect(h).not.toContain("Email");
+  });
+});
+
+describe("add user and add role share one drawer", () => {
+  it("opens a new role in the same drawer as a new user, with the same parts", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const role = html(<RoleDrawer role={null} roles={[rAdmin, rOp, rCustom]} onSave={noop} onCancel={noop} busy={false} />);
+    const user = html(<UserDrawer user={null} roles={roles} sections={sections} me={{ id: "me" }} onClose={noop} onSaved={noop} />);
+    for (const h of [role, user]) {
+      expect(h).toContain("adm-drawer-back");
+      expect(h).toContain("adm-drawer-head");
+      expect(h).toContain("adm-drawer-body");
+      expect(h).toContain("adm-drawer-foot");
+      expect(h).toContain('aria-label="Close"');
+      expect(h).toContain(">Cancel<");
+    }
+    expect(role).toContain(">Add role<");
+    expect(role).toContain('form="adm-role-form"');
+    expect(role).toContain(">Create role<");
+    expect(user).toContain(">Add user<");
+    expect(user).toContain('form="adm-user-form"');
+    expect(user).toContain(">Create user<");
+  });
+  it("a new role can start from another role's permissions, but an admin role needs no copy", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const h = html(<RoleDrawer role={null} roles={[rAdmin, rOp, rCustom]} onSave={noop} onCancel={noop} busy={false} />);
+    expect(h).toContain("Start from");
+    expect(h).toContain("No permissions yet");
+    expect(h).toContain(">Operator<");
+    expect(h).not.toContain(">Admin</option>"); // an admin role is not a thing to copy
+    expect(h).toContain("Role name");
+    expect(h).toContain("What this role is for");
+    expect(h).toContain("Admin role");
+  });
+  it("editing a starter role keeps its name locked and offers no admin switch", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const h = html(<RoleDrawer role={rOp} roles={[rAdmin, rOp]} onSave={noop} onCancel={noop} busy={false} />);
+    expect(h).toContain("Edit Operator");
+    expect(h).toContain(SYSTEM_ROLE_LINE);
+    expect(h).not.toContain("Start from");
+    expect(h).not.toContain("adm-role-admin");
+  });
+  it("shows what each role is for under its name when choosing a user's roles", () => {
+    const user = html(<UserDrawer user={null} roles={roles} sections={sections} me={{ id: "me" }} onClose={noop} onSaved={noop} />);
+    expect(user).toContain("Makes calls.");
+    expect(user).toContain("adm-opt");
   });
 });

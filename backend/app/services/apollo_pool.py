@@ -92,7 +92,7 @@ def _pool():
     from app.providers.keypool import KeyPool
 
     return KeyPool(name="apollo", backups_doc=BACKUPS_DOC, main_key=_main_key, main_label="Apollo key", log_row=_row, cool=_COOL,
-                   source="apollo", plan_provider="apollo")  # the organisation's rules can block Apollo: no key, so every lookup reports nothing found
+                   source="apollo", plan_provider="apollo", own="apollo")  # the organisation's rules can block Apollo: no key, so every lookup reports nothing found
 
 
 async def backups() -> List[Dict[str, Any]]:

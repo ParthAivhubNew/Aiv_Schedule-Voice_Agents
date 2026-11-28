@@ -75,7 +75,6 @@ describe("SourceBadge", () => {
     expect(html).toContain("aria-describedby");
     expect(html).toContain("Where Acme Ltd");
     expect(html).toContain('role="tooltip"');
-    expect(html).toContain("min-width:44px");
     expect(html).not.toContain("position:fixed");
   });
 

@@ -1,6 +1,7 @@
 """Sign in, sessions, passwords, users and roles."""
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -770,8 +771,8 @@ async def delete_role(role_id: str, request: Request, db: AsyncSession = Depends
     role = (await db.execute(select(Role).where(Role.id == role_id, Role.org_id == ctx["org_id"]))).scalars().first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found.")
-    if role.is_system:
-        raise HTTPException(status_code=400, detail="Starter roles cannot be deleted. Change their access instead.")
+    if role.is_system and role.is_admin:
+        raise HTTPException(status_code=400, detail="The Admin role cannot be deleted: every account keeps one.")
     in_use = (await db.execute(select(func.count()).select_from(OperatorRole).where(OperatorRole.role_id == role.id))).scalar()
     if in_use:
         raise HTTPException(status_code=400, detail=f"{in_use} user(s) still have this role. Move them first.")
@@ -796,6 +797,10 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
     username = body.username.strip().lower()
     if not username or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name and username are required.")
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", (body.email or "").strip()):
+        raise HTTPException(status_code=400, detail="An email address is required: it is where their sign-in details are sent.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,31}", username):
+        raise HTTPException(status_code=400, detail="Username: 3 to 32 letters, numbers, dots, dashes or underscores. No spaces.")
     if (await db.execute(select(Operator).where(func.lower(Operator.username) == username))).scalars().first():
         raise HTTPException(status_code=400, detail="This username is taken.")
     email = (body.email or "").strip().lower()
@@ -809,7 +814,13 @@ async def create_user(body: UserBody, request: Request, db: AsyncSession = Depen
         if active >= seats:
             raise HTTPException(status_code=403, detail=plan_rules.limit_message("users", seats))
     roles_by_name = await ensure_system_roles(db, ctx["org_id"])
-    role_ids = body.role_ids or [roles_by_name.get((body.role or "Operator").title(), roles_by_name["Operator"]).id]
+    if body.role_ids:
+        role_ids = body.role_ids
+    else:  # the role the label names, else the Operator starter role if it still exists; an account that deleted it must choose
+        named = next((r for r in roles_by_name.values() if r.name.lower() == (body.role or "Operator").strip().lower()), None) or roles_by_name.get("Operator")
+        if named is None:
+            raise HTTPException(status_code=400, detail="Choose a role for this user.")
+        role_ids = [named.id]
     roles = await _check_role_ids(db, role_ids, ctx["org_id"])
     if any(r.is_admin for r in roles) and not ctx["is_admin"]:
         raise HTTPException(status_code=403, detail="Only admins can create admins.")

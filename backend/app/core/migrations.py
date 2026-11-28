@@ -1211,6 +1211,116 @@ async def _fsb_brand_account_link(conn: AsyncConnection) -> None:
     await conn.execute(text("UPDATE brands SET theme = CAST(:t AS JSON) WHERE id = 'brd_fsb'"), {"t": json.dumps(theme)})
 
 
+async def _org_exclusion_rules(conn: AsyncConnection) -> None:
+    """The organisations' own exclusion rules (services/org_rules.py). create_all makes the table on a fresh database; this covers one that
+    predates it. Row-level security is added by ensure_tenancy (the table is in TENANT_TABLES)."""
+    await conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS org_exclusion_rules ("
+        "id VARCHAR PRIMARY KEY, org_id VARCHAR, kind VARCHAR NOT NULL, value VARCHAR NOT NULL DEFAULT '', mode VARCHAR NOT NULL DEFAULT 'exclude', "
+        "label VARCHAR DEFAULT '', enabled BOOLEAN NOT NULL DEFAULT TRUE, created_by VARCHAR DEFAULT '', created_at TIMESTAMP, updated_at TIMESTAMP, "
+        "CONSTRAINT uq_org_exclusion_rule UNIQUE (org_id, kind, value, mode), "
+        "CONSTRAINT ck_org_exclusion_kind CHECK (kind IN ('sic','company_type','name_word','category','postcode','company_number','charity_register','status_only','ch_number_only')), "
+        "CONSTRAINT ck_org_exclusion_mode CHECK (mode IN ('exclude','keep')), "
+        "CONSTRAINT ck_org_exclusion_keep_kind CHECK (mode = 'exclude' OR kind = 'name_word'), "
+        "CONSTRAINT ck_org_exclusion_value CHECK (value <> '' OR kind IN ('charity_register','status_only','ch_number_only')))"))
+
+
+async def _seed_fsb_rules(conn: AsyncConnection) -> None:
+    """Moves the hard-coded FSB list into the FSB organisation's own rows, once. Every organisation whose brand policy switched the FSB rules on (and
+    the FSB demo organisation) that has no rows yet gets the starting list (services/fsb_rules.py), plus its old "extra" items as rows. The old
+    exclusions block is then removed from the brand policy and kept in an audit row, so nothing is applied twice and the change can be reversed.
+    Savepointed per organisation: a problem is logged and never stops the startup."""
+    import json
+    import uuid
+
+    from app.services import fsb_demo, fsb_rules, org_rules
+
+    rows = (await conn.execute(text(
+        "SELECT o.id, b.id, b.policy FROM organizations o JOIN brands b ON b.id = o.brand_id"))).all()
+    for org_id, brand_id, policy in rows:
+        pol = policy if isinstance(policy, dict) else json.loads(policy or "{}")
+        ex = pol.get("exclusions") if isinstance(pol.get("exclusions"), dict) else {}
+        if not (ex.get("fsb") or org_id == fsb_demo.ORG_ID or ex.get("extra")):
+            continue
+        try:
+            async with conn.begin_nested():
+                have = (await conn.execute(text("SELECT count(*) FROM org_exclusion_rules WHERE org_id = :o"), {"o": org_id})).scalar() or 0
+                if not have:
+                    on = ex.get("locked") is not False  # a policy that was never locked enforced nothing on the server: its rows start switched off
+                    wanted = ([{**r, "label": "FSB starting list"} for r in fsb_rules.seed_rules(bool(on))]
+                              if (ex.get("fsb") or org_id == fsb_demo.ORG_ID) else [])
+                    extra, _bad = org_rules.parse_items(ex.get("extra") or [])
+                    wanted += [{**r, "enabled": bool(on), "label": "Set before this screen existed"} for r in extra]
+                    seen = set()
+                    batch = []
+                    for r in wanted:
+                        key = (r["kind"], r["value"], r["mode"])
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        batch.append({"i": f"exr_{uuid.uuid4().hex[:16]}", "o": org_id, "k": r["kind"], "v": r["value"], "m": r["mode"], "e": bool(r["enabled"]),
+                                      "l": r["label"]})
+                    if batch:
+                        await conn.execute(text(
+                            "INSERT INTO org_exclusion_rules (id, org_id, kind, value, mode, label, enabled, created_by, created_at, updated_at) "
+                            "VALUES (:i, :o, :k, :v, :m, :l, :e, 'system', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"), batch)
+                if "exclusions" in pol:
+                    removed = pol.pop("exclusions")
+                    await conn.execute(text("UPDATE brands SET policy = CAST(:p AS JSON), updated_at = CURRENT_TIMESTAMP WHERE id = :b"),
+                                       {"p": json.dumps(pol), "b": brand_id})
+                    await conn.execute(text(
+                        "INSERT INTO audit_log (id, org_id, actor_id, actor_name, action, target, detail, created_at) "
+                        "VALUES (:i, :o, '', 'system', 'exclusions.moved_to_rules', :b, CAST(:d AS JSON), CURRENT_TIMESTAMP)"),
+                        {"i": f"aud_{uuid.uuid4().hex[:16]}", "o": org_id, "b": brand_id, "d": json.dumps({"removed_from_brand": removed})})
+        except Exception as err:
+            logger.warning(f"FSB exclusion rules were not moved for {org_id}: {err}")
+
+
+async def _company_extra_to_rules(conn: AsyncConnection) -> None:
+    """A company's own extra exclusions, typed on the Company rules screen (Organization.policy exclusions.extra), become rows of its own
+    list (org_exclusion_rules, Administration > Exclusions), where its admins now keep them. Rule sets and "locked" stay in the company's
+    rules. Each row starts on when the company's exclusions were enforced. The removed items are kept in an audit row. Savepointed per
+    organisation: a problem is logged and never stops the startup."""
+    import json
+    import uuid
+
+    from app.services import org_rules
+
+    rows = (await conn.execute(text("SELECT id, policy FROM organizations WHERE policy IS NOT NULL"))).all()
+    for org_id, policy in rows:
+        pol = policy if isinstance(policy, dict) else json.loads(policy or "{}")
+        ex = pol.get("exclusions") if isinstance(pol.get("exclusions"), dict) else {}
+        if not ex.get("extra"):
+            continue
+        try:
+            async with conn.begin_nested():
+                on = ex.get("locked") is not False
+                items, _bad = org_rules.parse_items(ex.get("extra") or [])
+                have = {(r[0], r[1], r[2]) for r in (await conn.execute(text(
+                    "SELECT kind, value, mode FROM org_exclusion_rules WHERE org_id = :o"), {"o": org_id})).all()}
+                batch = []
+                for r in items:
+                    key = (r["kind"], r["value"], r["mode"])
+                    if key in have:
+                        continue
+                    have.add(key)
+                    batch.append({"i": f"exr_{uuid.uuid4().hex[:16]}", "o": org_id, "k": r["kind"], "v": r["value"], "m": r["mode"], "e": bool(on),
+                                  "l": "Moved from Company rules"})
+                if batch:
+                    await conn.execute(text(
+                        "INSERT INTO org_exclusion_rules (id, org_id, kind, value, mode, label, enabled, created_by, created_at, updated_at) "
+                        "VALUES (:i, :o, :k, :v, :m, :l, :e, 'system', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"), batch)
+                removed = list(ex.get("extra") or [])
+                pol["exclusions"] = {**ex, "extra": []}
+                await conn.execute(text("UPDATE organizations SET policy = CAST(:p AS JSON) WHERE id = :o"), {"p": json.dumps(pol), "o": org_id})
+                await conn.execute(text(
+                    "INSERT INTO audit_log (id, org_id, actor_id, actor_name, action, target, detail, created_at) "
+                    "VALUES (:i, :o, '', 'system', 'exclusions.moved_to_rules', :o, CAST(:d AS JSON), CURRENT_TIMESTAMP)"),
+                    {"i": f"aud_{uuid.uuid4().hex[:16]}", "o": org_id, "d": json.dumps({"removed_from_company_rules": removed})})
+        except Exception as err:
+            logger.warning(f"Company extra exclusions were not moved for {org_id}: {err}")
+
+
 STEPS: List[Tuple[str, Step]] = [
     ("2026_10_01_operators_auth_columns", _operators_auth_columns),
     ("2026_10_01_hash_plain_passwords", _hash_plain_passwords),
@@ -1298,6 +1408,9 @@ STEPS: List[Tuple[str, Step]] = [
     ("2026_12_11_fsb_brand_account_link", _fsb_brand_account_link),
     ("2026_12_12_session_method", _session_method),
     ("2026_12_13_more_open_registers", _more_open_registers),
+    ("2026_12_05_org_exclusion_rules", _org_exclusion_rules),  # from main: already recorded on live
+    ("2026_12_06_seed_fsb_rules", _seed_fsb_rules),  # from main: already recorded on live
+    ("2026_12_14_company_extra_to_rules", _company_extra_to_rules),
 ]
 
 

@@ -44,7 +44,8 @@ def retry_after(headers: Any, default: int, floor: int = 30, ceiling: int = 8640
 
 class KeyPool:
     def __init__(self, *, name: str, backups_doc: str, main_key: Callable[[], Awaitable[str]], main_label: str,
-                 log_row: Callable[..., Any], cool: Optional[Dict[str, float]] = None, source: str = "", plan_provider: str = ""):
+                 log_row: Callable[..., Any], cool: Optional[Dict[str, float]] = None, source: str = "", plan_provider: str = "",
+                 own: str = ""):
         self.name = name
         self.backups_doc = backups_doc
         self.main_key = main_key
@@ -53,6 +54,7 @@ class KeyPool:
         self.cool: Dict[str, float] = cool if cool is not None else {}
         self.source = source  # a tenant_policy source name: when the organisation's rules block it, the pool has no keys
         self.plan_provider = plan_provider  # a provider id: when the company's plan leaves it out, the pool has no keys (services/plan_rules.py)
+        self.own = own  # a provider word for enrichment_service.own_key: a key the organisation saved itself is then the only one used
 
     async def backups(self) -> List[Dict[str, Any]]:
         from app.database import AsyncSessionLocal
@@ -76,6 +78,12 @@ class KeyPool:
 
             if not await tenant_policy.source_allowed(None, self.source):
                 return []
+        if self.own and not lead:
+            from app.services import enrichment_service as E
+
+            mine = (await E.own_key(self.own) or "").strip()
+            if mine:  # the organisation pays for its own key, so its plan's provider list does not apply; its rules (above) still do
+                return [("own", f"Your {self.main_label}", mine)]
         if self.plan_provider:
             from app.services.plan_rules import provider_allowed
 

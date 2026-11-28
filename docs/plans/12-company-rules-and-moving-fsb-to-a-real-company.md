@@ -8,6 +8,16 @@ Written 2026-11-24 and revised the same day after a review. This follows plans [
 - A reseller brand such as FSB can still lock rules for all its organisations.
 - `fsbadmin` and `fsbuser` **are kept**. They move into a real "Federation of Small Businesses" company instead of a demo, and no code creates logins any more.
 
+**Status, 2026-11-28: main merged into the branch.** Main had Parth's organisation exclusion rows ([10-org-exclusion-rules](10-org-exclusion-rules.md)), own API keys and admin screen changes. They're combined in layers:
+- The brand's and company's rule sets and "locked" stay in Brand.policy / Organization.policy.
+- Each organisation's own rows (Administration > Exclusions) always apply on top (tenant_policy: conditions, hash and summary).
+- A company's own "extra" items moved into its rows (startup step `2026_12_14_company_extra_to_rules`). The Company rules screen no longer edits them, and only a brand still has extra items.
+- Main's steps `2026_12_05_org_exclusion_rules` and `2026_12_06_seed_fsb_rules` are unchanged, because they already ran on live: there the FSB list is the FSB organisation's own rows.
+- An organisation's own Apollo or Tavily key is used by the key pool before the platform's. Its source rules still apply, but its plan's provider list doesn't.
+- Connectors shows the own-key and Experian / Market Location forms to admins.
+- Not taken from main: the FSB-only sidebar logo and header (plan 13 keeps the Outreach logo, and the badge comes from the brand's accountLink), and the six "bring your own AI" cards.
+- Open: calls made with an organisation's own key are still costed in the cost ledger.
+
 ---
 
 ## 0. Review: what the first version got wrong or missed

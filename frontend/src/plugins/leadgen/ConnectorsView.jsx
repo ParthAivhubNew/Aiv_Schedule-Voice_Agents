@@ -4,6 +4,8 @@ import { api } from "../../api/apiClient";
 import { openSupport } from "../../hub/openSupport";
 import { C, FONT_BODY, FONT_DISPLAY } from "../../tokens";
 import { ConnectorPricing } from "./ConnectorPricing";
+import { OWN_KEY_TARGET, OwnKeyForm } from "./OwnKeyForm";
+import { DATA_PROVIDER_FORMS, DataProviderForm } from "./ConnectForms";
 import { Pill } from "../../app/ui";
 import {
   AirtableLogo, AwsS3Logo, BigQueryLogo, CompaniesHouseLogo, CqcLogo, CsvLogo, CustomLlmLogo, DirectorMatchLogo, DossierAiLogo, DynamicsLogo,
@@ -42,10 +44,10 @@ function Card({ c, onOpen }) {
   return (
     <button type="button" onClick={() => onOpen(c.id)} className="connector-card" aria-label={`${c.name}: ${c.statusLabel}`}
       style={{ ...text, textAlign: "left", background: C.surface, border: `1px solid ${c.status === "connected" ? t.border : C.border}`, borderRadius: 8,
-        padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "pointer", minHeight: 72,
+        padding: "20px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer", minHeight: 108, boxSizing: "border-box",
         boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
       <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        <span style={{ flexShrink: 0, display: "flex" }}><Logo name={c.logo} /></span>
+        <span style={{ flexShrink: 0, display: "flex" }}><Logo name={c.logo} size={40} /></span>
         <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
           <span style={{ ...head, fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.name}>{c.name}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -81,7 +83,24 @@ export function TestResult({ result }) {
   );
 }
 
-export function ConnectorDetail({ c, kinds, canTest, onClose, initialResult = null }) {
+// An account admin can save the organisation's own key for a provider (OwnKeyForm), or its own account details for a licensed data
+// supplier (DataProviderForm). Both are tested or sealed by the server and never shown again.
+function OwnDetails({ c, onChanged }) {
+  const [own, setOwn] = useState(null);
+  const loadOwn = useCallback(() => api.getOwnKeys().then((r) => setOwn(r || {})).catch(() => setOwn({})), []);
+  useEffect(() => {
+    if (DATA_PROVIDER_FORMS[c.id]) loadOwn();
+  }, [c.id, loadOwn]);
+  if (OWN_KEY_TARGET[c.id] && c.keySource && c.keySource !== "checking") {
+    return <OwnKeyForm connector={c} source={c.keySource} onChanged={onChanged} />;
+  }
+  if (DATA_PROVIDER_FORMS[c.id] && own) {
+    return <DataProviderForm key={c.id} id={c.id} status={own.data?.[c.id]} onChanged={() => { loadOwn(); onChanged?.(); }} />;
+  }
+  return null;
+}
+
+export function ConnectorDetail({ c, kinds, canTest, onClose, onChanged, initialResult = null }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState(initialResult);
   useEffect(() => {
@@ -146,6 +165,7 @@ export function ConnectorDetail({ c, kinds, canTest, onClose, initialResult = nu
             <TestResult result={result} />
           </div>
         ) : null}
+        {canTest ? <OwnDetails c={c} onChanged={onChanged} /> : null}
         {c.askable ? (
           <div>
             <button type="button" className="ui-btn ui-btn--primary ui-btn--sm" style={{ minHeight: 36 }} onClick={() => openSupport()}>
@@ -260,7 +280,7 @@ export function ConnectorsView({ initialData = null }) {
         </>
       ) : null}
 
-      {open ? <ConnectorDetail c={open} kinds={data?.kinds} canTest={Boolean(data?.canTest)} onClose={close} /> : null}
+      {open ? <ConnectorDetail c={open} kinds={data?.kinds} canTest={Boolean(data?.canTest)} onClose={close} onChanged={load} /> : null}
     </div>
   );
 }

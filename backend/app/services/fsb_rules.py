@@ -1,4 +1,6 @@
-"""The FSB exclusion rule set, now the Standard B2B preset in services/exclusion_rules.py (plan 12, B2). business_records._fsb_exclusions, the tenant policy and the counting scripts all read it here.
+"""The FSB exclusion rule set, now the Standard B2B preset in services/exclusion_rules.py (plan 12, B2). The tenant policy and the counting scripts
+read it here, and seed_rules() turns it into an organisation's own editable rows (org_exclusion_rules, services/org_rules.py): the FSB
+organisation got its starting list that way (startup step 2026_12_06_seed_fsb_rules).
 
 Source: "FSB exclusion rules - for developers" (17 November 2026). A company stays only when it is a Companies House company with status
 exactly "Active" and none of these applies: its type is an excluded type, it is on the Charity Commission register, ANY of its SIC codes
@@ -6,7 +8,7 @@ exactly "Active" and none of these applies: its type is an excluded type, it is 
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from app.services import exclusion_rules as ER
 
@@ -18,6 +20,7 @@ TYPES = tuple(_P["company_types"])
 SIC = tuple(_P["sic_codes"])
 NAME_WORDS = tuple(_P["name_words"])
 NAME_KEEP_WORDS = tuple(_P["name_keep"])
+KEEP_WORDS = NAME_KEEP_WORDS
 NAME_WORDS_RX = ER.name_words_rx(ER.LEGACY)
 NAME_KEEP_RX = ER.name_keep_rx(ER.LEGACY)
 
@@ -44,3 +47,14 @@ def sql_script_vars() -> str:
     """The shell variables bn_appendix1.sh declares (SIC_LIST, TYPES, KW, KEEP), generated from the rule set above."""
     types = ",".join("'" + t + "'" for t in TYPES)
     return f"SIC_LIST=\"{','.join(SIC)}\"\nTYPES=\"{types}\"\nKW='{NAME_WORDS_RX}'\nKEEP='{NAME_KEEP_RX}'\n"
+
+
+def seed_rules(enabled: bool = True) -> List[Dict[str, object]]:
+    """The rule set as rows for an organisation's own list: [{kind, value, mode, enabled}]. The preset's regex wildcard ("charit[a-z]*") is
+    written the way an admin types it in Administration > Exclusions ("charit*")."""
+    rows: List[Dict[str, object]] = [{"kind": k, "value": "", "mode": "exclude", "enabled": enabled} for k in ("status_only", "ch_number_only", "charity_register")]
+    rows += [{"kind": "company_type", "value": t, "mode": "exclude", "enabled": enabled} for t in TYPES]
+    rows += [{"kind": "sic", "value": c, "mode": "exclude", "enabled": enabled} for c in SIC]
+    rows += [{"kind": "name_word", "value": w.replace("[a-z]*", "*"), "mode": "exclude", "enabled": enabled} for w in NAME_WORDS]
+    rows += [{"kind": "name_word", "value": w, "mode": "keep", "enabled": enabled} for w in KEEP_WORDS]
+    return rows

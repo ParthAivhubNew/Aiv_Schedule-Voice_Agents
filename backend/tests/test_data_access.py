@@ -20,7 +20,7 @@ from tests.conftest import make_user
 pytestmark = pytest.mark.db
 
 ORG = "org_da"
-LOCK = {"exclusions": {"fsb": False, "extra": [], "locked": True}, "geo": {"districts": ["BN1", "BN2", "BN3"]}}
+LOCK = {"geo": {"districts": ["BN1", "BN2", "BN3"]}}
 OUTSIDE = ("This company is outside the areas you have access to. You don't have the rights to view it. Ask your administrator to give you access.")
 NOTICE = ("Some of what you searched for is outside the areas you have access to, so it is not shown. Ask your administrator to give you access.")
 

@@ -39,7 +39,8 @@ async def test_each_provider_reads_own_platform_or_none(db, monkeypatch):
         db.add(_row("c_plat_deepseek", "LLM", "DeepSeek", "sk-platform-5678", platform))
         await db.commit()
     with org_scope("org_default"):
-        db.add(_row("c_own_deepseek", "LLM", "DeepSeek", "sk-own-9999", "org_default"))
+        db.add(_row("c_own_deepseek", "Own Keys", "DeepSeek", "sk-own-9999", "org_default"))  # saved on the Connectors screen
+        db.add(_row("c_old_tavily", "Business Discovery", "Tavily", "tvly-old-0000", "org_default"))  # an older row: never "own"
         await db.commit()
 
     async with _client(token) as c:

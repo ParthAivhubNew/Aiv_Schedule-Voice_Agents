@@ -19,6 +19,10 @@ def identify_provider(provider_raw: str) -> str:
         return "telnyx"
     if "deepseek" in s:
         return "deepseek"
+    if "tavily" in s:
+        return "tavily"
+    if "apollo" in s:
+        return "apollo"
     if "anthropic" in s or "claude" in s:
         return "anthropic"
     if "groq" in s:
@@ -238,6 +242,30 @@ async def _validate_deepseek(client: httpx.AsyncClient, api_key: str, base_url: 
         return {"valid": False, "error": "DeepSeek account has insufficient balance / credits (402 Payment Required)."}
     else:
         return {"valid": False, "error": f"DeepSeek returned status {res.status_code}: {res.text[:150]}"}
+
+
+async def _validate_tavily(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
+    res = await client.get("https://api.tavily.com/usage", headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"})
+    if res.status_code == 200:
+        return {"valid": True, "provider": "Tavily", "details": "Authenticated successfully (web search ready)."}
+    if res.status_code in (401, 403):
+        return {"valid": False, "error": "Tavily authentication failed (invalid API key)."}
+    return {"valid": False, "error": f"Tavily returned status {res.status_code}: {res.text[:150]}"}
+
+
+async def _validate_apollo(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
+    res = await client.get("https://api.apollo.io/v1/auth/health", headers={"X-Api-Key": api_key, "Accept": "application/json"})
+    if res.status_code == 200:
+        try:
+            logged_in = bool(res.json().get("is_logged_in"))
+        except Exception:
+            logged_in = False
+        if logged_in:
+            return {"valid": True, "provider": "Apollo", "details": "Authenticated successfully (contact data ready)."}
+        return {"valid": False, "error": "Apollo did not accept this API key."}
+    if res.status_code in (401, 403):
+        return {"valid": False, "error": "Apollo authentication failed (invalid API key)."}
+    return {"valid": False, "error": f"Apollo returned status {res.status_code}: {res.text[:150]}"}
 
 
 async def _validate_openai(client: httpx.AsyncClient, api_key: str, base_url: Optional[str], account_sid: Optional[str], model: Optional[str], provider: str) -> Dict[str, Any]:
@@ -508,6 +536,8 @@ async def _validate_custom(client: httpx.AsyncClient, api_key: str, base_url: Op
 PROVIDER_HANDLERS = {
     "telnyx": _validate_telnyx,
     "deepseek": _validate_deepseek,
+    "tavily": _validate_tavily,
+    "apollo": _validate_apollo,
     "openai": _validate_openai,
     "anthropic": _validate_anthropic,
     "groq": _validate_groq,

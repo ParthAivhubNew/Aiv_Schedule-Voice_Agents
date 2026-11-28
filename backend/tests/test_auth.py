@@ -127,7 +127,7 @@ async def test_admin_shares_analytics_with_one_user(client, anon, db):
 async def test_admin_manages_users_and_keeps_one_admin(client, anon, db):
     roles = (await client.get("/api/auth/roles")).json()
     by = {r["name"]: r["id"] for r in roles}
-    r = await client.post("/api/auth/users", json={"username": "newbie", "name": "New Bie", "role_ids": [by["Manager"]]})
+    r = await client.post("/api/auth/users", json={"username": "newbie", "name": "New Bie", "email": "newbie@example.com", "role_ids": [by["Manager"]]})
     assert r.status_code == 200, r.text
     new = r.json()
     assert new["temporary_password"] and new["must_change_password"] is True
@@ -151,7 +151,7 @@ async def test_admin_manages_users_and_keeps_one_admin(client, anon, db):
 
 async def test_admin_deletes_a_user_with_guards(client, db):
     by = {r["name"]: r["id"] for r in (await client.get("/api/auth/roles")).json()}
-    new = (await client.post("/api/auth/users", json={"username": "gone", "name": "Gone", "role_ids": [by["Viewer"]]})).json()
+    new = (await client.post("/api/auth/users", json={"username": "gone", "name": "Gone", "email": "gone@example.com", "role_ids": [by["Viewer"]]})).json()
     row = next(u for u in (await client.get("/api/auth/users")).json() if u["id"] == new["id"])
     assert row["member_since"] and "last_login_at" in row and row["is_active"] is True
     me = (await client.get("/api/auth/me")).json()

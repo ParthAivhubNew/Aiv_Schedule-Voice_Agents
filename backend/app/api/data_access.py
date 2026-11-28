@@ -27,6 +27,10 @@ from app.services import tenant_policy as TP
 router = APIRouter(prefix="/org/data-access", tags=["Data access"])
 
 
+class DraftAreas(BaseModel):
+    districts: List[str] = []
+
+
 class AccessPatch(BaseModel):
     districts: Optional[List[str]] = None
     allow_export: Optional[bool] = None
@@ -140,6 +144,24 @@ async def change(operator_id: str, body: AccessPatch, request: Request, db: Asyn
     auth_middleware.forget(op.id)  # a role change applies at once
     roles_now = (await _roles_by_operator(db, org)).get(op.id, [])
     return _user(op, roles_now, await _scope_row(db, op.id, org))
+
+
+@router.post("/preview")
+async def preview_areas(body: DraftAreas, request: Request, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """How many companies a list of areas would reach, for someone who is not saved yet (Add user) or for areas not saved yet. An empty list
+    means all postcodes. Counted through the same policy path a person's own search takes, and never remembered across different areas."""
+    ctx = _admin(request)
+    org = ctx["org_id"]
+    try:
+        districts = DA.clean_districts(body.districts)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    from app.services import business_records as BR
+
+    pol = (await TP.org_effective(db, org)).for_user(districts, lift_geo=bool(districts))
+    where, capped, _ = await BR.matching(db, BR.normalize_filters({}), pol.conditions(org), count=BR._capped_count, broaden=False, apply_policy=False)
+    exact = await BR.exact_total(db, where, {"_preview": True, "_org": org, "_areas": districts, "_policy": pol.cache_key()}, apply_policy=False)
+    return {"companies": int(exact if exact is not None else capped), "districts": districts}
 
 
 @router.get("/{operator_id}/preview")

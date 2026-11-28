@@ -19,9 +19,9 @@ const num = (v) => (v === "" || v == null || Number.isNaN(Number(v)) ? undefined
 
 // The filter panel and the chat are the same search: the panel's fields become this filter object,
 // and a chat reply's filters are written back into the panel -- so neither can drift from the other.
-// Filters the panel has no control for (the standard FSB exclusions, a site filter, a status such as Dissolved) are carried in form.keep,
+// Filters the panel has no control for (a site filter, a status such as Dissolved) are carried in form.keep,
 // so applying the panel again, or filling it from a sentence, does not silently drop them.
-const KEEP_KEYS = ["fsb_exclusions", "site"];
+const KEEP_KEYS = ["site"];
 const keptFrom = (fl) => {
   const keep = Object.fromEntries(KEEP_KEYS.filter((k) => fl[k] && !(Array.isArray(fl[k]) && !fl[k].length)).map((k) => [k, fl[k]]));
   const status = String(fl.status || "");
