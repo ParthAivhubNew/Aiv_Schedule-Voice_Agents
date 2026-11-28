@@ -14,7 +14,8 @@ import { ADMIN_CSS, InactiveChip, ItemActions, Live, PageHead, card, field, mute
 export const ROLES_TITLE = "Role management";
 export const ROLES_SUB = "Who each role is, what it can do, and who is in it.";
 export const ADMIN_ROLE_LINE = "Admin roles have full access to everything, so their permissions cannot be changed.";
-export const SYSTEM_ROLE_LINE = "This is a starter role. You can change its access and description, but not its name, and it cannot be deleted.";
+export const SYSTEM_ROLE_LINE = "This is a starter role. You can change its access and description, but not its name.";
+export const ADMIN_NO_DELETE_LINE = "The Admin role cannot be deleted: every account keeps one.";
 export const NO_ROLES = "There are no roles yet. Add the first one.";
 
 export function LevelControl({ label, value, onChange, disabled }) {
@@ -237,7 +238,7 @@ export function RoleManagementBody({ roles, sections = [], users = [], error = "
                       onToggle={() => onToggle(r)}
                       onEdit={() => { onSelect(r.id); setEditId(r.id); }}
                       onDelete={() => onDelete(r)}
-                      deleteOff={r.is_system ? SYSTEM_ROLE_LINE : ""} />
+                      deleteOff={r.is_system && r.is_admin ? ADMIN_NO_DELETE_LINE : ""} />
                   </div>
                 );
               })}

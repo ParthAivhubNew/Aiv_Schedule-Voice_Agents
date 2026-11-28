@@ -49,7 +49,7 @@ export function ExclusionRulesBody({ data, error, loading, draft = "", onDraft =
   busy = false, message = "", problem = "", history = null, historyOpen = false, onHistory = () => {} }) {
   const groups = data ? groupRules(data.rules) : [];
   return (
-    <div style={{ display: "grid", gap: 14, maxWidth: 820 }}>
+    <div style={{ display: "grid", gap: 14, width: "100%", minWidth: 0 }}>
       <style>{EXCLUSION_CSS}</style>
       <PageHead title={TITLE} sub={SUB} />
       {error ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{error}</div> : null}

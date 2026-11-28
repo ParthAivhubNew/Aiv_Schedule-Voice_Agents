@@ -17,7 +17,7 @@ import { ACCESS_OFF_LINE, announceAccessOff, isAccessOff } from "../../../api/au
 import { AdministrationBody, NOT_ADMIN_LINE } from "./AdministrationView";
 import { EMPTY_USERS, NO_USERS_YET, RoleInfo, UserDrawer, UserManagementBody } from "./UserManagement";
 import { roleCapabilities } from "./adminLogic";
-import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
+import { NO_ROLES, PeoplePanel, PermissionsPanel, RoleManagementBody, ADMIN_NO_DELETE_LINE, ADMIN_ROLE_LINE, SYSTEM_ROLE_LINE } from "./RoleManagement";
 
 const src = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
 const plugin = readFileSync(new URL("../LeadGenerationPlugin.jsx", import.meta.url), "utf8");
@@ -234,6 +234,14 @@ describe("switching off and on", () => {
     expect(h).toContain("adm-roleitem-off");
     expect(h.match(/class="adm-rolecard adm-roleitem-off"/g)).toHaveLength(1);
     expect(h.match(/aria-label="Delete Operator"/g)).toHaveLength(1); // one set of buttons, not two
+  });
+  it("lets every role be deleted except the Admin role", () => {
+    const list = [rAdmin, rOp, rCustom, { ...rOp, id: "r9", name: "Viewer", is_system: true }];
+    const h = html(<RoleManagementBody roles={list} sections={sections} users={users} selectedId="r2" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMovePerson={noop} />);
+    expect(h).toMatch(/aria-label="Delete Admin"[^>]*disabled/);
+    expect(h).toContain(ADMIN_NO_DELETE_LINE);
+    for (const name of ["Operator", "Analyst", "Viewer"]) expect(h).not.toMatch(new RegExp(`aria-label="Delete ${name}"[^>]*disabled`));
+    expect(SYSTEM_ROLE_LINE).not.toMatch(/cannot be deleted/);
   });
   it("lets an inactive role still be edited", () => {
     const h = html(<RoleManagementBody roles={[{ ...rCustom, is_active: false }]} sections={sections} users={users} selectedId="r3" onSelect={noop} onNew={noop} onSaveLevels={noop} onSaveMeta={noop} onDelete={noop} onToggle={noop} onAddPeople={noop} onMove={noop} />);

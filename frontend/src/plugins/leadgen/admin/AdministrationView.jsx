@@ -21,7 +21,7 @@ export function AdministrationBody({ operator, tab, onTab, children }) {
     return <div role="alert" style={{ ...text, ...muted, padding: "24px 0", color: C.textInk }}>{NOT_ADMIN_LINE}</div>;
   }
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 1100 }}>
+    <div style={{ display: "grid", gap: 16, width: "100%", minWidth: 0 }}>
       <style>{ADMIN_CSS}</style>
       <div className="adm-tabs" role="tablist" aria-label="Administration">
         {ADMIN_TABS.map((t) => (

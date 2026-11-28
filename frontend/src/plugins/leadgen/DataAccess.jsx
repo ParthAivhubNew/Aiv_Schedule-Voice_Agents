@@ -83,7 +83,7 @@ export function DataAccessBody({ data, error, loading, onSaved }) {
   const admins = users.filter((u) => u.is_admin);
   const others = users.filter((u) => !u.is_admin);
   return (
-    <div style={{ display: "grid", gap: 14, maxWidth: 760 }}>
+    <div style={{ display: "grid", gap: 14, width: "100%", minWidth: 0 }}>
       <div>
         <h2 style={{ ...text, margin: 0, fontSize: 20, color: C.textInk }}>Data access</h2>
         <p style={{ ...muted, margin: "4px 0 0" }}>{HEADING_LINE}</p>
