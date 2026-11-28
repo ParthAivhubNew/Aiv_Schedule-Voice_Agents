@@ -1161,11 +1161,13 @@ export function ConnectorsView({ operator, toast }) {
                 background: "#FFFFFF",
                 border: `1px solid ${isConnected ? "#BBEBDC" : C.border}`,
                 borderRadius: 8,
-                padding: "12px 14px",
+                padding: "20px 16px",
+                minHeight: 108,
+                boxSizing: "border-box",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: 12,
                 cursor: "pointer",
                 transition: "all .15s ease",
                 boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
@@ -1175,7 +1177,7 @@ export function ConnectorsView({ operator, toast }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {/* Official Vector Logo */}
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <LogoComp size={32} />
+                  <LogoComp size={40} />
                 </div>
 
                 {/* Name & Model & Status */}
