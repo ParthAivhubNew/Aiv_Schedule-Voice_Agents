@@ -87,7 +87,7 @@ export function SidebarAccountBadge({ operator, collapsed = false }) {
       className="sb-fsb-badge"
       title="Open Federation of Small Businesses website (opens in new tab)"
       aria-label="Federation of Small Businesses website (opens in new tab)"
-      style={{ display: "inline-flex", alignSelf: "flex-start", margin: "6px 0 4px 4px", textDecoration: "none", borderRadius: 12 }}
+      style={{ display: "inline-flex", alignSelf: "center", margin: "6px 0 4px", textDecoration: "none", borderRadius: 12 }}
     >
       <FsbLogo size={48} radius={12} />
     </a>
