@@ -113,6 +113,7 @@ export function newRoleChanges(m) {
   const out = [`Create the role ${(m.name || "").trim()}`];
   if ((m.description || "").trim()) out.push(`Description: ${m.description.trim()}`);
   if (m.is_admin) out.push("Admin role with full access to everything");
+  if (m.fromName) out.push(`Starts with the permissions of ${m.fromName}`);
   return out;
 }
 

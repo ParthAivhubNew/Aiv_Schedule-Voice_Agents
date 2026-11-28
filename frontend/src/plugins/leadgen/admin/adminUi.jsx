@@ -1,5 +1,5 @@
 import React from "react";
-import { Eye, Pencil, Power, Trash2 } from "lucide-react";
+import { Eye, Pencil, Power, Trash2, X } from "lucide-react";
 import { C, FONT_BODY } from "../../../tokens";
 import { roleTone, toggleLabel } from "./adminLogic";
 
@@ -52,7 +52,21 @@ export const ADMIN_CSS = `
 .adm-seg button:disabled { cursor: not-allowed; opacity: 0.6; }
 .adm-seg button:focus-visible { outline: 2px solid ${C.cobalt}; outline-offset: -2px; }
 .adm-drawer-back { position: fixed; inset: 0; background: rgba(18,20,28,0.45); z-index: 200; display: flex; justify-content: flex-end; }
-.adm-drawer { background: #fff; width: min(440px, 100%); height: 100%; overflow-y: auto; padding: 18px 16px; box-sizing: border-box; display: grid; gap: 14px; align-content: start; }
+.adm-drawer { background: #fff; width: min(520px, 100%); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; box-shadow: -12px 0 32px rgba(18,20,28,0.18); }
+.adm-drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 20px 24px 16px; border-bottom: 1px solid ${C.border}; }
+.adm-drawer-head h3 { margin: 0; font: 700 18px/1.3 'Inter', sans-serif; color: ${C.textInk}; overflow-wrap: anywhere; }
+.adm-drawer-head p { margin: 4px 0 0; font: 400 13px/1.5 'Inter', sans-serif; color: ${C.slate}; }
+.adm-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px 24px; display: grid; gap: 24px; align-content: start; }
+.adm-drawer-foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding: 14px 24px; border-top: 1px solid ${C.border}; background: ${C.paper}; }
+.adm-sec { display: grid; gap: 12px; min-width: 0; }
+.adm-sec-title { margin: 0; font: 600 11px/1 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: ${C.slate}; }
+.adm-sec-hint { margin: -6px 0 0; font: 400 12.5px/1.5 'Inter', sans-serif; color: ${C.slate}; }
+.adm-field { display: grid; gap: 6px; min-width: 0; }
+.adm-field > label { font: 600 13px/1.3 'Inter', sans-serif; color: ${C.textInk}; }
+.adm-opt { border: 1px solid ${C.border}; border-radius: 10px; background: #fff; transition: border-color 0.12s, background 0.12s; }
+.adm-opt[data-on="true"] { border-color: ${C.cobalt}; background: ${C.cobaltSoft}; }
+.adm-opt:focus-within { outline: 2px solid ${C.cobalt}; outline-offset: 1px; }
+@media (max-width: 560px) { .adm-drawer-head, .adm-drawer-body, .adm-drawer-foot { padding-left: 16px; padding-right: 16px; } }
 @media (max-width: 760px) {
   .adm-split { grid-template-columns: minmax(0, 1fr); }
   .adm-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -62,6 +76,37 @@ export const ADMIN_CSS = `
   .adm-table td[data-label]::before { content: attr(data-label); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${C.slate}; }
 }
 `;
+
+// One side drawer for every "add" and "edit" form on this screen, so a new user and a new role open the same way: a title and a line
+// about it, the form in a scrolling body, and Cancel and the main button always in view at the bottom.
+export function DrawerShell({ title, subtitle = "", onClose, children, footer = null, labelId = "adm-drawer-title" }) {
+  return (
+    <div className="adm-drawer-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="adm-drawer" role="dialog" aria-modal="true" aria-labelledby={labelId}>
+        <div className="adm-drawer-head">
+          <div style={{ minWidth: 0 }}>
+            <h3 id={labelId}>{title}</h3>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+          <button type="button" className="adm-icon" aria-label="Close" onClick={onClose}><X size={18} aria-hidden="true" /></button>
+        </div>
+        <div className="adm-drawer-body">{children}</div>
+        {footer ? <div className="adm-drawer-foot">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+// A titled group of fields inside a drawer.
+export function Section({ title, hint = "", children, label }) {
+  return (
+    <section className="adm-sec" aria-label={label || title}>
+      <h4 className="adm-sec-title">{title}</h4>
+      {hint ? <p className="adm-sec-hint">{hint}</p> : null}
+      {children}
+    </section>
+  );
+}
 
 export function RoleChip({ role }) {
   const t = roleTone(role);

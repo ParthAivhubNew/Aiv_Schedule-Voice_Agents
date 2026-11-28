@@ -449,3 +449,49 @@ describe("role info in the add-user form", () => {
     expect(h).not.toContain("Email");
   });
 });
+
+describe("add user and add role share one drawer", () => {
+  it("opens a new role in the same drawer as a new user, with the same parts", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const role = html(<RoleDrawer role={null} roles={[rAdmin, rOp, rCustom]} onSave={noop} onCancel={noop} busy={false} />);
+    const user = html(<UserDrawer user={null} roles={roles} sections={sections} me={{ id: "me" }} onClose={noop} onSaved={noop} />);
+    for (const h of [role, user]) {
+      expect(h).toContain("adm-drawer-back");
+      expect(h).toContain("adm-drawer-head");
+      expect(h).toContain("adm-drawer-body");
+      expect(h).toContain("adm-drawer-foot");
+      expect(h).toContain('aria-label="Close"');
+      expect(h).toContain(">Cancel<");
+    }
+    expect(role).toContain(">Add role<");
+    expect(role).toContain('form="adm-role-form"');
+    expect(role).toContain(">Create role<");
+    expect(user).toContain(">Add user<");
+    expect(user).toContain('form="adm-user-form"');
+    expect(user).toContain(">Create user<");
+  });
+  it("a new role can start from another role's permissions, but an admin role needs no copy", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const h = html(<RoleDrawer role={null} roles={[rAdmin, rOp, rCustom]} onSave={noop} onCancel={noop} busy={false} />);
+    expect(h).toContain("Start from");
+    expect(h).toContain("No permissions yet");
+    expect(h).toContain(">Operator<");
+    expect(h).not.toContain(">Admin</option>"); // an admin role is not a thing to copy
+    expect(h).toContain("Role name");
+    expect(h).toContain("What this role is for");
+    expect(h).toContain("Admin role");
+  });
+  it("editing a starter role keeps its name locked and offers no admin switch", async () => {
+    const { RoleDrawer } = await import("./RoleManagement");
+    const h = html(<RoleDrawer role={rOp} roles={[rAdmin, rOp]} onSave={noop} onCancel={noop} busy={false} />);
+    expect(h).toContain("Edit Operator");
+    expect(h).toContain(SYSTEM_ROLE_LINE);
+    expect(h).not.toContain("Start from");
+    expect(h).not.toContain("adm-role-admin");
+  });
+  it("shows what each role is for under its name when choosing a user's roles", () => {
+    const user = html(<UserDrawer user={null} roles={roles} sections={sections} me={{ id: "me" }} onClose={noop} onSaved={noop} />);
+    expect(user).toContain("Makes calls.");
+    expect(user).toContain("adm-opt");
+  });
+});

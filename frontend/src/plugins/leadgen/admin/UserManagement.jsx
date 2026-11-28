@@ -8,7 +8,7 @@ import { AdminCrown } from "../../../components/AdminCrown";
 import { confirmTwice, deleteUserChanges, isAskingTwice, newUserChanges, switchUserChanges, userChanges, accessChanges } from "./confirmChange";
 import { AccessEditor, ADMIN_SEES_ALL_HELP, ADMIN_SEES_ALL_LINE, NEED_AREAS_LINE, useAccessDraft } from "./AccessEditor";
 import { PAGE_SIZES, filterUsers, formatDate, formatLastLogin, isActiveItem, isAdminUser, nextSort, paginate, plural, roleCapabilities, roleChips, showingLine, sortUsers, userRoles, userStatus } from "./adminLogic";
-import { ADMIN_CSS, ItemActions, Live, PageHead, RoleChip, StatusChip, card, field, muted, text } from "./adminUi";
+import { ADMIN_CSS, DrawerShell, ItemActions, Live, PageHead, RoleChip, Section, StatusChip, card, field, muted, text } from "./adminUi";
 
 export const USERS_TITLE = "User management";
 export const USERS_SUB = "Manage users, roles and areas across your organisation.";
@@ -158,22 +158,26 @@ export function RoleInfo({ role, sections, id }) {
 function RoleChecks({ roles, ids, onToggle, idBase, sections = [] }) {
   const [open, setOpen] = useState("");
   return (
-    <fieldset style={{ border: "none", margin: 0, padding: 0, display: "grid", gap: 2, minWidth: 0 }}>
-      <legend style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk, padding: 0, marginBottom: 6 }}>Roles</legend>
+    <fieldset style={{ border: "none", margin: 0, padding: 0, display: "grid", gap: 8, minWidth: 0 }}>
+      <legend style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Roles</legend>
       {roles.map((r) => {
         const on = open === r.id;
+        const picked = ids.includes(r.id);
         return (
-          <div key={r.id}>
+          <div key={r.id} className="adm-opt" data-on={picked ? "true" : "false"}>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <label htmlFor={`${idBase}-${r.id}`} style={{ ...text, display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 14, cursor: "pointer", flex: 1, minWidth: 0 }}>
-                <input id={`${idBase}-${r.id}`} type="checkbox" checked={ids.includes(r.id)} onChange={() => onToggle(r.id)} style={{ width: 20, height: 20 }} />
-                <span>{r.name}{r.is_admin ? " (admin)" : ""}</span>
+              <label htmlFor={`${idBase}-${r.id}`} style={{ ...text, display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0 10px 12px", fontSize: 14, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                <input id={`${idBase}-${r.id}`} type="checkbox" checked={picked} onChange={() => onToggle(r.id)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+                <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, color: C.textInk }}>{r.name}{r.is_admin && !/^admin$/i.test(r.name) ? " (admin)" : ""}</span>
+                  {r.description ? <span style={{ ...muted, fontSize: 12.5 }}>{r.description}</span> : null}
+                </span>
               </label>
               <button type="button" className="adm-icon" aria-label={`What the ${r.name} role can do`} aria-expanded={on} aria-controls={`${idBase}-${r.id}-info`}
                 title={`What the ${r.name} role can do`} onClick={() => setOpen(on ? "" : r.id)} onKeyDown={(e) => { if (e.key === "Escape" && on) { e.stopPropagation(); setOpen(""); } }}
-                style={{ minWidth: 44, minHeight: 44, color: on ? C.cobalt : C.slate }}><Info size={17} aria-hidden="true" /></button>
+                style={{ minWidth: 44, minHeight: 44, border: "none", background: "transparent", color: on ? C.cobalt : C.slate }}><Info size={17} aria-hidden="true" /></button>
             </div>
-            {on ? <RoleInfo role={r} sections={sections} id={`${idBase}-${r.id}-info`} /> : null}
+            {on ? <div style={{ padding: "0 12px 12px" }}><RoleInfo role={r} sections={sections} id={`${idBase}-${r.id}-info`} /></div> : null}
           </div>
         );
       })}
@@ -328,12 +332,13 @@ export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, i
   };
 
   return (
-    <div className="adm-drawer-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="adm-drawer" role="dialog" aria-modal="true" aria-labelledby="adm-drawer-title">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 id="adm-drawer-title" style={{ ...text, margin: 0, fontSize: 17, color: C.textInk, overflowWrap: "anywhere" }}>{adding ? "Add user" : `${user.name}'s profile`}</h3>
-          <button type="button" className="adm-icon" aria-label="Close" onClick={onClose}><X size={18} aria-hidden="true" /></button>
-        </div>
+    <DrawerShell title={adding ? "Add user" : `${user.name}'s profile`} subtitle={adding ? "They get a temporary password by email and choose their own when they first sign in." : (user.email || `@${user.username}`)} onClose={onClose}
+      footer={temp ? null : (
+        <>
+          <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onClose}>Cancel</button>
+          <button type="submit" form="adm-user-form" className="ui-btn ui-btn--primary" style={{ minHeight: 44, minWidth: 120 }} disabled={busy || (!adding && profileChanges.length === 0)}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
+        </>
+      )}>
         {temp ? (
           <div style={{ border: `1px solid ${C.amber}`, background: C.amberSoft, borderRadius: 12, padding: 14, display: "grid", gap: 8 }}>
             <div style={{ ...text, fontSize: 14, fontWeight: 700, color: C.textInk }}>Temporary password for {temp.who}</div>
@@ -347,39 +352,46 @@ export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, i
             {newWarning ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{newWarning}</div> : null}
           </div>
         ) : (
-          <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Full name<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
+          <form id="adm-user-form" onSubmit={submit} style={{ display: "grid", gap: 24 }}>
+            <Section title="Details" hint={adding ? "Who they are and where their sign-in details go." : ""}>
+            <div className="adm-field">
+              <label htmlFor="adm-f-name">Full name<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
               <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, name: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: f.email, name: v }) } : {}) })); }} />
             </div>
             {adding ? (
-              <div style={{ display: "grid", gap: 4 }}>
-                <label htmlFor="adm-f-username" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Username<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
+              <div className="adm-field">
+                <label htmlFor="adm-f-username">Username<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
                 <input id="adm-f-username" required autoCapitalize="none" autoComplete="off" spellCheck={false} aria-describedby="adm-f-username-help" aria-invalid={!!form.username && !usernameOk(form.username)} style={field} value={form.username} onChange={(e) => { clear(); setNameTouched(true); setForm({ ...form, username: e.target.value }); }} />
                 <span id="adm-f-username-help" style={{ ...muted, fontSize: 12.5, color: form.username && !usernameOk(form.username) ? C.red : C.slate }}>{USERNAME_HELP}</span>
               </div>
             ) : null}
-            <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-email" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Email{adding ? <span aria-hidden="true" style={{ color: C.red }}> *</span> : null}</label>
+            <div className="adm-field">
+              <label htmlFor="adm-f-email">Email{adding ? <span aria-hidden="true" style={{ color: C.red }}> *</span> : null}</label>
               <input id="adm-f-email" type="email" required={adding} style={field} value={form.email} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, email: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: v, name: f.name }) } : {}) })); }} />
               {adding ? <span style={{ ...muted, fontSize: 12.5 }}>Their username and a temporary password are emailed here, with a sign-in link. You also see the password once.</span> : null}
             </div>
-            <RoleChecks roles={roles} ids={ids} onToggle={toggle} idBase="adm-role" sections={sections} />
+            </Section>
+            <Section title="Role" hint="What they can open and change. A person can have more than one role.">
+              <RoleChecks roles={roles} ids={ids} onToggle={toggle} idBase="adm-role" sections={sections} />
+            </Section>
             {!adding ? (
-              <label htmlFor="adm-f-active" style={{ ...text, display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 14, cursor: isMe ? "not-allowed" : "pointer" }}>
-                <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => { clear(); setActive(e.target.checked); }} style={{ width: 20, height: 20 }} />
-                <span>Active ({active ? "On" : "Off"}){isMe ? <span style={muted}> You cannot disable your own account.</span> : null}</span>
-              </label>
+              <Section title="Status">
+                <label htmlFor="adm-f-active" className="adm-opt" data-on={active ? "true" : "false"} style={{ ...text, display: "flex", alignItems: "center", gap: 12, minHeight: 44, padding: "6px 12px", fontSize: 14, cursor: isMe ? "not-allowed" : "pointer" }}>
+                  <input id="adm-f-active" type="checkbox" role="switch" checked={active} disabled={isMe} onChange={(e) => { clear(); setActive(e.target.checked); }} style={{ width: 20, height: 20 }} />
+                  <span>Active ({active ? "On" : "Off"}){isMe ? <span style={muted}> You cannot disable your own account.</span> : null}</span>
+                </label>
+              </Section>
             ) : null}
             {seesAll ? (
-              <section style={{ ...card, padding: 12, display: "grid", gap: 4 }} aria-label="Data access">
-                <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>{ADMIN_SEES_ALL_LINE}</div>
-                <div style={muted}>{ADMIN_SEES_ALL_HELP}</div>
-              </section>
+              <Section title="Data access">
+                <div className="adm-opt" style={{ padding: 12, display: "grid", gap: 4 }}>
+                  <div style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>{ADMIN_SEES_ALL_LINE}</div>
+                  <div style={muted}>{ADMIN_SEES_ALL_HELP}</div>
+                </div>
+              </Section>
             ) : null}
             {showAccess ? (
-              <section style={{ ...card, padding: 12, display: "grid", gap: 10 }} aria-label="Data access">
-                <h4 style={{ ...text, margin: 0, fontSize: 14, color: C.textInk }}>Data access</h4>
+              <Section title="Data access" hint="Which postcodes they can search, and what they can do with the data.">
                 {adding ? <AccessEditor draft={draft} allowed={newAllowed} idBase="adm-da-new" disabled={busy} /> : null}
                 {!adding && accessState === "ready" ? <AccessEditor draft={draft} allowed={allowed} idBase={`adm-da-${user.id}`} disabled={busy} /> : null}
                 {!adding && accessState === "loading" ? <div role="status" aria-live="polite" style={muted}>Loading data access…</div> : null}
@@ -389,7 +401,7 @@ export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, i
                     <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={loadAccess}>Try again</button>
                   </div>
                 ) : null}
-              </section>
+              </Section>
             ) : null}
             <div role="status" aria-live="polite" style={{ display: "grid", gap: 4 }}>
               {status ? <div style={{ ...text, fontSize: 13.5, fontWeight: 600, color: C.textInk }}>{status}</div> : null}
@@ -398,14 +410,9 @@ export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, i
             {error ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>{error}</div> : null}
             {parts.user ? <div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Details: {parts.user}</div> : null}
             {!adding && parts.access && accessState !== "failed" ?<div role="alert" style={{ ...text, fontSize: 13.5, color: C.red }}>Data access: {parts.access}</div> : null}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <button type="button" className="ui-btn ui-btn--secondary" style={{ minHeight: 44 }} onClick={onClose}>Cancel</button>
-              <button type="submit" className="ui-btn ui-btn--primary" style={{ minHeight: 44 }} disabled={busy || (!adding && profileChanges.length === 0)}>{busy ? "Saving…" : adding ? "Create user" : "Save"}</button>
-            </div>
           </form>
         )}
-      </div>
-    </div>
+    </DrawerShell>
   );
 }
 

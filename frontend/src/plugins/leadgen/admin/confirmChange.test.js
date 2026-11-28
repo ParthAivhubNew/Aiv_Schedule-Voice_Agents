@@ -183,3 +183,10 @@ describe("every mutating handler asks twice before its api call", () => {
     expect(src("UserManagement.jsx")).toContain("!isAskingTwice()");
   });
 });
+
+describe("a new role that starts from another", () => {
+  it("says which role its permissions come from", () => {
+    expect(newRoleChanges({ name: "Ops", description: "", is_admin: false, fromName: "Operator" })).toEqual(["Create the role Ops", "Starts with the permissions of Operator"]);
+    expect(newRoleChanges({ name: "Ops", description: "", is_admin: false })).toEqual(["Create the role Ops"]);
+  });
+});
