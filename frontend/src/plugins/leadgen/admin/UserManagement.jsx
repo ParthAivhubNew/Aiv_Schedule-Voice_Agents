@@ -349,18 +349,18 @@ export function UserDrawer({ user, roles, sections = [], me, onClose, onSaved, i
         ) : (
           <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Full name</label>
+              <label htmlFor="adm-f-name" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Full name<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
               <input id="adm-f-name" ref={first} required style={field} value={form.name} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, name: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: f.email, name: v }) } : {}) })); }} />
             </div>
             {adding ? (
               <div style={{ display: "grid", gap: 4 }}>
-                <label htmlFor="adm-f-username" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Username</label>
+                <label htmlFor="adm-f-username" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Username<span aria-hidden="true" style={{ color: C.red }}> *</span></label>
                 <input id="adm-f-username" required autoCapitalize="none" autoComplete="off" spellCheck={false} aria-describedby="adm-f-username-help" aria-invalid={!!form.username && !usernameOk(form.username)} style={field} value={form.username} onChange={(e) => { clear(); setNameTouched(true); setForm({ ...form, username: e.target.value }); }} />
                 <span id="adm-f-username-help" style={{ ...muted, fontSize: 12.5, color: form.username && !usernameOk(form.username) ? C.red : C.slate }}>{USERNAME_HELP}</span>
               </div>
             ) : null}
             <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="adm-f-email" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Email{adding ? " (required)" : ""}</label>
+              <label htmlFor="adm-f-email" style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Email{adding ? <span aria-hidden="true" style={{ color: C.red }}> *</span> : null}</label>
               <input id="adm-f-email" type="email" required={adding} style={field} value={form.email} onChange={(e) => { clear(); const v = e.target.value; setForm((f) => ({ ...f, email: v, ...(adding && !nameTouched ? { username: suggestUsername({ email: v, name: f.name }) } : {}) })); }} />
               {adding ? <span style={{ ...muted, fontSize: 12.5 }}>Their username and a temporary password are emailed here, with a sign-in link. You also see the password once.</span> : null}
             </div>

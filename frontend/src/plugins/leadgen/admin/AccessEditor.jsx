@@ -58,7 +58,7 @@ export function useAccessDraft(access, userId, { onTouch, initialPreview = null 
   };
   const look = async () => {
     setPreviewBusy(true); setPreviewError("");
-    try { setPreview(await api.previewDataAccess(userId)); } catch (e) { setPreviewError(e.message || "Couldn't work that out. Try again."); } finally { setPreviewBusy(false); }
+    try { setPreview(userId ? await api.previewDataAccess(userId) : await api.previewAreas(only ? districts : [])); } catch (e) { setPreviewError(e.message || "Couldn't work that out. Try again."); } finally { setPreviewBusy(false); }
   };
   const body = () => ({ districts, allow_export: allowExport, allow_google: allowGoogle });
   return { districts, only, allowExport, allowGoogle, preview, previewBusy, previewError, dirty, needsAreas, set, look, body };

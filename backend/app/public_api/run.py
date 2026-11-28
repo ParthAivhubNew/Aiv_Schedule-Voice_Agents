@@ -120,6 +120,14 @@ ACTIONS: Dict[str, Dict[str, Tuple[str, str, bool]]] = {
         "services.set": ("PUT", "/company/services", False),
         "faqs.get": ("GET", "/company/faqs", False),
         "faqs.set": ("PUT", "/company/faqs", False),
+        "exclusion.list": ("GET", "/exclusions", False),
+        "exclusion.add": ("POST", "/exclusions", False),
+        "exclusion.preview": ("POST", "/exclusions/preview", False),
+        "exclusion.edit": ("PATCH", "/exclusions/{id}", True),
+        "exclusion.remove": ("DELETE", "/exclusions/{id}", True),
+        "access.list": ("GET", "/access", False),
+        "access.preview": ("POST", "/access/preview", False),
+        "access.set": ("PUT", "/access/{id}", True),
     },
 }
 # Mail, auth and numbers have no URL of their own: their actions are done right here (see _mail, _auth, _numbers), under the

@@ -491,6 +491,7 @@ export const api = {
   saveDataProvider: (id, payload) => apiRequest(`/own-keys/data/${encodeURIComponent(id)}`, { method: 'POST', body: payload, timeoutMs: 25000 }),
   removeDataProvider: (id) => apiRequest(`/own-keys/data/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setDataAccess: (operatorId, body) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}`, { method: 'PUT', body }),
+  previewAreas: (districts) => apiRequest('/org/data-access/preview', { method: 'POST', body: { districts } }),
   previewDataAccess: (operatorId) => apiRequest(`/org/data-access/${encodeURIComponent(operatorId)}/preview`),
   // The organisation's own exclusion list (admins only)
   getExclusions: () => apiRequest('/org/exclusions'),
