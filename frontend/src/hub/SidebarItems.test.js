@@ -78,12 +78,15 @@ describe("Support and Documentation in the sidebars", () => {
     expect(isFsbAccount({})).toBe(false);
   });
 
-  it("SidebarAccountBadge draws only the FSB logo, as a rounded square, for FSB accounts, linking to website", () => {
+  it("SidebarAccountBadge draws only the FSB logo, as a sharp 5:2 rectangle, for FSB accounts, linking to website", () => {
     const fsbOp = { username: "fsboutreach", org_name: "Federation of Small Businesses" };
     const html = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: fsbOp }));
     expect(html).toContain("Federation of Small Businesses website"); // the name is only the link label, not drawn beside the logo
     expect(html).not.toContain("FSB Account");
-    expect(html).toContain("border-radius:12px");
+    expect(html).toContain("border-radius:8px");
+    expect(html).toContain('viewBox="0 0 100 40"'); // a rectangle drawn as vector shapes: no image to blur at any size
+    expect(html).toContain('width="120"');
+    expect(html).toContain('height="48"');
     expect(html).toContain("fsb");
     expect(html).toContain("<svg");
     expect(html).toContain('href="https://account.fsb.org.uk/"');
@@ -93,6 +96,8 @@ describe("Support and Documentation in the sidebars", () => {
     const collapsedHtml = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: fsbOp, collapsed: true }));
     expect(collapsedHtml).toContain('title="Federation of Small Businesses (opens in new tab)"');
     expect(collapsedHtml).toContain("<svg");
+    expect(collapsedHtml).toContain('width="50"');
+    expect(collapsedHtml).toContain('height="20"');
     expect(collapsedHtml).toContain('href="https://account.fsb.org.uk/"');
     expect(collapsedHtml).toContain('target="_blank"');
     expect(collapsedHtml).not.toContain("FSB Account");

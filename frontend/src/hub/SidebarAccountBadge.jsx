@@ -18,33 +18,33 @@ export function isFsbAccount(operator) {
 // The brand is the Federation of Small Businesses (by its name), whoever is signed in.
 export const isFsbBrandName = (name) => /federation of small business/i.test(String(name || ""));
 
-// Crisp inline FSB Logo mark
-export function FsbLogo({ size = 32, radius = 6 }) {
+// The FSB mark as a rectangle, drawn as vector shapes and live text on a fixed 100 x 40 grid: it is sharp at any size (no image to stretch or blur).
+// Give it a width and height in the same 5:2 shape. Whole-pixel sizes (120 x 48, 50 x 20) keep the edges on the pixel grid.
+export const FSB_LOGO_RATIO = 2.5;
+export function FsbLogo({ width = 120, height, radius = 8 }) {
+  const h = height || Math.round(width / FSB_LOGO_RATIO);
   return (
     <svg
-      width={size}
-      height={size}
-      viewBox="0 0 36 36"
+      width={width}
+      height={h}
+      viewBox="0 0 100 40"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
       aria-label="FSB Logo"
-      style={{ flexShrink: 0, borderRadius: radius }}
+      shapeRendering="geometricPrecision"
+      style={{ flexShrink: 0, borderRadius: radius, display: "block" }}
     >
-      <rect width="36" height="36" rx={Math.round((radius * 36) / size)} fill="#006972" />
-      <path
-        d="M6 25C13 19 23 20 30 25C26 21 16 20 6 25Z"
-        fill="#00D2C4"
-        opacity="0.9"
-      />
+      <rect width="100" height="40" rx={Math.max(1, Math.round((radius * 100) / width))} fill="#006972" />
+      <path d="M10 31C30 22 70 22 90 31C74 26 26 26 10 31Z" fill="#00D2C4" opacity="0.9" />
       <text
-        x="18"
-        y="21"
+        x="50"
+        y="24"
         fill="#FFFFFF"
         fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        fontSize="14"
+        fontSize="22"
         fontWeight="800"
-        letterSpacing="-0.5px"
+        letterSpacing="-0.6"
         textAnchor="middle"
       >
         fsb
@@ -74,7 +74,7 @@ export function SidebarAccountBadge({ operator, collapsed = false }) {
           textDecoration: "none",
         }}
       >
-        <FsbLogo size={28} />
+        <FsbLogo width={50} height={20} radius={4} />
       </a>
     );
   }
@@ -87,9 +87,9 @@ export function SidebarAccountBadge({ operator, collapsed = false }) {
       className="sb-fsb-badge"
       title="Open Federation of Small Businesses website (opens in new tab)"
       aria-label="Federation of Small Businesses website (opens in new tab)"
-      style={{ display: "inline-flex", alignSelf: "center", margin: "6px 0 4px", textDecoration: "none", borderRadius: 12 }}
+      style={{ display: "inline-flex", alignSelf: "center", margin: "6px 0 4px", textDecoration: "none", borderRadius: 8 }}
     >
-      <FsbLogo size={48} radius={12} />
+      <FsbLogo width={120} height={48} radius={8} />
     </a>
   );
 }
