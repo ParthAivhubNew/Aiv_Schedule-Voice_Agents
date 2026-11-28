@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Crown } from "lucide-react";
+import { ChevronDown, Crown } from "lucide-react";
 import { CardsSkeleton } from "../../app/Loader";
 import { C, FONT_BODY } from "../../tokens";
 import { api } from "../../api/apiClient";
@@ -18,7 +18,7 @@ export const EMPTY_LINE = "No other users yet. Add people in Users and roles.";
 export const HEADING_LINE = "Choose what each person in your organisation can see and do. Admins always see everything.";
 
 // One person's settings. The saved copy comes from the server; the draft is what the screen holds until Save.
-export function UserCard({ user, roles, allowed, onSaved, initialPreview = null, initialError = "" }) {
+export function UserCard({ user, roles, allowed, onSaved, initialPreview = null, initialError = "", bare = false }) {
   const startRole = user.roles && user.roles[0] ? user.roles[0].id : "";
   const [roleId, setRoleId] = useState(startRole);
   const [busy, setBusy] = useState(false);
@@ -49,11 +49,13 @@ export function UserCard({ user, roles, allowed, onSaved, initialPreview = null,
   };
 
   return (
-    <section style={card} aria-label={`Data access for ${user.name}`}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ ...text, fontSize: 15, fontWeight: 700, color: C.textInk, overflowWrap: "anywhere" }}>{user.name}{user.active === false ? <span style={{ ...muted, marginLeft: 8 }}>Disabled</span> : null}</div>
-        <div style={{ ...muted, overflowWrap: "anywhere" }}>{user.email || `@${user.username}`}</div>
-      </div>
+    <section style={bare ? { display: "grid", gap: 12, minWidth: 0 } : card} aria-label={`Data access for ${user.name}`}>
+      {bare ? null : (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...text, fontSize: 15, fontWeight: 700, color: C.textInk, overflowWrap: "anywhere" }}>{user.name}{user.active === false ? <span style={{ ...muted, marginLeft: 8 }}>Disabled</span> : null}</div>
+          <div style={{ ...muted, overflowWrap: "anywhere" }}>{user.email || `@${user.username}`}</div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gap: 4 }}>
         <label htmlFor={`${base}-role`} style={{ ...text, fontSize: 13, fontWeight: 600, color: C.textInk }}>Role</label>
@@ -77,11 +79,52 @@ export function UserCard({ user, roles, allowed, onSaved, initialPreview = null,
   );
 }
 
+
+export const areasSummary = (user) => {
+  const d = user.districts || [];
+  return d.length ? (d.length <= 3 ? d.join(", ") : `${d.slice(0, 3).join(", ")} +${d.length - 3}`) : "All postcodes";
+};
+const pill = { ...text, fontSize: 12, padding: "2px 8px", borderRadius: 999, background: C.neutralSoft, color: C.slate, whiteSpace: "nowrap" };
+
+// One person as a single line. Clicking it opens their settings below the line.
+function UserRow({ user, roles, allowed, onSaved, open, onToggle }) {
+  const role = (user.roles && user.roles[0] && user.roles[0].name) || "No role";
+  const panel = `da-panel-${user.id}`;
+  const limited = (user.districts || []).length > 0;
+  return (
+    <div style={{ borderTop: `1px solid ${C.borderLight}` }}>
+      <button type="button" aria-expanded={open} aria-controls={panel} onClick={onToggle}
+        style={{ ...text, width: "100%", minHeight: 56, display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", border: 0, background: open ? C.neutralBg : C.surface, cursor: "pointer", textAlign: "left" }}>
+        <span style={{ flex: "1 1 180px", minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: C.textInk, overflowWrap: "anywhere" }}>{user.name}{user.active === false ? <span style={{ ...muted, marginLeft: 8, fontWeight: 400 }}>Disabled</span> : null}</span>
+          <span style={{ display: "block", ...muted, fontSize: 12.5, overflowWrap: "anywhere" }}>{user.email || `@${user.username}`}</span>
+        </span>
+        <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+          <span style={pill}>{role}</span>
+          <span style={{ ...pill, background: limited ? C.tealSoft : C.neutralSoft, color: limited ? C.teal : C.slate }}>{areasSummary(user)}</span>
+          {user.allow_export === false ? <span style={pill}>No export</span> : null}
+          {user.allow_google === false ? <span style={pill}>No Google details</span> : null}
+        </span>
+        <ChevronDown size={16} aria-hidden="true" style={{ flexShrink: 0, color: C.slate, transform: open ? "rotate(180deg)" : "none", transition: "transform .12s" }} />
+      </button>
+      {open ? (
+        <div id={panel} style={{ padding: "4px 14px 16px", background: C.neutralBg }}>
+          <UserCard bare user={user} roles={roles} allowed={allowed} onSaved={onSaved} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // The drawing, apart from the loading, so each state can be shown on its own.
-export function DataAccessBody({ data, error, loading, onSaved }) {
+export function DataAccessBody({ data, error, loading, onSaved, initialOpen = "" }) {
+  const [openId, setOpenId] = useState(initialOpen);
+  const [find, setFind] = useState("");
   const users = data ? data.users || [] : [];
   const admins = users.filter((u) => u.is_admin);
   const others = users.filter((u) => !u.is_admin);
+  const q = find.trim().toLowerCase();
+  const shown = q ? others.filter((u) => `${u.name} ${u.email || ""} ${u.username || ""}`.toLowerCase().includes(q)) : others;
   return (
     <div style={{ display: "grid", gap: 14, width: "100%", minWidth: 0 }}>
       <div>
@@ -100,7 +143,20 @@ export function DataAccessBody({ data, error, loading, onSaved }) {
             </div>
           ) : null}
           {others.length === 0 ? <div style={muted}>{EMPTY_LINE}</div> : null}
-          {others.map((u) => <UserCard key={u.id} user={u} roles={data.roles || []} allowed={data.districts_allowed || []} onSaved={onSaved} />)}
+          {others.length > 6 ? (
+            <input type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a person" aria-label="Find a person" style={{ ...field, maxWidth: 320 }} />
+          ) : null}
+          {others.length ? (
+            <section aria-label="People" style={{ ...card, padding: 0, gap: 0, overflow: "hidden" }}>
+              <div style={{ ...muted, fontSize: 12, padding: "8px 14px" }}>
+                {others.length} {others.length === 1 ? "person" : "people"}. Click a person to change what they can see.
+              </div>
+              {shown.length === 0 ? <div style={{ ...muted, padding: "10px 14px", borderTop: `1px solid ${C.borderLight}` }}>Nobody matches that.</div> : null}
+              {shown.map((u) => (
+                <UserRow key={u.id} user={u} roles={data.roles || []} allowed={data.districts_allowed || []} onSaved={onSaved} open={openId === u.id} onToggle={() => setOpenId(openId === u.id ? "" : u.id)} />
+              ))}
+            </section>
+          ) : null}
         </>
       ) : null}
     </div>

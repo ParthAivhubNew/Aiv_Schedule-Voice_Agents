@@ -8,7 +8,7 @@ vi.mock("../../brand/brandApi", () => ({ getOrgPolicy: () => new Promise(() => {
 
 import { AdminCrown } from "../../components/AdminCrown";
 import { AccessNotice } from "./AccessNotice";
-import { DataAccessBody, UserCard, cleanArea, previewLine, NO_LIMIT_LINE, AREAS_HELP, EMPTY_LINE, HEADING_LINE } from "./DataAccess";
+import { DataAccessBody, UserCard, areasSummary, cleanArea, previewLine, NO_LIMIT_LINE, AREAS_HELP, EMPTY_LINE, HEADING_LINE } from "./DataAccess";
 import { accessFlags, noticeLines, isOutsideAccess, limitedLine, CONTACT_LINE, EXPORT_OFF_LINE } from "./accessLogic";
 import { GoogleViewBody, GOOGLE_OFF_LINE } from "./GoogleView";
 
@@ -47,7 +47,7 @@ describe("DataAccess", () => {
     expect(h).not.toContain(">Save<");
   });
   it("shows a card with chips, role help, switches and a disabled Save", () => {
-    const h = html(<DataAccessBody data={{ districts_allowed: ["BN1", "BN3"], roles, users: [boss, person] }} error="" onSaved={noop} />);
+    const h = html(<DataAccessBody data={{ districts_allowed: ["BN1", "BN3"], roles, users: [boss, person] }} error="" onSaved={noop} initialOpen="u1" />);
     expect(h).toContain("Sam Lee");
     expect(h).toContain("fsbuser@outreach.com");
     expect(h).toContain("FSB Operator");
@@ -61,6 +61,16 @@ describe("DataAccess", () => {
     expect(h).toContain("On until you switch it off");
     expect(h).toContain("What will they see?");
     expect(h).toMatch(/<button[^>]*disabled=""[^>]*>Save/);
+  });
+  it("lists everyone as one line each and opens a person on click", () => {
+    const closed = html(<DataAccessBody data={{ districts_allowed: ["BN1"], roles, users: [boss, person] }} error="" onSaved={noop} />);
+    expect(closed).toContain("Sam Lee");
+    expect(closed).toContain('aria-expanded="false"');
+    expect(closed).toContain("BN1");
+    expect(closed).toContain("No Google details");
+    expect(closed).not.toContain(">Save<");
+    expect(areasSummary({ districts: ["A1", "B2", "C3", "D4", "E5"] })).toBe("A1, B2, C3 +2");
+    expect(areasSummary({ districts: [] })).toBe("All postcodes");
   });
   it("says there is no personal limit when no area is chosen", () => {
     const h = html(<UserCard user={{ ...person, districts: [] }} roles={roles} allowed={["BN1"]} onSaved={noop} />);
