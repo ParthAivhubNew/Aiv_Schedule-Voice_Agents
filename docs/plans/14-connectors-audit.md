@@ -5,6 +5,7 @@
 - **Done 2026-11-27 (commit 428c1a6):** every card on Settings → Data sources checked against the database and the real services. Four status fixes, tested and deployed to the test app (below).
 - **Done 2026-11-27 (commit c31067e), the owner chose "free registers first":** the ICO register of fee payers, the Scottish Charity Register (OSCR) and NHS GP practices, dentists and pharmacies are data sources. OSCR (25,025) and NHS (27,623) were loaded into the test copy. The ICO file (1,470,567 rows) was read end to end through the real loader but not written to the test copy (it is 18 times the test database). **On live, staff press Start on each** (staff portal → Data Sources) once the branch goes live.
 - A register that has never been loaded now shows "Not loaded yet", not "Connected".
+- **Correction 2026-11-28:** the Companies House stream, the FCA check, the Gazette and the ONS postcode load were already built (Platform keys → Leads → Official registers). The Gazette runs; the other three have never run, for lack of a key or a file link. Step-by-step setup for every source: plan 15.
 - **Not added, and why:**
   - Charity Commission NI publishes no download.
   - Ofsted childcare publishes only a spreadsheet (.xlsx/.ods), which the loader doesn't read.
@@ -53,15 +54,15 @@ Checked as FSB (`org_fsb_demo`) on the test app. The test copy holds 82,586 comp
 | **Get Information About Schools** | Every school and academy trust in England, with phone and website | Free CSV, OGL |
 | **NHS ODS** | GP practices, dentists, pharmacies, care homes | Free CSV, OGL |
 | **Ofsted childcare providers** | Nurseries and childminders | Free, OGL |
-| **Companies House streaming API** | New companies and changes as they happen (keeps the register current) | Free key |
+| **Companies House streaming API** | New companies and changes as they happen (keeps the register current) | Free key. **Already built** (Platform keys → Leads → Official registers); only the key is missing, on test and live |
 
 ### Look-ups (one company at a time)
 | Source | Use | Access |
 |---|---|---|
 | **HMRC VAT check** | Confirm a VAT number and trading name | Free API |
-| **FCA Financial Services Register** | Regulated firms and people (finance, insurance, mortgages) | Free API key; no bulk export (the full extract is paid) |
+| **FCA Financial Services Register** | Regulated firms and people (finance, insurance, mortgages) | Free API key; no bulk export (the full extract is paid). **Already built**, no key saved |
 | **Contracts Finder / Find a Tender** | Who wins public contracts: a buying signal | Free API, OGL |
-| **The Gazette (insolvency notices)** | Leave out companies being wound up | Free |
+| **The Gazette (insolvency notices)** | Leave out companies being wound up | Free. **Already built and running** on test and live |
 
 ### Paid
 | Source | Gap it fills | Note |
