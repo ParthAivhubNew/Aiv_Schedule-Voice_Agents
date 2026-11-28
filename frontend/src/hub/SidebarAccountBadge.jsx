@@ -75,17 +75,9 @@ export function SidebarAccountBadge({ operator, collapsed = false, brand: given 
   if (fsb) {
     return (
       <a {...common} className="sb-fsb-badge" title={`Open ${label} (opens in new tab)`}
-        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "10px 10px", marginTop: 6, marginBottom: 4,
-          background: "rgba(0, 105, 114, 0.14)", border: "1px solid rgba(0, 210, 196, 0.28)", borderRadius: 8, fontFamily: FONT_BODY,
-          textDecoration: "none", cursor: "pointer", transition: "background 0.15s ease, border-color 0.15s ease" }}>
+        style={{ display: "inline-flex", alignItems: "center", alignSelf: "center", gap: 6, margin: "6px 0 4px", textDecoration: "none", borderRadius: 8 }}>
         <FsbLogo width={120} height={48} radius={8} accent={brand.accent} />
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0, width: "100%", overflow: "hidden" }}>
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ui-side-text, #F0F4F8)", lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden",
-            textOverflow: "ellipsis", maxWidth: "100%", letterSpacing: "-0.01em" }}>{label}</span>
-          <span style={{ fontSize: 10, fontWeight: 500, color: "var(--ui-side-muted, #9BA3B4)", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {brand.shortName ? `${brand.shortName} account` : "Your account"}<AdminCrown operator={operator} size={11} />
-          </span>
-        </div>
+        <AdminCrown operator={operator} size={11} />
       </a>
     );
   }

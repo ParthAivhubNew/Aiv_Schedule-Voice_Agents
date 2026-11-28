@@ -75,10 +75,13 @@ describe("Support and Documentation in the sidebars", () => {
     expect(user).not.toContain("Administrator");
   });
 
-  it("SidebarAccountBadge draws the brand's mark and name only when its brand has an account link", () => {
+  it("SidebarAccountBadge draws only the FSB logo, as a sharp 5:2 rectangle, when its brand has an account link", () => {
     const html = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: { username: "x" }, brand: FSB }));
     expect(html).toContain("Federation of Small Businesses");
-    expect(html).toContain("FSB account");
+    expect(html).not.toContain("FSB account");
+    expect(html).toContain('viewBox="0 0 100 40"');
+    expect(html).toContain('width="120"');
+    expect(html).toContain('height="48"');
     expect(html).toContain("fsb");
     expect(html).toContain("<svg");
     expect(html).toContain('href="https://account.fsb.org.uk/"');
@@ -87,6 +90,8 @@ describe("Support and Documentation in the sidebars", () => {
 
     const collapsedHtml = renderToStaticMarkup(React.createElement(SidebarAccountBadge, { operator: {}, brand: FSB, collapsed: true }));
     expect(collapsedHtml).toContain('title="Federation of Small Businesses (opens in new tab)"');
+    expect(collapsedHtml).toContain('width="50"');
+    expect(collapsedHtml).toContain('height="20"');
     expect(collapsedHtml).toContain('href="https://account.fsb.org.uk/"');
     expect(collapsedHtml).not.toContain("FSB account");
 
