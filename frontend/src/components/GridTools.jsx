@@ -24,6 +24,9 @@ const load = (id) => {
 };
 
 // The columns that are pinned: the table's defaults the person has not unpinned, then the ones they pinned themselves.
+const COPY_W = 22; // the size of .gt-copy in global.css
+const COPY_H = 18;
+
 export function pinnedOf(layout, defaults = []) {
   if (layout.mode === "default") return [...defaults];
   const own = layout.pinned.filter((l) => !defaults.includes(l));
@@ -337,7 +340,13 @@ export function GridTools({ id, className = "", pinned: defaultPins = NO_PINS, i
       peekCell.current = td;
       const r = td.getBoundingClientRect();
       setCopied(false);
-      setPeek({ x: Math.max(4, r.right - 30), y: r.top - 9, label: labelsRef.current[indexOf(td)] || "", text });
+      // A cell with a notes button: the copy button takes the notes icon's place while there is no note, and sits just under it when there is one.
+      const nb = td.querySelector(".notes-btn");
+      const n = nb ? nb.getBoundingClientRect() : null;
+      const at = n && n.width
+        ? { x: Math.round(n.left + (n.width - COPY_W) / 2), y: nb.classList.contains("has-notes") ? Math.round(n.bottom + 2) : Math.round(n.top + (n.height - COPY_H) / 2) }
+        : { x: Math.max(4, r.right - 30), y: r.top - 9 };
+      setPeek({ ...at, label: labelsRef.current[indexOf(td)] || "", text });
     };
     const onOut = (e) => {
       const to = e.relatedTarget;
