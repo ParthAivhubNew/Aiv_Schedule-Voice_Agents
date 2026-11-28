@@ -3,7 +3,7 @@ import { ConnectorPricing } from "./ConnectorPricing";
 import { OwnKeyForm } from "./OwnKeyForm";
 import { BYO_AI_IDS, ByoAiForm, DATA_PROVIDER_FORMS, DataProviderForm } from "./ConnectForms";
 import { CONNECTOR_PRICING } from "./connectorPrices";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -950,7 +950,9 @@ export const CONNECTOR_PROVIDES = {
   salesforce: ["yours"], hubspot: ["yours"], dynamics365: ["yours"], zoho_crm: ["yours"], pipedrive: ["yours"],
   bigquery: ["yours"], postgres: ["yours"], snowflake: ["yours"], s3_lake: ["yours"], airtable: ["yours"],
 };
-export const providesKind = (item, kind) => kind === "all" || (CONNECTOR_PROVIDES[item.id] || []).includes(kind);
+// A data connector the customer added themselves holds their own records.
+const providedBy = (item) => CONNECTOR_PROVIDES[item.id] || (String(item.id).startsWith("custom_") && item.partition === "data" ? ["yours"] : []);
+export const providesKind = (item, kind) => kind === "all" || providedBy(item).includes(kind);
 
 export function ConnectorsView({ operator, toast }) {
   const [partition, setPartition] = useState("data");
@@ -1115,19 +1117,13 @@ export function ConnectorsView({ operator, toast }) {
     return ["All", ...Array.from(set)];
   }, [currentList]);
 
-  // Filtered connectors
-  const filtered = useMemo(() => {
+  // Filtered connectors. Each count on a filter button is what that button would show with the other filters kept.
+  const matches = useCallback((item, { cat = activeCategory, kind = dataKind } = {}) => {
     const q = query.trim().toLowerCase();
-    return currentList.filter((item) => {
-      const matchCat = activeCategory === "All" || item.category === activeCategory;
-      const matchQuery =
-        !q ||
-        item.name.toLowerCase().includes(q) ||
-        item.category.toLowerCase().includes(q) ||
-        (item.desc && item.desc.toLowerCase().includes(q));
-      return matchCat && matchQuery && (partition !== "data" || providesKind(item, dataKind));
-    });
-  }, [currentList, activeCategory, query, partition, dataKind]);
+    const matchQuery = !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q) || (item.desc && item.desc.toLowerCase().includes(q));
+    return (cat === "All" || item.category === cat) && matchQuery && (partition !== "data" || providesKind(item, kind));
+  }, [activeCategory, dataKind, query, partition]);
+  const filtered = useMemo(() => currentList.filter((item) => matches(item)), [currentList, matches]);
 
   // Stats
   const connectedCount = currentList.filter((c) => c.status === "connected").length;
@@ -1541,7 +1537,7 @@ export function ConnectorsView({ operator, toast }) {
                   transition: "all .12s ease",
                 }}
               >
-                {cat}
+                {cat} <span style={{ opacity: 0.75 }}>{currentList.filter((c) => matches(c, { cat })).length}</span>
               </button>
             );
           })}
@@ -1580,9 +1576,9 @@ export function ConnectorsView({ operator, toast }) {
           <span style={{ ...text, fontSize: 12.5, fontWeight: 700, color: C.slate, marginRight: 4 }}>Data they provide:</span>
           {[["all", "All data"], ...DATA_KINDS].map(([k, label]) => {
             const on = dataKind === k;
-            const count = k === "all" ? currentList.length : currentList.filter((c) => providesKind(c, k)).length;
+            const count = currentList.filter((c) => matches(c, { kind: k })).length;
             return (
-              <button key={k} type="button" aria-pressed={on} onClick={() => setDataKind(k)} disabled={!count}
+              <button key={k} type="button" aria-pressed={on} onClick={() => setDataKind(k)} disabled={!count && !on}
                 title={k === "all" ? "Every connector" : `Connectors that give us ${label.toLowerCase()}`}
                 style={{ ...text, minHeight: 36, padding: "0 12px", borderRadius: 999, border: `1px solid ${on ? "#0C8C7D" : C.border}`, background: on ? "#E6F5F2" : "#FFFFFF", color: on ? "#0A6F63" : C.textInk, fontSize: 12.5, fontWeight: on ? 700 : 500, cursor: count ? "pointer" : "not-allowed", opacity: count ? 1 : 0.5, whiteSpace: "nowrap" }}>
                 {on ? "✓ " : ""}{label} <span style={{ color: C.slate }}>{count}</span>
